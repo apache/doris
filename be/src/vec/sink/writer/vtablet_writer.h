@@ -51,7 +51,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"

@@ -224,9 +224,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
 
-    protected long firstResumeTimestamp; // the first resume time
+    protected long latestResumeTimestamp; // the latest resume time
     protected long autoResumeCount;
-    protected boolean autoResumeLock = false; //it can't auto resume iff true
     // some other msg which need to show to user;
     protected String otherMsg = "";
     protected ErrorReason pauseReason;
@@ -969,50 +968,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             }
 
             TPipelineFragmentParams planParams = planner.plan(loadId);
-            // add table indexes to transaction state
-            TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
-            if (txnState == null) {
-                throw new MetaNotFoundException("txn does not exist: " + txnId);
-            }
-            txnState.addTableIndexes(planner.getDestTable());
-            if (isPartialUpdate) {
-                txnState.setSchemaForPartialUpdate((OlapTable) table);
-            }
-
-            return planParams;
-        } finally {
-            if (needCleanCtx) {
-                ConnectContext.remove();
-            }
-            table.readUnlock();
-        }
-    }
-
-    public TPipelineFragmentParams planForPipeline(TUniqueId loadId, long txnId) throws UserException {
-        Preconditions.checkNotNull(planner);
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
-        boolean needCleanCtx = false;
-        table.readLock();
-        try {
-            if (Config.isCloudMode()) {
-                String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                        .getClusterNameByClusterId(cloudClusterId);
-                if (Strings.isNullOrEmpty(clusterName)) {
-                    String err = String.format("cluster name is empty, cluster id is %s", cloudClusterId);
-                    LOG.warn(err);
-                    throw new UserException(err);
-                }
-                if (ConnectContext.get() == null) {
-                    ConnectContext ctx = new ConnectContext();
-                    ctx.setThreadLocalInfo();
-                    ctx.setCloudCluster(clusterName);
-                    needCleanCtx = true;
-                } else {
-                    ConnectContext.get().setCloudCluster(clusterName);
-                }
-            }
-            TPipelineFragmentParams planParams = planner.planForPipeline(loadId);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
             if (txnState == null) {

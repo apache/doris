@@ -35,11 +35,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.ParseException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class AnalysisInfo implements Writable {
 
@@ -191,7 +191,7 @@ public class AnalysisInfo implements Writable {
     @SerializedName("updateRows")
     public final long updateRows;
 
-    public final Map<Long, Long> partitionUpdateRows = new HashMap();
+    public final Map<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
 
     @SerializedName("tblUpdateTime")
     public final long tblUpdateTime;

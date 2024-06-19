@@ -41,6 +41,7 @@ public:
     void make_nullable_output_key(vectorized::Block* block);
     template <bool limit>
     Status merge_with_serialized_key_helper(vectorized::Block* block);
+    void do_agg_limit(vectorized::Block* block, bool* eos);
 
 protected:
     friend class AggSourceOperatorX;

@@ -257,8 +257,11 @@ public abstract class ConnectProcessor {
         Exception nereidsSyntaxException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
-        // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
-        if (mysqlCommand == MysqlCommand.COM_QUERY && sessionVariable.isEnableNereidsPlanner()) {
+        // Currently we add a config to decide whether using PREPARED/EXECUTE command for nereids
+        // TODO: after implemented full prepared, we could remove this flag
+        boolean nereidsUseServerPrep = sessionVariable.enableServeSidePreparedStatement
+                        || mysqlCommand == MysqlCommand.COM_QUERY;
+        if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
                 if (cachedStmts != null) {
@@ -396,6 +399,7 @@ public abstract class ConnectProcessor {
                     }
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
+                    LOG.debug("Write audit logs for query {}", DebugUtil.printId(ctx.queryId));
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                         break;
@@ -607,6 +611,7 @@ public abstract class ConnectProcessor {
     // This method is used to send a response packet to the client
     // only Mysql protocol
     public void finalizeCommand() throws IOException {
+        LOG.debug("Finalize command for query {}", DebugUtil.printId(ctx.queryId));
         Preconditions.checkState(connectType.equals(ConnectType.MYSQL));
         ByteBuffer packet;
         if (executor != null && executor.isForwardToMaster()
@@ -633,6 +638,7 @@ public abstract class ConnectProcessor {
             return;
         }
 
+        LOG.debug("Send to mysql channel for query {}", DebugUtil.printId(ctx.queryId));
         MysqlChannel channel = ctx.getMysqlChannel();
         channel.sendAndFlush(packet);
         // note(wb) we should write profile after return result to mysql client
@@ -648,6 +654,7 @@ public abstract class ConnectProcessor {
                 statsErrorEstimator.updateProfile(ConnectContext.get().queryId());
             }
         }
+        LOG.debug("End finalizing command for query {}", DebugUtil.printId(ctx.queryId));
     }
 
     public TMasterOpResult proxyExecute(TMasterOpRequest request) throws TException {

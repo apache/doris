@@ -40,7 +40,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
-#include "util/bitmap_value.h"
 #include "util/jsonb_utils.h"
 #include "util/quantile_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -210,11 +209,6 @@ Status VMysqlResultWriter<is_binary_format>::write(Block& input_block) {
         }
     }
     return status;
-}
-
-template <bool is_binary_format>
-bool VMysqlResultWriter<is_binary_format>::can_sink() {
-    return _sinker->can_sink();
 }
 
 template <bool is_binary_format>

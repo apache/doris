@@ -74,5 +74,7 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql "SELECT JSON_CONTAINS('{\"name\": \"John\", \"age\": 30, \"city\": \"New York\", \"hobbies\": [\"reading\", \"travelling\"]}', '{\"age\": 31, \"hobbies\": [\"reading\"]}', '\$');"
     qt_sql "SELECT JSON_CONTAINS('{\"name\": \"John\", \"age\": 30, \"projects\": [{\"name\": \"Project A\", \"year\": 2020}, {\"name\": \"Project B\", \"year\": 2021}]}', '{\"projects\": [{\"name\": \"Project A\"}]}', '\$');"
     qt_sql "SELECT JSON_CONTAINS('{\"name\": \"John\", \"age\": 30, \"address\": {\"city\": \"New York\", \"country\": \"USA\"}}', '{\"address\": {\"city\": \"New York\"}}', '\$');"
-
+    qt_sql """SELECT JSON_CONTAINS('','1','\$.a')"""
+    qt_sql """SELECT JSON_CONTAINS('""','1','\$.a')"""
+    qt_sql """SELECT JSON_CONTAINS("",'1','\$.a')"""
 }

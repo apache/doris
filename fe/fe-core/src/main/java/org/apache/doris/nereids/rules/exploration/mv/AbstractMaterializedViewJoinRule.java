@@ -46,7 +46,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
         List<Expression> expressionsRewritten = rewriteExpression(
                 queryStructInfo.getExpressions(),
                 queryStructInfo.getTopPlan(),
-                materializationContext.getExprToScanExprMapping(),
+                materializationContext.getShuttledExprToScanExprMapping(),
                 targetToSourceMapping,
                 true,
                 queryStructInfo.getTableBitSet()
@@ -57,7 +57,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                     "Rewrite expressions by view in join fail",
                     () -> String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
                                     + "targetToSourceMapping = %s", queryStructInfo.getExpressions(),
-                            materializationContext.getExprToScanExprMapping(),
+                            materializationContext.getShuttledExprToScanExprMapping(),
                             targetToSourceMapping));
             return null;
         }
@@ -75,7 +75,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
      * Join condition should be slot reference equals currently.
      */
     @Override
-    protected boolean checkPattern(StructInfo structInfo, CascadesContext cascadesContext) {
+    protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
                 && !checkContext.isContainsTopAggregate();

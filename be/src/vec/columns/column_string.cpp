@@ -24,6 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <ostream>
 
+#include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
@@ -195,8 +196,9 @@ void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indic
             const size_t size_to_append =
                     src_offset_data[src_offset] - src_offset_data[src_offset - 1];
             const size_t offset = src_offset_data[src_offset - 1];
-            memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
-                                                     src_data_ptr + offset, size_to_append);
+
+            memcpy_inlined(dst_data_ptr + dst_chars_pos, src_data_ptr + offset, size_to_append);
+
             dst_chars_pos += size_to_append;
         }
     };
@@ -542,7 +544,7 @@ template <typename T>
 void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                     int direction, std::vector<uint8>& cmp_res,
                                     uint8* __restrict filter) const {
-    auto sz = this->size();
+    auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base = assert_cast<const ColumnStr<T>&>(rhs).get_data_at(rhs_row_id);
     size_t begin = simd::find_zero(cmp_res, 0);
@@ -552,12 +554,8 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
             auto value_a = get_data_at(row_id);
             int res = memcmp_small_allow_overflow15(value_a.data, value_a.size, cmp_base.data,
                                                     cmp_base.size);
-            if (res * direction < 0) {
-                filter[row_id] = 1;
-                cmp_res[row_id] = 1;
-            } else if (res * direction > 0) {
-                cmp_res[row_id] = 1;
-            }
+            cmp_res[row_id] = res != 0;
+            filter[row_id] = res * direction < 0;
         }
         begin = simd::find_zero(cmp_res, end + 1);
     }

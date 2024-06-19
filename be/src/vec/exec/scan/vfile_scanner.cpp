@@ -68,7 +68,6 @@
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
-#include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -88,33 +87,6 @@ class ShardedKVCache;
 
 namespace doris::vectorized {
 using namespace ErrorCode;
-
-VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                           std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                           RuntimeProfile* profile, ShardedKVCache* kv_cache)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
-          _split_source(split_source),
-          _cur_reader(nullptr),
-          _cur_reader_eof(false),
-          _kv_cache(kv_cache),
-          _strict_mode(false) {
-    if (state->get_query_ctx() != nullptr &&
-        state->get_query_ctx()->file_scan_range_params_map.count(parent->id()) > 0) {
-        _params = &(state->get_query_ctx()->file_scan_range_params_map[parent->id()]);
-    } else {
-        // old fe thrift protocol
-        _params = _split_source->get_params();
-    }
-    if (_params->__isset.strict_mode) {
-        _strict_mode = _params->strict_mode;
-    }
-
-    // For load scanner, there are input and output tuple.
-    // For query scanner, there is only output tuple
-    _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_params->src_tuple_id);
-    _real_tuple_desc = _input_tuple_desc == nullptr ? _output_tuple_desc : _input_tuple_desc;
-    _is_load = (_input_tuple_desc != nullptr);
-}
 
 VFileScanner::VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* local_state,
                            int64_t limit,
@@ -151,41 +123,22 @@ Status VFileScanner::prepare(
     RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
     _colname_to_value_range = colname_to_value_range;
     _col_name_to_slot_id = colname_to_slot_id;
-    if (get_parent() != nullptr) {
-        _get_block_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerGetBlockTime");
-        _open_reader_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerOpenReaderTime");
-        _cast_to_input_block_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerCastInputBlockTime");
-        _fill_path_columns_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerFillPathColumnTime");
-        _fill_missing_columns_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerFillMissingColumnTime");
-        _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
-        _convert_to_output_block_timer =
-                ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
-        _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
-        _file_counter = ADD_COUNTER(_parent->_scanner_profile, "FileNumber", TUnit::UNIT);
-        _has_fully_rf_file_counter =
-                ADD_COUNTER(_parent->_scanner_profile, "HasFullyRfFileNumber", TUnit::UNIT);
-    } else {
-        _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
-        _open_reader_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
-        _cast_to_input_block_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerCastInputBlockTime");
-        _fill_path_columns_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillPathColumnTime");
-        _fill_missing_columns_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillMissingColumnTime");
-        _pre_filter_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerPreFilterTimer");
-        _convert_to_output_block_timer =
-                ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
-        _empty_file_counter =
-                ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
-        _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
-        _has_fully_rf_file_counter =
-                ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
-    }
+    _get_block_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerGetBlockTime");
+    _open_reader_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
+    _cast_to_input_block_timer =
+            ADD_TIMER(_local_state->scanner_profile(), "FileScannerCastInputBlockTime");
+    _fill_path_columns_timer =
+            ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillPathColumnTime");
+    _fill_missing_columns_timer =
+            ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillMissingColumnTime");
+    _pre_filter_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerPreFilterTimer");
+    _convert_to_output_block_timer =
+            ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
+    _empty_file_counter = ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
+    _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
+    _has_fully_rf_file_counter =
+            ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
+    _get_split_timer = ADD_TIMER(_local_state->scanner_profile(), "GetSplitTime");
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -1210,6 +1163,7 @@ Status VFileScanner::close(RuntimeState* state) {
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());
     }
+    COUNTER_UPDATE(_get_split_timer, _split_source->get_split_time());
 
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();

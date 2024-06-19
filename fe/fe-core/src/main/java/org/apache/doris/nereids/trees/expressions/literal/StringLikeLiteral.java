@@ -57,6 +57,11 @@ public abstract class StringLikeLiteral extends Literal {
     }
 
     @Override
+    public String getValue() {
+        return value;
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

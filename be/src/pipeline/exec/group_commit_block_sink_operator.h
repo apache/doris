@@ -17,8 +17,13 @@
 
 #pragma once
 
+#include "exec/tablet_info.h"
 #include "operator.h"
-#include "vec/sink/group_commit_block_sink.h"
+#include "runtime/group_commit_mgr.h"
+
+namespace doris::vectorized {
+class OlapTableBlockConvertor;
+}
 
 namespace doris::pipeline {
 
@@ -29,13 +34,19 @@ class GroupCommitBlockSinkLocalState final : public PipelineXSinkLocalState<Basi
 
 public:
     GroupCommitBlockSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state), _filter_bitmap(1024) {}
+            : Base(parent, state), _filter_bitmap(1024) {
+        _finish_dependency =
+                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
+    }
 
     ~GroupCommitBlockSinkLocalState() override;
 
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state, Status exec_status) override;
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+    std::string debug_string(int indentation_level) const override;
 
 private:
     friend class GroupCommitBlockSinkOperatorX;
@@ -61,6 +72,7 @@ private:
     TGroupCommitMode::type _group_commit_mode;
     Bitmap _filter_bitmap;
     int64_t _table_id;
+    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 class GroupCommitBlockSinkOperatorX final
@@ -68,8 +80,9 @@ class GroupCommitBlockSinkOperatorX final
     using Base = DataSinkOperatorX<GroupCommitBlockSinkLocalState>;
 
 public:
-    GroupCommitBlockSinkOperatorX(int operator_id, const RowDescriptor& row_desc)
-            : Base(operator_id, 0), _row_desc(row_desc) {}
+    GroupCommitBlockSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+                                  const std::vector<TExpr>& t_output_expr)
+            : Base(operator_id, 0), _row_desc(row_desc), _t_output_expr(t_output_expr) {}
 
     ~GroupCommitBlockSinkOperatorX() override = default;
 
@@ -85,6 +98,7 @@ private:
     friend class GroupCommitBlockSinkLocalState;
 
     const RowDescriptor& _row_desc;
+    const std::vector<TExpr>& _t_output_expr;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     int _tuple_desc_id = -1;

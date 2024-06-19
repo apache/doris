@@ -44,6 +44,7 @@
 #include "http/action/health_action.h"
 #include "http/action/http_stream.h"
 #include "http/action/jeprofile_actions.h"
+#include "http/action/load_stream_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
 #include "http/action/pad_rowset_action.h"
@@ -53,6 +54,8 @@
 #include "http/action/report_action.h"
 #include "http/action/reset_rpc_channel_action.h"
 #include "http/action/restore_tablet_action.h"
+#include "http/action/show_hotspot_action.h"
+#include "http/action/shrink_mem_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
 #include "http/action/stream_load_2pc.h"
@@ -166,6 +169,10 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/query_pipeline_tasks/{query_id}",
                                       query_pipeline_task_action);
 
+    // Register BE LoadStream action
+    LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/load_streams", load_stream_action);
+
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action =
             _pool.add(new TabletsInfoAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
@@ -216,6 +223,10 @@ Status HttpService::start() {
     ReportAction* report_task_action = _pool.add(
             new ReportAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_TASK"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/task", report_task_action);
+
+    // shrink memory for starting co-exist process during upgrade
+    ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/shrink_mem", shrink_mem_action);
 
     auto& engine = _env->storage_engine();
     if (config::is_cloud_mode()) {
@@ -380,6 +391,8 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
     ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
     _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
                                       clear_file_cache_action);
+    auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/hotspot/tablet", show_hotspot_action);
 }
 // NOLINTEND(readability-function-size)
 

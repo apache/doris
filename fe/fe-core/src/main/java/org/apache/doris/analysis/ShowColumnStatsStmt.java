@@ -208,9 +208,10 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(r.get(9)); // updated_time
             String updateRows = "N/A";
             TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
+            ColStatsMeta columnStatsMeta = null;
             if (tableStats != null && tableIf instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) tableIf;
-                ColStatsMeta columnStatsMeta = tableStats.findColumnStatsMeta(indexName, r.get(0));
+                columnStatsMeta = tableStats.findColumnStatsMeta(indexName, r.get(0));
                 if (columnStatsMeta != null && columnStatsMeta.partitionUpdateRows != null) {
                     Partition partition = olapTable.getPartition(r.get(1));
                     if (partition != null) {
@@ -222,7 +223,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
                 }
             }
             row.add(updateRows); // update_rows
-            row.add("Manual"); // trigger. Manual or System
+            row.add(columnStatsMeta == null ? "N/A" : columnStatsMeta.jobType.name()); // trigger. Manual or System
             result.add(row);
         }
         return new ShowResultSet(getMetaData(), result);
@@ -234,6 +235,9 @@ public class ShowColumnStatsStmt extends ShowStmt {
         for (Map.Entry<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> entry : resultMap.entrySet()) {
             PartitionColumnStatisticCacheKey key = entry.getKey();
             PartitionColumnStatistic value = entry.getValue();
+            if (value == null || value.isUnKnown) {
+                continue;
+            }
             List<String> row = Lists.newArrayList();
             row.add(key.colName); // column_name
             row.add(key.partId); // partition_name

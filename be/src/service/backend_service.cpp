@@ -166,10 +166,25 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     }
 
     std::vector<std::string> binlog_info_parts = strings::Split(binlog_info, ":");
-    // TODO(Drogon): check binlog info content is right
-    DCHECK(binlog_info_parts.size() == 2);
-    const std::string& remote_rowset_id = binlog_info_parts[0];
-    int64_t num_segments = std::stoll(binlog_info_parts[1]);
+    if (binlog_info_parts.size() != 2) {
+        status = Status::RuntimeError("failed to parse binlog info into 2 parts: {}", binlog_info);
+        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
+                     << ", status=" << status.to_string();
+        status.to_thrift(&tstatus);
+        return;
+    }
+    std::string remote_rowset_id = std::move(binlog_info_parts[0]);
+    int64_t num_segments = -1;
+    try {
+        num_segments = std::stoll(binlog_info_parts[1]);
+    } catch (std::exception& e) {
+        status = Status::RuntimeError("failed to parse num segments from binlog info {}: {}",
+                                      binlog_info, e.what());
+        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
+                     << ", status=" << status;
+        status.to_thrift(&tstatus);
+        return;
+    }
 
     // Step 4: get rowset meta
     auto get_rowset_meta_url = fmt::format(
@@ -266,24 +281,24 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             estimate_timeout = config::download_low_speed_time;
         }
 
-        auto local_segment_path = BetaRowset::segment_file_path(
-                local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
+        auto segment_path = local_segment_path(local_tablet->tablet_path(),
+                                               rowset_meta->rowset_id().to_string(), segment_index);
         LOG(INFO) << fmt::format("download segment file from {} to {}", get_segment_file_url,
-                                 local_segment_path);
-        auto get_segment_file_cb = [&get_segment_file_url, &local_segment_path, segment_file_size,
+                                 segment_path);
+        auto get_segment_file_cb = [&get_segment_file_url, &segment_path, segment_file_size,
                                     estimate_timeout, &download_success_files](HttpClient* client) {
             RETURN_IF_ERROR(client->init(get_segment_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
-            RETURN_IF_ERROR(client->download(local_segment_path));
-            download_success_files.push_back(local_segment_path);
+            RETURN_IF_ERROR(client->download(segment_path));
+            download_success_files.push_back(segment_path);
 
             std::error_code ec;
             // Check file length
-            uint64_t local_file_size = std::filesystem::file_size(local_segment_path, ec);
+            uint64_t local_file_size = std::filesystem::file_size(segment_path, ec);
             if (ec) {
                 LOG(WARNING) << "download file error" << ec.message();
-                return Status::IOError("can't retrive file_size of {}, due to {}",
-                                       local_segment_path, ec.message());
+                return Status::IOError("can't retrive file_size of {}, due to {}", segment_path,
+                                       ec.message());
             }
             if (local_file_size != segment_file_size) {
                 LOG(WARNING) << "download file length error"
@@ -292,7 +307,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
             }
-            return io::global_local_filesystem()->permission(local_segment_path,
+            return io::global_local_filesystem()->permission(segment_path,
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
 
@@ -332,10 +347,13 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                             RETURN_IF_ERROR(client->head());
                             return client->get_content_length(&segment_index_file_size);
                         };
-                auto index_file = InvertedIndexDescriptor::inverted_index_file_path(
-                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index,
-                        index_id, index.get_index_suffix());
-                segment_index_file_names.push_back(index_file);
+
+                auto segment_path =
+                        local_segment_path(local_tablet->tablet_path(),
+                                           rowset_meta->rowset_id().to_string(), segment_index);
+                segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_path_v1(
+                        InvertedIndexDescriptor::get_index_path_prefix(segment_path), index_id,
+                        index.get_index_suffix()));
 
                 status = HttpClient::execute_with_retry(max_retry, 1,
                                                         get_segment_index_file_size_cb);
@@ -368,10 +386,11 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                             RETURN_IF_ERROR(client->head());
                             return client->get_content_length(&segment_index_file_size);
                         };
-                auto local_segment_path = BetaRowset::segment_file_path(
-                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
-                auto index_file = InvertedIndexDescriptor::get_index_file_name(local_segment_path);
-                segment_index_file_names.push_back(index_file);
+                auto segment_path =
+                        local_segment_path(local_tablet->tablet_path(),
+                                           rowset_meta->rowset_id().to_string(), segment_index);
+                segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_path_v2(
+                        InvertedIndexDescriptor::get_index_path_prefix(segment_path)));
 
                 status = HttpClient::execute_with_retry(max_retry, 1,
                                                         get_segment_index_file_size_cb);

@@ -117,7 +117,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     public static List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
             Map<Long, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType) {
-        partitionPredicate = TryEliminateUninterestedPredicates.rewrite(
+        partitionPredicate = PartitionPruneExpressionExtractor.extract(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
         partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
 

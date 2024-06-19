@@ -77,6 +77,9 @@ public:
     DataDistribution required_data_distribution() const override {
         return _sort_sink_operator->required_data_distribution();
     }
+    bool require_data_distribution() const override {
+        return _sort_sink_operator->require_data_distribution();
+    }
     Status set_child(OperatorXPtr child) override {
         RETURN_IF_ERROR(DataSinkOperatorX<SpillSortSinkLocalState>::set_child(child));
         return _sort_sink_operator->set_child(child);

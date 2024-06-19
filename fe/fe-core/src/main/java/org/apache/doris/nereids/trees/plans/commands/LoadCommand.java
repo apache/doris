@@ -129,12 +129,11 @@ public class LoadCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("Fallback to legacy planner temporary.");
         }
         this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile,
-                ctx.getSessionVariable().profileLevel,
-                ctx.getSessionVariable().getEnablePipelineXEngine());
+                ctx.getSessionVariable().profileLevel);
         profile.getSummaryProfile().setQueryBeginTime();
         if (sourceInfos.size() == 1) {
             plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),
-                    Optional.of(labelName), Optional.empty()));
+                    Optional.of(labelName), Optional.empty(), Optional.empty()));
         } else {
             throw new AnalysisException("Multi insert into statements are unsupported.");
         }

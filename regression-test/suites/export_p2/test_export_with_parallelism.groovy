@@ -133,7 +133,7 @@ suite("test_export_with_parallelism", "p2") {
                         "s3.secret_key" = "${sk}",
                         "format" = "${format}",
                         "region" = "${region}",
-                        "use_path_style" = "true"
+                        "use_path_style" = "false" -- aliyun does not support path_style
                 );
                 """
         }

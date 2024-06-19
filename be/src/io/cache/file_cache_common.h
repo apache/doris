@@ -31,7 +31,6 @@ inline static constexpr size_t DEFAULT_DISPOSABLE_PERCENT = 10;
 inline static constexpr size_t DEFAULT_INDEX_PERCENT = 5;
 
 using uint128_t = vectorized::UInt128;
-using UInt128Hash = vectorized::UInt128Hash;
 
 enum class FileCacheType {
     INDEX,
@@ -63,13 +62,15 @@ struct FileCacheAllocatorBuilder {
 };
 
 struct KeyHash {
-    std::size_t operator()(const UInt128Wrapper& w) const { return UInt128Hash()(w.value_); }
+    std::size_t operator()(const UInt128Wrapper& w) const {
+        return util_hash::HashLen16(w.value_.low(), w.value_.high());
+    }
 };
 
 using AccessKeyAndOffset = std::pair<UInt128Wrapper, size_t>;
 struct KeyAndOffsetHash {
     std::size_t operator()(const AccessKeyAndOffset& key) const {
-        return UInt128Hash()(key.first.value_) ^ std::hash<uint64_t>()(key.second);
+        return KeyHash()(key.first) ^ std::hash<uint64_t>()(key.second);
     }
 };
 

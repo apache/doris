@@ -47,10 +47,10 @@ using InstanceLoId = int64_t;
 
 namespace pipeline {
 class Dependency;
+class ExchangeSinkLocalState;
 } // namespace pipeline
 
 namespace vectorized {
-class VDataStreamSender;
 class PipChannel;
 
 template <typename T>
@@ -69,48 +69,44 @@ struct AtomicWrapper {
 // We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
 // will be shared between different channel, so we have to use a ref count to mark if this
 // PBlock is available for next serialization.
-class BroadcastPBlockHolderQueue;
+class BroadcastPBlockHolderMemLimiter;
 class BroadcastPBlockHolder {
     ENABLE_FACTORY_CREATOR(BroadcastPBlockHolder);
 
 public:
     BroadcastPBlockHolder() { _pblock = std::make_unique<PBlock>(); }
-    BroadcastPBlockHolder(std::unique_ptr<PBlock>&& pblock) { _pblock = std::move(pblock); }
     ~BroadcastPBlockHolder();
 
     PBlock* get_block() { return _pblock.get(); }
 
+    void reset_block() { _pblock->Clear(); }
+
 private:
-    friend class BroadcastPBlockHolderQueue;
+    friend class BroadcastPBlockHolderMemLimiter;
     std::unique_ptr<PBlock> _pblock;
-    std::weak_ptr<BroadcastPBlockHolderQueue> _parent_creator;
-    void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderQueue> parent_creator) {
+    std::weak_ptr<BroadcastPBlockHolderMemLimiter> _parent_creator;
+    void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderMemLimiter> parent_creator) {
         _parent_creator = parent_creator;
     }
 };
 
-// Use a stack inside to ensure that the PBlock is in cpu cache
-class BroadcastPBlockHolderQueue : public std::enable_shared_from_this<BroadcastPBlockHolderQueue> {
-    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolderQueue);
+class BroadcastPBlockHolderMemLimiter
+        : public std::enable_shared_from_this<BroadcastPBlockHolderMemLimiter> {
+    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolderMemLimiter);
 
 public:
-    BroadcastPBlockHolderQueue() = default;
+    BroadcastPBlockHolderMemLimiter() = delete;
 
-    BroadcastPBlockHolderQueue(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
+    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
         _broadcast_dependency = broadcast_dependency;
     }
 
-    void push(std::shared_ptr<BroadcastPBlockHolder> holder);
-
-    bool empty() {
-        std::unique_lock l(_holders_lock);
-        return _holders.empty();
-    }
-
-    std::shared_ptr<BroadcastPBlockHolder> pop();
+    void acquire(BroadcastPBlockHolder& holder);
+    void release(const BroadcastPBlockHolder& holder);
 
 private:
-    std::stack<std::shared_ptr<BroadcastPBlockHolder>> _holders;
+    std::atomic_int64_t _total_queue_buffer_size {0};
+    std::atomic_int64_t _total_queue_blocks_count {0};
     std::shared_ptr<pipeline::Dependency> _broadcast_dependency;
     std::mutex _holders_lock;
 };
@@ -192,16 +188,15 @@ struct ExchangeRpcContext {
 };
 
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
-class ExchangeSinkBuffer : public HasTaskExecutionCtx {
+class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state);
-    ~ExchangeSinkBuffer();
+                       RuntimeState* state, ExchangeSinkLocalState* parent);
+    ~ExchangeSinkBuffer() override = default;
     void register_sink(TUniqueId);
 
     Status add_block(TransmitInfo&& request);
     Status add_block(BroadcastTransmitInfo&& request);
-    bool can_write() const;
     void close();
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
@@ -265,6 +260,7 @@ private:
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline bool _is_receiver_eof(InstanceLoId id);
+    inline void _turn_off_channel(InstanceLoId id, bool cleanup = false);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 
@@ -272,7 +268,8 @@ private:
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
     std::shared_ptr<Dependency> _finish_dependency = nullptr;
     std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
-    std::atomic<bool> _should_stop {false};
+    std::atomic<bool> _should_stop = false;
+    ExchangeSinkLocalState* _parent = nullptr;
 };
 
 } // namespace pipeline

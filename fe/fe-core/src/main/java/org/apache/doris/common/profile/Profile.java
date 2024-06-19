@@ -56,7 +56,6 @@ public class Profile {
     private static final Logger LOG = LogManager.getLogger(Profile.class);
     private static final int MergedProfileLevel = 1;
     private final String name;
-    private final boolean isPipelineX;
     private SummaryProfile summaryProfile;
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     private boolean isFinished;
@@ -64,9 +63,8 @@ public class Profile {
 
     private int profileLevel = 3;
 
-    public Profile(String name, boolean isEnable, int profileLevel, boolean isPipelineX) {
+    public Profile(String name, boolean isEnable, int profileLevel) {
         this.name = name;
-        this.isPipelineX = isPipelineX;
         this.summaryProfile = new SummaryProfile();
         // if disabled, just set isFinished to true, so that update() will do nothing
         this.isFinished = !isEnable;
@@ -78,9 +76,6 @@ public class Profile {
         if (executionProfile == null) {
             LOG.warn("try to set a null excecution profile, it is abnormal", new Exception());
             return;
-        }
-        if (this.isPipelineX) {
-            executionProfile.setPipelineX();
         }
         executionProfile.setSummaryProfile(summaryProfile);
         this.executionProfiles.add(executionProfile);
@@ -188,9 +183,7 @@ public class Profile {
     }
 
     private RuntimeProfile composeRootProfile() {
-
         RuntimeProfile rootProfile = new RuntimeProfile(name);
-        rootProfile.setIsPipelineX(isPipelineX);
         rootProfile.addChild(summaryProfile.getSummary());
         rootProfile.addChild(summaryProfile.getExecutionSummary());
         for (ExecutionProfile executionProfile : executionProfiles) {

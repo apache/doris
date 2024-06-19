@@ -204,10 +204,10 @@ public class PartitionTableInfo {
                 }
                 List<ColumnDefinition> partitionInSchema = columns.subList(
                         columns.size() - partitionColumns.size(), columns.size());
+                if (partitionInSchema.stream().anyMatch(p -> !partitionColumns.contains(p.getName()))) {
+                    throw new AnalysisException("The partition field must be at the end of the schema.");
+                }
                 for (int i = 0; i < partitionInSchema.size(); i++) {
-                    if (!partitionColumns.contains(partitionInSchema.get(i).getName())) {
-                        throw new AnalysisException("The partition field must be at the end of the schema.");
-                    }
                     if (!partitionInSchema.get(i).getName().equals(partitionColumns.get(i))) {
                         throw new AnalysisException("The order of partition fields in the schema "
                             + "must be consistent with the order defined in `PARTITIONED BY LIST()`");
