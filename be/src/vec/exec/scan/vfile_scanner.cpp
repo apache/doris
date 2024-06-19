@@ -138,6 +138,7 @@ Status VFileScanner::prepare(
     _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
     _has_fully_rf_file_counter =
             ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
+    _get_split_timer = ADD_TIMER(_local_state->scanner_profile(), "GetSplitTime");
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -1162,6 +1163,7 @@ Status VFileScanner::close(RuntimeState* state) {
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());
     }
+    COUNTER_UPDATE(_get_split_timer, _split_source->get_split_time());
 
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
