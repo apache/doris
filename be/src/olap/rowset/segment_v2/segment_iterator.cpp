@@ -1311,7 +1311,8 @@ Status SegmentIterator::_apply_inverted_index() {
     if (_opts.runtime_state &&
         _opts.runtime_state->enable_common_expr_pushdown_for_inverted_index()) {
         // support expr to evaluate inverted index
-        std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair, InvertedIndexIterator*>>
+        std::unordered_map<ColumnId,
+                           std::pair<vectorized::IndexFieldNameAndTypePair, InvertedIndexIterator*>>
                 iter_map;
         for (auto col_id : _common_expr_columns_for_index) {
             auto tablet_col_id = _schema->column_id(col_id);
