@@ -110,7 +110,11 @@ public abstract class FileScanNode extends ExternalScanNode {
             output.append(getRuntimeFilterExplainString(false));
         }
 
-        output.append(prefix).append("inputSplitNum=").append(inputSplitsNum).append(", totalFileSize=")
+        output.append(prefix);
+        if (isBatchMode()) {
+            output.append("(approximate)");
+        }
+        output.append("inputSplitNum=").append(inputSplitsNum).append(", totalFileSize=")
             .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
         output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
             .append("\n");
