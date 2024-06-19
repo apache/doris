@@ -159,12 +159,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
         }
 
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            EqualTo deleteSignEqualTo =
-                    (EqualTo) new NereidsParser().parseExpression("__DORIS_DELETE_SIGN__ = 1");
-            UpdateCommand updateCommand = new UpdateCommand(this.nameParts, this.tableAlias,
-                    Collections.singletonList(deleteSignEqualTo), this.logicalQuery, Optional.empty());
-            updateCommand.setDeleteCommand(true);
-            updateCommand.run(ctx, executor);
+            new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
+                    logicalQuery, Optional.empty()).run(ctx, executor);
             return;
         }
 
