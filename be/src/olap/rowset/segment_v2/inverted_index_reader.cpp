@@ -591,7 +591,8 @@ void FullTextIndexReader::check_null_bitmap(OlapReaderStatistics* stats,
     // to avoid open directory additionally for null_bitmap
     if (!null_bitmap_already_read) {
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        read_null_bitmap(stats, &null_bitmap_cache_handle, index_searcher->getReader()->directory());
+        read_null_bitmap(stats, &null_bitmap_cache_handle,
+                         index_searcher->getReader()->directory());
         null_bitmap_already_read = true;
     }
 }
