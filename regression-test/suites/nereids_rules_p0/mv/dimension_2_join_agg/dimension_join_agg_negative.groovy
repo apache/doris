@@ -16,7 +16,7 @@
 // under the License.
 
 /*
-This file is used specifically to test the presence of AGGs under joins.
+This file is used specifically to test the negative presence of AGGs under joins.
  */
 suite("dimension_join_agg_negative") {
     String db = context.config.getDbNameByFile(context.file)
