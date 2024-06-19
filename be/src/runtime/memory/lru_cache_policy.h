@@ -211,7 +211,7 @@ public:
             bool enable_prune = true)
             : LRUCachePolicy(type, capacity, lru_cache_type, stale_sweep_time_s, num_shards,
                              element_count_capacity, enable_prune) {
-        init_mem_tracker(lru_cache_type_string(lru_cache_type));
+        _init_mem_tracker(lru_cache_type_string(lru_cache_type));
     }
 
     LRUCachePolicyTrackingAllocator(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
@@ -222,16 +222,10 @@ public:
             : LRUCachePolicy(type, capacity, lru_cache_type, stale_sweep_time_s, num_shards,
                              element_count_capacity, cache_value_time_extractor,
                              cache_value_check_timestamp, enable_prune) {
-        init_mem_tracker(lru_cache_type_string(lru_cache_type));
+        _init_mem_tracker(lru_cache_type_string(lru_cache_type));
     }
 
     ~LRUCachePolicyTrackingAllocator() override { reset_cache(); }
-
-    void init_mem_tracker(const std::string& type_name) {
-        _mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::GLOBAL,
-                fmt::format("{}[{}](AllocByAllocator)", type_string(_type), type_name));
-    }
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker() const {
         DCHECK(_mem_tracker != nullptr);
@@ -249,6 +243,12 @@ public:
     }
 
 protected:
+    void _init_mem_tracker(const std::string& type_name) {
+        _mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::GLOBAL,
+                fmt::format("{}[{}](AllocByAllocator)", type_string(_type), type_name));
+    }
+
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
@@ -261,7 +261,7 @@ public:
             bool enable_prune = true)
             : LRUCachePolicy(type, capacity, lru_cache_type, stale_sweep_time_s, num_shards,
                              element_count_capacity, enable_prune) {
-        init_mem_tracker(lru_cache_type_string(lru_cache_type));
+        _init_mem_tracker(lru_cache_type_string(lru_cache_type));
     }
 
     LRUCachePolicyTrackingManual(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
@@ -272,16 +272,10 @@ public:
             : LRUCachePolicy(type, capacity, lru_cache_type, stale_sweep_time_s, num_shards,
                              element_count_capacity, cache_value_time_extractor,
                              cache_value_check_timestamp, enable_prune) {
-        init_mem_tracker(lru_cache_type_string(lru_cache_type));
+        _init_mem_tracker(lru_cache_type_string(lru_cache_type));
     }
 
     ~LRUCachePolicyTrackingManual() override { reset_cache(); }
-
-    void init_mem_tracker(const std::string& type_name) {
-        _mem_tracker =
-                std::make_unique<MemTracker>(fmt::format("{}[{}]", type_string(_type), type_name),
-                                             ExecEnv::GetInstance()->details_mem_tracker_set());
-    }
 
     MemTracker* mem_tracker() {
         DCHECK(_mem_tracker != nullptr);
@@ -306,6 +300,12 @@ public:
     }
 
 private:
+    void _init_mem_tracker(const std::string& type_name) {
+        _mem_tracker =
+                std::make_unique<MemTracker>(fmt::format("{}[{}]", type_string(_type), type_name),
+                                             ExecEnv::GetInstance()->details_mem_tracker_set());
+    }
+
     // LRUCacheType::SIZE equal to total_size.
     size_t _get_bytes_with_handle(const CacheKey& key, size_t charge, size_t bytes) {
         size_t handle_size = sizeof(LRUHandle) - 1 + key.size();

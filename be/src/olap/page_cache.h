@@ -41,23 +41,10 @@ template <typename TAllocator>
 class PageBase : private TAllocator, public LRUCacheValueBase {
 public:
     PageBase() = default;
-
-    PageBase(size_t b, const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
-            : LRUCacheValueBase(), _size(b), _capacity(b), _mem_tracker_by_allocator(mem_tracker) {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
-        _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
-    }
-
+    PageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type);
     PageBase(const PageBase&) = delete;
     PageBase& operator=(const PageBase&) = delete;
-
-    ~PageBase() override {
-        if (_data != nullptr) {
-            DCHECK(_capacity != 0 && _size != 0);
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
-            TAllocator::free(_data, _capacity);
-        }
-    }
+    ~PageBase() override;
 
     char* data() { return _data; }
     size_t size() { return _size; }
@@ -73,7 +60,8 @@ private:
     // Effective size, smaller than capacity, such as data page remove checksum suffix.
     size_t _size = 0;
     size_t _capacity = 0;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker_by_allocator;
+    bool _use_cache;
+    segment_v2::PageTypePB _page_type;
 };
 
 using DataPage = PageBase<Allocator<false>>;
