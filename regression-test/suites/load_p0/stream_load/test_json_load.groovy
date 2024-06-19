@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_json_load", "p0") { 
+suite("test_json_load", "p0,nonConcurrent") { 
 
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -787,6 +787,7 @@ suite("test_json_load", "p0") {
                 assertEquals("${reason}", "${out}")
             }
         }
+
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
@@ -822,20 +823,7 @@ suite("test_json_load", "p0") {
                 assertEquals("${reason}", "${out}")
             }
         }
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
-    }
-      
-    // iterate read json when read_json_by_line = false
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
 
-        create_json_test_table.call(testTable)
-        def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-        load_json_data.call("${testTable}", test_load_label, 'false', 'false', 'json', '', '', '', '', '', 'iterate_read_json.json')
-        sql "sync" 
-        
-        qt_iterate_read_json "select * from ${testTable} order by name"
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

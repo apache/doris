@@ -158,6 +158,10 @@ public class Config extends ConfigBase {
                     + "The default is * to allow all, if set to empty, also means to allow all"})
     public static String jdbc_driver_secure_path = "*";
 
+    @ConfField(description = {"MySQL Jdbc Catalog mysql 不支持下推的函数",
+            "MySQL Jdbc Catalog mysql does not support pushdown functions"})
+    public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 8;
@@ -400,6 +404,16 @@ public class Config extends ConfigBase {
     @ConfField(description = {"thrift client 的连接超时时间，单位是毫秒。0 表示不设置超时时间。",
             "The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
     public static int thrift_client_timeout_ms = 0;
+
+    // The default value is inherited from org.apache.thrift.TConfiguration
+    @ConfField(description = {"thrift server 接收请求大小的上限",
+            "The maximum size of a (received) message of the thrift server, in bytes"})
+    public static int thrift_max_message_size = 100 * 1024 * 1024;
+
+    // The default value is inherited from org.apache.thrift.TConfiguration
+    @ConfField(description = {"thrift server transport 接收的每帧数据大小的上限",
+            "The limits of the size of one frame of thrift server transport"})
+    public static int thrift_max_frame_size = 16384000;
 
     @ConfField(description = {"thrift server 的 backlog 数量。"
             + "如果调大这个值，则需同时调整 /proc/sys/net/core/somaxconn 的值",
@@ -1214,6 +1228,12 @@ public class Config extends ConfigBase {
     public static boolean force_do_metadata_checkpoint = false;
 
     /**
+     * If some joural is wrong, and FE can't start, we can use this to skip it.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String[] force_skip_journal_ids = {};
+
+    /**
      * Decide how often to check dynamic partition
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1247,7 +1267,7 @@ public class Config extends ConfigBase {
      * a period for auto resume routine load
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int period_of_auto_resume_min = 5;
+    public static int period_of_auto_resume_min = 10;
 
     /**
      * If set to true, the backend will be automatically dropped after finishing decommission.
@@ -1357,12 +1377,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean recover_with_empty_tablet = false;
-
-    /**
-     * Whether to add a delete sign column when create unique table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_batch_delete_by_default = true;
 
     /**
      * Whether to add a version column when create unique table
@@ -1648,9 +1662,6 @@ public class Config extends ConfigBase {
      * */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
-
-    @ConfField(mutable = true)
-    public static boolean enable_pipeline_load = true;
 
     /*---------------------- JOB CONFIG START------------------------*/
     /**
@@ -2385,13 +2396,13 @@ public class Config extends ConfigBase {
     })
     public static long analyze_record_limit = 20000;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = true, masterOnly = true, description = {
             "Auto Buckets中最小的buckets数目",
             "min buckets of auto bucket"
     })
     public static int autobucket_min_buckets = 1;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = true, masterOnly = true, description = {
         "Auto Buckets中最大的buckets数目",
         "max buckets of auto bucket"
     })
@@ -2600,7 +2611,7 @@ public class Config extends ConfigBase {
             "倒排索引默认存储格式",
             "Default storage format of inverted index, the default value is V1."
     })
-    public static String inverted_index_storage_format = "V1";
+    public static String inverted_index_storage_format = "V2";
 
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
@@ -2631,6 +2642,11 @@ public class Config extends ConfigBase {
             "如果 checkpoint 连续多次因内存不足而无法进行时，先尝试手动触发 GC",
             "The threshold to do manual GC when doing checkpoint but not enough memory"})
     public static int checkpoint_manual_gc_threshold = 0;
+
+    @ConfField(mutable = true, description = {
+            "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
+            "Should the request content be logged before each request starts, specifically the query statements"})
+    public static boolean enable_print_request_before_execution = false;
 
     //==========================================================================
     //                    begin of cloud config

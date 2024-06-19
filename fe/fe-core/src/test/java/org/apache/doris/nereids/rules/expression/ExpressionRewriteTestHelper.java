@@ -78,6 +78,12 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
 
+    protected void assertNotRewrite(Expression expression, Expression expectedExpression) {
+        expression = typeCoercion(expression);
+        Expression rewrittenExpression = executor.rewrite(expression, context);
+        Assertions.assertNotEquals(expectedExpression, rewrittenExpression);
+    }
+
     protected void assertRewriteAfterTypeCoercion(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = PARSER.parseExpression(expression);

@@ -493,7 +493,11 @@ Status Compaction::do_inverted_index_compaction() {
                     "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
                     _stats.merged_rows, missed_rows.size(), _tablet->tablet_id(),
                     _tablet->table_id());
-            DCHECK(false) << err_msg;
+            if (config::enable_mow_compaction_correctness_check_core) {
+                CHECK(false) << err_msg;
+            } else {
+                DCHECK(false) << err_msg;
+            }
             LOG(WARNING) << err_msg;
             return Status::InternalError(err_msg);
         }
@@ -663,8 +667,7 @@ Status Compaction::do_inverted_index_compaction() {
         }
     }
 
-    // we choose the first destination segment name as the temporary index writer path
-    // Used to distinguish between different index compaction
+    // use tmp file dir to store index files
     auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
     auto index_tmp_path = tmp_file_dir / dest_rowset_id.to_string();
     LOG(INFO) << "start index compaction"
@@ -925,7 +928,11 @@ Status CompactionMixin::modify_rowsets() {
                         "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
                         _stats.merged_rows, missed_rows_size, _tablet->tablet_id(),
                         _tablet->table_id());
-                DCHECK(false) << err_msg;
+                if (config::enable_mow_compaction_correctness_check_core) {
+                    CHECK(false) << err_msg;
+                } else {
+                    DCHECK(false) << err_msg;
+                }
                 LOG(WARNING) << err_msg;
             }
         }

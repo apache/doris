@@ -304,6 +304,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.skip_write_index_on_load) {
         schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
     }
+    if (tablet_schema.__isset.row_store_col_cids) {
+        schema->mutable_row_store_column_unique_ids()->Add(tablet_schema.row_store_col_cids.begin(),
+                                                           tablet_schema.row_store_col_cids.end());
+    }
     if (binlog_config.has_value()) {
         BinlogConfig tmp_binlog_config;
         tmp_binlog_config = binlog_config.value();
@@ -510,9 +514,9 @@ void TabletMeta::serialize(string* meta_binary) {
     }
 }
 
-Status TabletMeta::deserialize(const string& meta_binary) {
+Status TabletMeta::deserialize(std::string_view meta_binary) {
     TabletMetaPB tablet_meta_pb;
-    bool parsed = tablet_meta_pb.ParseFromString(meta_binary);
+    bool parsed = tablet_meta_pb.ParseFromArray(meta_binary.data(), meta_binary.size());
     if (!parsed) {
         return Status::Error<INIT_FAILED>("parse tablet meta failed");
     }

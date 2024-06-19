@@ -99,22 +99,23 @@ Status InvertedIndexFileWriter::delete_index(const TabletIndex* index_meta) {
 size_t InvertedIndexFileWriter::headerLength() {
     size_t header_size = 0;
     header_size +=
-            sizeof(int) * 2; // Account for the size of the version number and number of indices
+            sizeof(int32_t) * 2; // Account for the size of the version number and number of indices
+
     for (const auto& entry : _indices_dirs) {
-        auto suffix = entry.first.second;
-        header_size += sizeof(int);     // index id
-        header_size += 4;               // index suffix name size
+        const auto& suffix = entry.first.second;
+        header_size += sizeof(int64_t); // index id
+        header_size += sizeof(int32_t); // index suffix name size
         header_size += suffix.length(); // index suffix name
-        header_size += sizeof(int);     // index file count
+        header_size += sizeof(int32_t); // index file count
         const auto& dir = entry.second;
         std::vector<std::string> files;
         dir->list(&files);
 
-        for (auto file : files) {
-            header_size += 4;             // file name size
-            header_size += file.length(); // file name
-            header_size += 8;             // file offset
-            header_size += 8;             // file size
+        for (const auto& file : files) {
+            header_size += sizeof(int32_t); // file name size
+            header_size += file.length();   // file name
+            header_size += sizeof(int64_t); // file offset
+            header_size += sizeof(int64_t); // file size
         }
     }
     return header_size;
@@ -192,10 +193,10 @@ size_t InvertedIndexFileWriter::write() {
         }
         // sort file list by file length
         std::vector<std::pair<std::string, int64_t>> sorted_files;
-        for (auto file : files) {
+        for (const auto& file : files) {
             sorted_files.emplace_back(file, dir->fileLength(file.c_str()));
         }
-        // TODO: need to optimize
+
         std::sort(sorted_files.begin(), sorted_files.end(),
                   [](const std::pair<std::string, int64_t>& a,
                      const std::pair<std::string, int64_t>& b) { return (a.second < b.second); });
@@ -203,18 +204,18 @@ size_t InvertedIndexFileWriter::write() {
         int32_t file_count = sorted_files.size();
 
         // Write the index ID and the number of files
-        compound_file_output->writeInt(index_id);
-        const auto* index_suffix_str = reinterpret_cast<const uint8_t*>(index_suffix.c_str());
-        compound_file_output->writeInt(index_suffix.length());
-        compound_file_output->writeBytes(index_suffix_str, index_suffix.length());
+        compound_file_output->writeLong(index_id);
+        compound_file_output->writeInt(static_cast<int32_t>(index_suffix.length()));
+        compound_file_output->writeBytes(reinterpret_cast<const uint8_t*>(index_suffix.data()),
+                                         index_suffix.length());
         compound_file_output->writeInt(file_count);
 
         // Calculate the offset for each file and write the file metadata
         for (const auto& file : sorted_files) {
             int64_t file_length = dir->fileLength(file.first.c_str());
-            const auto* file_name = reinterpret_cast<const uint8_t*>(file.first.c_str());
-            compound_file_output->writeInt(file.first.length());
-            compound_file_output->writeBytes(file_name, file.first.length());
+            compound_file_output->writeInt(static_cast<int32_t>(file.first.length()));
+            compound_file_output->writeBytes(reinterpret_cast<const uint8_t*>(file.first.data()),
+                                             file.first.length());
             compound_file_output->writeLong(current_offset);
             compound_file_output->writeLong(file_length);
 

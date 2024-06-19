@@ -69,11 +69,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------hashJoin[INNER_JOIN] hashCondition=((t_s_secyear.customer_id = t_s_firstyear.customer_id)) otherCondition=()
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------filter((t_s_firstyear.dyear = 1999) and (t_s_firstyear.sale_type = 's') and (t_s_firstyear.year_total > 0.000000))
+--------------------------------filter((t_s_secyear.dyear = 2000) and (t_s_secyear.sale_type = 's'))
 ----------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
---------------------------------filter((t_s_secyear.dyear = 2000) and (t_s_secyear.sale_type = 's'))
+--------------------------------filter((t_s_firstyear.dyear = 1999) and (t_s_firstyear.sale_type = 's') and (t_s_firstyear.year_total > 0.000000))
 ----------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject

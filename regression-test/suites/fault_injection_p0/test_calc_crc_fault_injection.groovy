@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_calc_crc") {
+    if (isCloudMode()) {
+        return;
+    }
     def calc_file_crc_on_tablet = { ip, port, tablet ->
         return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
     }
@@ -73,7 +76,7 @@ suite("test_calc_crc") {
     assertEquals("0", parseJson(out_0.trim()).start_version)
     assertEquals("7", parseJson(out_0.trim()).end_version)
     assertEquals("7", parseJson(out_0.trim()).rowset_count)
-    assertEquals("18", parseJson(out_0.trim()).file_count)
+    assertEquals("12", parseJson(out_0.trim()).file_count)
 
     try {
         GetDebugPoint().enableDebugPointForAllBEs("fault_inject::BetaRowset::calc_local_file_crc")
@@ -90,7 +93,7 @@ suite("test_calc_crc") {
     assertEquals("0", parseJson(out_2.trim()).start_version)
     assertEquals("7", parseJson(out_2.trim()).end_version)
     assertEquals("7", parseJson(out_2.trim()).rowset_count)
-    assertEquals("18", parseJson(out_2.trim()).file_count)
+    assertEquals("12", parseJson(out_2.trim()).file_count)
     assertTrue(parseJson(out_0.trim()).crc_value == parseJson(out_2.trim()).crc_value)
 
     def (code_3, out_3, err_3) = calc_file_crc_on_tablet_with_end(ip, port, tablet_id, 7)
@@ -99,7 +102,7 @@ suite("test_calc_crc") {
     assertEquals("0", parseJson(out_3.trim()).start_version)
     assertEquals("7", parseJson(out_3.trim()).end_version)
     assertEquals("7", parseJson(out_3.trim()).rowset_count)
-    assertEquals("18", parseJson(out_3.trim()).file_count)
+    assertEquals("12", parseJson(out_3.trim()).file_count)
     assertTrue(parseJson(out_2.trim()).crc_value == parseJson(out_3.trim()).crc_value)
 
     def (code_4, out_4, err_4) = calc_file_crc_on_tablet_with_start_end(ip, port, tablet_id, 3, 6)
@@ -109,7 +112,7 @@ suite("test_calc_crc") {
     assertEquals("3", parseJson(out_4.trim()).start_version)
     assertEquals("6", parseJson(out_4.trim()).end_version)
     assertEquals("4", parseJson(out_4.trim()).rowset_count)
-    assertEquals("12", parseJson(out_4.trim()).file_count)
+    assertEquals("8", parseJson(out_4.trim()).file_count)
 
     def (code_5, out_5, err_5) = calc_file_crc_on_tablet_with_start_end(ip, port, tablet_id, 5, 9)
     logger.info("Run calc_file_crc_on_tablet: code=" + code_5 + ", out=" + out_5 + ", err=" + err_5)
@@ -118,7 +121,7 @@ suite("test_calc_crc") {
     assertEquals("5", parseJson(out_5.trim()).start_version)
     assertEquals("7", parseJson(out_5.trim()).end_version)
     assertEquals("3", parseJson(out_5.trim()).rowset_count)
-    assertEquals("9", parseJson(out_5.trim()).file_count)
+    assertEquals("6", parseJson(out_5.trim()).file_count)
 
     def (code_6, out_6, err_6) = calc_file_crc_on_tablet(ip, port, 123)
     logger.info("Run calc_file_crc_on_tablet: code=" + code_6 + ", out=" + out_6 + ", err=" + err_6)

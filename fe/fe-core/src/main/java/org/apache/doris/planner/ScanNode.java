@@ -44,12 +44,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
-import org.apache.doris.datasource.FileScanNode;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
@@ -86,7 +85,7 @@ import java.util.stream.IntStream;
 public abstract class ScanNode extends PlanNode implements SplitGenerator {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
     protected static final int NUM_SPLITS_PER_PARTITION = 10;
-    protected static final int NUM_PARTITIONS_PER_LOOP = 100;
+    protected static final int NUM_SPLITTERS_ON_FLIGHT = Config.max_external_cache_loader_thread_pool_size;
     protected final TupleDescriptor desc;
     // for distribution prunner
     protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
@@ -97,6 +96,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
     protected List<SplitSource> splitSources = Lists.newArrayList();
     protected PartitionInfo partitionsInfo = null;
+    protected SplitAssignment splitAssignment = null;
 
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
@@ -720,22 +720,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return scanRangeLocation;
     }
 
-    // some scan should not enable the shared scan opt to prevent the performance problem
-    // 1. is key search
-    // 2. session variable not enable_shared_scan
-    public boolean shouldDisableSharedScan(ConnectContext context) {
-        return isKeySearch() || context == null
-                || !context.getSessionVariable().getEnableSharedScan()
-                || !context.getSessionVariable().getEnablePipelineEngine()
-                || context.getSessionVariable().getEnablePipelineXEngine()
-                || this instanceof FileScanNode
-                || getShouldColoScan();
-    }
-
     public boolean ignoreStorageDataDistribution(ConnectContext context, int numBackends) {
         return context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
-                && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.hasNullAwareLeftAntiJoin()
                 && getScanRangeNum()
                 < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum()
@@ -820,7 +807,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     protected void toThrift(TPlanNode msg) {
         // topn filter
-        if (useTopnFilter() && SessionVariable.enablePipelineEngineX()) {
+        if (useTopnFilter()) {
             List<Integer> topnFilterSourceNodeIds = getTopnFilterSortNodes()
                     .stream()
                     .map(sortNode -> sortNode.getId().asInt())

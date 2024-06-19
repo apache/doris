@@ -73,7 +73,7 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
             ReaderFileEntry* entry = nullptr;
 
             for (int32_t i = 0; i < numIndices; ++i) {
-                int64_t indexId = _stream->readInt();       // Read index ID
+                int64_t indexId = _stream->readLong();      // Read index ID
                 int32_t suffix_length = _stream->readInt(); // Read suffix length
                 std::vector<uint8_t> suffix_data(suffix_length);
                 _stream->readBytes(suffix_data.data(), suffix_length);
@@ -179,9 +179,8 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
                     InvertedIndexDescriptor::get_index_path_v2(_index_path_prefix), errMsg.str()));
         }
         // Need to clone resource here, because index searcher cache need it.
-        bool own_index_input = true;
         compound_reader = std::make_unique<DorisCompoundReader>(
-                _stream->clone(), index_it->second.get(), own_index_input, _read_buffer_size);
+                _stream->clone(), index_it->second.get(), _read_buffer_size);
     }
     return compound_reader;
 }

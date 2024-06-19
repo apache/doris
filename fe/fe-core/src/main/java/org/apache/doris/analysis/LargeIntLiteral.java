@@ -238,6 +238,11 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     }
 
     @Override
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
+        value = new BigInteger(Long.toUnsignedString(data.getLong()));
+    }
+
+    @Override
     public void swapSign() {
         // swapping sign does not change the type
         value = value.negate();

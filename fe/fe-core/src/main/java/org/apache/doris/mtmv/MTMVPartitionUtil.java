@@ -266,7 +266,9 @@ public class MTMVPartitionUtil {
             if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE && mtmv
                     .getMvPartitionInfo().getRelatedTableInfo().equals(baseTableInfo)) {
                 if (CollectionUtils.isEmpty(relatedPartitionNames)) {
-                    throw new AnalysisException("can not found related partition");
+                    // can not found related partition
+                    res.add(mtmvRelatedTableIf.getName());
+                    continue;
                 }
                 boolean isSyncWithPartition = isSyncWithPartitions(mtmv, partitionName, mtmvRelatedTableIf,
                         relatedPartitionNames);

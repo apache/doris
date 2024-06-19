@@ -490,8 +490,6 @@ public:
             case FieldType::OLAP_FIELD_TYPE_CHAR:
                 return new CharField(column);
             case FieldType::OLAP_FIELD_TYPE_VARCHAR:
-            case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
-                return new VarcharField(column);
             case FieldType::OLAP_FIELD_TYPE_STRING:
                 return new StringField(column);
             case FieldType::OLAP_FIELD_TYPE_STRUCT: {

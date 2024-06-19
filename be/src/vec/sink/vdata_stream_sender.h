@@ -25,7 +25,6 @@
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
-#include <stdint.h>
 
 #include <atomic>
 #include <cstddef>
@@ -33,6 +32,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -113,17 +113,15 @@ public:
     // combination. buffer_size is specified in bytes and a soft limit on
     // how much tuple data is getting accumulated before being sent; it only applies
     // when data is added via add_row() and not sent directly via send_batch().
-    Channel(Parent* parent, const RowDescriptor& row_desc, const TNetworkAddress& brpc_dest,
-            const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id)
+    Channel(Parent* parent, const RowDescriptor& row_desc, TNetworkAddress brpc_dest,
+            TUniqueId fragment_instance_id, PlanNodeId dest_node_id)
             : _parent(parent),
               _row_desc(row_desc),
-              _fragment_instance_id(fragment_instance_id),
+              _fragment_instance_id(std::move(fragment_instance_id)),
               _dest_node_id(dest_node_id),
-              _num_data_bytes_sent(0),
-              _packet_seq(0),
               _need_close(false),
               _closed(false),
-              _brpc_dest_addr(brpc_dest),
+              _brpc_dest_addr(std::move(brpc_dest)),
               _is_local((_brpc_dest_addr.hostname == BackendOptions::get_localhost()) &&
                         (_brpc_dest_addr.port == config::brpc_port)),
               _serializer(_parent, _is_local) {
@@ -224,8 +222,8 @@ protected:
     PlanNodeId _dest_node_id;
 
     // the number of RowBatch.data bytes sent successfully
-    int64_t _num_data_bytes_sent;
-    int64_t _packet_seq;
+    int64_t _num_data_bytes_sent {};
+    int64_t _packet_seq {};
 
     bool _need_close;
     bool _closed;
@@ -275,11 +273,7 @@ public:
         ch_roll_pb_block();
     }
 
-    ~PipChannel() override {
-        if (Channel<pipeline::ExchangeSinkLocalState>::_ch_cur_pb_block) {
-            delete Channel<pipeline::ExchangeSinkLocalState>::_ch_cur_pb_block;
-        }
-    }
+    ~PipChannel() override { delete Channel<pipeline::ExchangeSinkLocalState>::_ch_cur_pb_block; }
 
     void ch_roll_pb_block() override {
         // We have two choices here.

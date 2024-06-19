@@ -137,7 +137,7 @@ public class CastExpr extends Expr {
      */
     public CastExpr(Type targetType, Expr e, Void v) {
         Preconditions.checkArgument(targetType.isValid());
-        Preconditions.checkNotNull(e);
+        Preconditions.checkNotNull(e, "cast child is null");
         opcode = TExprOpcode.CAST;
         type = targetType;
         targetTypeDef = null;
