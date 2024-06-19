@@ -250,7 +250,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
-                    rewrittenPlan, materializationContext);
+                    rewrittenPlan, materializationContext, cascadesContext);
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
@@ -483,7 +483,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * Rewrite query by view, for aggregate or join rewriting should be different inherit class implementation
      */
     protected Plan rewriteQueryByView(MatchMode matchMode, StructInfo queryStructInfo, StructInfo viewStructInfo,
-            SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan, MaterializationContext materializationContext) {
+            SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan, MaterializationContext materializationContext,
+            CascadesContext cascadesContext) {
         return tempRewritedPlan;
     }
 
