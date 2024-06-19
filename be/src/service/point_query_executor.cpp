@@ -432,7 +432,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                     _reusable->get_col_default_values(), _reusable->include_col_uids());
         }
         if (!_reusable->missing_col_uids().empty()) {
-            if (!_reusable->runtime_state().enable_short_circuit_query_access_column_store()) {
+            if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
                 std::string missing_columns;
                 for (int cid : _reusable->missing_col_uids()) {
                     missing_columns += _tablet->tablet_schema()->column_by_uid(cid).name() + ",";
