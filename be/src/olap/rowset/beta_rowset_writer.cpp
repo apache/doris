@@ -626,14 +626,17 @@ int64_t BetaRowsetWriter::_num_seg() const {
 void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
     std::lock_guard<std::mutex> lock(*(_context.schema_lock));
     TabletSchemaSPtr update_schema;
+    if (_context.merged_tablet_schema == nullptr) {
+        _context.merged_tablet_schema = _context.tablet_schema;
+    }
     static_cast<void>(vectorized::schema_util::get_least_common_schema(
-            {_context.tablet_schema, flush_schema}, nullptr, update_schema));
+            {_context.merged_tablet_schema, flush_schema}, nullptr, update_schema));
     CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
             << "Rowset merge schema columns count is " << update_schema->num_columns()
             << ", but flush_schema is larger " << flush_schema->num_columns()
             << " update_schema: " << update_schema->dump_structure()
             << " flush_schema: " << flush_schema->dump_structure();
-    _context.tablet_schema.swap(update_schema);
+    _context.merged_tablet_schema.swap(update_schema);
     VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
 }
 
