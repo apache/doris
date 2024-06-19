@@ -677,7 +677,7 @@ public class OutFileClause {
         if (PARQUET_COMPRESSION_TYPE_MAP.containsKey(propertyValue)) {
             this.parquetCompressionType = PARQUET_COMPRESSION_TYPE_MAP.get(propertyValue);
         } else {
-            LOG.warn("not set parquet compression type or is invalid, set default to SNAPPY type.");
+            LOG.debug("not set parquet compression type or is invalid, set default to SNAPPY type.");
         }
     }
 
@@ -685,7 +685,7 @@ public class OutFileClause {
         if (PARQUET_VERSION_MAP.containsKey(propertyValue)) {
             this.parquetVersion = PARQUET_VERSION_MAP.get(propertyValue);
         } else {
-            LOG.warn("not set parquet version type or is invalid, set default to PARQUET_1.0 version.");
+            LOG.debug("not set parquet version type or is invalid, set default to PARQUET_1.0 version.");
         }
     }
 
@@ -758,7 +758,7 @@ public class OutFileClause {
             if (ORC_COMPRESSION_TYPE_MAP.containsKey(properties.get(ORC_COMPRESSION))) {
                 this.orcCompressionType = ORC_COMPRESSION_TYPE_MAP.get(properties.get(ORC_COMPRESSION));
             } else {
-                LOG.warn("not set orc compression type or is invalid, set default to ZLIB type.");
+                LOG.debug("not set orc compression type or is invalid, set default to ZLIB type.");
             }
             processedPropKeys.add(ORC_COMPRESSION);
         }
