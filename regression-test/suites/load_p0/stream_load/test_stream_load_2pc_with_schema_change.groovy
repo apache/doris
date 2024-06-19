@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_stream_load_2pc_with_schema_change", "p0") {
-    def tableName = "test_2pc_table"
+    def tableName = "test_2pc_table_with_sc"
     InetSocketAddress address = context.config.feHttpInetSocketAddress
     String user = context.config.feHttpUser
     String password = context.config.feHttpPassword
