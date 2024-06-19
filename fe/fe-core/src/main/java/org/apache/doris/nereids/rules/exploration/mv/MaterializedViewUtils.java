@@ -443,6 +443,8 @@ public class MaterializedViewUtils {
                     || plan instanceof LogicalWindow) {
                 return super.visit(plan, context);
             }
+            context.addFailReason(String.format("Unsupported plan operate in track partition, "
+                    + "the invalid plan node is %s", plan.getClass().getSimpleName()));
             return null;
         }
 
