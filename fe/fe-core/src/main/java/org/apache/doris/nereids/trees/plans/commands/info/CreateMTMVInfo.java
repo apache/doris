@@ -101,7 +101,7 @@ public class CreateMTMVInfo {
     private Map<String, String> mvProperties = Maps.newHashMap();
 
     private final LogicalPlan logicalQuery;
-    private final String querySql;
+    private String querySql;
     private final MTMVRefreshInfo refreshInfo;
     private final List<ColumnDefinition> columns = Lists.newArrayList();
     private final List<SimpleColumnDefinition> simpleColumnDefinitions;
@@ -142,6 +142,7 @@ public class CreateMTMVInfo {
      * analyze create table info
      */
     public void analyze(ConnectContext ctx) {
+        querySql = BaseViewInfo.rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
         // analyze table name
         mvName.analyze(ctx);
         try {

@@ -84,7 +84,14 @@ public class BaseViewInfo {
         analyzedPlan = viewContextForStar.getRewritePlan();
     }
 
-    protected String rewriteSql(Map<Pair<Integer, Integer>, String> indexStringSqlMap) {
+    /**
+     * expand star(*) in project list and replace table name with qualifier
+     *
+     * @param indexStringSqlMap indexStringSqlMap
+     * @param querySql querySql
+     * @return rewriteSql
+     */
+    public static String rewriteSql(Map<Pair<Integer, Integer>, String> indexStringSqlMap, String querySql) {
         StringBuilder builder = new StringBuilder();
         int beg = 0;
         for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
