@@ -133,7 +133,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
     public static final String ENABLE_SPILLING = "enable_spilling";
-    public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_point_query";
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
@@ -283,6 +282,11 @@ public class SessionVariable implements Serializable, Writable {
     public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
 
     public static final String ENABLE_PROJECTION = "enable_projection";
+
+    public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_query";
+
+    public static final String ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE
+                    = "enable_short_circuit_query_access_column_store";
 
     public static final String CHECK_OVERFLOW_FOR_DECIMAL = "check_overflow_for_decimal";
 
@@ -654,9 +658,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY)
-    public boolean enableShortCircuitQuery = true;
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
@@ -1160,6 +1161,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY)
+    private boolean enableShortCircuitQuery = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
+    private boolean enableShortCircuitQueryAcessColumnStore = true;
 
     @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
     private boolean checkOverflowForDecimal = true;
@@ -3004,6 +3011,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableProjection;
     }
 
+    public boolean isEnableShortCircuitQuery() {
+        return enableShortCircuitQuery;
+    }
+
     public boolean checkOverflowForDecimal() {
         return checkOverflowForDecimal;
     }
@@ -3430,6 +3441,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
+        tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
         return tResult;
     }
 

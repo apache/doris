@@ -1228,6 +1228,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         this.bfFpp = bfFpp;
     }
 
+    public void setRowStoreColumns(List<String> rowStoreColumns) {
+        getOrCreatTableProperty().setRowStoreColumns(rowStoreColumns);
+    }
+
+    public List<Integer> getRowStoreColumnsUniqueIds(List<String> rowStoreColumns) {
+        List<Integer> columnIds = Lists.newArrayList();
+        if (rowStoreColumns != null) {
+            for (String colName : rowStoreColumns) {
+                Column col = nameToColumn.get(colName);
+                Preconditions.checkNotNull(col);
+                columnIds.add(col.getUniqueId());
+            }
+        }
+        return columnIds;
+    }
+
     public String getSequenceMapCol() {
         if (tableProperty == null) {
             return null;
@@ -1963,6 +1979,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     public Column getBaseColumn(String columnName) {
         for (Column column : getBaseSchema()) {
             if (column.getName().equalsIgnoreCase(columnName)) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    public Column getBaseColumn(int colUniqueId) {
+        for (Column column : getBaseSchema()) {
+            if (column.getUniqueId() == colUniqueId) {
                 return column;
             }
         }

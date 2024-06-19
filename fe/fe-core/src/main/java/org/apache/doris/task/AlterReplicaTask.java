@@ -60,11 +60,11 @@ public class AlterReplicaTask extends AgentTask {
     private long expiration;
 
     private String vaultId;
-
     /**
      * AlterReplicaTask constructor.
      *
      */
+
     public AlterReplicaTask(long backendId, long dbId, long tableId, long partitionId, long rollupIndexId,
             long baseIndexId, long rollupTabletId, long baseTabletId, long newReplicaId, int newSchemaHash,
             int baseSchemaHash, long version, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs,

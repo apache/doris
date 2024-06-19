@@ -26,6 +26,7 @@
 #include <ostream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "cloud/config.h"
@@ -265,7 +266,7 @@ void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) con
     // Just invalid row cache for simplicity, since the rowset is not visible at present.
     // If we update/insert cache, if load failed rowset will not be visible but cached data
     // will be visible, and lead to inconsistency.
-    if (!config::disable_storage_row_cache && _tablet_schema->store_row_column() &&
+    if (!config::disable_storage_row_cache && _tablet_schema->has_row_store_for_all_columns() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT) {
         // invalidate cache
         RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
@@ -278,27 +279,23 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
     }
     MonotonicStopWatch watch;
     watch.start();
-    // find row column id
     int row_column_id = 0;
     for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
         if (_tablet_schema->column(i).is_row_store_column()) {
-            row_column_id = i;
+            auto* row_store_column = static_cast<vectorized::ColumnString*>(
+                    block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
+            row_store_column->clear();
+            vectorized::DataTypeSerDeSPtrs serdes =
+                    vectorized::create_data_type_serdes(block.get_data_types());
+            std::unordered_set<int> row_store_cids_set(_tablet_schema->row_columns_uids().begin(),
+                                                       _tablet_schema->row_columns_uids().end());
+            vectorized::JsonbSerializeUtil::block_to_jsonb(
+                    *_tablet_schema, block, *row_store_column, _tablet_schema->num_columns(),
+                    serdes, row_store_cids_set);
             break;
         }
     }
-    if (row_column_id == 0) {
-        return;
-    }
-    auto* row_store_column =
-            static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)
-                                                           .column->assume_mutable_ref()
-                                                           .assume_mutable()
-                                                           .get());
-    row_store_column->clear();
-    vectorized::DataTypeSerDeSPtrs serdes =
-            vectorized::create_data_type_serdes(block.get_data_types());
-    vectorized::JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
-                                                   _tablet_schema->num_columns(), serdes);
+
     VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
                << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
                << watch.elapsed_time() / 1000;
@@ -500,10 +497,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                                           has_default_or_nullable, segment_start_pos, data.block));
 
     // row column should be filled here
-    if (_tablet_schema->store_row_column()) {
-        // convert block to row store format
-        _serialize_block_to_row_column(full_block);
-    }
+    // convert block to row store format
+    _serialize_block_to_row_column(full_block);
 
     // convert missing columns and send to column writer
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
@@ -567,7 +562,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
     auto old_value_block = _tablet_schema->create_block_by_cids(missing_cids);
     CHECK_EQ(missing_cids.size(), old_value_block.columns());
     auto mutable_old_columns = old_value_block.mutate_columns();
-    bool has_row_column = _tablet_schema->store_row_column();
+    bool has_row_column = _tablet_schema->has_row_store_for_all_columns();
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
     size_t read_idx = 0;
@@ -833,9 +828,8 @@ Status VerticalSegmentWriter::write_batch() {
     }
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
-    if (_tablet_schema->store_row_column() &&
-        (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE)) {
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
+        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
         for (auto& data : _batched_blocks) {
             // TODO: maybe we should pass range to this method
             _serialize_block_to_row_column(*const_cast<vectorized::Block*>(data.block));

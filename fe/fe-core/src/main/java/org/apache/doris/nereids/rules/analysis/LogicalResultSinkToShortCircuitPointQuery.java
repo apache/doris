@@ -60,7 +60,7 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
     }
 
     private boolean scanMatchShortCircuitCondition(LogicalOlapScan olapScan) {
-        if (!ConnectContext.get().getSessionVariable().enableShortCircuitQuery) {
+        if (!ConnectContext.get().getSessionVariable().isEnableShortCircuitQuery()) {
             return false;
         }
         OlapTable olapTable = olapScan.getTable();

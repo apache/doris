@@ -28,6 +28,7 @@
 
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
+#include "common/consts.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
@@ -1313,6 +1314,16 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         // there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
         return Status::OK();
+    }
+
+    // if new tablet enable row store, or new tablet has different row store columns
+    if ((!base_tablet_schema->have_column(BeConsts::ROW_STORE_COL) &&
+         new_tablet_schema->have_column(BeConsts::ROW_STORE_COL)) ||
+        !std::equal(new_tablet_schema->row_columns_uids().begin(),
+                    new_tablet_schema->row_columns_uids().end(),
+                    base_tablet_schema->row_columns_uids().begin(),
+                    base_tablet_schema->row_columns_uids().end())) {
+        *sc_directly = true;
     }
 
     for (size_t i = 0; i < new_tablet_schema->num_columns(); ++i) {
