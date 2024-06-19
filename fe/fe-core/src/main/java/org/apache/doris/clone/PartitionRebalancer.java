@@ -32,6 +32,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
+import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -121,19 +122,20 @@ public class PartitionRebalancer extends Rebalancer {
                 = algo.getNextMoves(clusterBalanceInfo, Config.partition_rebalance_max_moves_num_per_selection);
 
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
-        List<Long> inProgressIds = movesInProgressList.stream().map(m -> m.tabletId).collect(Collectors.toList());
+        Set<Long> inProgressIds = movesInProgressList.stream().map(m -> m.tabletId).collect(Collectors.toSet());
         for (TwoDimensionalGreedyRebalanceAlgo.PartitionMove move : moves) {
             // Find all tablets of the specified partition that would have a replica at the source be,
             // but would not have a replica at the destination be. That is to satisfy the restriction
             // of having no more than one replica of the same tablet per be.
             List<Long> tabletIds = invertedIndex.getTabletIdsByBackendIdAndStorageMedium(move.fromBe, medium);
-            List<Long> invalidIds = invertedIndex.getTabletIdsByBackendIdAndStorageMedium(move.toBe, medium);
-            tabletIds.removeAll(invalidIds);
-            // In-progress tablets can't be the candidate too.
-            tabletIds.removeAll(inProgressIds);
+            Set<Long> invalidIds = Sets.newHashSet(
+                    invertedIndex.getTabletIdsByBackendIdAndStorageMedium(move.toBe, medium));
 
             Map<Long, TabletMeta> tabletCandidates = Maps.newHashMap();
             for (long tabletId : tabletIds) {
+                if (invalidIds.contains(tabletId) || inProgressIds.contains(tabletId)) {
+                    continue;
+                }
                 TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
                 if (tabletMeta != null && tabletMeta.getPartitionId() == move.partitionId
                         && tabletMeta.getIndexId() == move.indexId) {
