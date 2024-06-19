@@ -142,6 +142,7 @@ public class CreateMTMVInfo {
      * analyze create table info
      */
     public void analyze(ConnectContext ctx) {
+        BaseViewInfo.analyzeAndFillRewriteSqlMap(querySql, ctx);
         querySql = BaseViewInfo.rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
         // analyze table name
         mvName.analyze(ctx);

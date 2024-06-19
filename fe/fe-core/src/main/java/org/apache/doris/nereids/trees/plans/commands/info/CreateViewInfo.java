@@ -74,7 +74,7 @@ public class CreateViewInfo extends BaseViewInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.CREATE.getPrivs().toString(), viewName.getTbl());
         }
-        analyzeAndFillRewriteSqlMap(querySql, ctx);
+        analyzedPlan = analyzeAndFillRewriteSqlMap(querySql, ctx);
         OutermostPlanFinderContext outermostPlanFinderContext = new OutermostPlanFinderContext();
         analyzedPlan.accept(OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
         List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
