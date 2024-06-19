@@ -17,8 +17,11 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -117,26 +120,19 @@ public class SnapshotInfo implements Writable {
     }
 
     public static SnapshotInfo read(DataInput in) throws IOException {
-        SnapshotInfo info = new SnapshotInfo();
-        info.readFields(in);
-        return info;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
+            SnapshotInfo info = new SnapshotInfo();
+            info.readFields(in);
+            return info;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, SnapshotInfo.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tblId);
-        out.writeLong(partitionId);
-        out.writeLong(indexId);
-        out.writeLong(tabletId);
-        out.writeLong(beId);
-        out.writeInt(schemaHash);
-        Text.writeString(out, path);
-
-        out.writeInt(files.size());
-        for (String file : files) {
-            Text.writeString(out, file);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public void readFields(DataInput in) throws IOException {

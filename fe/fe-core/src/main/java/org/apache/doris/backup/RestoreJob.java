@@ -66,6 +66,7 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
@@ -107,7 +108,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-public class RestoreJob extends AbstractJob {
+public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private static final String PROP_RESERVE_REPLICA = "reserve_replica";
     private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
@@ -2182,6 +2183,13 @@ public class RestoreJob extends AbstractJob {
             String value = Text.readString(in);
             properties.put(key, value);
         }
+        reserveReplica = Boolean.parseBoolean(properties.get(PROP_RESERVE_REPLICA));
+        reserveDynamicPartitionEnable = Boolean.parseBoolean(properties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
+        isBeingSynced = Boolean.parseBoolean(properties.get(PROP_IS_BEING_SYNCED));
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
         reserveReplica = Boolean.parseBoolean(properties.get(PROP_RESERVE_REPLICA));
         reserveDynamicPartitionEnable = Boolean.parseBoolean(properties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
         isBeingSynced = Boolean.parseBoolean(properties.get(PROP_IS_BEING_SYNCED));
