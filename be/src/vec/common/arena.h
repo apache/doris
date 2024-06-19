@@ -103,7 +103,7 @@ private:
             head = new Chunk(_initial_size, nullptr);
             size_in_bytes += head->size();
         }
-        
+
         size_t size_after_grow = 0;
 
         if (head->size() < linear_growth_threshold) {
