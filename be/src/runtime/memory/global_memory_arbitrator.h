@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "runtime/memory/mem_tracker.h"
 #include "util/mem_info.h"
 
 namespace doris {
@@ -102,27 +103,21 @@ public:
         return msg;
     }
 
-    static inline bool try_reserve_process_memory(int64_t bytes) {
-        if (sys_mem_available() - bytes < MemInfo::sys_mem_available_low_water_mark()) {
-            return false;
-        }
-        int64_t old_reserved_mem = _s_process_reserved_memory.load(std::memory_order_relaxed);
-        int64_t new_reserved_mem = 0;
-        do {
-            new_reserved_mem = old_reserved_mem + bytes;
-            if (UNLIKELY(vm_rss_sub_allocator_cache() +
-                                 refresh_interval_memory_growth.load(std::memory_order_relaxed) +
-                                 new_reserved_mem >=
-                         MemInfo::mem_limit())) {
-                return false;
-            }
-        } while (!_s_process_reserved_memory.compare_exchange_weak(
-                old_reserved_mem, new_reserved_mem, std::memory_order_relaxed));
-        return true;
-    }
+    static bool try_reserve_process_memory(int64_t bytes);
+    static void release_process_reserved_memory(int64_t bytes);
 
-    static inline void release_process_reserved_memory(int64_t bytes) {
-        _s_process_reserved_memory.fetch_sub(bytes, std::memory_order_relaxed);
+    static inline void make_reserved_memory_snapshots(
+            std::vector<MemTracker::Snapshot>* snapshots) {
+        std::lock_guard<std::mutex> l(_reserved_trackers_lock);
+        for (const auto& pair : _reserved_trackers) {
+            MemTracker::Snapshot snapshot;
+            snapshot.type = "reserved_memory";
+            snapshot.label = pair.first;
+            snapshot.limit = -1;
+            snapshot.cur_consumption = pair.second.current_value();
+            snapshot.peak_consumption = pair.second.peak_value();
+            (*snapshots).emplace_back(snapshot);
+        }
     }
 
     static inline int64_t process_reserved_memory() {
@@ -180,6 +175,9 @@ public:
 
 private:
     static std::atomic<int64_t> _s_process_reserved_memory;
+
+    static std::mutex _reserved_trackers_lock;
+    static std::unordered_map<std::string, MemTracker::MemCounter> _reserved_trackers;
 };
 
 } // namespace doris
