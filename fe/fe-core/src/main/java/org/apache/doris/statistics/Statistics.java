@@ -122,7 +122,7 @@ public class Statistics {
                         && expressionToColumnStats.get(s).isUnKnown);
     }
 
-    private double computeTupleSize() {
+    public double computeTupleSize() {
         if (tupleSize <= 0) {
             double tempSize = 0.0;
             for (ColumnStatistic s : expressionToColumnStats.values()) {
