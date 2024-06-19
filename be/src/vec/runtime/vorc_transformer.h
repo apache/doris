@@ -79,7 +79,7 @@ private:
 class VOrcTransformer final : public VFileFormatTransformer {
 public:
     VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                    const VExprContextSPtrs& output_vexpr_ctxs, const std::string& schema,
+                    const VExprContextSPtrs& output_vexpr_ctxs, std::string schema,
                     std::vector<std::string> column_names, bool output_object_data,
                     TFileCompressType::type compression,
                     const iceberg::Schema* iceberg_schema = nullptr);
@@ -110,7 +110,7 @@ private:
     std::vector<std::string> _column_names;
     std::unique_ptr<orc::OutputStream> _output_stream;
     std::unique_ptr<orc::WriterOptions> _write_options;
-    const std::string& _schema_str;
+    std::string _schema_str;
     std::unique_ptr<orc::Type> _schema;
     std::unique_ptr<orc::Writer> _writer;
 

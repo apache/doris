@@ -107,15 +107,15 @@ void VOrcOutputStream::set_written_len(int64_t written_len) {
 }
 
 VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                                 const VExprContextSPtrs& output_vexpr_ctxs,
-                                 const std::string& schema, std::vector<std::string> column_names,
-                                 bool output_object_data, TFileCompressType::type compress_type,
+                                 const VExprContextSPtrs& output_vexpr_ctxs, std::string schema,
+                                 std::vector<std::string> column_names, bool output_object_data,
+                                 TFileCompressType::type compress_type,
                                  const iceberg::Schema* iceberg_schema)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
           _column_names(std::move(column_names)),
           _write_options(new orc::WriterOptions()),
-          _schema_str(schema),
+          _schema_str(std::move(schema)),
           _iceberg_schema(iceberg_schema) {
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
