@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -53,13 +54,13 @@ public class ReplacePartitionOperationLog implements Writable {
     private long version = 0L;
     @SerializedName(value = "versionTime")
     private long versionTime = 0L;
-    @SerializedName(value = "recycle")
-    private boolean recycle = false;
+    @SerializedName(value = "force")
+    private boolean force = FeConstants.DEFAULT_DROP_NORMAL_PARTITION_WHEN_REPLACE_PARTITION;
 
     public ReplacePartitionOperationLog(long dbId, String dbName, long tblId, String tblName,
                                         List<String> partitionNames,
                                         List<String> tempPartitonNames, boolean strictRange,
-                                        boolean useTempPartitionName, long version, long versionTime) {
+                                        boolean useTempPartitionName, long version, long versionTime, boolean force) {
         this.dbId = dbId;
         this.dbName = dbName;
         this.tblId = tblId;
@@ -70,7 +71,7 @@ public class ReplacePartitionOperationLog implements Writable {
         this.useTempPartitionName = useTempPartitionName;
         this.version = version;
         this.versionTime = versionTime;
-        this.recycle = true; // set to true in constructor
+        this.force = force;
     }
 
     public long getDbId() {
@@ -105,8 +106,8 @@ public class ReplacePartitionOperationLog implements Writable {
         return versionTime;
     }
 
-    public boolean isRecycle() {
-        return recycle;
+    public boolean isForce() {
+        return force;
     }
 
     public static ReplacePartitionOperationLog read(DataInput in) throws IOException {

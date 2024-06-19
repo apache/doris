@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Joiner;
@@ -54,6 +55,10 @@ public class ReplacePartitionClause extends AlterTableClause {
     //      but if "use_temp_partition_name" is true, the partition names will be "tp1" and "tp2".
     private boolean useTempPartitionName;
 
+    // The replaced partitions will be moved to recycle bin when "forceDropNormalPartition" is false,
+    // and instead, these partitions will be deleted directly.
+    private boolean forceDropNormalPartition;
+
     public ReplacePartitionClause(PartitionNames partitionNames, PartitionNames tempPartitionNames,
             Map<String, String> properties) {
         super(AlterOpType.REPLACE_PARTITION);
@@ -79,6 +84,11 @@ public class ReplacePartitionClause extends AlterTableClause {
         return useTempPartitionName;
     }
 
+    public boolean isForceDropNormalPartition() {
+        return forceDropNormalPartition;
+    }
+
+    @SuppressWarnings("checkstyle:LineLength")
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (partitionNames == null || tempPartitionNames == null) {
@@ -96,6 +106,9 @@ public class ReplacePartitionClause extends AlterTableClause {
                 properties, PropertyAnalyzer.PROPERTIES_STRICT_RANGE, true);
         this.useTempPartitionName = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, false);
+        this.forceDropNormalPartition = PropertyAnalyzer.analyzeBooleanProp(properties,
+                PropertyAnalyzer.PROPERTIES_FORE_DROP_NORMAL_PARTITION,
+                FeConstants.DEFAULT_DROP_NORMAL_PARTITION_WHEN_REPLACE_PARTITION);
 
         if (properties != null && !properties.isEmpty()) {
             throw new AnalysisException("Unknown properties: " + properties.keySet());

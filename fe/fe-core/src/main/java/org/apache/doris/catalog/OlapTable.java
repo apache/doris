@@ -2416,14 +2416,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      *
      */
     public void replaceTempPartitions(long dbId, List<String> partitionNames, List<String> tempPartitionNames,
-            boolean strictRange, boolean useTempPartitionName, boolean recycle) throws DdlException {
+            boolean strictRange, boolean useTempPartitionName, boolean force) throws DdlException {
         // check partition items
         checkPartition(partitionNames, tempPartitionNames, strictRange);
 
         // begin to replace
         // 1. drop old partitions
         for (String partitionName : partitionNames) {
-            dropPartition(dbId, partitionName, !recycle);
+            dropPartition(dbId, partitionName, force);
         }
 
         // 2. add temp partitions' range info to rangeInfo, and remove them from tempPartitionInfo
