@@ -37,7 +37,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -105,7 +104,6 @@ public class CreateMTMVInfo {
     private final MTMVRefreshInfo refreshInfo;
     private final List<ColumnDefinition> columns = Lists.newArrayList();
     private final List<SimpleColumnDefinition> simpleColumnDefinitions;
-    private final EnvInfo envInfo;
     private final MTMVPartitionDefinition mvPartitionDefinition;
     private PartitionDesc partitionDesc;
     private MTMVRelation relation;
@@ -132,8 +130,6 @@ public class CreateMTMVInfo {
         this.refreshInfo = Objects.requireNonNull(refreshInfo, "require refreshInfo object");
         this.simpleColumnDefinitions = Objects
                 .requireNonNull(simpleColumnDefinitions, "require simpleColumnDefinitions object");
-        this.envInfo = new EnvInfo(ConnectContext.get().getCurrentCatalog().getId(),
-                ConnectContext.get().getCurrentDbId());
         this.mvPartitionDefinition = Objects
                 .requireNonNull(mvPartitionDefinition, "require mtmvPartitionInfo object");
     }
@@ -142,8 +138,6 @@ public class CreateMTMVInfo {
      * analyze create table info
      */
     public void analyze(ConnectContext ctx) {
-        BaseViewInfo.analyzeAndFillRewriteSqlMap(querySql, ctx);
-        querySql = BaseViewInfo.rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
         // analyze table name
         mvName.analyze(ctx);
         try {
@@ -184,6 +178,12 @@ public class CreateMTMVInfo {
         refreshInfo.validate();
 
         analyzeProperties();
+        rewriteQuerySql(ctx);
+    }
+
+    private void rewriteQuerySql(ConnectContext ctx) {
+        BaseViewInfo.analyzeAndFillRewriteSqlMap(querySql, ctx);
+        querySql = BaseViewInfo.rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
     }
 
     private void analyzeProperties() {
@@ -407,7 +407,7 @@ public class CreateMTMVInfo {
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
         return new CreateMTMVStmt(ifNotExists, tableName, catalogColumns, refreshInfo, keysDesc,
-                distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment, envInfo,
+                distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment,
                 partitionDesc, mvPartitionInfo, relation);
     }
 

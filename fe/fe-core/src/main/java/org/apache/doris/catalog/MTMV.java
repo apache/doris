@@ -25,7 +25,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
-import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
@@ -70,8 +69,6 @@ public class MTMV extends OlapTable {
     private String querySql;
     @SerializedName("s")
     private MTMVStatus status;
-    @SerializedName("ei")
-    private EnvInfo envInfo;
     @SerializedName("ji")
     private MTMVJobInfo jobInfo;
     @SerializedName("mp")
@@ -103,7 +100,6 @@ public class MTMV extends OlapTable {
         this.type = TableType.MATERIALIZED_VIEW;
         this.querySql = params.querySql;
         this.refreshInfo = params.refreshInfo;
-        this.envInfo = params.envInfo;
         this.status = new MTMVStatus();
         this.jobInfo = new MTMVJobInfo(MTMVJobManager.MTMV_JOB_PREFIX + params.tableId);
         this.mvProperties = params.mvProperties;
@@ -133,10 +129,6 @@ public class MTMV extends OlapTable {
         } finally {
             readMvUnlock();
         }
-    }
-
-    public EnvInfo getEnvInfo() {
-        return envInfo;
     }
 
     public MTMVJobInfo getJobInfo() {
@@ -399,11 +391,6 @@ public class MTMV extends OlapTable {
     }
 
     // for test
-    public void setEnvInfo(EnvInfo envInfo) {
-        this.envInfo = envInfo;
-    }
-
-    // for test
     public void setJobInfo(MTMVJobInfo jobInfo) {
         this.jobInfo = jobInfo;
     }
@@ -457,7 +444,6 @@ public class MTMV extends OlapTable {
         refreshInfo = materializedView.refreshInfo;
         querySql = materializedView.querySql;
         status = materializedView.status;
-        envInfo = materializedView.envInfo;
         jobInfo = materializedView.jobInfo;
         mvProperties = materializedView.mvProperties;
         relation = materializedView.relation;
@@ -475,7 +461,6 @@ public class MTMV extends OlapTable {
         sb.append("refreshInfo=").append(refreshInfo);
         sb.append(", querySql='").append(querySql).append('\'');
         sb.append(", status=").append(status);
-        sb.append(", envInfo=").append(envInfo);
         if (jobInfo != null) {
             sb.append(", jobInfo=").append(jobInfo.toInfoString());
         }
