@@ -557,7 +557,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public int getNumInstances() {
         if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
                 && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
             return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }

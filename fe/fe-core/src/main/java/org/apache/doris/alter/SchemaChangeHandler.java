@@ -83,6 +83,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
@@ -1317,6 +1318,28 @@ public class SchemaChangeHandler extends AlterHandler {
         TInvertedIndexStorageFormat invertedIndexStorageFormat =
                 PropertyAnalyzer.analyzeInvertedIndexStorageFormat(propertyMap);
 
+        // property store_row_column && row_store_columns
+        // eg. "store_row_column" = "true"
+        // eg. "row_store_columns" = "k1, k2"
+        List<String> rsColumns = Lists.newArrayList();
+        boolean storeRowColumn = false;
+        try {
+            storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(propertyMap);
+            rsColumns = PropertyAnalyzer.analyzeRowStoreColumns(propertyMap,
+                        olapTable.getColumns().stream().map(Column::getName).collect(Collectors.toList()));
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        // check row store column has change
+        boolean hasRowStoreChanged = false;
+        if (storeRowColumn || (rsColumns != null && !rsColumns.isEmpty())) {
+            List<String> oriRowStoreColumns = olapTable.getTableProperty().getCopiedRowStoreColumns();
+            if ((oriRowStoreColumns != null && !oriRowStoreColumns.equals(rsColumns))
+                    || storeRowColumn != olapTable.storeRowColumn()) {
+                hasRowStoreChanged = true;
+            }
+        }
+
         // begin checking each table
         // ATTN: DO NOT change any meta in this loop
         long tableId = olapTable.getId();
@@ -1377,6 +1400,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                 }
             } else if (hasIndexChange) {
+                needAlter = true;
+            } else if (hasRowStoreChanged) {
                 needAlter = true;
             } else if (storageFormat == TStorageFormat.V2) {
                 if (olapTable.getStorageFormat() != TStorageFormat.V2) {
@@ -1503,7 +1528,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         } // end for indices
 
-        if (changedIndexIdToSchema.isEmpty() && !hasIndexChange) {
+        if (changedIndexIdToSchema.isEmpty() && !hasIndexChange && !hasRowStoreChanged) {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
@@ -1516,6 +1541,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         timeoutSecond * 1000);
         schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
         schemaChangeJob.setAlterIndexInfo(hasIndexChange, indexes);
+        schemaChangeJob.setStoreRowColumnInfo(hasRowStoreChanged, storeRowColumn, rsColumns);
 
         // If StorageFormat is set to TStorageFormat.V2
         // which will create tablet with preferred_rowset_type set to BETA
@@ -1921,6 +1947,20 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                         enableLightSchemaChange(db, olapTable);
                         return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)
+                                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS)) {
+                        String value = properties.get(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN);
+                        if (value != null && value.equalsIgnoreCase("false")) {
+                            throw new DdlException("Can not alter store_row_column from true to false currently");
+                        }
+                        if (!olapTable.storeRowColumn()) {
+                            Column rowColumn = ColumnDefinition
+                                    .newRowStoreColumnDefinition(null).translateToCatalogStyle();
+                            int maxColUniqueId = olapTable
+                                    .getIndexMetaByIndexId(olapTable.getBaseIndexId()).getMaxColUniqueId();
+                            rowColumn.setUniqueId(maxColUniqueId + 1);
+                            indexSchemaMap.get(olapTable.getBaseIndexId()).add(rowColumn);
+                        }
                     }
                 }
 

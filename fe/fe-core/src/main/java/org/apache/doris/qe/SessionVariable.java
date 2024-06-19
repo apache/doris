@@ -133,7 +133,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
     public static final String ENABLE_SPILLING = "enable_spilling";
-    public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_point_query";
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
@@ -283,6 +282,11 @@ public class SessionVariable implements Serializable, Writable {
     public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
 
     public static final String ENABLE_PROJECTION = "enable_projection";
+
+    public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_query";
+
+    public static final String ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE
+                    = "enable_short_circuit_query_access_column_store";
 
     public static final String CHECK_OVERFLOW_FOR_DECIMAL = "check_overflow_for_decimal";
 
@@ -516,7 +520,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
     public static final String HUGE_PARTITION_LOWER_BOUND_ROWS = "huge_partition_lower_bound_rows";
 
-
     // for spill to disk
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
     public static final String EXTERNAL_AGG_BYTES_THRESHOLD = "external_agg_bytes_threshold";
@@ -654,9 +657,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY)
-    public boolean enableShortCircuitQuery = true;
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
@@ -941,8 +941,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableNereidsDML = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML_WITH_PIPELINE, needForward = true,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            description = {"在新优化器中，使用pipeline引擎执行DML", "execute DML with pipeline engine in Nereids"})
+            varType = VariableAnnotation.REMOVED, description = { "在新优化器中，使用pipeline引擎执行DML",
+                    "execute DML with pipeline engine in Nereids" })
     public boolean enableNereidsDmlWithPipeline = true;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
@@ -952,10 +952,10 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, needForward = true,
-            varType = VariableAnnotation.EXPERIMENTAL)
+            varType = VariableAnnotation.REMOVED)
     private boolean enablePipelineEngine = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
+    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.REMOVED)
     private boolean enablePipelineXEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
@@ -1160,6 +1160,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY)
+    private boolean enableShortCircuitQuery = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
+    private boolean enableShortCircuitQueryAcessColumnStore = true;
 
     @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
     private boolean checkOverflowForDecimal = true;
@@ -1990,7 +1996,6 @@ public class SessionVariable implements Serializable, Writable {
         */
         // pull_request_id default value is 0. When it is 0, use default (global) session variable.
         if (Config.pull_request_id > 0) {
-            this.enablePipelineEngine = true;
             this.enableNereidsPlanner = true;
 
             switch (Config.pull_request_id % 4) {
@@ -2557,14 +2562,12 @@ public class SessionVariable implements Serializable, Writable {
                 return userParallelExecInstanceNum;
             }
         }
-        if (getEnablePipelineEngine() && parallelPipelineTaskNum == 0) {
+        if (parallelPipelineTaskNum == 0) {
             int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
             int autoInstance = (size + 1) / 2;
             return Math.min(autoInstance, maxInstanceNum);
-        } else if (getEnablePipelineEngine()) {
-            return parallelPipelineTaskNum;
         } else {
-            return parallelExecInstanceNum;
+            return parallelPipelineTaskNum;
         }
     }
 
@@ -2776,14 +2779,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setRuntimeFilterMaxInNum(int runtimeFilterMaxInNum) {
         this.runtimeFilterMaxInNum = runtimeFilterMaxInNum;
-    }
-
-    public void setEnablePipelineEngine(boolean enablePipelineEngine) {
-        this.enablePipelineEngine = enablePipelineEngine;
-    }
-
-    public void setEnablePipelineXEngine(boolean enablePipelineXEngine) {
-        this.enablePipelineXEngine = enablePipelineXEngine;
     }
 
     public void setEnableLocalShuffle(boolean enableLocalShuffle) {
@@ -3002,6 +2997,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableProjection() {
         return enableProjection;
+    }
+
+    public boolean isEnableShortCircuitQuery() {
+        return enableShortCircuitQuery;
     }
 
     public boolean checkOverflowForDecimal() {
@@ -3328,8 +3327,6 @@ public class SessionVariable implements Serializable, Writable {
         }
         tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
-        tResult.setEnablePipelineEngine(enablePipelineEngine);
-        tResult.setEnablePipelineXEngine(enablePipelineXEngine || enablePipelineEngine);
         tResult.setEnableLocalShuffle(enableLocalShuffle && enableNereidsPlanner);
         tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
@@ -3430,6 +3427,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
+        tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
         return tResult;
     }
 
@@ -3753,10 +3751,6 @@ public class SessionVariable implements Serializable, Writable {
         return num;
     }
 
-    public boolean getEnablePipelineEngine() {
-        return enablePipelineEngine || enablePipelineXEngine;
-    }
-
     public boolean getEnableSharedScan() {
         return enableSharedScan;
     }
@@ -3769,10 +3763,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableParallelScan;
     }
 
-    public boolean getEnablePipelineXEngine() {
-        return enablePipelineXEngine || enablePipelineEngine;
-    }
-
     public boolean enableParallelResultSink() {
         return enableParallelResultSink;
     }
@@ -3783,24 +3773,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean enableSyncRuntimeFilterSize() {
         return enableSyncRuntimeFilterSize;
-    }
-
-    public static boolean enablePipelineEngine() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
-            return false;
-        }
-        return connectContext.getSessionVariable().enablePipelineEngine
-                || connectContext.getSessionVariable().enablePipelineXEngine;
-    }
-
-    public static boolean enablePipelineEngineX() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
-            return false;
-        }
-        return connectContext.getSessionVariable().enablePipelineXEngine
-                || connectContext.getSessionVariable().enablePipelineEngine;
     }
 
     public static boolean enableAggState() {
@@ -3943,8 +3915,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isIgnoreStorageDataDistribution() {
-        return ignoreStorageDataDistribution && getEnablePipelineXEngine() && enableLocalShuffle
-                && enableNereidsPlanner;
+        return ignoreStorageDataDistribution && enableLocalShuffle && enableNereidsPlanner;
     }
 
     public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
@@ -3978,7 +3949,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isForceToLocalShuffle() {
-        return getEnablePipelineXEngine() && enableLocalShuffle && enableNereidsPlanner && forceToLocalShuffle;
+        return enableLocalShuffle && enableNereidsPlanner && forceToLocalShuffle;
     }
 
     public void setForceToLocalShuffle(boolean forceToLocalShuffle) {

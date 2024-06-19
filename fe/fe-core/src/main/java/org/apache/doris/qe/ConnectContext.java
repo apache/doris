@@ -1030,7 +1030,7 @@ public class ConnectContext {
             if (connId == connectionId) {
                 row.add("Yes");
             } else {
-                row.add("");
+                row.add("No");
             }
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
@@ -1055,7 +1055,11 @@ public class ConnectContext {
             }
 
             row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            row.add(cloudCluster);
+            if (cloudCluster == null) {
+                row.add("NULL");
+            } else {
+                row.add(cloudCluster);
+            }
             return row;
         }
     }

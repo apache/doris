@@ -3586,8 +3586,14 @@ public class Env {
 
             // store row column
             if (olapTable.storeRowColumn()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
-                sb.append(olapTable.storeRowColumn()).append("\"");
+                List<String> rsColumnNames = olapTable.getTableProperty().getCopiedRowStoreColumns();
+                if (rsColumnNames != null && !rsColumnNames.isEmpty()) {
+                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS).append("\" = \"");
+                    sb.append(Joiner.on(",").join(rsColumnNames)).append("\"");
+                } else {
+                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
+                    sb.append(olapTable.storeRowColumn()).append("\"");
+                }
             }
 
             // skip inverted index on load

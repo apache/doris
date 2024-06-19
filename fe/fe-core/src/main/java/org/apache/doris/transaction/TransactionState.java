@@ -232,7 +232,7 @@ public class TransactionState implements Writable {
     // this latch will be counted down when txn status change to VISIBLE
     private CountDownLatch visibleLatch;
 
-    // this state need not be serialized
+    // this state need not be serialized. the map key is backend_id
     private Map<Long, List<PublishVersionTask>> publishVersionTasks;
     private boolean hasSendTask;
     private TransactionStatus preStatus = null;
@@ -709,8 +709,17 @@ public class TransactionState implements Writable {
         if (txnCommitAttachment != null) {
             sb.append(", attachment: ").append(txnCommitAttachment);
         }
+        if (idToTableCommitInfos != null && !idToTableCommitInfos.isEmpty()) {
+            sb.append(", table commit info: ").append(idToTableCommitInfos);
+        }
         if (subTransactionStates != null) {
             sb.append(", sub txn states: ").append(subTransactionStates);
+        }
+        if (subTxnIds != null) {
+            sb.append(", sub txn ids: ").append(subTxnIds);
+        }
+        if (!subTxnIdToTableCommitInfo.isEmpty()) {
+            sb.append(", sub txn table commit info: ").append(subTxnIdToTableCommitInfo);
         }
         return sb.toString();
     }
