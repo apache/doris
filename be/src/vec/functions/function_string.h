@@ -506,28 +506,28 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        DCHECK_GE(arguments.size(), 1);
-        DCHECK_LE(arguments.size(), 2);
-
-        int n = -1;
+        int n = -1; // means unassigned
 
         auto res = ColumnString::create();
         auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnString& source_column = assert_cast<const ColumnString&>(*col);
 
         if (arguments.size() == 2) {
-            auto& col = *block.get_by_position(arguments[1]).column;
+            const auto& col = *block.get_by_position(arguments[1]).column;
+            // the 2nd arg is const. checked in fe.
+            if (col.get_int(0) < 0) [[unlikely]] {
+                return Status::InvalidArgument(
+                        "function {} only accept non-negative input for 2nd argument but got {}",
+                        name, col.get_int(0));
+            }
             n = col.get_int(0);
-        } else if (arguments.size() > 2) {
-            return Status::InvalidArgument(
-                    fmt::format("too many arguments for function {}", get_name()));
         }
 
-        if (n == -1) {
+        if (n == -1) { // no 2nd arg, just mask all
             FunctionMask::vector_mask(source_column, *res, FunctionMask::DEFAULT_UPPER_MASK,
                                       FunctionMask::DEFAULT_LOWER_MASK,
                                       FunctionMask::DEFAULT_NUMBER_MASK);
-        } else if (n >= 0) {
+        } else { // n >= 0
             vector(source_column, n, *res);
         }
 
