@@ -23,23 +23,11 @@ suite("test_single_replica_compaction", "p2") {
     }
     def tableName = "test_single_replica_compaction"
   
-    def set_be_config = { key, value ->
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
-
     def calc_file_crc_on_tablet = { ip, port, tablet ->
         return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
     }
 
     boolean disableAutoCompaction = true
-    boolean has_update_be_config = false
     try {
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -60,8 +48,6 @@ suite("test_single_replica_compaction", "p2") {
                 disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
             }
         }
-        set_be_config.call("disable_auto_compaction", "true")
-        has_update_be_config = true
 
         def triggerCompaction = { be_host, be_http_port, compact_type, tablet_id ->
             if (compact_type == "cumulative") {
@@ -166,7 +152,12 @@ suite("test_single_replica_compaction", "p2") {
             UNIQUE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "2", "enable_single_replica_compaction" = "true", "enable_unique_key_merge_on_write" = "false" );
+            PROPERTIES (
+                "replication_num" = "2",
+                "enable_single_replica_compaction" = "true",
+                "enable_unique_key_merge_on_write" = "false",
+                "disable_auto_compaction" = "true"
+            );
         """
 
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
@@ -290,9 +281,5 @@ suite("test_single_replica_compaction", "p2") {
         select * from  ${tableName} order by id
         """
   
-    } finally {
-        if (has_update_be_config) {
-            set_be_config.call("disable_auto_compaction", disableAutoCompaction.toString())
-        }
     }
 }

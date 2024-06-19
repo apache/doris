@@ -23,13 +23,6 @@ suite("test_time_series_compaction_polciy", "p0") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
  
-    def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
-
     def trigger_cumulative_compaction_on_tablets = { tablets ->
         for (def tablet : tablets) {
             String tablet_id = tablet.TabletId
@@ -82,25 +75,7 @@ suite("test_time_series_compaction_polciy", "p0") {
         return rowsetCount
     }
 
-    boolean disableAutoCompaction = false
     try {
-        String backend_id;
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-                logger.info("disable_auto_compaction: ${((List<String>) ele)[2]}")
-            }
-        }
-        set_be_config.call("disable_auto_compaction", "true")
 
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
@@ -113,7 +88,11 @@ suite("test_time_series_compaction_polciy", "p0") {
             DUPLICATE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 2
-            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "compaction_policy" = "time_series");
+            PROPERTIES (
+                "replication_num" = "1",
+                "disable_auto_compaction" = "true",
+                "compaction_policy" = "time_series"
+            );
         """
         // insert 16 lines, BUCKETS = 2
         sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
@@ -191,8 +170,6 @@ suite("test_time_series_compaction_polciy", "p0") {
         rowsetCount = get_rowset_count.call(tablets);
         assert (rowsetCount == 11 * replicaNum)
         qt_sql_3 """ select count() from ${tableName}"""
-    } finally {
-        set_be_config.call("disable_auto_compaction", disableAutoCompaction.toString())
     }
     
 }
