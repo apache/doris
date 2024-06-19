@@ -92,4 +92,6 @@ public class FeConstants {
     public static String CLOUD_RETRY_E230 = "E-230";
 
     public static String BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
+
+    public static boolean DEFAULT_DROP_NORMAL_PARTITION_WHEN_REPLACE_PARTITION = true;
 }

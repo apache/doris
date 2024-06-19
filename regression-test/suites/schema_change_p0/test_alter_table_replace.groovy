@@ -142,7 +142,7 @@ suite("test_alter_table_replace") {
 
     sql """ ALTER TABLE ${tbNameC} REPLACE PARTITION (p201701, p201702, p201703)
             WITH TEMPORARY PARTITION (tp201701, tp201702, tp201703)
-            PROPERTIES("use_temp_partition_name" = "true");;
+            PROPERTIES("use_temp_partition_name" = "true", "force_drop_normal" = "false");
         """
     qt_before_recover """ select * from ${tbNameC} order by user_id desc """
     sql """ ALTER TABLE DROP PARTITION tp201701 FORCE """
