@@ -161,10 +161,16 @@ public class InsertUtils {
                 row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
                 row.addColBuilder().setValue(String.format("\"%s\"",
-                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray()));
+                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForStreamLoad()));
             } else {
-                row.addColBuilder().setValue(String.format("\"%s\"",
-                        ((Literal) expr).toLegacyLiteral().getStringValue()));
+                String stringValue = ((Literal) expr).toLegacyLiteral().getStringValueForStreamLoad();
+                if (stringValue.equals(StmtExecutor.NULL_VALUE_FOR_LOAD) || stringValue.startsWith("\"")
+                        || stringValue.endsWith(
+                        "\"")) {
+                    row.addColBuilder().setValue(String.format("\"%s\"", stringValue));
+                } else {
+                    row.addColBuilder().setValue(String.format("%s", stringValue));
+                }
             }
         }
         return row.build();
