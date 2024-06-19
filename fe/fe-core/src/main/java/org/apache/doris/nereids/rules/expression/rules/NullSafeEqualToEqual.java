@@ -24,15 +24,16 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
- * convert "<=>" to "=", if any side is not nullable
  * convert "A <=> null" to "A is null"
+ * null <=> null : true
+ * null <=> 1 : false
+ * 1 <=> 2 : 1 = 2
  */
 public class NullSafeEqualToEqual implements ExpressionPatternRuleFactory {
     public static final NullSafeEqualToEqual INSTANCE = new NullSafeEqualToEqual();
@@ -45,19 +46,14 @@ public class NullSafeEqualToEqual implements ExpressionPatternRuleFactory {
     }
 
     private static Expression rewrite(NullSafeEqual nullSafeEqual) {
-        if (nullSafeEqual.left() instanceof NullLiteral) {
-            if (nullSafeEqual.right().nullable()) {
-                return new IsNull(nullSafeEqual.right());
-            } else {
-                return BooleanLiteral.FALSE;
-            }
-        } else if (nullSafeEqual.right() instanceof NullLiteral) {
-            if (nullSafeEqual.left().nullable()) {
-                return new IsNull(nullSafeEqual.left());
-            } else {
-                return BooleanLiteral.FALSE;
-            }
-        } else if (!nullSafeEqual.left().nullable() && !nullSafeEqual.right().nullable()) {
+        // because the nullable info hasn't been finalized yet, the optimization is limited
+        if (nullSafeEqual.left().isNullLiteral() && nullSafeEqual.right().isNullLiteral()) {
+            return BooleanLiteral.TRUE;
+        } else if (nullSafeEqual.left().isNullLiteral()) {
+            return nullSafeEqual.right().isLiteral() ? BooleanLiteral.FALSE : new IsNull(nullSafeEqual.right());
+        } else if (nullSafeEqual.right().isNullLiteral()) {
+            return nullSafeEqual.left().isLiteral() ? BooleanLiteral.FALSE : new IsNull(nullSafeEqual.left());
+        } else if (nullSafeEqual.left().isLiteral() && nullSafeEqual.right().isLiteral()) {
             return new EqualTo(nullSafeEqual.left(), nullSafeEqual.right());
         }
         return nullSafeEqual;
