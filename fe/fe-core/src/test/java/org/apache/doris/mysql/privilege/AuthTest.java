@@ -2374,6 +2374,56 @@ public class AuthTest {
     }
 
     @Test
+    public void testTableNamesCaseSensitive() throws UserException {
+        new Expectations() {
+            {
+                Env.isTableNamesCaseSensitive();
+                minTimes = 0;
+                result = true;
+            }
+        };
+        UserIdentity userIdentity = new UserIdentity("sensitiveUser", "%");
+        createUser(userIdentity);
+        // `load_priv` and `select_priv` can not `show create view`
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, new TablePattern("sensitivedb", "sensitiveTable"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV)));
+        grant(grantStmt);
+        Assert.assertTrue(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb", "sensitiveTable",
+                        PrivPredicate.SELECT));
+
+        Assert.assertFalse(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb", "sensitivetable",
+                        PrivPredicate.SELECT));
+        dropUser(userIdentity);
+    }
+
+    @Test
+    public void testTableNamesCaseInsensitive() throws UserException {
+        new Expectations() {
+            {
+                Env.isTableNamesCaseSensitive();
+                minTimes = 0;
+                result = false;
+            }
+        };
+        UserIdentity userIdentity = new UserIdentity("sensitiveUser1", "%");
+        createUser(userIdentity);
+        // `load_priv` and `select_priv` can not `show create view`
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, new TablePattern("sensitivedb1", "sensitiveTable"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV)));
+        grant(grantStmt);
+        Assert.assertTrue(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb1", "sensitiveTable",
+                        PrivPredicate.SELECT));
+
+        Assert.assertTrue(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb1", "sensitivetable",
+                        PrivPredicate.SELECT));
+        dropUser(userIdentity);
+    }
+
+    @Test
     public void testSetInitialRootPassword() {
         // Skip set root password if `initial_root_password` set to empty string
         auth.setInitialRootPassword("");
