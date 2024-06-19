@@ -49,7 +49,7 @@ suite("test_expand_star_mtmv","mtmv") {
         SELECT * from ${tableName};
         """
 
-    order_qt_query "SELECT QuerySql FROM mv_infos('database'='${dbName}') where Name = ${mvName}"
+    order_qt_query "SELECT QuerySql FROM mv_infos('database'='${dbName}') where Name = '${mvName}'"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
