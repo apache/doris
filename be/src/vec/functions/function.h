@@ -185,10 +185,11 @@ public:
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
 
-    virtual Status eval_inverted_index(FunctionContext* context,
-                                       const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
-                                       segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-                                       roaring::Roaring* bitmap) const {
+    virtual Status eval_inverted_index(
+            FunctionContext* context,
+            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            roaring::Roaring* bitmap) const {
         return Status::NotSupported("eval_inverted_index is not supported in function: ",
                                     get_name());
     }
