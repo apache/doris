@@ -81,28 +81,14 @@ public class NereidsCoordinator extends Coordinator {
             bucketShuffleJoinController
                     .isBucketShuffleJoin(fragment.getFragmentId().asInt(), fragment.getPlanRoot());
 
-            for (ScanNode scanNode : distributedPlan.getFragmentJob().getScanNodes()) {
-                if (scanNode instanceof FileQueryScanNode) {
-                    fileScanRangeParamsMap.put(
-                            scanNode.getId().asInt(),
-                            ((FileQueryScanNode) scanNode).getFileScanRangeParams()
-                    );
-                }
-            }
-
-            List<AssignedJob> instanceJobs = ((PipelineDistributedPlan) distributedPlan).getInstanceJobs();
-            boolean isShareScan = false;
-            for (AssignedJob instanceJob : instanceJobs) {
-                if (instanceJob instanceof LocalShuffleAssignedJob) {
-                    isShareScan = true;
-                    break;
-                }
-            }
+            setFileScanParams(distributedPlan);
 
             FragmentExecParams fragmentExecParams = fragmentExecParamsMap.computeIfAbsent(
                     fragment.getFragmentId(), id -> new FragmentExecParams(fragment)
             );
-            if (isShareScan) {
+            List<AssignedJob> instanceJobs = ((PipelineDistributedPlan) distributedPlan).getInstanceJobs();
+            boolean useLocalShuffle = useLocalShuffle(distributedPlan);
+            if (useLocalShuffle) {
                 fragmentExecParams.ignoreDataDistribution = true;
                 fragmentExecParams.parallelTasksNum = 1;
             } else {
@@ -118,12 +104,33 @@ public class NereidsCoordinator extends Coordinator {
                 addressToBackendID.put(address, worker.id());
                 ScanSource scanSource = instanceJob.getScanSource();
                 if (scanSource instanceof BucketScanSource) {
-                    setForBucketScanSource(instanceExecParam, (BucketScanSource) scanSource, isShareScan);
+                    setForBucketScanSource(instanceExecParam, (BucketScanSource) scanSource, useLocalShuffle);
                 } else {
-                    setForDefaultScanSource(instanceExecParam, (DefaultScanSource) scanSource, isShareScan);
+                    setForDefaultScanSource(instanceExecParam, (DefaultScanSource) scanSource, useLocalShuffle);
                 }
             }
         }
+    }
+
+    private void setFileScanParams(DistributedPlan distributedPlan) {
+        for (ScanNode scanNode : distributedPlan.getFragmentJob().getScanNodes()) {
+            if (scanNode instanceof FileQueryScanNode) {
+                fileScanRangeParamsMap.put(
+                        scanNode.getId().asInt(),
+                        ((FileQueryScanNode) scanNode).getFileScanRangeParams()
+                );
+            }
+        }
+    }
+
+    private boolean useLocalShuffle(DistributedPlan distributedPlan) {
+        List<AssignedJob> instanceJobs = ((PipelineDistributedPlan) distributedPlan).getInstanceJobs();
+        for (AssignedJob instanceJob : instanceJobs) {
+            if (instanceJob instanceof LocalShuffleAssignedJob) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void setForDefaultScanSource(
