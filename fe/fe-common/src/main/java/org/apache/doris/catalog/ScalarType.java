@@ -1116,7 +1116,11 @@ public class ScalarType extends Type {
         if ((t1.isDecimalV3() && t2.isDecimalV2()) || (t2.isDecimalV3() && t1.isDecimalV2())) {
             int scale = Math.max(t1.scale, t2.scale);
             int integerPart = Math.max(t1.precision - t1.scale, t2.precision - t2.scale);
-            return ScalarType.createDecimalV3Type(integerPart + scale, scale);
+            if (scale + integerPart > MAX_DECIMAL128_PRECISION) {
+                return Type.DOUBLE;
+            } else {
+                return ScalarType.createDecimalV3Type(integerPart + scale, scale);
+            }
         }
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
