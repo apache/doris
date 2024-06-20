@@ -45,7 +45,6 @@ static std::string print_hex(const StringRef& str) {
 
 static std::string generate_random_bytes(size_t max_length) {
     // std::srand(std::time(nullptr)); // use current time as seed for random generator
-
     if (max_length == 0) {
         return "";
     }
@@ -54,9 +53,11 @@ static std::string generate_random_bytes(size_t max_length) {
         // generate a random byte, in range [0x00, 0xFF]
         return static_cast<char>(rand() % 256);
     };
+
     size_t random_length = rand() % (max_length + 1);
     std::string str(random_length, 0);
     std::generate_n(str.begin(), random_length, randbyte);
+
     return str;
 }
 
@@ -83,11 +84,6 @@ TEST(CompressedMaterializationTest, test_compress_as_tinyint) {
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             std::string random_bytes = generate_random_bytes(m);
-            // std::cout << fmt::format(
-            //                      "generate random_bytes: {}, size {}",
-            //                      print_hex(StringRef(random_bytes.c_str(), random_bytes.size())),
-            //                      random_bytes.size())
-            //           << std::endl;
             col_source_str_mutate->insert(Field(random_bytes.c_str(), random_bytes.size()));
         }
 
@@ -106,16 +102,6 @@ TEST(CompressedMaterializationTest, test_compress_as_tinyint) {
         Status st = compress_func->execute(context, input_block_compress, {0}, 1, input_rows_count);
         ASSERT_TRUE(st.ok());
 
-        // for (size_t i = 0; i < input_rows_count; ++i) {
-        //     // Print source and compressed
-        //     auto s = fmt::format("{}", print_hex(col_source_str->get_data_at(i)));
-        //     auto r = fmt::format(
-        //             "{}",
-        //             print_hex(input_block_compress.get_by_position(1).column->get_data_at(i)));
-
-        //     std::cout << fmt::format("source string: {}, result string {}\n", s, r);
-        // }
-
         ColumnWithTypeAndName augument_compressed = input_block_compress.get_by_position(1);
         auto return_type_for_decompress = std::make_shared<DataTypeString>();
         auto decompress_func = SimpleFunctionFactory::instance().get_function(
@@ -124,6 +110,7 @@ TEST(CompressedMaterializationTest, test_compress_as_tinyint) {
         input_block_decompress.insert(
                 ColumnWithTypeAndName {nullptr, return_type_for_decompress, ""});
         st = decompress_func->execute(context, input_block_decompress, {0}, 1, input_rows_count);
+
         ASSERT_TRUE(st.ok());
 
         // Compare the original and decompressed columns
