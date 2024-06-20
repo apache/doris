@@ -36,8 +36,8 @@ public class ShowConfigStmt extends ShowStmt {
     public static final ImmutableList<String> FE_TITLE_NAMES = new ImmutableList.Builder<String>().add("Key").add(
             "Value").add("Type").add("IsMutable").add("MasterOnly").add("Comment").build();
 
-    public static final ImmutableList<String> BE_TITLE_NAMES = new ImmutableList.Builder<String>().add("Host")
-            .add("Key").add("Value").add("Type").add("IsMutable").build();
+    public static final ImmutableList<String> BE_TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
+            .add("Host").add("Key").add("Value").add("Type").add("IsMutable").build();
 
     private ConfigType type;
 
