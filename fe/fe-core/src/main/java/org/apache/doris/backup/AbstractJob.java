@@ -189,17 +189,6 @@ public abstract class AbstractJob implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        if (taskErrMsg != null) {
-            Map<Long, String> newMsg = Maps.newHashMap();
-            taskErrMsg.entrySet().stream().limit(3)
-                .forEach(e -> newMsg.put(e.getKey(), e.getValue()));
-            taskErrMsg = newMsg;
-        }
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    // for restore job
-    public void writeFields(DataOutput out) throws IOException {
         // ATTN: must write type first
         Text.writeString(out, type.name());
 
