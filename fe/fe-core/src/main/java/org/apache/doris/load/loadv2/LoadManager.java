@@ -503,10 +503,16 @@ public class LoadManager implements Writable {
      * Only for those jobs which have etl state, like SparkLoadJob.
      **/
     public void processEtlStateJobs() {
-        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.ETL))
+        idToLoadJob.values().stream()
+                .filter(job -> ((job.jobType == EtlJobType.SPARK || job.jobType == EtlJobType.BUCKET)
+                        && job.state == JobState.ETL))
                 .forEach(job -> {
                     try {
-                        ((NewSparkLoadJob) job).updateEtlStatus();
+                        if (job instanceof SparkLoadJob) {
+                            ((SparkLoadJob) job).updateEtlStatus();
+                        } else if (job instanceof BucketLoadJob) {
+                            ((BucketLoadJob) job).updateEtlStatus();
+                        }
                     } catch (DataQualityException e) {
                         LOG.info("update load job etl status failed. job id: {}", job.getId(), e);
                         job.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED,
@@ -524,10 +530,16 @@ public class LoadManager implements Writable {
      * Only for those jobs which load by PushTask.
      **/
     public void processLoadingStateJobs() {
-        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.LOADING))
+        idToLoadJob.values().stream()
+                .filter(job -> ((job.jobType == EtlJobType.SPARK || job.jobType == EtlJobType.BUCKET)
+                        && job.state == JobState.LOADING))
                 .forEach(job -> {
                     try {
-                        ((NewSparkLoadJob) job).updateLoadingStatus();
+                        if (job instanceof SparkLoadJob) {
+                            ((SparkLoadJob) job).updateLoadingStatus();
+                        } else if (job instanceof BucketLoadJob) {
+                            ((BucketLoadJob) job).updateLoadingStatus();
+                        }
                     } catch (UserException e) {
                         LOG.warn("update load job loading status failed. job id: {}", job.getId(), e);
                         job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
@@ -1021,8 +1033,8 @@ public class LoadManager implements Writable {
         return loadJob.getId();
     }
 
-    public long createSparkLoadJob(String dbName, String label, List<String> tableNames, Map<String, String> properties,
-                                   UserIdentity userInfo)
+    public long createBucketLoadJob(String dbName, String label, List<String> tableNames, Map<String, String> properties,
+                                    UserIdentity userInfo)
             throws DdlException, LoadException {
         Database db = checkDb(dbName);
         long dbId = db.getId();
@@ -1030,7 +1042,7 @@ public class LoadManager implements Writable {
         writeLock();
         try {
             checkLabelUsed(dbId, label);
-            loadJob = new NewSparkLoadJob(dbId, label, tableNames, userInfo);
+            loadJob = new BucketLoadJob(dbId, label, tableNames, userInfo);
             loadJob.setJobProperties(properties);
             createLoadJob(loadJob);
         } finally {

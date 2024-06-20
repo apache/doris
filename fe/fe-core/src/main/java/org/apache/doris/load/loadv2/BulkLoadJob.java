@@ -133,6 +133,9 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                             stmt.getUserInfo());
                     break;
                 case SPARK:
+                    bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(), stmt.getResourceDesc(),
+                            stmt.getOrigStmt(), stmt.getUserInfo());
+                    break;
                 case MINI:
                 case DELETE:
                 case HADOOP:

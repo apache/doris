@@ -28,5 +28,6 @@ public enum EtlJobType {
     LOCAL_FILE,
     // create by job scheduler,inner use
     INSERT_JOB,
+    BUCKET,
     UNKNOWN
 }

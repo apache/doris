@@ -337,6 +337,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
             case MINI:
                 timeout = Config.stream_load_default_timeout_second;
                 break;
+            case BUCKET:
+                timeout = Config.bucket_load_default_timeout_second;
+                break;
             default:
                 break;
         }
@@ -858,13 +861,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         if (type == EtlJobType.BROKER) {
             job = EnvFactory.getInstance().createBrokerLoadJob();
         } else if (type == EtlJobType.SPARK) {
-            job = new NewSparkLoadJob();
+            job = new SparkLoadJob();
         } else if (type == EtlJobType.INSERT || type == EtlJobType.INSERT_JOB) {
             job = new InsertLoadJob();
         } else if (type == EtlJobType.MINI) {
             job = new MiniLoadJob();
         } else if (type == EtlJobType.COPY) {
             job = new CopyJob();
+        } else if (type == EtlJobType.BUCKET) {
+            job = new BucketLoadJob();
         } else {
             throw new IOException("Unknown load type: " + type.name());
         }
