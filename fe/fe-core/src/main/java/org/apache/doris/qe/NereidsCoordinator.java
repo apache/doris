@@ -77,9 +77,6 @@ public class NereidsCoordinator extends Coordinator {
         for (DistributedPlan distributedPlan : distributedPlans.values()) {
             UnassignedJob fragmentJob = distributedPlan.getFragmentJob();
             PlanFragment fragment = fragmentJob.getFragment();
-            FragmentExecParams fragmentExecParams = fragmentExecParamsMap.computeIfAbsent(
-                    fragment.getFragmentId(), id -> new FragmentExecParams(fragment)
-            );
 
             bucketShuffleJoinController
                     .isBucketShuffleJoin(fragment.getFragmentId().asInt(), fragment.getPlanRoot());
@@ -102,6 +99,9 @@ public class NereidsCoordinator extends Coordinator {
                 }
             }
 
+            FragmentExecParams fragmentExecParams = fragmentExecParamsMap.computeIfAbsent(
+                    fragment.getFragmentId(), id -> new FragmentExecParams(fragment)
+            );
             if (isShareScan) {
                 fragmentExecParams.ignoreDataDistribution = true;
                 fragmentExecParams.parallelTasksNum = 1;
