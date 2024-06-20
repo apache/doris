@@ -1585,7 +1585,6 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             } catch (std::exception& e) {
                 std::string _err_msg = e.what();
                 if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
-                    block->clear_column_data();
                     *eof = true;
                     *read_rows = 0;
                     return Status::OK();
@@ -1655,7 +1654,6 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             } catch (std::exception& e) {
                 std::string _err_msg = e.what();
                 if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
-                    block->clear_column_data();
                     *eof = true;
                     *read_rows = 0;
                     return Status::OK();
