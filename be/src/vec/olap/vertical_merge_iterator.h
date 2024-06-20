@@ -200,9 +200,21 @@ public:
         return _block_row_locations[_index_in_block];
     }
 
-    size_t bytes() { return _block->bytes(); }
+    size_t bytes() {
+        if (_block) {
+            return _block->bytes();
+        } else {
+            return 0;
+        }
+    }
 
-    size_t rows() { return _block->rows(); }
+    size_t rows() {
+        if (_block) {
+            return _block->rows();
+        } else {
+            return 0;
+        }
+    }
 
 private:
     // Load next block into _block
