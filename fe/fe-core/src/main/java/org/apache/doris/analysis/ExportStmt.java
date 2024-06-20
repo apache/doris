@@ -64,8 +64,7 @@ public class ExportStmt extends StatementBase {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
     public static final String DATA_CONSISTENCY = "data_consistency";
-    public static final String PARQUET_COMPRESSION = "parquet.compression";
-    public static final String ORC_COMPRESSION = "orc.compression";
+    public static final String COMPRESS_TYPE = "compress_type";
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
@@ -83,8 +82,7 @@ public class ExportStmt extends StatementBase {
             .add(PropertyAnalyzer.PROPERTIES_LINE_DELIMITER)
             .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
-            .add(PARQUET_COMPRESSION)
-            .add(ORC_COMPRESSION)
+            .add(COMPRESS_TYPE)
             .build();
 
     private TableName tblName;
@@ -111,8 +109,7 @@ public class ExportStmt extends StatementBase {
     private String deleteExistingFiles;
     private String withBom;
     private String dataConsistency = ExportJob.CONSISTENT_PARTITION;
-    private String parquetCompressionType;
-    private String orcCompressionType;
+    private String compressionType;
     private SessionVariable sessionVariables;
 
     private String qualifiedUser;
@@ -240,8 +237,7 @@ public class ExportStmt extends StatementBase {
         exportJob.setDeleteExistingFiles(this.deleteExistingFiles);
         exportJob.setWithBom(this.withBom);
         exportJob.setDataConsistency(this.dataConsistency);
-        exportJob.setParquetCompressionType(this.parquetCompressionType);
-        exportJob.setOrcCompressionType(this.orcCompressionType);
+        exportJob.setCompressType(this.compressionType);
 
         if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -385,10 +381,8 @@ public class ExportStmt extends StatementBase {
             }
         }
 
-        // parquet.compress
-        this.parquetCompressionType = properties.getOrDefault(PARQUET_COMPRESSION, "");
-        // orc.compress
-        this.orcCompressionType = properties.getOrDefault(ORC_COMPRESSION, "");
+        // compress_type
+        this.compressionType = properties.getOrDefault(COMPRESS_TYPE, "");
     }
 
     private void checkColumns() throws DdlException {

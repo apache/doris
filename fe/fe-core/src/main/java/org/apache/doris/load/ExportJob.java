@@ -174,10 +174,8 @@ public class ExportJob implements Writable {
     private String withBom;
     @SerializedName("dataConsistency")
     private String dataConsistency;
-    @SerializedName("parquetCompressionType")
-    private String parquetCompressionType;
-    @SerializedName("orcCompressionType")
-    private String orcCompressionType;
+    @SerializedName("compressType")
+    private String compressType;
 
     private TableRef tableRef;
 
@@ -624,11 +622,9 @@ public class ExportJob implements Writable {
         if (format.equals("csv") || format.equals("csv_with_names") || format.equals("csv_with_names_and_types")) {
             outfileProperties.put(OutFileClause.PROP_COLUMN_SEPARATOR, columnSeparator);
             outfileProperties.put(OutFileClause.PROP_LINE_DELIMITER, lineDelimiter);
-        } else if (format.equals("orc")) {
-            outfileProperties.put(ExportCommand.ORC_COMPRESSION, orcCompressionType);
         } else {
-            // parquet
-            outfileProperties.put(ExportCommand.PARQUET_COMPRESSION, parquetCompressionType);
+            // orc / parquet
+            outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
         }
         if (!maxFileSize.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_MAX_FILE_SIZE, maxFileSize);

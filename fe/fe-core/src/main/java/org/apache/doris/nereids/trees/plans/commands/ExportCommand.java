@@ -74,8 +74,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
     public static final String DATA_CONSISTENCY = "data_consistency";
-    public static final String PARQUET_COMPRESSION = "parquet.compression";
-    public static final String ORC_COMPRESSION = "orc.compression";
+    public static final String COMPRESS_TYPE = "compress_type";
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_PARALLELISM = "1";
@@ -93,8 +92,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
             .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
             .add(OutFileClause.PROP_WITH_BOM)
-            .add(PARQUET_COMPRESSION)
-            .add(ORC_COMPRESSION)
+            .add(COMPRESS_TYPE)
             .build();
 
     private final List<String> nameParts;
@@ -343,10 +341,8 @@ public class ExportCommand extends Command implements ForwardWithSync {
         }
         exportJob.setTimeoutSecond(timeoutSecond);
 
-        // set parquet. properties
-        exportJob.setParquetCompressionType(fileProperties.getOrDefault(PARQUET_COMPRESSION, ""));
-        // set orc. properties
-        exportJob.setOrcCompressionType(fileProperties.getOrDefault(ORC_COMPRESSION, ""));
+        // set compress_type
+        exportJob.setCompressType(fileProperties.getOrDefault(COMPRESS_TYPE, ""));
 
         // exportJob generate outfile sql
         exportJob.generateOutfileLogicalPlans(RelationUtil.getQualifierName(ctx, this.nameParts));

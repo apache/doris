@@ -110,7 +110,7 @@ public class OutFileClause {
         PARQUET_COMPRESSION_TYPE_MAP.put("lz4", TParquetCompressionType.LZ4);
         PARQUET_COMPRESSION_TYPE_MAP.put("lzo", TParquetCompressionType.LZO);
         PARQUET_COMPRESSION_TYPE_MAP.put("bz2", TParquetCompressionType.BZ2);
-        PARQUET_COMPRESSION_TYPE_MAP.put("uncompressed", TParquetCompressionType.UNCOMPRESSED);
+        PARQUET_COMPRESSION_TYPE_MAP.put("plain", TParquetCompressionType.UNCOMPRESSED);
 
         ORC_COMPRESSION_TYPE_MAP.put("plain", TFileCompressType.PLAIN);
         ORC_COMPRESSION_TYPE_MAP.put("snappy", TFileCompressType.SNAPPYBLOCK);
@@ -144,7 +144,7 @@ public class OutFileClause {
     public static final String PROP_DELETE_EXISTING_FILES = "delete_existing_files";
     public static final String PROP_FILE_SUFFIX = "file_suffix";
     public static final String PROP_WITH_BOM = "with_bom";
-    public static final String ORC_COMPRESSION = "orc.compression";
+    public static final String COMPRESS_TYPE = "compress_type";
 
     private static final String PARQUET_PROP_PREFIX = "parquet.";
     private static final String SCHEMA = "schema";
@@ -178,7 +178,6 @@ public class OutFileClause {
     private boolean isAnalyzed = false;
     private String headerType = "";
 
-    private static final String PARQUET_COMPRESSION = "compression";
     private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
     private TFileCompressType orcCompressionType = TFileCompressType.ZLIB;
     private static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
@@ -673,14 +672,6 @@ public class OutFileClause {
         return fullPath.replace(filePath, "");
     }
 
-    void setParquetCompressionType(String propertyValue) {
-        if (PARQUET_COMPRESSION_TYPE_MAP.containsKey(propertyValue)) {
-            this.parquetCompressionType = PARQUET_COMPRESSION_TYPE_MAP.get(propertyValue);
-        } else {
-            LOG.debug("not set parquet compression type or is invalid, set default to SNAPPY type.");
-        }
-    }
-
     void setParquetVersion(String propertyValue) {
         if (PARQUET_VERSION_MAP.containsKey(propertyValue)) {
             this.parquetVersion = PARQUET_VERSION_MAP.get(propertyValue);
@@ -701,15 +692,23 @@ public class OutFileClause {
      * currently only supports: compression, disable_dictionary, version
      */
     private void getParquetProperties(Set<String> processedPropKeys) throws AnalysisException {
+        // save compress type
+        if (properties.containsKey(COMPRESS_TYPE)) {
+            if (PARQUET_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE))) {
+                this.parquetCompressionType = PARQUET_COMPRESSION_TYPE_MAP.get(properties.get(COMPRESS_TYPE));
+            } else {
+                LOG.debug("not set parquet compression type or is invalid, set default to SNAPPY type.");
+            }
+            processedPropKeys.add(COMPRESS_TYPE);
+        }
+
         // save all parquet prefix property
         Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
         while (iter.hasNext()) {
             Map.Entry<String, String> entry = iter.next();
             if (entry.getKey().startsWith(PARQUET_PROP_PREFIX)) {
                 processedPropKeys.add(entry.getKey());
-                if (entry.getKey().substring(PARQUET_PROP_PREFIX.length()).equals(PARQUET_COMPRESSION)) {
-                    setParquetCompressionType(entry.getValue());
-                } else if (entry.getKey().substring(PARQUET_PROP_PREFIX.length()).equals(PARQUET_DISABLE_DICTIONARY)) {
+                if (entry.getKey().substring(PARQUET_PROP_PREFIX.length()).equals(PARQUET_DISABLE_DICTIONARY)) {
                     this.parquetDisableDictionary = Boolean.valueOf(entry.getValue());
                 } else if (entry.getKey().substring(PARQUET_PROP_PREFIX.length()).equals(PARQUET_VERSION)) {
                     setParquetVersion(entry.getValue());
@@ -754,13 +753,14 @@ public class OutFileClause {
 
     private void getOrcProperties(Set<String> processedPropKeys) throws AnalysisException {
         // get compression type
-        if (properties.containsKey(ORC_COMPRESSION)) {
-            if (ORC_COMPRESSION_TYPE_MAP.containsKey(properties.get(ORC_COMPRESSION))) {
-                this.orcCompressionType = ORC_COMPRESSION_TYPE_MAP.get(properties.get(ORC_COMPRESSION));
+        // save compress type
+        if (properties.containsKey(COMPRESS_TYPE)) {
+            if (ORC_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE))) {
+                this.orcCompressionType = ORC_COMPRESSION_TYPE_MAP.get(properties.get(COMPRESS_TYPE));
             } else {
                 LOG.debug("not set orc compression type or is invalid, set default to ZLIB type.");
             }
-            processedPropKeys.add(ORC_COMPRESSION);
+            processedPropKeys.add(COMPRESS_TYPE);
         }
 
         // check schema. if schema is not set, Doris will gen schema by select items
