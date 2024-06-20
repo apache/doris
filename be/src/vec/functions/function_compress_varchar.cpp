@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 #include <cstddef>
 #include <limits>
 #include <type_traits>
@@ -33,24 +50,14 @@ struct CompressAsLargeInt {
     static constexpr auto name = "compress_as_largeint";
 };
 
-template <typename IntegerType>
-struct DecompressVarcharImpl {
-    static inline void decompress(IntegerType val, std::string* res) {
-        auto ui8_ptr = reinterpret_cast<uint8_t*>(&val);
-        int strSize = *ui8_ptr;
-
-        res->reserve(strSize);
-        val = val << 1;
-        for (int i = strSize - 1, j = 0; i >= 0; --i, ++j) {
-            res->push_back(*(ui8_ptr + sizeof(val) - 1 - j));
-        }
-    }
-};
-
 template <typename Name, typename ReturnType>
 class FunctionCompressVarchar : public IFunction {
 private:
     static inline void reverse_bytes(uint8_t* __restrict s, size_t length) {
+        if (length == 0) {
+            return;
+        }
+
         int c, i, j;
 
         for (i = 0, j = length - 1; i < j; i++, j--) {
@@ -83,40 +90,46 @@ public:
         if constexpr (std::is_same_v<ReturnType, Int8>) {
             if (max_str_size > 1) {
                 return Status::InternalError(
-                        "String is too long to compress, max input string size {}, max valid "
-                        "string "
-                        "size for {} is {}",
+                        "String is too long to compress, input string size {}, max valid "
+                        "string size for {} is {}",
                         max_str_size, name, 1);
             }
         } else if (max_str_size > sizeof(ReturnType) - 1) {
             return Status::InternalError(
-                    "String is too long to compress, max input string size {}, max valid string "
-                    "size "
-                    "for {} is {}",
+                    "String is too long to compress, input string size {}, max valid string "
+                    "size for {} is {}",
                     max_str_size, name, sizeof(ReturnType) - 1);
         }
 
         auto col_res = ColumnVector<ReturnType>::create(input_rows_count, 0);
         auto& col_res_data = col_res->get_data();
 
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            const char* str_ptr = col_str->get_data_at(i).data;
-            UInt8 str_size = static_cast<UInt8>(col_str->get_data_at(i).size);
-            ReturnType* res = &col_res_data[i];
+        if constexpr (std::is_same_v<ReturnType, Int8>) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                const char* __restrict str_ptr = col_str->get_data_at(i).data;
+                UInt8 str_size = static_cast<UInt8>(col_str->get_data_at(i).size);
+                col_res_data[i] = str_size == 0 ? 0 : *str_ptr;
+            }
+        } else {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                const char* str_ptr = col_str->get_data_at(i).data;
+                UInt8 str_size = static_cast<UInt8>(col_str->get_data_at(i).size);
+                ReturnType* res = &col_res_data[i];
 
-            if constexpr (std::is_same_v<ReturnType, Int8>) {
-                memcpy(res, str_ptr, 1);
-            } else {
-                UInt8* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
-                memcpy(ui8_ptr, str_ptr, str_size);
-                // "reverse" the order of string on little endian machine.
-                reverse_bytes(ui8_ptr, sizeof(ReturnType));
-                // Lowest byte of Integer stores the size of the string, bit left shiflted by 1 so that we can get
-                // correct size after right shifting by 1
-                memset(ui8_ptr, str_size << 1, 1);
-                *res >>= 1;
-                // operator &= can not be applied to Int128
-                *res = *res & std::numeric_limits<ReturnType>::max();
+                if constexpr (std::is_same_v<ReturnType, Int8>) {
+                    memcpy(res, str_ptr, str_size);
+                } else {
+                    UInt8* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
+                    memcpy(ui8_ptr, str_ptr, str_size);
+                    // "reverse" the order of string on little endian machine.
+                    reverse_bytes(ui8_ptr, sizeof(ReturnType));
+                    // Lowest byte of Integer stores the size of the string, bit left shiflted by 1 so that we can get
+                    // correct size after right shifting by 1
+                    memset(ui8_ptr, str_size << 1, 1);
+                    *res >>= 1;
+                    // operator &= can not be applied to Int128
+                    *res = *res & std::numeric_limits<ReturnType>::max();
+                }
             }
         }
 

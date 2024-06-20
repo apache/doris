@@ -1,125 +1,130 @@
-// #include <cstddef>
-// #include <limits>
-// #include <type_traits>
+#include <fmt/core.h>
+#include <cstddef>
+#include <limits>
+#include <type_traits>
 
-// #include "common/exception.h"
-// #include "common/status.h"
-// #include "runtime/primitive_type.h"
-// #include "vec/columns/column_const.h"
-// #include "vec/columns/column_vector.h"
-// #include "vec/core/types.h"
-// #include "vec/data_types/data_type.h"
-// #include "vec/data_types/data_type_number.h"
-// #include "vec/data_types/data_type_string.h"
-// #include "vec/functions/function.h"
-// #include "vec/functions/function_helpers.h"
-// #include "vec/functions/simple_function_factory.h"
+#include "common/exception.h"
+#include "common/status.h"
+#include "runtime/primitive_type.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
+#include "vec/functions/function_helpers.h"
+#include "vec/functions/simple_function_factory.h"
 
-// namespace doris::vectorized {
+namespace doris::vectorized {
 
-// template <typename IntegerType>
-// struct CompressVarcharImpl {
-//     static inline void compress(const char* str, UInt8 size, IntegerType* res) {
-//         UInt8* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
+template <typename IntegerType>
+class FunctionDecompressVarchar : public IFunction {
+    static inline void reverse_bytes(uint8_t* __restrict s, size_t length) {
+        if (length == 0) {
+            return;
+        }
 
-//         for (size_t i = 0; i < size; ++i) {
-//             memcpy(ui8_ptr + sizeof(IntegerType) - 1 - i, str + i, 1);
-//         }
+        int c, i, j;
 
-//         memset(ui8_ptr, size << 1, 1);
-//         if constexpr (std::is_same_v<IntegerType, Int8>) {
-//             *res &= 0x7F;
-//         } else if constexpr (std::is_same_v<IntegerType, Int16>) {
-//             *res &= 0x7FFF;
-//         } else if constexpr (std::is_same_v<IntegerType, Int32>) {
-//             *res &= 0x7FFFFFFF;
-//         } else if constexpr (std::is_same_v<IntegerType, Int64>) {
-//             *res &= 0x7FFFFFFFFFFFFFFF;
-//         } else if constexpr (std::is_same_v<IntegerType, Int128>) {
-//             res &= std::numeric_limits<Int128>::max();
-//         }
+        for (i = 0, j = length - 1; i < j; i++, j--) {
+            c = s[i];
+            s[i] = s[j];
+            s[j] = c;
+        }
+    }
 
-//         *res = (*res >> 1);
-//     }
-// };
+public:
+    static constexpr auto name = "decompress_varchar";
+    static FunctionPtr create() { return std::make_shared<FunctionDecompressVarchar>(); }
 
-// template <typename IntegerType>
-// struct DecompressVarcharImpl {
-//     static inline void decompress(IntegerType val, std::string* res) {
-//         auto ui8_ptr = reinterpret_cast<uint8_t*>(&val);
-//         int strSize = *ui8_ptr;
+    String get_name() const override { return name; }
 
-//         res->reserve(strSize);
-//         val = val << 1;
-//         for (int i = strSize - 1, j = 0; i >= 0; --i, ++j) {
-//             res->push_back(*(ui8_ptr + sizeof(val) - 1 - j));
-//         }
-//     }
-// };
+    size_t get_number_of_arguments() const override { return 1; }
 
-// template <typename IntegerType>
-// class FunctionDecompressVarchar : public IFunction {
-// public:
-//     static constexpr auto name = "decompress_varchar";
-//     static FunctionPtr create() { return std::make_shared<FunctionDecompressVarchar>(); }
+    bool is_variadic() const override { return true; }
 
-//     String get_name() const override { return name; }
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (std::is_same_v<IntegerType, Int8>) {
+            return {std::make_shared<DataTypeInt8>()};
+        } else if constexpr (std::is_same_v<IntegerType, Int32>) {
+            return {std::make_shared<DataTypeInt32>()};
+        } else if constexpr (std::is_same_v<IntegerType, Int64>) {
+            return {std::make_shared<DataTypeInt64>()};
+        } else if constexpr (std::is_same_v<IntegerType, Int128>) {
+            return {std::make_shared<DataTypeInt128>()};
+        } else {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IntegerType");
+        }
+    }
 
-//     size_t get_number_of_arguments() const override { return 1; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments.size() != 1) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Function {} requires 1 arguments, got {}", name,
+                                   arguments.size());
+        }
 
-//     bool is_variadic() const override { return true; }
+        return std::make_shared<DataTypeString>();
+    }
 
-//     DataTypes get_variadic_argument_types_impl() const override {
-//         if constexpr (std::is_same_v<IntegerType, Int8>) {
-//             return {std::make_shared<DataTypeInt8>()};
-//         } else if constexpr (std::is_same_v<IntegerType, Int16>) {
-//             return {std::make_shared<DataTypeInt16>()};
-//         } else if constexpr (std::is_same_v<IntegerType, Int32>) {
-//             return {std::make_shared<DataTypeInt32>()};
-//         } else if constexpr (std::is_same_v<IntegerType, Int64>) {
-//             return {std::make_shared<DataTypeInt64>()};
-//         } else if constexpr (std::is_same_v<IntegerType, Int128>) {
-//             return {std::make_shared<DataTypeInt128>()};
-//         } else {
-//             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IntegerType");
-//         }
-//     }
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const ColumnVector<IntegerType>* col_source = assert_cast<const ColumnVector<IntegerType>*>(
+                block.get_by_position(arguments[0]).column.get());
 
-//     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-//         if (arguments.size() != 1) {
-//             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-//                                    "Function {} requires 2 arguments, got {}", name,
-//                                    arguments.size());
-//         }
+        auto col_res = ColumnString::create();
 
-//         return std::make_shared<DataTypeString>();
-//     }
+        ColumnString::Chars& col_res_data = col_res->get_chars();
+        ColumnString::Offsets& col_res_offset = col_res->get_offsets();
+        col_res_data.resize(input_rows_count * sizeof(IntegerType));
+        col_res_offset.resize(input_rows_count);
 
-//     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-//                         size_t result, size_t input_rows_count) const override {
-//         const ColumnVector<IntegerType>* col_str =
-//                 assert_cast<const ColumnVector<IntegerType>*>(block.get_by_position(arguments[0]).column.get());
+        if constexpr (std::is_same_v<IntegerType, Int8>) {
+            for (Int32 i = 0; i < input_rows_count; ++i) {
+                const Int8& value = col_source->get_element(i);
+                UInt32 str_size = value == 0 ? 0 : 1;
+                // col_res_offset[-1] is valid for PaddedPODArray, will get 0
+                col_res_offset[i] = col_res_offset[i - 1] + str_size;
+                memcpy(col_res_data.data() + col_res_offset[i - 1], &value, str_size);
+            }
+        } else {
+            for (Int32 i = 0; i < input_rows_count; ++i) {
+                IntegerType value = col_source->get_element(i);
+                const UInt8* const __restrict ui8_ptr = reinterpret_cast<const UInt8*>(&value);
+                UInt32 str_size = static_cast<UInt32>(*ui8_ptr) & 0x7F;
 
-//         auto col_res = ColumnString::create(input_rows_count);
-//         auto& col_res_data = col_res->get_data();
+                if (str_size >= sizeof(IntegerType)) {
+                    auto type_ptr = block.get_by_position(arguments[0]).type;
+                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                           "Invalid input of function {}, input type {} value {}, "
+                                           "string size {}, should not be larger than {}",
+                                           name, type_ptr->get_name(), value, str_size,
+                                           sizeof(IntegerType));
+                }
 
-//         for (size_t i = 0; i < input_rows_count; ++i) {
-//             CompressVarcharImpl<IntegerType>::compress(
-//                     col_str->get_data_at(i).data, static_cast<UInt8>(col_str->get_data_at(i).size), &col_res_data[i]);
-//         }
+                // col_res_offset[-1] is valid for PaddedPODArray, will get 0
+                col_res_offset[i] = col_res_offset[i - 1] + str_size;
+                value <<= 1;
 
-//         block.get_by_position(result).column = std::move(col_res);
+                memcpy(col_res_data.data() + col_res_offset[i - 1],
+                       ui8_ptr + sizeof(IntegerType) - str_size, str_size);
 
-//         return Status::OK();
-//     }
-// };
+                reverse_bytes(col_res_data.data() + col_res_offset[i - 1], str_size);
+            }
+        }
 
-// void register_function_compress_varchar(SimpleFunctionFactory& factory) {
-//     factory.register_function<FunctionDecompressVarchar<Int8>>();
-//     factory.register_function<FunctionDecompressVarchar<Int16>>();
-//     factory.register_function<FunctionDecompressVarchar<Int32>>();
-//     factory.register_function<FunctionDecompressVarchar<Int64>>();
-//     factory.register_function<FunctionDecompressVarchar<Int128>>();
-// }
+        block.get_by_position(result).column = std::move(col_res);
 
-// } // namespace doris::vectorized
+        return Status::OK();
+    }
+};
+
+void register_function_decompress_varchar(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionDecompressVarchar<Int8>>();
+    factory.register_function<FunctionDecompressVarchar<Int32>>();
+    factory.register_function<FunctionDecompressVarchar<Int64>>();
+    factory.register_function<FunctionDecompressVarchar<Int128>>();
+}
+
+} // namespace doris::vectorized

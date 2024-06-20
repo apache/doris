@@ -47,7 +47,7 @@ public class DecompressVarchar extends ScalarFunction
        );
 
     /**
-     * constructor with 2 arguments.
+     * constructor with 1 arguments.
      */
        public DecompressVarchar(Expression arg0) {
        super("decompress_varchar", arg0);

@@ -19,7 +19,7 @@
 #include <cstring>
 
 // IWYU pragma: no_include <bits/std_abs.h>
-#include <dlfcn.h>
+// #include <dlfcn.h>
 
 #include <cmath>
 #include <string>
@@ -222,13 +222,14 @@ struct UnaryFunctionPlainSin {
     using FuncType = double (*)(double);
 
     static FuncType get_sin_func() {
-        void* handle = dlopen("libm.so.6", RTLD_LAZY);
-        if (handle) {
-            if (auto sin_func = (double (*)(double))dlsym(handle, "sin"); sin_func) {
-                return sin_func;
-            }
-            dlclose(handle);
-        }
+        // void* handle = nullptr;
+        // = dlopen("libm.so.6", RTLD_LAZY);
+        // if (handle) {
+        //     if (auto sin_func = (double (*)(double))dlsym(handle, "sin"); sin_func) {
+        //         return sin_func;
+        //     }
+        //     dlclose(handle);
+        // }
         return std::sin;
     }
 
