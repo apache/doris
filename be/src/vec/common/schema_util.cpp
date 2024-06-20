@@ -403,7 +403,7 @@ void inherit_root_attributes(TabletSchemaSPtr& schema) {
         if (it == variants_index_meta.end()) {
             continue;
         }
-        auto index_meta = schema->get_inverted_index(col);
+        auto index_meta = schema->get_inverted_index(col, false);
         // add index meta
         TabletIndex index_info = it->second;
         index_info.set_escaped_escaped_index_suffix_path(col.path_info_ptr()->get_path());

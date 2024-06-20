@@ -218,9 +218,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         }
         // indexes for this column
         opts.indexes = std::move(_tablet_schema->get_indexes_for_column(column));
-        if (!InvertedIndexColumnWriter::check_column_valid(column)) {
-            // skip inverted index if invalid
-            opts.indexes.clear();
+        if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
             opts.need_zone_map = false;
             opts.need_bloom_filter = false;
             opts.need_bitmap_index = false;
