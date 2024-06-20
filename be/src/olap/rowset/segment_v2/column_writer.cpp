@@ -262,6 +262,11 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
         }
         case FieldType::OLAP_FIELD_TYPE_MAP: {
             DCHECK(column->get_subtype_count() == 2);
+            if (column->get_subtype_count() < 2) {
+                return Status::InvalidArgument(
+                        "If you upgraded from version 1.2.*, please drop the "
+                        "map column and wait a while to re-create the map column.");
+            }
             // create key & value writer
             std::vector<std::unique_ptr<ColumnWriter>> inner_writer_list;
             for (int i = 0; i < 2; ++i) {
