@@ -106,7 +106,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (ConnectContext.get() != null) {
             enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
             enableMemTableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
-            batchSize = ConnectContext.get().getSessionVariable().batchSize;
+            batchSize = ConnectContext.get().getSessionVariable().brokerLoadBatchSize;
         }
     }
 
