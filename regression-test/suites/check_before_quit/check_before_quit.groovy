@@ -44,5 +44,10 @@ suite("check_before_quit", "nonConcurrent,p0") {
         Thread.sleep(500)
     }
 
+    if (clear == false) {
+        def result = sql "select QUERY_ID,QUERY_START_TIME,QUERY_TIME_MS,WORKLOAD_GROUP_ID,SQL,QUERY_STATUS from information_schema.active_queries"
+        logger.info("active queries: ${result}")
+    }
+
     assertTrue(clear)
 }
