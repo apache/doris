@@ -860,6 +860,8 @@ public class ReportHandler extends Daemon {
                                     double bfFpp = olapTable.getBfFpp();
                                     List<Index> indexes = indexId == olapTable.getBaseIndexId()
                                                             ? olapTable.getCopiedIndexes() : null;
+                                    List<String> rowStoreColumns =
+                                                olapTable.getTableProperty().getCopiedRowStoreColumns();
                                     CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId,
                                             tableId, partitionId, indexId, tabletId, replica.getId(),
                                             indexMeta.getShortKeyColumnCount(),
@@ -882,7 +884,9 @@ public class ReportHandler extends Daemon {
                                             olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                             olapTable.getTimeSeriesCompactionLevelThreshold(),
                                             olapTable.storeRowColumn(),
-                                            binlogConfig, objectPool);
+                                            binlogConfig,
+                                            olapTable.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                                            objectPool);
 
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexStorageFormat(olapTable

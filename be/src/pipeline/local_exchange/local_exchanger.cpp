@@ -200,8 +200,9 @@ Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_blo
     }
     new_block.swap(*in_block);
     auto channel_id = (local_state._channel_id++) % _num_partitions;
-    local_state._shared_state->add_mem_usage(channel_id, new_block.allocated_bytes());
+    size_t allocated_bytes = new_block.allocated_bytes();
     if (_data_queue[channel_id].enqueue(std::move(new_block))) {
+        local_state._shared_state->add_mem_usage(channel_id, allocated_bytes);
         local_state._shared_state->set_ready_to_read(channel_id);
     }
 
@@ -220,25 +221,16 @@ void PassthroughExchanger::close(LocalExchangeSourceLocalState& local_state) {
 Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                                        LocalExchangeSourceLocalState& local_state) {
     vectorized::Block next_block;
-    if (_running_sink_operators == 0) {
-        if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
-            block->swap(next_block);
-            local_state._shared_state->sub_mem_usage(local_state._channel_id,
-                                                     block->allocated_bytes());
-            if (_free_block_limit == 0 ||
-                _free_blocks.size_approx() < _free_block_limit * _num_sources) {
-                _free_blocks.enqueue(std::move(next_block));
-            }
-        } else {
-            *eos = true;
-        }
-    } else if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
+    bool all_finished = _running_sink_operators == 0;
+    if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
         block->swap(next_block);
+        local_state._shared_state->sub_mem_usage(local_state._channel_id, block->allocated_bytes());
         if (_free_block_limit == 0 ||
             _free_blocks.size_approx() < _free_block_limit * _num_sources) {
             _free_blocks.enqueue(std::move(next_block));
         }
-        local_state._shared_state->sub_mem_usage(local_state._channel_id, block->allocated_bytes());
+    } else if (all_finished) {
+        *eos = true;
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
         local_state._dependency->block();

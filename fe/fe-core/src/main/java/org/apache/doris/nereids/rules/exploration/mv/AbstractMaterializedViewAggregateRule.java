@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.AggFunctionRollUpHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.BothCombinatorRollupHandler;
+import org.apache.doris.nereids.rules.exploration.mv.rollup.ContainDistinctFunctionRollupHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.DirectRollupHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.MappingRollupHandler;
 import org.apache.doris.nereids.rules.exploration.mv.rollup.SingleCombinatorRollupHandler;
@@ -71,7 +72,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             ImmutableList.of(DirectRollupHandler.INSTANCE,
                     MappingRollupHandler.INSTANCE,
                     SingleCombinatorRollupHandler.INSTANCE,
-                    BothCombinatorRollupHandler.INSTANCE);
+                    BothCombinatorRollupHandler.INSTANCE,
+                    ContainDistinctFunctionRollupHandler.INSTANCE);
 
     protected static final AggregateExpressionRewriter AGGREGATE_EXPRESSION_REWRITER =
             new AggregateExpressionRewriter();
@@ -114,19 +116,23 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     viewToQuerySlotMapping,
                     true,
                     queryStructInfo.getTableBitSet());
+            boolean isRewrittenQueryExpressionValid = true;
             if (!rewrittenQueryExpressions.isEmpty()) {
                 List<NamedExpression> projects = new ArrayList<>();
                 for (Expression expression : rewrittenQueryExpressions) {
                     if (expression.containsType(AggregateFunction.class)) {
+                        // record the reason and then try to roll up aggregate function
                         materializationContext.recordFailReason(queryStructInfo,
                                 "rewritten expression contains aggregate functions when group equals aggregate rewrite",
                                 () -> String.format("aggregate functions = %s\n", rewrittenQueryExpressions));
-                        return null;
+                        isRewrittenQueryExpressionValid = false;
                     }
                     projects.add(expression instanceof NamedExpression
                             ? (NamedExpression) expression : new Alias(expression));
                 }
-                return new LogicalProject<>(projects, tempRewritedPlan);
+                if (isRewrittenQueryExpressionValid) {
+                    return new LogicalProject<>(projects, tempRewritedPlan);
+                }
             }
             // if fails, record the reason and then try to roll up aggregate function
             materializationContext.recordFailReason(queryStructInfo,
@@ -356,11 +362,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     expressionEntry.getValue());
             for (AggFunctionRollUpHandler rollUpHandler : ROLL_UP_HANDLERS) {
                 if (!rollUpHandler.canRollup(queryAggregateFunction, queryAggregateFunctionShuttled,
-                        mvExprToMvScanExprQueryBasedPair)) {
+                        mvExprToMvScanExprQueryBasedPair, mvExprToMvScanExprQueryBased)) {
                     continue;
                 }
                 Function rollupFunction = rollUpHandler.doRollup(queryAggregateFunction,
-                        queryAggregateFunctionShuttled, mvExprToMvScanExprQueryBasedPair);
+                        queryAggregateFunctionShuttled, mvExprToMvScanExprQueryBasedPair,
+                        mvExprToMvScanExprQueryBased);
                 if (rollupFunction != null) {
                     return rollupFunction;
                 }
@@ -544,7 +551,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     /**
      * AggregateExpressionRewriteContext
      */
-    protected static class AggregateExpressionRewriteContext {
+    public static class AggregateExpressionRewriteContext {
         private boolean valid = true;
         private final ExpressionRewriteMode expressionRewriteMode;
         private final Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping;
@@ -587,7 +594,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         /**
          * The expression rewrite mode, which decide how the expression in query is rewritten by mv
          */
-        protected enum ExpressionRewriteMode {
+        public enum ExpressionRewriteMode {
             /**
              * Try to use the expression in mv directly, and doesn't handle aggregate function
              */

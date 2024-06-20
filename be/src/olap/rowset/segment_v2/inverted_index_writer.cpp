@@ -538,8 +538,6 @@ public:
         return 0;
     }
 
-    int64_t file_size() const override { return _dir->getCompoundFileSize(); }
-
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out) {
         // write null_bitmap file
         _null_bitmap.runOptimize();

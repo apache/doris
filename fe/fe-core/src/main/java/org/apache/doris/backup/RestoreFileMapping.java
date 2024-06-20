@@ -22,7 +22,6 @@ import org.apache.doris.common.io.Writable;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -33,7 +32,6 @@ public class RestoreFileMapping implements Writable {
 
     public static class IdChain implements Writable {
         // tblId, partId, idxId, tabletId, replicaId
-        @SerializedName("c")
         private Long[] chain;
 
         private IdChain() {

@@ -60,7 +60,7 @@ VJdbcTableWriter::VJdbcTableWriter(const TDataSink& t_sink,
                                    const VExprContextSPtrs& output_expr_ctxs)
         : AsyncResultWriter(output_expr_ctxs), JdbcConnector(create_connect_param(t_sink)) {}
 
-Status VJdbcTableWriter::write(vectorized::Block& block) {
+Status VJdbcTableWriter::write(RuntimeState* state, vectorized::Block& block) {
     Block output_block;
     RETURN_IF_ERROR(_projection_block(block, &output_block));
     auto num_rows = output_block.rows();

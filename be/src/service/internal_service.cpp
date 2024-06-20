@@ -1332,28 +1332,6 @@ void PInternalService::sync_filter_size(::google::protobuf::RpcController* contr
     }
 }
 
-void PInternalService::apply_filter(::google::protobuf::RpcController* controller,
-                                    const ::doris::PPublishFilterRequest* request,
-                                    ::doris::PPublishFilterResponse* response,
-                                    ::google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
-        brpc::ClosureGuard closure_guard(done);
-        auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
-        butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
-        UniqueId unique_id(request->query_id());
-        VLOG_NOTICE << "rpc apply_filter recv";
-        Status st = _exec_env->fragment_mgr()->apply_filter(request, &zero_copy_input_stream);
-        if (!st.ok()) {
-            LOG(WARNING) << "apply filter meet error: " << st.to_string();
-        }
-        st.to_protobuf(response->mutable_status());
-    });
-    if (!ret) {
-        offer_failed(response, done, _light_work_pool);
-        return;
-    }
-}
-
 void PInternalService::apply_filterv2(::google::protobuf::RpcController* controller,
                                       const ::doris::PPublishFilterRequestV2* request,
                                       ::doris::PPublishFilterResponse* response,
@@ -1806,25 +1784,31 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                     std::string remote_inverted_index_file;
                     std::string local_inverted_index_file;
                     std::string remote_inverted_index_file_url;
-                    if (tablet_scheme->get_inverted_index_storage_format() !=
+                    if (tablet_scheme->get_inverted_index_storage_format() ==
                         InvertedIndexStorageFormatPB::V1) {
-                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_path_v2(
-                                InvertedIndexDescriptor::get_index_path_prefix(remote_file_path));
+                        remote_inverted_index_file =
+                                InvertedIndexDescriptor::get_index_file_path_v1(
+                                        InvertedIndexDescriptor::get_index_file_path_prefix(
+                                                remote_file_path),
+                                        index_id, suffix_path);
                         remote_inverted_index_file_url = construct_url(
                                 get_host_port(host, http_port), token, remote_inverted_index_file);
 
-                        local_inverted_index_file = InvertedIndexDescriptor::get_index_path_v2(
-                                InvertedIndexDescriptor::get_index_path_prefix(local_file_path));
+                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v1(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(
+                                        local_file_path),
+                                index_id, suffix_path);
                     } else {
-                        remote_inverted_index_file = InvertedIndexDescriptor::get_index_path_v1(
-                                InvertedIndexDescriptor::get_index_path_prefix(remote_file_path),
-                                index_id, suffix_path);
+                        remote_inverted_index_file =
+                                InvertedIndexDescriptor::get_index_file_path_v2(
+                                        InvertedIndexDescriptor::get_index_file_path_prefix(
+                                                remote_file_path));
                         remote_inverted_index_file_url = construct_url(
                                 get_host_port(host, http_port), token, remote_inverted_index_file);
 
-                        local_inverted_index_file = InvertedIndexDescriptor::get_index_path_v1(
-                                InvertedIndexDescriptor::get_index_path_prefix(local_file_path),
-                                index_id, suffix_path);
+                        local_inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(
+                                        local_file_path));
                     }
                     st = download_file_action(remote_inverted_index_file_url,
                                               local_inverted_index_file, estimate_timeout, size);

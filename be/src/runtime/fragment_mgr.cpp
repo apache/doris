@@ -1022,43 +1022,10 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     query_options.mem_limit = params.mem_limit;
     query_options.query_type = TQueryType::EXTERNAL;
     query_options.be_exec_version = BeExecVersionManager::get_newest_version();
-    query_options.__set_enable_pipeline_x_engine(true);
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
     return exec_plan_fragment(exec_fragment_params);
-}
-
-Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
-                                 butil::IOBufAsZeroCopyInputStream* attach_data) {
-    bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
-
-    UniqueId fragment_instance_id = request->fragment_instance_id();
-    TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
-
-    std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
-    QueryThreadContext query_thread_context;
-
-    RuntimeFilterMgr* runtime_filter_mgr = nullptr;
-    if (is_pipeline) {
-        std::unique_lock<std::mutex> lock(_lock);
-        auto iter = _pipeline_map.find(tfragment_instance_id);
-        if (iter == _pipeline_map.end()) {
-            VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
-            return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
-        }
-        pip_context = iter->second;
-
-        DCHECK(pip_context != nullptr);
-        runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-        query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                pip_context->get_query_ctx()->query_mem_tracker};
-    } else {
-        return Status::InternalError("Non-pipeline is disabled!");
-    }
-
-    SCOPED_ATTACH_TASK(query_thread_context);
-    return runtime_filter_mgr->update_filter(request, attach_data);
 }
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,

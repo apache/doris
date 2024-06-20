@@ -30,7 +30,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.CacheBulkLoader;
@@ -468,37 +467,39 @@ public class HiveMetaStoreCache {
 
     public List<FileCacheValue> getFilesByPartitionsWithCache(List<HivePartition> partitions,
                                                               String bindBrokerName) {
-        return getFilesByPartitions(partitions, true, bindBrokerName);
+        return getFilesByPartitions(partitions, true, true, bindBrokerName);
     }
 
     public List<FileCacheValue> getFilesByPartitionsWithoutCache(List<HivePartition> partitions,
                                                                  String bindBrokerName) {
-        return getFilesByPartitions(partitions, false, bindBrokerName);
+        return getFilesByPartitions(partitions, false, true, bindBrokerName);
     }
 
-    private List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions,
-                                                      boolean withCache, String bindBrokerName) {
+    public List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions,
+                                                     boolean withCache,
+                                                     boolean concurrent,
+                                                     String bindBrokerName) {
         long start = System.currentTimeMillis();
-        List<FileCacheKey> keys = partitions.stream().map(p -> {
-            FileCacheKey fileCacheKey = p.isDummyPartition()
-                    ? FileCacheKey.createDummyCacheKey(p.getDbName(), p.getTblName(), p.getPath(),
-                    p.getInputFormat(), bindBrokerName)
-                    : new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues(), bindBrokerName);
-            return fileCacheKey;
-        }).collect(Collectors.toList());
+        List<FileCacheKey> keys = partitions.stream().map(p -> p.isDummyPartition()
+                ? FileCacheKey.createDummyCacheKey(
+                        p.getDbName(), p.getTblName(), p.getPath(), p.getInputFormat(), bindBrokerName)
+                : new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues(), bindBrokerName))
+                .collect(Collectors.toList());
 
         List<FileCacheValue> fileLists;
         try {
             if (withCache) {
-                fileLists = fileCacheRef.get().getAll(keys).values().stream().collect(Collectors.toList());
+                fileLists = new ArrayList<>(fileCacheRef.get().getAll(keys).values());
             } else {
-                List<Pair<FileCacheKey, Future<FileCacheValue>>> pList = keys.stream()
-                        .map(key -> Pair.of(key, fileListingExecutor.submit(() -> loadFiles(key))))
-                        .collect(Collectors.toList());
-
-                fileLists = Lists.newArrayListWithExpectedSize(keys.size());
-                for (Pair<FileCacheKey, Future<FileCacheValue>> p : pList) {
-                    fileLists.add(p.second.get());
+                if (concurrent) {
+                    List<Future<FileCacheValue>> pList = keys.stream().map(
+                            key -> fileListingExecutor.submit(() -> loadFiles(key))).collect(Collectors.toList());
+                    fileLists = Lists.newArrayListWithExpectedSize(keys.size());
+                    for (Future<FileCacheValue> p : pList) {
+                        fileLists.add(p.get());
+                    }
+                } else {
+                    fileLists = keys.stream().map(this::loadFiles).collect(Collectors.toList());
                 }
             }
         } catch (ExecutionException e) {
@@ -810,7 +811,7 @@ public class HiveMetaStoreCache {
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                             new FileSystemCache.FileSystemCacheKey(
                                     LocationPath.getFSIdentity(location, bindBrokerName),
-                                            properties, bindBrokerName));
+                                    properties, bindBrokerName));
                     List<RemoteFile> remoteFiles = new ArrayList<>();
                     Status status = fs.listFiles(location, false, remoteFiles);
                     if (status.ok()) {
@@ -837,7 +838,7 @@ public class HiveMetaStoreCache {
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                             new FileSystemCache.FileSystemCacheKey(
                                     LocationPath.getFSIdentity(location, bindBrokerName),
-                                            properties, bindBrokerName));
+                                    properties, bindBrokerName));
                     List<RemoteFile> remoteFiles = new ArrayList<>();
                     Status status = fs.listFiles(location, false, remoteFiles);
                     if (status.ok()) {
