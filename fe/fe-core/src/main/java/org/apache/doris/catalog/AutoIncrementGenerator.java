@@ -40,7 +40,7 @@ public class AutoIncrementGenerator implements Writable, GsonPostProcessable {
 
     public static final long NEXT_ID_INIT_VALUE = 1;
     // _MIN_BATCH_SIZE = 4064 in load task
-    private static final long BATCH_ID_INTERVAL = 50000;
+    private static final long BATCH_ID_INTERVAL = 500000;
 
     @SerializedName(value = "dbId")
     private Long dbId;

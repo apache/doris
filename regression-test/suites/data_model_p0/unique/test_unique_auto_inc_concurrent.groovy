@@ -51,6 +51,8 @@ suite("test_unique_table_auto_inc_concurrent") {
     }
 
     run_test(30, 10000, 10)
+    run_test(30, 100000, 1)
+    run_test(5, 60000, 10)
 
     sql "drop table if exists ${table1};"
 }
