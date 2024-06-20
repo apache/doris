@@ -94,7 +94,8 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
         for (Column column : targetTable.getFullSchema()) {
             if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
                 selectLists.add(new UnboundAlias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
-            } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)) {
+            } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)
+                    && targetTable.getSequenceMapCol() != null) {
                 selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
             } else if (column.isKey()) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
