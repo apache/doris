@@ -294,6 +294,7 @@ public class StreamLoadPlanner {
 
         params.setDescTbl(analyzer.getDescTbl().toThrift());
         params.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
+        params.setCurrentConnectFe(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
 
         TPipelineInstanceParams execParams = new TPipelineInstanceParams();
         // user load id (streamLoadTask.id) as query id
