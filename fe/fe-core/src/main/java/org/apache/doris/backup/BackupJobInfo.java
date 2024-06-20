@@ -39,6 +39,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -71,7 +72,7 @@ import java.util.Set;
  * It contains all content of a job info file.
  * It also be used to save the info of a restore job, such as alias of table and meta info file path
  */
-public class BackupJobInfo implements Writable {
+public class BackupJobInfo implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(BackupJobInfo.class);
 
     @SerializedName("name")
@@ -759,10 +760,8 @@ public class BackupJobInfo implements Writable {
          * }
          */
         BackupJobInfo jobInfo = GsonUtils.GSON.fromJson(json, BackupJobInfo.class);
-        jobInfo.initBackupJobInfoAfterDeserialize();
         return jobInfo;
     }
-
 
     public void writeToFile(File jobInfoFile) throws FileNotFoundException {
         PrintWriter printWriter = new PrintWriter(jobInfoFile);
@@ -820,6 +819,11 @@ public class BackupJobInfo implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, toJson(false));
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        initBackupJobInfoAfterDeserialize();
     }
 
     public static BackupJobInfo readFields(DataInput in) throws IOException {

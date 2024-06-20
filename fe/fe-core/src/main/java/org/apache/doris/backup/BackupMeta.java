@@ -24,6 +24,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
@@ -40,13 +41,12 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-public class BackupMeta implements Writable {
+public class BackupMeta implements Writable, GsonPostProcessable {
 
     // tbl name -> tbl
     @SerializedName(value = "tblNameMap")
     private Map<String, Table> tblNameMap = Maps.newHashMap();
     // tbl id -> tbl
-    @SerializedName(value = "tblIdMap")
     private Map<Long, Table> tblIdMap = Maps.newHashMap();
     // resource name -> resource
     @SerializedName(value = "resourceNameMap")
@@ -124,10 +124,16 @@ public class BackupMeta implements Writable {
         }
     }
 
-    // We can not change, because backup meta stored in external storage
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, toJson());
+        out.writeInt(tblNameMap.size());
+        for (Table table : tblNameMap.values()) {
+            table.write(out);
+        }
+        out.writeInt(resourceNameMap.size());
+        for (Resource resource : resourceNameMap.values()) {
+            resource.write(out);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -141,6 +147,13 @@ public class BackupMeta implements Writable {
         for (int i = 0; i < size; i++) {
             Resource resource = Resource.read(in);
             resourceNameMap.put(resource.getName(), resource);
+        }
+    }
+
+    @override
+    public void gsonPostProcess() throws IOException {
+        for (Table table : tblNameMap.values()) {
+            tblIdMap.put(table.getId(), table);
         }
     }
 
