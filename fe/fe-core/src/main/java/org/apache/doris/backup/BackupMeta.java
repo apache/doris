@@ -17,8 +17,11 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -111,21 +114,30 @@ public class BackupMeta implements Writable {
     }
 
     public static BackupMeta read(DataInput in) throws IOException {
-        BackupMeta backupMeta = new BackupMeta();
-        backupMeta.readFields(in);
-        return backupMeta;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            BackupMeta backupMeta = new BackupMeta();
+            backupMeta.readFields(in);
+            return backupMeta;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, BackupMeta.class);
+        }
     }
 
     // We can not change, because backup meta stored in external storage
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(tblNameMap.size());
-        for (Table table : tblNameMap.values()) {
-            table.write(out);
-        }
-        out.writeInt(resourceNameMap.size());
-        for (Resource resource : resourceNameMap.values()) {
-            resource.write(out);
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            out.writeInt(tblNameMap.size());
+            for (Table table : tblNameMap.values()) {
+                table.write(out);
+            }
+            out.writeInt(resourceNameMap.size());
+            for (Resource resource : resourceNameMap.values()) {
+                resource.write(out);
+            }
+        } else {
+            Text.writeString(out, toJson());
         }
     }
 
