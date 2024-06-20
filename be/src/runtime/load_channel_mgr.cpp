@@ -24,25 +24,17 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <ctime>
-#include <functional>
-#include <map>
 #include <memory>
 #include <ostream>
-#include <queue>
 #include <string>
-#include <tuple>
 #include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_channel.h"
-#include "runtime/memory/mem_tracker.h"
 #include "util/doris_metrics.h"
-#include "util/mem_info.h"
 #include "util/metrics.h"
-#include "util/perf_counters.h"
-#include "util/pretty_printer.h"
 #include "util/thread.h"
 
 namespace doris {
