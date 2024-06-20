@@ -2252,6 +2252,12 @@ public class AuthTest {
                 "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt3.analyze(analyzer));
     }
 
+    private void dropUser(UserIdentity userIdentity) throws UserException {
+        DropUserStmt dropUserStmt = new DropUserStmt(userIdentity);
+        dropUserStmt.analyze(analyzer);
+        auth.dropUser(dropUserStmt);
+    }
+
     private void createUser(UserIdentity userIdentity) throws UserException {
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
         CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
