@@ -68,12 +68,12 @@ public class NereidsCoordinator extends Coordinator {
         // prepare information
         prepare();
 
+        // translate distributed plan to params
         computeFragmentExecParams();
     }
 
     @Override
     protected void computeFragmentHosts() {
-        // translate distributed plan to params
         for (DistributedPlan distributedPlan : distributedPlans.values()) {
             UnassignedJob fragmentJob = distributedPlan.getFragmentJob();
             PlanFragment fragment = fragmentJob.getFragment();
