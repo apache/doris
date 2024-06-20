@@ -62,7 +62,6 @@ suite("test_compaction_uniq_keys_with_delete") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            CLUSTER BY(`sex`, `date`, `cost`)
             PROPERTIES ( "replication_num" = "1" );
         """
 
