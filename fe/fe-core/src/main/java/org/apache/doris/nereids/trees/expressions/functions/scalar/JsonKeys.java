@@ -44,9 +44,9 @@ public class JsonKeys extends ScalarFunction
         implements ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE, false))
+            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
                     .args(JsonType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE, false)).args(JsonType.INSTANCE));
+            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).args(JsonType.INSTANCE));
 
     /**
      * constructor with one or two arguments.
