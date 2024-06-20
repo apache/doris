@@ -16,7 +16,7 @@
 # under the License.
 version: "3"
 services:
-    hive-kerberos:
+    hive-krb:
         image: ghcr.io/trinodb/testing/hdp3.1-hive-kerberized
         volumes:
             - ./two-kerberos-hives:/keytabs
@@ -25,10 +25,8 @@ services:
             - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
             - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
             - ./entrypoint-hive-master.sh:/usr/local/entrypoint-hive-master.sh
-        hostname: hive-kerberos
+        hostname: hadoop-master
         entrypoint: /usr/local/entrypoint-hive-master.sh
-        environment:
-            - JAVA_HOME=/usr/lib/jvm/zulu-17
         healthcheck:
           test: ./health-checks/health.sh
         ports:
@@ -44,9 +42,9 @@ services:
             - "19888:19888"
         networks:
             doris_net:
-                ipv4_address: 172.20.70.20
+                ipv4_address: 172.20.70.25
 
-    hive-kerberos-2:
+    hive-krb2:
         image: ghcr.io/trinodb/testing/hdp3.1-hive-kerberized-2:96
         volumes:
                 - ./two-kerberos-hives:/keytabs
@@ -55,15 +53,13 @@ services:
                 - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
                 - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
                 - ./entrypoint-hive-master-2.sh:/usr/local/entrypoint-hive-master-2.sh
-        hostname: hive-kerberos-2
+        hostname: hadoop-master-2
         entrypoint: /usr/local/entrypoint-hive-master-2.sh
-        environment:
-            - JAVA_HOME=/usr/lib/jvm/zulu-17
         healthcheck:
           test: ./health-checks/health.sh
         networks:
             doris_net:
-                ipv4_address: 172.20.70.21
+                ipv4_address: 172.20.70.26
 
 networks:
     doris_net:
