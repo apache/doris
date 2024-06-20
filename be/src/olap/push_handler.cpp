@@ -493,22 +493,15 @@ Status PushBrokerReader::_cast_to_input_block() {
                     slot_desc->is_nullable());
             auto func_to_base64 = vectorized::SimpleFunctionFactory::instance().get_function(
                     "to_base64", {arg}, base64_return_type);
-            LOG(INFO) << "func_to_base64->execute";
             RETURN_IF_ERROR(func_to_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
                                                     arg.column->size()));
-            LOG(INFO) << "std::move(base64_return_type)";
             _src_block_ptr->get_by_position(idx).type = std::move(base64_return_type);
-            LOG(INFO) << "arg1";
-            auto& arg1 = _src_block_ptr->get_by_name(slot_desc->col_name());
-            LOG(INFO) << "arg1 " << arg1.type->get_name();
-            LOG(INFO) << "func_bitmap_from_base64";
+            auto& arg_base64 = _src_block_ptr->get_by_name(slot_desc->col_name());
             auto func_bitmap_from_base64 =
-                    vectorized::SimpleFunctionFactory::instance().get_function("bitmap_from_base64",
-                                                                               {arg1}, return_type);
-            LOG(INFO) << "func_bitmap_from_base64->execute";
+                    vectorized::SimpleFunctionFactory::instance().get_function(
+                            "bitmap_from_base64", {arg_base64}, return_type);
             RETURN_IF_ERROR(func_bitmap_from_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
-                                                             arg1.column->size()));
-            LOG(INFO) << "func_bitmap_from_base64->execute done";
+                                                             arg_base64.column->size()));
             _src_block_ptr->get_by_position(idx).type = std::move(return_type);
         } else {
             vectorized::ColumnsWithTypeAndName arguments {
