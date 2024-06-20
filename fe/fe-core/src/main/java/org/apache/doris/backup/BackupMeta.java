@@ -114,7 +114,7 @@ public class BackupMeta implements Writable {
     }
 
     public static BackupMeta read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
             BackupMeta backupMeta = new BackupMeta();
             backupMeta.readFields(in);
             return backupMeta;
@@ -127,7 +127,7 @@ public class BackupMeta implements Writable {
     // We can not change, because backup meta stored in external storage
     @Override
     public void write(DataOutput out) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
             out.writeInt(tblNameMap.size());
             for (Table table : tblNameMap.values()) {
                 table.write(out);
