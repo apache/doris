@@ -187,7 +187,7 @@ public class IcebergTransactionTest {
 
         new MockUp<IcebergUtils>() {
             @Mock
-            public Table getAndCloneTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+            public Table getRemoteTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
                 return table;
             }
         };
@@ -298,7 +298,7 @@ public class IcebergTransactionTest {
         Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
         new MockUp<IcebergUtils>() {
             @Mock
-            public Table getAndCloneTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+            public Table getRemoteTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
                 return table;
             }
         };

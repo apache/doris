@@ -30,10 +30,10 @@ import org.apache.doris.thrift.TIcebergMetadataParams;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang3.SerializationUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.SerializableTable;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -41,7 +41,6 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -91,18 +90,14 @@ public class IcebergMetadataCache {
         Table restTable;
         synchronized (this) {
             Table table = getIcebergTable(catalog, dbName, tbName);
-            if (Objects.isNull(table)) {
-                restTable = null;
-            } else {
-                if (Serializable.class.isAssignableFrom(table.getClass())) {
-                    restTable = (Table) SerializationUtils.clone((Serializable) table);
-                } else {
-                    throw new IllegalStateException(
-                            String.format("%s is not inherit Serializable cannot be deeply copied", table.getClass()));
-                }
-            }
+            restTable = SerializableTable.copyOf(table);
         }
         return restTable;
+    }
+
+    public Table getRemoteTable(CatalogIf catalog, String dbName, String tbName) {
+        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(catalog, dbName, tbName);
+        return loadTable(key);
     }
 
     @NotNull

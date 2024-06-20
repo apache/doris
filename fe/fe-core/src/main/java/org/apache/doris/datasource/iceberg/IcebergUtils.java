@@ -549,6 +549,13 @@ public class IcebergUtils {
         return getIcebergTableInternal(catalog, tableInfo.getDbName(), tableInfo.getTbName(), true);
     }
 
+    public static org.apache.iceberg.Table getRemoteTable(ExternalCatalog catalog, SimpleTableInfo tableInfo) {
+        return Env.getCurrentEnv()
+                .getExtMetaCacheMgr()
+                .getIcebergMetadataCache()
+                .getRemoteTable(catalog, tableInfo.getDbName(), tableInfo.getTbName());
+    }
+
     private static org.apache.iceberg.Table getIcebergTableInternal(ExternalCatalog catalog, String dbName,
             String tblName,
             boolean isClone) {

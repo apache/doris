@@ -78,7 +78,7 @@ public class IcebergTransaction implements Transaction {
             LOG.info("iceberg table {} insert table finished!", tableInfo);
         }
 
-        //create  start the  iceberg transaction
+        //create and start the iceberg transaction
         TUpdateMode updateMode = TUpdateMode.APPEND;
         if (insertCtx.isPresent()) {
             updateMode = ((BaseExternalTableInsertCommandContext) insertCtx.get()).isOverwrite() ? TUpdateMode.OVERWRITE
@@ -130,7 +130,7 @@ public class IcebergTransaction implements Transaction {
     private synchronized Table getNativeTable(SimpleTableInfo tableInfo) {
         Objects.requireNonNull(tableInfo);
         IcebergExternalCatalog externalCatalog = ops.getExternalCatalog();
-        return IcebergUtils.getAndCloneTable(externalCatalog, tableInfo);
+        return IcebergUtils.getRemoteTable(externalCatalog, tableInfo);
     }
 
     private void partitionManifestUpdate(TUpdateMode updateMode, Table table, List<WriteResult> pendingResults) {
