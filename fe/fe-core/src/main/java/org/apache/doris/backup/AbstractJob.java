@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
@@ -209,6 +210,40 @@ public abstract class AbstractJob implements Writable {
             taskErrMsg = newMsg;
         }
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    // for restore job
+    public void writeFields(DataOutput out) throws IOException {
+        // ATTN: must write type first
+        Text.writeString(out, type.name());
+
+        out.writeLong(repoId);
+        Text.writeString(out, label);
+        out.writeLong(jobId);
+        out.writeLong(dbId);
+        Text.writeString(out, dbName);
+
+        out.writeLong(createTime);
+        out.writeLong(finishedTime);
+        out.writeLong(timeoutMs);
+
+        if (!taskErrMsg.isEmpty()) {
+            out.writeBoolean(true);
+            // we only save at most 3 err msgs
+            int savedNum = Math.min(3, taskErrMsg.size());
+            out.writeInt(savedNum);
+            for (Map.Entry<Long, String> entry : taskErrMsg.entrySet()) {
+                if (savedNum == 0) {
+                    break;
+                }
+                out.writeLong(entry.getKey());
+                Text.writeString(out, entry.getValue());
+                savedNum--;
+            }
+            Preconditions.checkState(savedNum == 0, savedNum);
+        } else {
+            out.writeBoolean(false);
+        }
     }
 
     @Deprecated
