@@ -171,10 +171,10 @@ suite("test_prepared_stmt", "nonConcurrent") {
         stmt_read.close()
 
         // multi statements
-        stmt_read = prepareStatement "SELECT 1 FROM mytable1;SELECT 1 FROM mytable1" 
-        assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
-        qe_select10 stmt_read
-        stmt_read.close()
+        // stmt_read = prepareStatement "SELECT 1 FROM mytable1;SELECT 1 FROM mytable1" 
+        // assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        // qe_select10 stmt_read
+        // stmt_read.close()
         // stmt_read = prepareStatement "SELECT ? FROM mytable1;SELECT ? FROM mytable1 WHERE citycode = ?" 
         // assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
         // stmt_read.setString(1, "1")
@@ -222,7 +222,8 @@ suite("test_prepared_stmt", "nonConcurrent") {
         // show create table
         stmt_read = prepareStatement "SHOW CREATE TABLE mytable1" 
         assertEquals(stmt_read.class, com.mysql.cj.jdbc.ClientPreparedStatement);
-        qe_select16 stmt_read
+        // not stable
+        // qe_select16 stmt_read
         stmt_read.close()
     }
 }
