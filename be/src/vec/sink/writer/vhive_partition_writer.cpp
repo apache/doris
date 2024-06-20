@@ -104,7 +104,7 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
     }
     case TFileFormatType::FORMAT_ORC: {
         _file_format_transformer.reset(
-                new VOrcTransformer(state, _file_writer.get(), _write_output_expr_ctxs, nullptr,
+                new VOrcTransformer(state, _file_writer.get(), _write_output_expr_ctxs, "",
                                     _write_column_names, false, _hive_compress_type));
         return _file_format_transformer->open();
     }
