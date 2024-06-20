@@ -206,7 +206,7 @@ Status LocalFileWriter::_close(bool sync) {
         _fd = -1;
         return st;
     };
-    if (sync) {
+    if (sync && config::sync_file_on_close) {
         if (_dirty) {
 #ifdef __APPLE__
             if (fcntl(_fd, F_FULLFSYNC) < 0) [[unlikely]] {

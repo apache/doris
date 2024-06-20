@@ -108,6 +108,10 @@ public:
 
     int64_t num_rows() const override { return _segment_creator.num_rows_written(); }
 
+    // for partial update
+    int64_t num_rows_updated() const override { return _segment_creator.num_rows_updated(); }
+    int64_t num_rows_deleted() const override { return _segment_creator.num_rows_deleted(); }
+    int64_t num_rows_new_added() const override { return _segment_creator.num_rows_new_added(); }
     int64_t num_rows_filtered() const override { return _segment_creator.num_rows_filtered(); }
 
     RowsetId rowset_id() override { return _context.rowset_id; }

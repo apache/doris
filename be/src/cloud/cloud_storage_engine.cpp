@@ -101,12 +101,13 @@ static Status vault_process_error(std::string_view id,
 }
 
 struct VaultCreateFSVisitor {
-    VaultCreateFSVisitor(const std::string& id) : id(id) {}
+    VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format)
+            : id(id), path_format(path_format) {}
     Status operator()(const S3Conf& s3_conf) const {
         LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id;
 
         auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, id));
-        put_storage_resource(id, {std::move(fs), 0});
+        put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create s3 vault, vault id {}", id);
         return Status::OK();
     }
@@ -114,20 +115,21 @@ struct VaultCreateFSVisitor {
     // TODO(ByteYue): Make sure enable_java_support is on
     Status operator()(const cloud::HdfsVaultInfo& vault) const {
         auto hdfs_params = io::to_hdfs_params(vault);
-        auto fs =
-                DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
-                                                     vault.has_prefix() ? vault.prefix() : ""));
-        put_storage_resource(id, {std::move(fs), 0});
+        auto fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id,
+                                                       nullptr, vault.prefix()));
+        put_storage_resource(id, {std::move(fs), path_format}, 0);
         LOG_INFO("successfully create hdfs vault, vault id {}", id);
         return Status::OK();
     }
 
     const std::string& id;
+    const cloud::StorageVaultPB_PathFormat& path_format;
 };
 
 struct RefreshFSVaultVisitor {
-    RefreshFSVaultVisitor(const std::string& id, io::FileSystemSPtr fs)
-            : id(id), fs(std::move(fs)) {}
+    RefreshFSVaultVisitor(const std::string& id, io::FileSystemSPtr fs,
+                          const cloud::StorageVaultPB_PathFormat& path_format)
+            : id(id), fs(std::move(fs)), path_format(path_format) {}
 
     Status operator()(const S3Conf& s3_conf) const {
         DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
@@ -146,12 +148,13 @@ struct RefreshFSVaultVisitor {
                 DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name, id, nullptr,
                                                      vault.has_prefix() ? vault.prefix() : ""));
         auto hdfs = std::static_pointer_cast<io::HdfsFileSystem>(hdfs_fs);
-        put_storage_resource(id, {std::move(hdfs), 0});
+        put_storage_resource(id, {std::move(hdfs), path_format}, 0);
         return Status::OK();
     }
 
     const std::string& id;
     io::FileSystemSPtr fs;
+    const cloud::StorageVaultPB_PathFormat& path_format;
 };
 
 Status CloudStorageEngine::open() {
@@ -166,8 +169,9 @@ Status CloudStorageEngine::open() {
         std::this_thread::sleep_for(5s);
     } while (vault_infos.empty());
 
-    for (auto& [id, vault_info] : vault_infos) {
-        if (auto st = std::visit(VaultCreateFSVisitor {id}, vault_info); !st.ok()) [[unlikely]] {
+    for (auto& [id, vault_info, path_format] : vault_infos) {
+        if (auto st = std::visit(VaultCreateFSVisitor {id, path_format}, vault_info); !st.ok())
+                [[unlikely]] {
             return vault_process_error(id, vault_info, std::move(st));
         }
     }
@@ -301,8 +305,7 @@ void CloudStorageEngine::_check_file_cache_ttl_block_valid() {
             int64_t ttl_seconds = tablet->tablet_meta()->ttl_seconds();
             if (rowset->newest_write_timestamp() + ttl_seconds <= UnixSeconds()) continue;
             for (int64_t seg_id = 0; seg_id < rowset->num_segments(); seg_id++) {
-                auto seg_path = rowset->segment_file_path(seg_id);
-                auto hash = io::BlockFileCache::hash(io::Path(seg_path).filename().native());
+                auto hash = Segment::file_cache_key(rowset->rowset_id().to_string(), seg_id);
                 auto* file_cache = io::FileCacheFactory::instance()->get_by_path(hash);
                 file_cache->update_ttl_atime(hash);
             }
@@ -327,11 +330,12 @@ void CloudStorageEngine::sync_storage_vault() {
         return;
     }
 
-    for (auto& [id, vault_info] : vault_infos) {
+    for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
         auto st = (fs == nullptr)
-                          ? std::visit(VaultCreateFSVisitor {id}, vault_info)
-                          : std::visit(RefreshFSVaultVisitor {id, std::move(fs)}, vault_info);
+                          ? std::visit(VaultCreateFSVisitor {id, path_format}, vault_info)
+                          : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
+                                       vault_info);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
         }

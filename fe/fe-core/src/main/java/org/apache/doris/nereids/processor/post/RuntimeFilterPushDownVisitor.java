@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
@@ -188,6 +189,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation scan, PushDownContext ctx) {
+        if (scan instanceof PhysicalSchemaScan) {
+            return false;
+        }
         Preconditions.checkArgument(ctx.isValid(),
                 "runtime filter pushDownContext is invalid");
         PhysicalRelation relation = ctx.finalTarget.first;
@@ -200,7 +204,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         TRuntimeFilterType type = ctx.type;
         if (type == TRuntimeFilterType.IN_OR_BLOOM
-                && ctx.rfContext.getSessionVariable().getEnablePipelineEngine()
                 && RuntimeFilterGenerator.hasRemoteTarget(ctx.builderNode, scan)
                 && !ctx.builderNode.isBroadCastJoin()) {
             type = TRuntimeFilterType.BLOOM;

@@ -64,7 +64,6 @@ excludeGroups = ""
 
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "test_bitmap_filter," +
-    "test_export_empty_table," + // http://jira.selectdb-in.cc/browse/DORIS-12104
     "test_dump_image," +
     "test_index_failure_injection," +
     "test_profile," +
@@ -80,7 +79,8 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0," +
     "nereids_rules_p0/subquery," +
     "workload_manager_p1," +
-    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+    "zzz_the_end_sentinel_do_not_touch," +
+    "dialect_compatible"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
@@ -143,3 +143,6 @@ s3Region = "ap-hongkong"
 max_failure_num=50
 
 externalEnvIp="127.0.0.1"
+
+// trino-connector catalog test config
+enableTrinoConnectorTest = false

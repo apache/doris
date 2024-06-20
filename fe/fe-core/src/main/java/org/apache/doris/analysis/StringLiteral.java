@@ -334,7 +334,7 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
-    public void setupParamFromBinary(ByteBuffer data) {
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
         int strLen = getParmLen(data);
         if (strLen > data.remaining()) {
             strLen = data.remaining();

@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
@@ -93,6 +94,7 @@ public class NereidsPlanner extends Planner {
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
     private final List<ScanNode> scanNodeList = Lists.newArrayList();
+    private final List<PhysicalRelation> physicalRelations = Lists.newArrayList();
     private DescriptorTable descTable;
 
     private Plan parsedPlan;
@@ -111,6 +113,7 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
+        this.queryOptions = queryOptions;
         if (statementContext.getConnectContext().getSessionVariable().isEnableNereidsTrace()) {
             NereidsTracer.init();
         } else {
@@ -332,6 +335,7 @@ public class NereidsPlanner extends Planner {
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
 
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
+        physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
         for (int seq = 0; seq < fragments.size(); seq++) {
@@ -365,6 +369,10 @@ public class NereidsPlanner extends Planner {
         return scanNodeList;
     }
 
+    public List<PhysicalRelation> getPhysicalRelations() {
+        return physicalRelations;
+    }
+
     public Group getRoot() {
         return cascadesContext.getMemo().getRoot();
     }
@@ -389,6 +397,13 @@ public class NereidsPlanner extends Planner {
             GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties("
                             + physicalProperties + ") doesn't exist in root group")).second;
+            if (rootGroup.getEnforcers().contains(groupExpression)) {
+                rootGroup.addChosenEnforcerId(groupExpression.getId().asInt());
+                rootGroup.addChosenEnforcerProperties(physicalProperties);
+            } else {
+                rootGroup.setChosenProperties(physicalProperties);
+                rootGroup.setChosenGroupExpressionId(groupExpression.getId().asInt());
+            }
             List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
             List<Plan> planChildren = Lists.newArrayList();
             for (int i = 0; i < groupExpression.arity(); i++) {

@@ -29,6 +29,7 @@
 #include <util/string_util.h>
 
 #include <atomic>
+#include <azure/storage/blobs/blob_container_client.hpp>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
@@ -39,6 +40,10 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "common/sync_point.h"
+#include "io/fs/azure_obj_storage_client.h"
+#include "io/fs/obj_storage_client.h"
+#include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
 #include "s3_uri.h"
 #include "vec/exec/scan/scanner_scheduler.h"
@@ -65,7 +70,7 @@ bool is_s3_conf_valid(const S3ClientConf& conf) {
 // Return true is convert `str` to int successfully
 bool to_int(std::string_view str, int& res) {
     auto [_, ec] = std::from_chars(str.data(), str.data() + str.size(), res);
-    return ec != std::errc {};
+    return ec == std::errc {};
 }
 
 const std::string USE_PATH_STYLE = "use_path_style";
@@ -137,7 +142,7 @@ S3ClientFactory::S3ClientFactory() {
 
 string S3ClientFactory::get_valid_ca_cert_path() {
     vector<std::string> vec_ca_file_path = doris::split(config::ca_cert_file_paths, ";");
-    vector<std::string>::iterator it = vec_ca_file_path.begin();
+    auto it = vec_ca_file_path.begin();
     for (; it != vec_ca_file_path.end(); ++it) {
         if (std::filesystem::exists(*it)) {
             return *it;
@@ -155,7 +160,7 @@ S3ClientFactory& S3ClientFactory::instance() {
     return ret;
 }
 
-std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3ClientConf& s3_conf) {
+std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf& s3_conf) {
     if (!is_s3_conf_valid(s3_conf)) {
         return nullptr;
     }
@@ -169,6 +174,36 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3ClientConf& s
         }
     }
 
+    auto obj_client = (s3_conf.provider == io::ObjStorageType::AZURE)
+                              ? _create_azure_client(s3_conf)
+                              : _create_s3_client(s3_conf);
+
+    {
+        uint64_t hash = s3_conf.get_hash();
+        std::lock_guard l(_lock);
+        _cache[hash] = obj_client;
+    }
+    return obj_client;
+}
+
+std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
+        const S3ClientConf& s3_conf) {
+    auto cred =
+            std::make_shared<Azure::Storage::StorageSharedKeyCredential>(s3_conf.ak, s3_conf.sk);
+
+    const std::string container_name = s3_conf.bucket;
+    const std::string uri = fmt::format("{}://{}.blob.core.windows.net/{}",
+                                        config::s3_client_http_scheme, s3_conf.ak, container_name);
+
+    auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
+    return std::make_shared<io::AzureObjStorageClient>(std::move(containerClient));
+}
+
+std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
+        const S3ClientConf& s3_conf) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE(
+            "s3_client_factory::create",
+            std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>()));
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
     aws_config.endpointOverride = s3_conf.endpoint;
     aws_config.region = s3_conf.region;
@@ -228,11 +263,8 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3ClientConf& s
                 s3_conf.use_virtual_addressing);
     }
 
-    {
-        std::lock_guard l(_lock);
-        _cache[hash] = new_client;
-    }
-    return new_client;
+    auto obj_client = std::make_shared<io::S3ObjStorageClient>(std::move(new_client));
+    return obj_client;
 }
 
 Status S3ClientFactory::convert_properties_to_s3_conf(
@@ -255,18 +287,19 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     }
     if (auto it = properties.find(S3_MAX_CONN_SIZE); it != properties.end()) {
         if (!to_int(it->second, s3_conf->client_conf.max_connections)) {
-            return Status::InvalidArgument("invalid {} value {}", S3_MAX_CONN_SIZE, it->second);
+            return Status::InvalidArgument("invalid {} value \"{}\"", S3_MAX_CONN_SIZE, it->second);
         }
     }
     if (auto it = properties.find(S3_REQUEST_TIMEOUT_MS); it != properties.end()) {
         if (!to_int(it->second, s3_conf->client_conf.request_timeout_ms)) {
-            return Status::InvalidArgument("invalid {} value {}", S3_REQUEST_TIMEOUT_MS,
+            return Status::InvalidArgument("invalid {} value \"{}\"", S3_REQUEST_TIMEOUT_MS,
                                            it->second);
         }
     }
     if (auto it = properties.find(S3_CONN_TIMEOUT_MS); it != properties.end()) {
         if (!to_int(it->second, s3_conf->client_conf.connect_timeout_ms)) {
-            return Status::InvalidArgument("invalid {} value {}", S3_CONN_TIMEOUT_MS, it->second);
+            return Status::InvalidArgument("invalid {} value \"{}\"", S3_CONN_TIMEOUT_MS,
+                                           it->second);
         }
     }
 
@@ -287,6 +320,107 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         return Status::InvalidArgument("S3 properties are incorrect, please check properties.");
     }
     return Status::OK();
+}
+
+S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
+    S3Conf ret {
+            .bucket = info.bucket(),
+            .prefix = info.prefix(),
+            .client_conf {
+                    .endpoint = info.endpoint(),
+                    .region = info.region(),
+                    .ak = info.ak(),
+                    .sk = info.sk(),
+                    .bucket = info.bucket(),
+                    .provider = io::ObjStorageType::AWS,
+            },
+            .sse_enabled = info.sse_enabled(),
+    };
+
+    io::ObjStorageType type = io::ObjStorageType::AWS;
+    switch (info.provider()) {
+    case cloud::ObjectStoreInfoPB_Provider_OSS:
+        type = io::ObjStorageType::OSS;
+        break;
+    case cloud::ObjectStoreInfoPB_Provider_S3:
+        type = io::ObjStorageType::AWS;
+        break;
+    case cloud::ObjectStoreInfoPB_Provider_COS:
+        type = io::ObjStorageType::COS;
+        break;
+    case cloud::ObjectStoreInfoPB_Provider_OBS:
+        type = io::ObjStorageType::OBS;
+        break;
+    case cloud::ObjectStoreInfoPB_Provider_BOS:
+        type = io::ObjStorageType::BOS;
+        break;
+    case cloud::ObjectStoreInfoPB_Provider_GCP:
+        type = io::ObjStorageType::GCP;
+        break;
+    case cloud::ObjectStoreInfoPB_Provider_AZURE:
+        type = io::ObjStorageType::AZURE;
+        break;
+    default:
+        LOG_FATAL("unknown provider type {}, info {}", info.provider(), ret.to_string());
+        __builtin_unreachable();
+    }
+    ret.client_conf.provider = type;
+    return ret;
+}
+
+S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
+    S3Conf ret {
+            .bucket = param.bucket,
+            .prefix = param.root_path,
+            .client_conf = {
+                    .endpoint = param.endpoint,
+                    .region = param.region,
+                    .ak = param.ak,
+                    .sk = param.sk,
+                    .token = param.token,
+                    .bucket = param.bucket,
+                    .provider = io::ObjStorageType::AWS,
+                    .max_connections = param.max_conn,
+                    .request_timeout_ms = param.request_timeout_ms,
+                    .connect_timeout_ms = param.conn_timeout_ms,
+                    // When using cold heat separation in minio, user might use ip address directly,
+                    // which needs enable use_virtual_addressing to true
+                    .use_virtual_addressing = !param.use_path_style,
+            }};
+    io::ObjStorageType type = io::ObjStorageType::AWS;
+    switch (param.provider) {
+    case TObjStorageType::UNKNOWN:
+        LOG_INFO("Receive one legal storage resource, set provider type to aws, param detail {}",
+                 ret.to_string());
+        type = io::ObjStorageType::AWS;
+        break;
+    case TObjStorageType::AWS:
+        type = io::ObjStorageType::AWS;
+        break;
+    case TObjStorageType::AZURE:
+        type = io::ObjStorageType::AZURE;
+        break;
+    case TObjStorageType::BOS:
+        type = io::ObjStorageType::BOS;
+        break;
+    case TObjStorageType::COS:
+        type = io::ObjStorageType::COS;
+        break;
+    case TObjStorageType::OBS:
+        type = io::ObjStorageType::OBS;
+        break;
+    case TObjStorageType::OSS:
+        type = io::ObjStorageType::OSS;
+        break;
+    case TObjStorageType::GCP:
+        type = io::ObjStorageType::GCP;
+        break;
+    default:
+        LOG_FATAL("unknown provider type {}, info {}", param.provider, ret.to_string());
+        __builtin_unreachable();
+    }
+    ret.client_conf.provider = type;
+    return ret;
 }
 
 } // end namespace doris

@@ -94,14 +94,14 @@ public:
                         std::vector<std::string> column_names,
                         TParquetCompressionType::type compression_type,
                         bool parquet_disable_dictionary, TParquetVersion::type parquet_version,
-                        bool output_object_data);
+                        bool output_object_data, const std::string* iceberg_schema_json = nullptr);
 
     VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                         const VExprContextSPtrs& output_vexpr_ctxs,
                         const std::vector<TParquetSchema>& parquet_schemas,
                         TParquetCompressionType::type compression_type,
                         bool parquet_disable_dictionary, TParquetVersion::type parquet_version,
-                        bool output_object_data);
+                        bool output_object_data, const std::string* iceberg_schema_json = nullptr);
 
     ~VParquetTransformer() override = default;
 
@@ -129,6 +129,8 @@ private:
     const TParquetCompressionType::type _compression_type;
     const bool _parquet_disable_dictionary;
     const TParquetVersion::type _parquet_version;
+    const std::string* _iceberg_schema_json;
+    uint64_t _write_size = 0;
 };
 
 } // namespace doris::vectorized

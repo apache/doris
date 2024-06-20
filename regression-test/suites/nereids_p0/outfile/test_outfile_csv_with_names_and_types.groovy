@@ -116,7 +116,7 @@ suite("test_outfile_csv_with_names_and_types") {
 
         // check column names
         String columnNames = """user_id,date,datetime,date_1,datetime_1,datetime_2,datetime_3,city,age,sex,bool_col,int_col,bigint_col,largeint_col,float_col,double_col,char_col,decimal_col"""
-        String columnTypes = """INT,DATEV2,DATETIMEV2,DATEV2,DATETIMEV2,DATETIMEV2,DATETIMEV2,VARCHAR,SMALLINT,TINYINT,BOOL,INT,BIGINT,INT,FLOAT,DOUBLE,CHAR,DECIMAL32"""
+        String columnTypes = """INT,DATEV2,DATETIMEV2,DATEV2,DATETIMEV2,DATETIMEV2,DATETIMEV2,VARCHAR,SMALLINT,TINYINT,BOOL,INT,BIGINT,INT,FLOAT,DOUBLE,CHAR,DECIMAL128I"""
         List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
         assertEquals(columnNames, outLines.get(0))
         assertEquals(columnTypes, outLines.get(1))

@@ -30,7 +30,11 @@ import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -39,7 +43,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,8 +56,6 @@ import java.util.Map;
  */
 public class TableProperty implements Writable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
-
-    public static final String DYNAMIC_PARTITION_PROPERTY_PREFIX = "dynamic_partition";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
@@ -69,6 +73,9 @@ public class TableProperty implements Writable {
     private BinlogConfig binlogConfig;
 
     private TStorageMedium storageMedium = null;
+
+    // which columns stored in RowStore column
+    private List<String> rowStoreColumns;
 
     /*
      * the default storage format of this table.
@@ -185,10 +192,14 @@ public class TableProperty implements Writable {
     private TableProperty executeBuildDynamicProperty() {
         HashMap<String, String> dynamicPartitionProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+            if (entry.getKey().startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+                if (!DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTIES.contains(entry.getKey())) {
+                    LOG.warn("Ignore invalid dynamic property key: {}: value: {}", entry.getKey(), entry.getValue());
+                }
                 dynamicPartitionProperties.put(entry.getKey(), entry.getValue());
             }
         }
+
         dynamicPartitionProperty = EnvFactory.getInstance().createDynamicPartitionProperty(dynamicPartitionProperties);
         return this;
     }
@@ -236,13 +247,18 @@ public class TableProperty implements Writable {
     public TableProperty buildStoreRowColumn() {
         storeRowColumn = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "false"));
-        // Remove deprecated prefix and try again
-        String deprecatedPrefix = "deprecated_";
-        if (!storeRowColumn && PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.startsWith(deprecatedPrefix)) {
-            storeRowColumn = Boolean.parseBoolean(
-                properties.getOrDefault(
-                    PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.substring(deprecatedPrefix.length()), "false"));
+        return this;
+    }
+
+    public TableProperty buildRowStoreColumns() {
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS);
+        // set empty row store columns by default
+        if (null == value) {
+            return this;
         }
+        String[] rsColumnArr = value.split(PropertyAnalyzer.COMMA_SEPARATOR);
+        rowStoreColumns = Lists.newArrayList();
+        rowStoreColumns.addAll(Arrays.asList(rsColumnArr));
         return this;
     }
 
@@ -383,6 +399,13 @@ public class TableProperty implements Writable {
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
     }
 
+    public List<String> getCopiedRowStoreColumns() {
+        if (rowStoreColumns == null) {
+            return null;
+        }
+        return Lists.newArrayList(rowStoreColumns);
+    }
+
     public TableProperty buildBinlogConfig() {
         BinlogConfig binlogConfig = new BinlogConfig();
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
@@ -489,7 +512,7 @@ public class TableProperty implements Writable {
     public Map<String, String> getOriginDynamicPartitionProperty() {
         Map<String, String> origProp = Maps.newHashMap();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+            if (DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTIES.contains(entry.getKey())) {
                 origProp.put(entry.getKey(), entry.getValue());
             }
         }
@@ -574,6 +597,16 @@ public class TableProperty implements Writable {
             Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE)));
     }
 
+    public void setRowStoreColumns(List<String> rowStoreColumns) {
+        if (rowStoreColumns != null && !rowStoreColumns.isEmpty()) {
+            modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "true");
+            buildStoreRowColumn();
+            modifyTableProperties(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS,
+                    Joiner.on(",").join(rowStoreColumns));
+            buildRowStoreColumns();
+        }
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" will remove the property
@@ -608,6 +641,7 @@ public class TableProperty implements Writable {
                 .buildBinlogConfig()
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()
+                .buildRowStoreColumns()
                 .buildSkipWriteIndexOnLoad()
                 .buildCompactionPolicy()
                 .buildTimeSeriesCompactionGoalSizeMbytes()
@@ -662,5 +696,14 @@ public class TableProperty implements Writable {
 
     public void setStorageVaultName(String storageVaultName) {
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
+    }
+
+    public String getPropertiesString() throws IOException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        try {
+            return objectMapper.writeValueAsString(properties);
+        } catch (JsonProcessingException e) {
+            throw new IOException(e);
+        }
     }
 }

@@ -131,7 +131,8 @@ enum TSchemaTableType {
     SCH_WORKLOAD_GROUPS,
     SCH_USER,
     SCH_PROCS_PRIV,
-    SCH_WORKLOAD_POLICY;
+    SCH_WORKLOAD_POLICY,
+    SCH_TABLE_OPTIONS;    
 }
 
 enum THdfsCompression {
@@ -211,6 +212,7 @@ struct TOlapTablePartitionParam {
     // insert overwrite partition(*)
     11: optional bool enable_auto_detect_overwrite
     12: optional i64 overwrite_group_id
+    13: optional bool partitions_is_fake = false
 }
 
 struct TOlapTableIndex {

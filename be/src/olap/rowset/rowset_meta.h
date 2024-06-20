@@ -27,6 +27,7 @@
 #include "io/fs/file_system.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_fwd.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet_fwd.h"
 #include "runtime/memory/lru_cache_policy.h"
 
@@ -37,7 +38,7 @@ public:
     RowsetMeta() = default;
     ~RowsetMeta();
 
-    bool init(const std::string& pb_rowset_meta);
+    bool init(std::string_view pb_rowset_meta);
 
     bool init(const RowsetMeta* rowset_meta);
 
@@ -49,10 +50,14 @@ public:
 
     bool json_rowset_meta(std::string* json_rowset_meta);
 
-    // This method may return nullptr.
-    const io::FileSystemSPtr& fs();
+    // If the rowset is a local rowset, return the global local file system.
+    // Otherwise, return the remote file system corresponding to rowset's resource id.
+    // Note that if the resource id cannot be found for the corresponding remote file system, nullptr will be returned.
+    io::FileSystemSPtr fs();
 
-    void set_fs(io::FileSystemSPtr fs);
+    Result<const StorageResource*> remote_storage_resource();
+
+    void set_remote_storage_resource(StorageResource resource);
 
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
 
@@ -336,7 +341,7 @@ public:
     RowsetMeta operator=(const RowsetMeta&) = delete;
 
 private:
-    bool _deserialize_from_pb(const std::string& value);
+    bool _deserialize_from_pb(std::string_view value);
 
     bool _serialize_to_pb(std::string* value);
 
@@ -351,7 +356,7 @@ private:
     TabletSchemaSPtr _schema;
     Cache::Handle* _handle = nullptr;
     RowsetId _rowset_id;
-    io::FileSystemSPtr _fs;
+    StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
 };
 

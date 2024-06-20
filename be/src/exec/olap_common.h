@@ -509,13 +509,14 @@ private:
 
 using ColumnValueRangeType = std::variant<
         ColumnValueRange<TYPE_TINYINT>, ColumnValueRange<TYPE_SMALLINT>, ColumnValueRange<TYPE_INT>,
-        ColumnValueRange<TYPE_BIGINT>, ColumnValueRange<TYPE_LARGEINT>, ColumnValueRange<TYPE_CHAR>,
-        ColumnValueRange<TYPE_VARCHAR>, ColumnValueRange<TYPE_STRING>, ColumnValueRange<TYPE_DATE>,
-        ColumnValueRange<TYPE_DATEV2>, ColumnValueRange<TYPE_DATETIME>,
-        ColumnValueRange<TYPE_DATETIMEV2>, ColumnValueRange<TYPE_DECIMALV2>,
-        ColumnValueRange<TYPE_BOOLEAN>, ColumnValueRange<TYPE_HLL>,
-        ColumnValueRange<TYPE_DECIMAL32>, ColumnValueRange<TYPE_DECIMAL64>,
-        ColumnValueRange<TYPE_DECIMAL128I>, ColumnValueRange<TYPE_DECIMAL256>>;
+        ColumnValueRange<TYPE_BIGINT>, ColumnValueRange<TYPE_LARGEINT>, ColumnValueRange<TYPE_IPV4>,
+        ColumnValueRange<TYPE_IPV6>, ColumnValueRange<TYPE_CHAR>, ColumnValueRange<TYPE_VARCHAR>,
+        ColumnValueRange<TYPE_STRING>, ColumnValueRange<TYPE_DATE>, ColumnValueRange<TYPE_DATEV2>,
+        ColumnValueRange<TYPE_DATETIME>, ColumnValueRange<TYPE_DATETIMEV2>,
+        ColumnValueRange<TYPE_DECIMALV2>, ColumnValueRange<TYPE_BOOLEAN>,
+        ColumnValueRange<TYPE_HLL>, ColumnValueRange<TYPE_DECIMAL32>,
+        ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128I>,
+        ColumnValueRange<TYPE_DECIMAL256>>;
 
 template <PrimitiveType primitive_type>
 const typename ColumnValueRange<primitive_type>::CppType

@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
@@ -61,6 +62,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.sparkdpp.DppResult;
 import org.apache.doris.sparkdpp.EtlJobConfig;
@@ -198,7 +200,9 @@ public class SparkLoadJob extends BulkLoadJob {
             QuotaExceedException, MetaNotFoundException {
         transactionId = Env.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        new TxnCoordinator(TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         LoadJobSourceType.FRONTEND, id, getTimeout());
     }
 
@@ -467,10 +471,12 @@ public class SparkLoadJob extends BulkLoadJob {
                         List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.ALL);
                         for (MaterializedIndex index : indexes) {
                             long indexId = index.getId();
-                            int schemaHash = indexToSchemaHash.get(indexId);
+                            MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
+                            int schemaVersion = indexMeta.getSchemaVersion();
+                            int schemaHash = indexMeta.getSchemaHash();
 
                             List<TColumn> columnsDesc = new ArrayList<TColumn>();
-                            for (Column column : olapTable.getSchemaByIndexId(indexId)) {
+                            for (Column column : indexMeta.getSchema(true)) {
                                 TColumn tColumn = column.toThrift();
                                 tColumn.setColumnName(tColumn.getColumnName().toLowerCase(Locale.ROOT));
                                 columnsDesc.add(tColumn);
@@ -528,7 +534,7 @@ public class SparkLoadJob extends BulkLoadJob {
                                                 partitionId, indexId, tabletId, replicaId, schemaHash, 0, id,
                                                 TPushType.LOAD_V2, TPriority.NORMAL, transactionId, taskSignature,
                                                 tBrokerScanRange, params.tDescriptorTable, columnsDesc,
-                                                vaultId);
+                                                vaultId, schemaVersion);
                                         if (AgentTaskQueue.addTask(pushTask)) {
                                             batchTask.addTask(pushTask);
                                             if (!tabletToSentReplicaPushTask.containsKey(tabletId)) {

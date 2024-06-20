@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -309,18 +310,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             }
 
             OlapTable olapTable = (OlapTable) table;
-            olapTable.readLock();
-            try {
-                usedDataSize = usedDataSize + olapTable.getDataSize();
-                usedRemoteDataSize = usedRemoteDataSize + olapTable.getRemoteDataSize();
-            } finally {
-                olapTable.readUnlock();
-            }
+            usedDataSize = usedDataSize + olapTable.getDataSize();
+            usedRemoteDataSize = usedRemoteDataSize + olapTable.getRemoteDataSize();
+
         }
         return Pair.of(usedDataSize, usedRemoteDataSize);
     }
 
-    public long getReplicaCountWithLock() {
+    public long getReplicaCount() {
         readLock();
         try {
             long usedReplicaCount = 0;
@@ -330,12 +327,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    usedReplicaCount = usedReplicaCount + olapTable.getReplicaCount();
-                } finally {
-                    olapTable.readUnlock();
-                }
+                usedReplicaCount = usedReplicaCount + olapTable.getReplicaCount();
             }
             return usedReplicaCount;
         } finally {
@@ -344,7 +336,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public long getReplicaQuotaLeftWithLock() {
-        long leftReplicaQuota = replicaQuotaSize - getReplicaCountWithLock();
+        long leftReplicaQuota = replicaQuotaSize - getReplicaCount();
         return Math.max(leftReplicaQuota, 0L);
     }
 
@@ -755,6 +747,33 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
+        Function udfFunction = null;
+        try {
+            // here we must first getFunction, as dropFunctionImpl will remove it
+            udfFunction = getFunction(function);
+        } catch (AnalysisException e) {
+            if (!ifExists) {
+                throw new UserException(e);
+            } else {
+                // ignore it, as drop it if exist, so can't sure it must exist
+                return;
+            }
+        }
+
+        dropFunctionImpl(function, ifExists);
+        if (udfFunction != null && udfFunction.isUDTFunction()) {
+            // all of the table function in doris will have two function
+            // one is the normal, and another is outer, the different of them is deal with
+            // empty: whether need to insert NULL result value
+            FunctionName name = new FunctionName(function.getName().getDb(),
+                    function.getName().getFunction() + "_outer");
+            FunctionSearchDesc functionOuter = new FunctionSearchDesc(name, function.getArgTypes(),
+                    function.isVariadic());
+            dropFunctionImpl(functionOuter, ifExists);
+        }
+    }
+
+    public synchronized void dropFunctionImpl(FunctionSearchDesc function, boolean ifExists) throws UserException {
         if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
             FunctionUtil.dropFromNereids(this.getFullName(), function);

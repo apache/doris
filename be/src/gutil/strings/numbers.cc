@@ -30,7 +30,6 @@ using std::string;
 #include "common/logging.h"
 
 #include "gutil/gscoped_ptr.h"
-#include "gutil/int128.h"
 #include "gutil/integral_types.h"
 #include "gutil/stringprintf.h"
 #include "gutil/strings/ascii_ctype.h"
@@ -468,15 +467,6 @@ string Uint64ToString(uint64 fp) {
     snprintf(buf, sizeof(buf), "%016" PRIx64, fp);
     return string(buf);
 }
-
-// Default arguments
-string Uint128ToHexString(uint128 ui128) {
-    char buf[33];
-    snprintf(buf, sizeof(buf), "%016" PRIx64, Uint128High64(ui128));
-    snprintf(buf + 16, sizeof(buf) - 16, "%016" PRIx64, Uint128Low64(ui128));
-    return string(buf);
-}
-
 namespace {
 
 // Represents integer values of digits.
