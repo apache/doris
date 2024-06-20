@@ -58,7 +58,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * insert into select command implementation

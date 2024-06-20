@@ -32,7 +32,7 @@ import org.apache.commons.lang3.Range;
 
 public class BatchInsertTask extends AbstractInsertTask {
     public static final ImmutableList<Column> BATCH_INSERT_SCHEMA = ImmutableList.<Column>builder().addAll(BASE_SCHEMA)
-            .add(new Column("split_range", ScalarType.createStringType())).build();
+            .add(new Column("SplitRange", ScalarType.createStringType())).build();
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
     static {

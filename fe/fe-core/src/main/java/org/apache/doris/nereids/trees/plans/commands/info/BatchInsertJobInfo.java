@@ -59,6 +59,8 @@ public class BatchInsertJobInfo {
 
     public void analyze(ConnectContext ctx, StmtExecutor stmtExecutor) throws Exception {
         splitColumnInfo.analyze(ctx);
+        //todo Inspect the split column in the source table.
+        //check insert into table command
         insertIntoTableCommand.initPlan(ctx, stmtExecutor);
     }
 

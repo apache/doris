@@ -18,6 +18,8 @@
 package org.apache.doris.job.extensions.insert;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
@@ -29,7 +31,11 @@ import org.apache.doris.nereids.trees.plans.commands.info.SplitColumnInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TRow;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.Range;
 
@@ -43,7 +49,31 @@ import java.util.Map;
  * Batch insert job,usually used for batch insert data
  */
 public class BatchInsertJob extends AbstractInsertJob<BatchInsertTask> implements GsonPostProcessable {
+    public static final ImmutableList<Column> SCHEMA = ImmutableList.<Column>builder()
+            .add(new Column("Id", ScalarType.createStringType()))
+            .add(new Column("Name", ScalarType.createStringType()))
+            .add(new Column("Definer", ScalarType.createStringType()))
+            .add(new Column("ExecuteType", ScalarType.createStringType()))
+            .add(new Column("RecurringStrategy", ScalarType.createStringType()))
+            .add(new Column("Status", ScalarType.createStringType()))
+            .add(new Column("ExecuteSql", ScalarType.createStringType()))
+            .add(new Column("CreateTime", ScalarType.createStringType()))
+            .addAll(COMMON_SCHEMA)
+            .add(new Column("Comment", ScalarType.createStringType()))
+            .add(new Column("SplitColumn", ScalarType.createStringType()))
+            .add(new Column("Limit", ScalarType.createStringType()))
+            .add(new Column("Starts", ScalarType.createStringType()))
+            .add(new Column("Ends", ScalarType.createStringType()))
+            .build();
+    public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
+    static {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
+        for (int i = 0; i < SCHEMA.size(); i++) {
+            builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
+        }
+        COLUMN_TO_INDEX = builder.build();
+    }
 
     @SerializedName(value = "sc")
     private int shardCount;
@@ -52,15 +82,15 @@ public class BatchInsertJob extends AbstractInsertJob<BatchInsertTask> implement
     private SplitColumnInfo splitColumnInfo;
 
     @SerializedName(value = "ll")
-    private long lowerLimit;
+    private String lowerLimit;
 
     @SerializedName(value = "ul")
-    private long upperLimit;
+    private String upperLimit;
 
     public BatchInsertJob(Long jobId, String jobName, JobStatus jobStatus, String dbName,
                           String comment, UserIdentity createUser,
                           JobExecutionConfiguration jobConfig, String executeSql, SplitColumnInfo splitColumnInfo,
-                          int shardCount, long lowerLimit, long upperLimit) {
+                          int shardCount, String lowerLimit, String upperLimit) {
         super(jobId, jobName, jobStatus, dbName, comment, createUser, jobConfig,
                 System.currentTimeMillis(), executeSql);
         this.shardCount = shardCount;
@@ -75,7 +105,7 @@ public class BatchInsertJob extends AbstractInsertJob<BatchInsertTask> implement
         if (shardCount <= 0) {
             throw new IllegalArgumentException("shard count should be greater than 0");
         }
-        if (lowerLimit >= upperLimit) {
+        if (Long.parseLong(lowerLimit) >= Long.parseLong(upperLimit)) {
             throw new IllegalArgumentException("lower limit should be less than upper limit");
         }
         if (null == splitColumnInfo) {
@@ -105,7 +135,8 @@ public class BatchInsertJob extends AbstractInsertJob<BatchInsertTask> implement
     @Override
     public List<BatchInsertTask> createTasks(TaskType taskType, Map<Object, Object> taskContext, Long groupId) {
         String originalSQL = getExecuteSql();
-        List<Range> splitRanges = SQLRangeGenerator.generateRanges(shardCount, lowerLimit, upperLimit);
+        List<Range> splitRanges = SQLRangeGenerator.generateRanges(shardCount, Long.parseLong(lowerLimit),
+                Long.parseLong(upperLimit));
         List<BatchInsertTask> tasks = new ArrayList<>();
         for (Range splitRange : splitRanges) {
             BatchInsertTask task = new BatchInsertTask(splitColumnInfo, splitRange,
@@ -113,14 +144,13 @@ public class BatchInsertJob extends AbstractInsertJob<BatchInsertTask> implement
             tasks.add(task);
         }
         initTasks(tasks, taskType, groupId);
-        insertTaskQueue.addAll(tasks);
         recordTasks(tasks);
         return tasks;
     }
 
     @Override
     public ShowResultSetMetaData getTaskMetaData() {
-        return null;
+        return TASK_META_DATA;
     }
     //split task
 
@@ -130,6 +160,21 @@ public class BatchInsertJob extends AbstractInsertJob<BatchInsertTask> implement
         //should trigger next task
         // we need to check if all task is finished
         super.onTaskSuccess(task);
+    }
+
+    private String convertSplitColumnToString() {
+        return splitColumnInfo.getTableNameInfo().getDb() + "." + splitColumnInfo.getTableNameInfo().getTbl()
+                + "." + splitColumnInfo.getColumnName();
+    }
+
+    @Override
+    public TRow getTvfInfo() {
+        TRow row = getCommonTvfInfo();
+        row.addToColumnValue(new TCell().setStringVal(null == splitColumnInfo ? "" : convertSplitColumnToString()));
+        row.addToColumnValue(new TCell().setStringVal(String.valueOf(shardCount)));
+        row.addToColumnValue(new TCell().setStringVal(String.valueOf(lowerLimit)));
+        row.addToColumnValue(new TCell().setStringVal(String.valueOf(upperLimit)));
+        return row;
     }
 
     @Override

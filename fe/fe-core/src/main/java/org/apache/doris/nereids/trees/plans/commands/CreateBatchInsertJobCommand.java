@@ -60,7 +60,7 @@ public class CreateBatchInsertJobCommand extends Command implements ForwardWithS
                 currentDbName, "", ctx.getCurrentUserIdentity(), jobExecutionConfiguration,
                 batchInsertJobInfo.getInsertSql(), batchInsertJobInfo.getSplitColumnInfo(),
                 batchInsertJobInfo.getBatchSize(),
-                batchInsertJobInfo.getLowerBound(), batchInsertJobInfo.getUpperBound()
+                Long.toString(batchInsertJobInfo.getLowerBound()), Long.toString(batchInsertJobInfo.getUpperBound())
         );
         Env.getCurrentEnv().getJobManager().registerJob(batchInsertJob);
         ctx.getState().setOk(0, 0, "create batch insert job success, job id: " + jobId);

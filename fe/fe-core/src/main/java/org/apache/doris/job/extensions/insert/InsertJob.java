@@ -235,7 +235,7 @@ public class InsertJob extends AbstractInsertJob<InsertTask> implements GsonPost
             if (null == loadJob) {
                 return;
             }
-            InsertTask task = new InsertTask(loadJob.getLabel(), getCurrentDbName(), null, getCreateUser());
+            InsertTask task = new InsertTask(loadJob.getLabel(), getCurrentDbName(), getExecuteSql(), getCreateUser());
             task.setJobId(getJobId());
             task.setTaskId(loadJob.getId());
             task.setJobInfo(loadJob);
