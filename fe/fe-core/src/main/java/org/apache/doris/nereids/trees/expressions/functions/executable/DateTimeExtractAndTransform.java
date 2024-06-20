@@ -393,7 +393,7 @@ public class DateTimeExtractAndTransform {
     /**
      * from_days.
      */
-    @ExecFunction(name = "from_days", argTypes = {"INT"}, returnType = "DATE")
+    @ExecFunction(name = "from_days", argTypes = {"INT"}, returnType = "DATEV2")
     public static Expression fromDays(IntegerLiteral n) {
         // doris treat 0000AD as ordinary year but java LocalDateTime treat it as lunar year.
         LocalDateTime res = LocalDateTime.of(0, 1, 1, 0, 0, 0)
@@ -401,7 +401,7 @@ public class DateTimeExtractAndTransform {
         if (res.isBefore(LocalDateTime.of(0, 3, 1, 0, 0, 0))) {
             res = res.plusDays(-1);
         }
-        return DateLiteral.fromJavaDateType(res);
+        return DateV2Literal.fromJavaDateType(res);
     }
 
     @ExecFunction(name = "last_day", argTypes = {"DATE"}, returnType = "DATE")
