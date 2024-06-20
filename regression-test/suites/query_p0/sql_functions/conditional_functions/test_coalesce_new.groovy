@@ -95,6 +95,7 @@ suite("test_coalesce_new") {
     sql """
         drop table test_cls_dtv2
         """
-
-
+    sql """
+        admin set frontend config ("disable_datev1"="false")
+        """
 }
