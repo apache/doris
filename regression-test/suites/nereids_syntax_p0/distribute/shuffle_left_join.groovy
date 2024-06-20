@@ -38,7 +38,7 @@ suite("shuffle_left_join") {
         set disable_join_reorder=true;
         """
 
-    def assertExplain = { String sqlStr, String containsString, Closure<Integer> checkExchangeNum ->
+    def extractFragment = { String sqlStr, String containsString, Closure<Integer> checkExchangeNum ->
         explain {
             sql sqlStr
             check { result ->
@@ -68,7 +68,7 @@ suite("shuffle_left_join") {
             on a.id2=b.id;
         """
 
-    assertExplain(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
+    extractFragment(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
         assertTrue(exchangeNum == 2)
     }
 
@@ -80,7 +80,7 @@ suite("shuffle_left_join") {
         set disable_join_reorder=true;
         """
 
-    assertExplain(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
+    extractFragment(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
         assertTrue(exchangeNum == 1)
     }
 

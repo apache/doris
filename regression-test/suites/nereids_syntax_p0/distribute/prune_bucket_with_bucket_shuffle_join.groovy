@@ -38,7 +38,7 @@ suite("prune_bucket_with_bucket_shuffle_join") {
         set disable_join_reorder=true;
         """
 
-    def assertExplain = { String sqlStr, String containsString, Closure<Integer> checkExchangeNum ->
+    def extractFragment = { String sqlStr, String containsString, Closure<Integer> checkExchangeNum ->
         explain {
             sql sqlStr
             check { result ->
@@ -68,7 +68,7 @@ suite("prune_bucket_with_bucket_shuffle_join") {
             ON a.c0 = b.c0
             """
 
-    assertExplain(sqlStr, "RIGHT OUTER JOIN(PARTITIONED)") { exchangeNum ->
+    extractFragment(sqlStr, "RIGHT OUTER JOIN(PARTITIONED)") { exchangeNum ->
         assertTrue(exchangeNum > 1)
     }
 
@@ -78,7 +78,7 @@ suite("prune_bucket_with_bucket_shuffle_join") {
         set disable_join_reorder=true;
         """
 
-    assertExplain(sqlStr, "RIGHT OUTER JOIN(BUCKET_SHUFFLE)") { exchangeNum ->
+    extractFragment(sqlStr, "RIGHT OUTER JOIN(BUCKET_SHUFFLE)") { exchangeNum ->
         assertTrue(exchangeNum == 1)
     }
 
