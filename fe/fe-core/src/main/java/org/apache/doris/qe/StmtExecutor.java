@@ -307,8 +307,7 @@ public class StmtExecutor {
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
         this.profile = new Profile("Query", this.context.getSessionVariable().enableProfile,
-                this.context.getSessionVariable().profileLevel,
-                this.context.getSessionVariable().getEnablePipelineXEngine());
+                this.context.getSessionVariable().profileLevel);
     }
 
     // for test
@@ -339,7 +338,7 @@ public class StmtExecutor {
         }
         this.context.setStatementContext(statementContext);
         this.profile = new Profile("Query", context.getSessionVariable().enableProfile(),
-                context.getSessionVariable().profileLevel, context.getSessionVariable().getEnablePipelineXEngine());
+                context.getSessionVariable().profileLevel);
     }
 
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
@@ -400,7 +399,6 @@ public class StmtExecutor {
         builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
         builder.isNereids(context.getState().isNereids ? "Yes" : "No");
-        builder.isPipeline(context.getSessionVariable().getEnablePipelineEngine() ? "Yes" : "No");
         return builder.build();
     }
 
@@ -2078,9 +2076,8 @@ public class StmtExecutor {
                 context.setTxnEntry(new TransactionEntry());
             }
             context.getTxnEntry()
-                    .setTxnConf(new TTxnParams().setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
-                            .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("")
-                            .setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0
+                    .setTxnConf(new TTxnParams().setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("")
+                            .setTbl("").setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0
                                     : context.getSessionVariable().getInsertMaxFilterRatio()));
             StringBuilder sb = new StringBuilder();
             sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
@@ -3346,9 +3343,14 @@ public class StmtExecutor {
             try {
                 while (true) {
                     batch = coord.getNext();
-                    if (batch == null || batch.isEos()) {
+                    Preconditions.checkNotNull(batch, "Batch is Null.");
+                    if (batch.isEos()) {
                         return resultRows;
                     } else {
+                        // For null and not EOS batch, continue to get the next batch.
+                        if (batch.getBatch() == null) {
+                            continue;
+                        }
                         resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
                     }
                 }

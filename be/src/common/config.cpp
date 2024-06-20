@@ -248,7 +248,7 @@ DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> b
     }
     return true;
 });
-DEFINE_Int32(remote_split_source_batch_size, "1024");
+DEFINE_Int32(remote_split_source_batch_size, "10240");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
@@ -257,6 +257,9 @@ DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
 DEFINE_mInt32(fetch_rpc_timeout_seconds, "30");
 // default thrift client retry interval (in milliseconds)
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
+// max message size of thrift request
+// default: 100 * 1024 * 1024
+DEFINE_mInt64(thrift_max_message_size, "104857600");
 // max row count number for single scan range, used in segmentv1
 DEFINE_mInt32(doris_scan_range_row_count, "524288");
 // max bytes number for single scan range, used in segmentv2

@@ -34,13 +34,19 @@ class GroupCommitBlockSinkLocalState final : public PipelineXSinkLocalState<Basi
 
 public:
     GroupCommitBlockSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state), _filter_bitmap(1024) {}
+            : Base(parent, state), _filter_bitmap(1024) {
+        _finish_dependency =
+                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
+    }
 
     ~GroupCommitBlockSinkLocalState() override;
 
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state, Status exec_status) override;
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+    std::string debug_string(int indentation_level) const override;
 
 private:
     friend class GroupCommitBlockSinkOperatorX;
@@ -66,6 +72,7 @@ private:
     TGroupCommitMode::type _group_commit_mode;
     Bitmap _filter_bitmap;
     int64_t _table_id;
+    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 class GroupCommitBlockSinkOperatorX final

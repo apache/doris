@@ -73,6 +73,7 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TQueryColumn;
+import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -764,6 +765,56 @@ public class AnalysisManager implements Writable {
             LOG.warn("Failed to invalidate all remote stats by rpc for table {}, use edit log.", tableId);
             TableStatsMeta tableStats = findTableStatsStatus(tableId);
             logCreateTableStats(tableStats);
+        }
+    }
+
+    public void updatePartitionStatsCache(long catalogId, long dbId, long tableId, long indexId,
+                                        Set<String> partNames, String colName) {
+        updateLocalPartitionStatsCache(catalogId, dbId, tableId, indexId, partNames, colName);
+        updateRemotePartitionStats(catalogId, dbId, tableId, indexId, partNames, colName);
+    }
+
+    public void updateLocalPartitionStatsCache(long catalogId, long dbId, long tableId, long indexId,
+                                               Set<String> partNames, String colName) {
+        if (partNames == null || partNames.isEmpty()) {
+            return;
+        }
+        Iterator<String> iterator = partNames.iterator();
+        StringBuilder partNamePredicate = new StringBuilder();
+        while (iterator.hasNext()) {
+            partNamePredicate.append("'");
+            partNamePredicate.append(iterator.next());
+            partNamePredicate.append("'");
+            partNamePredicate.append(",");
+        }
+        if (partNamePredicate.length() > 0) {
+            partNamePredicate.delete(partNamePredicate.length() - 1, partNamePredicate.length());
+        }
+        List<ResultRow> resultRows = StatisticsRepository.loadPartitionColumnStats(
+                catalogId, dbId, tableId, indexId, partNamePredicate.toString(), colName);
+        // row : [catalog_id, db_id, tbl_id, idx_id, part_name, col_id,
+        //        count, ndv, null_count, min, max, data_size, update_time]
+        StatisticsCache cache = Env.getCurrentEnv().getStatisticsCache();
+        for (ResultRow row : resultRows) {
+            cache.updatePartitionColStatsCache(catalogId, dbId, tableId, indexId, row.get(4), colName,
+                    PartitionColumnStatistic.fromResultRow(row));
+        }
+    }
+
+    public void updateRemotePartitionStats(long catalogId, long dbId, long tableId, long indexId,
+                                           Set<String> partNames, String colName) {
+        UpdatePartitionStatsTarget target = new UpdatePartitionStatsTarget(
+                catalogId, dbId, tableId, indexId, colName, partNames);
+        TUpdateFollowerPartitionStatsCacheRequest request = new TUpdateFollowerPartitionStatsCacheRequest();
+        request.key = GsonUtils.GSON.toJson(target);
+        StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
+        SystemInfoService.HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
+        for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
+            // Skip master
+            if (selfNode.getHost().equals(frontend.getHost())) {
+                continue;
+            }
+            statisticsCache.updatePartitionStats(frontend, request);
         }
     }
 

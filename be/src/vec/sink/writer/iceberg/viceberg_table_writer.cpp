@@ -105,7 +105,7 @@ VIcebergTableWriter::_to_iceberg_partition_columns() {
     return partition_columns;
 }
 
-Status VIcebergTableWriter::write(vectorized::Block& block) {
+Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block) {
     SCOPED_RAW_TIMER(&_send_data_ns);
     if (block.rows() == 0) {
         return Status::OK();
