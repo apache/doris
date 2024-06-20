@@ -102,7 +102,7 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
             } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else {
-                continue;
+                selectLists.add(new UnboundSlot(tableName, column.getName()));
             }
             cols.add(column.getName());
         }
@@ -112,12 +112,9 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
             logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
         }
 
-        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
-                && cols.size() < targetTable.getColumns().size();
-
         // make UnboundTableSink
         return UnboundTableSinkCreator.createUnboundTableSink(nameParts, cols, ImmutableList.of(),
-                isTempPart, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
+                isTempPart, partitions, false, DMLCommandType.DELETE, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {

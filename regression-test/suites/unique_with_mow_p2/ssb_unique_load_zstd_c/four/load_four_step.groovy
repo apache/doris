@@ -20,9 +20,6 @@
 // and modified by Doris.
 
 suite("load_four_step") {
-    // Now cluster key doesn't support partial update.
-    // This commit will rewrite delete to insert into delete sign with partial update
-    // So we ban this test.
     return
     def tables = ["customer": ["""c_custkey,c_name,c_address,c_city,c_nation,c_region,c_phone,c_mktsegment,no_use""", 3000, "c_custkey", 1500],
                   "lineorder": ["""lo_orderkey,lo_linenumber,lo_custkey,lo_partkey,lo_suppkey,lo_orderdate,lo_orderpriority, 

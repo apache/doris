@@ -77,7 +77,6 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     private final LogicalPlan logicalQuery;
     private OlapTable targetTable;
     private final Optional<LogicalPlan> cte;
-    private boolean isDeleteCommand = false;
 
     /**
      * constructor
@@ -125,9 +124,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         for (Column column : targetTable.getFullSchema()) {
             // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
             if (!column.isVisible() && !column.isSequenceColumn()) {
-                if (!(isDeleteCommand && column.isDeleteSignColumn())) {
-                    continue;
-                }
+                continue;
             }
             if (colNameToExpression.containsKey(column.getName())) {
                 Expression expr = colNameToExpression.get(column.getName());
@@ -163,8 +160,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         boolean isPartialUpdate = (targetTable.getEnableUniqueKeyMergeOnWrite()
                 && selectItems.size() < targetTable.getColumns().size()
                 && targetTable.getSequenceCol() == null
-                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10)
-                || isDeleteCommand;
+                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10);
 
         List<String> partialUpdateColNames = new ArrayList<>();
         List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();
@@ -220,10 +216,6 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                 || (dbName != null && SlotBinder.compareDbName(tableQualifier.get(1), dbName))) {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
-    }
-
-    public void setDeleteCommand(boolean isDeleteCommand) {
-        this.isDeleteCommand = isDeleteCommand;
     }
 
     private void checkTable(ConnectContext ctx) {
