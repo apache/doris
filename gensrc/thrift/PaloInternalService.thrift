@@ -533,6 +533,8 @@ struct TExecPlanFragmentParams {
 
   31: optional bool is_nereids = true;
 
+  32: optional Types.TNetworkAddress current_connect_fe
+
   // For cloud
   1000: optional bool is_mow_table;
 }
@@ -770,6 +772,7 @@ struct TPipelineFragmentParams {
   40: optional bool is_nereids = true;
   41: optional i64 wal_id
   42: optional i64 content_length
+  43: optional Types.TNetworkAddress current_connect_fe
 
   // For cloud
   1000: optional bool is_mow_table;
