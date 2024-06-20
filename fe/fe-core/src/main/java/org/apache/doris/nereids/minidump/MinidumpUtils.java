@@ -507,6 +507,7 @@ public class MinidumpUtils {
         connectContext.getSessionVariable().setBeNumberForTest(beNumber);
         SessionVariable newVar = new SessionVariable();
         jsonObj.put("SessionVariable", serializeChangedSessionVariable(connectContext.getSessionVariable(), newVar));
+        jsonObj.put("CatalogMgr", GsonUtils.GSON.toJson(Env.getCurrentEnv().getInternalCatalog()));
         // add tables
         jsonObj.put("DbName", connectContext.getDatabase());
         JSONArray tablesJson = serializeTables(tables);
