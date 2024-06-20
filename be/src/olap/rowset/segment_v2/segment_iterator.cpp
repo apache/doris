@@ -359,6 +359,34 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             _storage_name_and_type[i] = std::make_pair(field_name, storage_type);
         }
     }
+
+    // find columns that definitely require reading data, such as functions that are not pushed down.
+    {
+        std::set<std::string> push_down_preds;
+        for (auto* pred : _col_predicates) {
+            if (!_check_apply_by_inverted_index(pred)) {
+                continue;
+            }
+            push_down_preds.insert(_gen_predicate_result_sign(pred));
+        }
+        for (auto* pred : _col_preds_except_leafnode_of_andnode) {
+            if (!_check_apply_by_inverted_index(pred)) {
+                continue;
+            }
+            push_down_preds.insert(_gen_predicate_result_sign(pred));
+        }
+        for (auto& preds_in_remaining_vconjuct : _column_pred_in_remaining_vconjunct) {
+            const auto& column_name = preds_in_remaining_vconjuct.first;
+            for (auto& pred_info : preds_in_remaining_vconjuct.second) {
+                auto column_sign = _gen_predicate_result_sign(&pred_info);
+                if (!push_down_preds.contains(column_sign)) {
+                    auto cid = _opts.tablet_schema->field_index(column_name);
+                    _need_read_data_indices[cid] = true;
+                }
+            }
+        }
+    }
+
     return Status::OK();
 }
 
@@ -891,6 +919,7 @@ Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
 
 Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
     for (auto* pred : _col_preds_except_leafnode_of_andnode) {
+        auto column_id = pred->column_id();
         auto pred_type = pred->type();
         bool is_support = pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
                           pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
@@ -899,6 +928,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
                           pred_type == PredicateType::IN_LIST ||
                           pred_type == PredicateType::NOT_IN_LIST;
         if (!is_support) {
+            _need_read_data_indices[column_id] = true;
             continue;
         }
 
@@ -908,16 +938,17 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         if (can_apply_by_inverted_index) {
             res = _apply_inverted_index_except_leafnode_of_andnode(pred, &bitmap);
         } else {
+            _need_read_data_indices[column_id] = true;
             continue;
         }
 
-        bool need_remaining_after_evaluate = _column_has_fulltext_index(pred->column_id()) &&
+        bool need_remaining_after_evaluate = _column_has_fulltext_index(column_id) &&
                                              PredicateTypeTraits::is_equal_or_list(pred_type);
         if (!res.ok()) {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 // downgrade without index query
-                _not_apply_index_pred.insert(pred->column_id());
-                _need_read_data_indices[pred->column_id()] = true;
+                _not_apply_index_pred.insert(column_id);
+                _need_read_data_indices[column_id] = true;
                 continue;
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -928,17 +959,10 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
 
         std::string pred_result_sign = _gen_predicate_result_sign(pred);
         _rowid_result_for_index.emplace(pred_result_sign, std::make_pair(true, std::move(bitmap)));
-    }
 
-    for (auto* pred : _col_preds_except_leafnode_of_andnode) {
-        auto column_name = _schema->column(pred->column_id())->name();
-        if (!_remaining_conjunct_roots.empty() &&
-            _check_column_pred_all_push_down(column_name, true,
-                                             pred->type() == PredicateType::MATCH) &&
-            !pred->predicate_params()->marked_by_runtime_filter) {
-            // if column's need_read_data already set true, we can not set it to false now.
-            if (_need_read_data_indices.find(pred->column_id()) == _need_read_data_indices.end()) {
-                _need_read_data_indices[pred->column_id()] = false;
+        if (!pred->predicate_params()->marked_by_runtime_filter) {
+            if (!_need_read_data_indices.contains(column_id)) {
+                _need_read_data_indices[column_id] = false;
             }
         }
     }
@@ -1927,6 +1951,10 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         if (_prune_column(cid, column, true, nrows_read)) {
             continue;
         }
+
+        DBUG_EXECUTE_IF("segment_iterator._read_columns_by_index", {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("{} does not need to read data");
+        })
 
         if (is_continuous) {
             size_t rows_read = nrows_read;
