@@ -715,6 +715,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonLength.class, "json_length"),
             scalar(JsonContains.class, "json_contains"),
             scalar(JsonKeys.class, "json_keys"),
+            scalar(JsonKeys.class, "jsonb_keys"),
             scalar(L1Distance.class, "l1_distance"),
             scalar(L2Distance.class, "l2_distance"),
             scalar(LastDay.class, "last_day"),
