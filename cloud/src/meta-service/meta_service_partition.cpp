@@ -67,6 +67,11 @@ static TxnErrorCode index_exists(Transaction* txn, const std::string& instance_i
     return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
 }
 
+static TxnErrorCode check_recycle_key_exist(Transaction* txn, const std::string& key) {
+    std::string val;
+    return txn->get(key, &val);
+}
+
 void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controller,
                                     const IndexRequest* request, IndexResponse* response,
                                     ::google::protobuf::Closure* done) {
@@ -612,6 +617,92 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         msg = fmt::format("failed to commit txn: {}", err);
         return;
     }
+}
+
+void MetaServiceImpl::check_create_table(std::string instance_id, const CheckKVRequest* request,
+                                         CheckKVResponse* response, MetaServiceCode* code,
+                                         std::string* msg, check_create_table_type get_check_info) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        *code = cast_as<ErrCategory::READ>(err);
+        *msg = "failed to create txn";
+        return;
+    }
+    auto& [keys, hint, key_func] = get_check_info(request);
+
+    if (keys.empty()) {
+        *code = MetaServiceCode::INVALID_ARGUMENT;
+        *msg = "empty partition_ids";
+        return;
+    }
+
+    for (auto id : keys) {
+        auto key = key_func(instance_id, id);
+        err = check_recycle_key_exist(txn.get(), key);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            continue;
+        } else if (err == TxnErrorCode::TXN_OK) {
+            // find not match, prepare commit
+            *code = MetaServiceCode::INVALID_ARGUMENT;
+            *msg = "prepare and commit rpc not match, recycle key remained";
+            return;
+        } else {
+            // err != TXN_OK, fdb read err
+            *code = MetaServiceCode::INVALID_ARGUMENT;
+            *msg = "ms read key error";
+            return;
+        }
+    }
+    LOG_INFO("check {} success request={}", hint, request->ShortDebugString());
+    return;
+}
+
+void MetaServiceImpl::check_kv(::google::protobuf::RpcController* controller,
+                               const CheckKVRequest* request, CheckKVResponse* response,
+                               ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(check_kv);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+    if (!request->has_op()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "op not given";
+        return;
+    }
+    if (!request->has_check_keys()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty check keys";
+        return;
+    }
+    RPC_RATE_LIMIT(check_kv);
+    switch (request->op()) {
+    case CheckKVRequest::CREATE_INDEX_AFTER_FE_COMMIT: {
+        check_create_table(
+                instance_id, request, response, &code, &msg, [](const CheckKVRequest* request) {
+                    return std::make_tuple(request->check_keys().index_ids(), "index",
+                                           [](std::string instance_id, int64_t id) {
+                                               return recycle_index_key({instance_id, id});
+                                           });
+                });
+        break;
+    }
+    case CheckKVRequest::CREATE_PARTITION_AFTER_FE_COMMIT: {
+        check_create_table(
+                instance_id, request, response, &code, &msg, [](const CheckKVRequest* request) {
+                    return std::make_tuple(request->check_keys().partition_ids(), "partition",
+                                           [](std::string instance_id, int64_t id) {
+                                               return recycle_partition_key({instance_id, id});
+                                           });
+                });
+        break;
+    }
+    default:
+        DCHECK(false);
+    };
 }
 
 } // namespace doris::cloud

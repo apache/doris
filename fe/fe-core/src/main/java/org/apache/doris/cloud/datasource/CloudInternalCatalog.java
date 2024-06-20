@@ -395,7 +395,8 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     @Override
-    protected void beforeCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+    public void beforeCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+                                          boolean isCreateTable)
             throws DdlException {
         if (partitionIds == null) {
             prepareMaterializedIndex(tableId, indexIds, 0);
@@ -405,13 +406,22 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     @Override
-    protected void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+    public void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
                                          boolean isCreateTable)
             throws DdlException {
         if (partitionIds == null) {
             commitMaterializedIndex(dbId, tableId, indexIds, isCreateTable);
         } else {
             commitPartition(dbId, tableId, partitionIds, indexIds);
+        }
+    }
+
+    public void checkCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+            throws DdlException {
+        if (partitionIds == null) {
+            checkMaterializedIndex(dbId, tableId, indexIds);
+        } else {
+            checkPartition(dbId, tableId, partitionIds);
         }
     }
 
@@ -545,6 +555,78 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             LOG.warn("commitIndex response: {} ", response);
+            throw new DdlException(response.getStatus().getMsg());
+        }
+    }
+
+    private void checkPartition(long dbId, long tableId, List<Long> partitionIds)
+            throws DdlException {
+        Cloud.CheckKeyInfos.Builder checkKeyInfosBuilder = Cloud.CheckKeyInfos.newBuilder();
+        checkKeyInfosBuilder.addAllIndexIds(partitionIds);
+        // for ms log
+        checkKeyInfosBuilder.addDbIds(dbId);
+        checkKeyInfosBuilder.addTableIds(tableId);
+
+        Cloud.CheckKVRequest.Builder checkKvRequestBuilder = Cloud.CheckKVRequest.newBuilder();
+        checkKvRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
+        checkKvRequestBuilder.setCheckKeys(checkKeyInfosBuilder.build());
+        final Cloud.CheckKVRequest checkKVRequest = checkKvRequestBuilder.build();
+
+        Cloud.CheckKVResponse response = null;
+        int tryTimes = 0;
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
+            try {
+                response = MetaServiceProxy.getInstance().checkKv(checkKVRequest);
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("tryTimes:{}, checkPartition RpcException", tryTimes, e);
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+            sleepSeveralMs();
+        }
+
+        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            LOG.warn("checkPartition response: {} ", response);
+            throw new DdlException(response.getStatus().getMsg());
+        }
+    }
+
+    public void checkMaterializedIndex(long dbId, long tableId, List<Long> indexIds)
+            throws DdlException {
+        Cloud.CheckKeyInfos.Builder checkKeyInfosBuilder = Cloud.CheckKeyInfos.newBuilder();
+        checkKeyInfosBuilder.addAllIndexIds(indexIds);
+        // for ms log
+        checkKeyInfosBuilder.addDbIds(dbId);
+        checkKeyInfosBuilder.addTableIds(tableId);
+
+        Cloud.CheckKVRequest.Builder checkKvRequestBuilder = Cloud.CheckKVRequest.newBuilder();
+        checkKvRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
+        checkKvRequestBuilder.setCheckKeys(checkKeyInfosBuilder.build());
+        final Cloud.CheckKVRequest checkKVRequest = checkKvRequestBuilder.build();
+
+        Cloud.CheckKVResponse response = null;
+        int tryTimes = 0;
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
+            try {
+                response = MetaServiceProxy.getInstance().checkKv(checkKVRequest);
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("tryTimes:{}, checkIndex RpcException", tryTimes, e);
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+            sleepSeveralMs();
+        }
+
+        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            LOG.warn("checkIndex response: {} ", response);
             throw new DdlException(response.getStatus().getMsg());
         }
     }

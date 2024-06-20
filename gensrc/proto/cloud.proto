@@ -1414,6 +1414,28 @@ message GetRLTaskCommitAttachResponse {
     optional RLTaskTxnCommitAttachmentPB commit_attach = 2;
 }
 
+message CheckKeyInfos {
+    repeated int64 db_ids = 1;
+    repeated int64 table_ids = 2;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+}
+
+message CheckKVRequest {
+    enum Operation {
+        CREATE_INDEX_AFTER_FE_COMMIT        = 1;
+        CREATE_PARTITION_AFTER_FE_COMMIT    = 2;
+    }
+    optional string cloud_unique_id = 1; // For auth
+    optional CheckKeyInfos check_keys = 2;
+    optional Operation op = 3; 
+}
+
+message CheckKVResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional CheckKeyInfos bad_keys = 2;
+}
+
 service MetaService {
     rpc begin_txn(BeginTxnRequest) returns (BeginTxnResponse);
     rpc precommit_txn(PrecommitTxnRequest) returns (PrecommitTxnResponse);
@@ -1482,6 +1504,9 @@ service MetaService {
 
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
+
+    // check KV
+    rpc check_kv(CheckKVRequest) returns (CheckKVResponse);
 };
 
 service RecyclerService {

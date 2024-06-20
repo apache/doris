@@ -3317,7 +3317,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
-                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause);
+                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause, false, 0, true);
             } catch (DdlException e) {
                 LOG.warn(e);
                 errorStatus.setErrorMsgs(
