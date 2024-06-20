@@ -24,9 +24,9 @@ suite("test_show_backend_config") {
     sql """create user ${userName} identified by '${passwd}'"""
     sql """grant ADMIN_PRIV on *.*.* to ${userName}"""
 
-    def checkResult = {results, beHost, bePort -> 
+    def checkResult = {results, beId, bePort -> 
         for (def row in results) {
-            if (row.Host == beHost && row.Key == "be_port") {
+            if (row.BackendId == beId && row.Key == "be_port") {
                 assertEquals(bePort, row.Value);
                 break;
             }
@@ -36,23 +36,22 @@ suite("test_show_backend_config") {
     connect(user = userName, password = passwd, url = context.config.jdbcUrl) {
         def backends = sql_return_maparray """ show backends """
         def beId = backends[0].BackendId
-        def beHost = backends[0].Host
         def bePort = backends[0].BePort
 
         def result1 = sql_return_maparray """show backend config"""
-        checkResult result1, beHost, bePort
+        checkResult result1, beId, bePort
 
         // test with pattern
         def result2 = sql_return_maparray """show backend config like 'be_port' """
-        checkResult result2, beHost, bePort
+        checkResult result2, beId, bePort
 
         // test from beId
         def result3 = sql_return_maparray """show backend config from ${beId} """
-        checkResult result3, beHost, bePort
+        checkResult result3, beId, bePort
 
         // test from beId with pattern
         def result4 = sql_return_maparray """show backend config like 'be_port' from ${beId}"""
-        checkResult result4, beHost, bePort
+        checkResult result4, beId, bePort
     }
 }
 

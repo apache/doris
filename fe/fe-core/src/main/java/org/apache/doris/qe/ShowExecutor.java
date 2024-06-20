@@ -2449,10 +2449,11 @@ public class ShowExecutor {
                         JSONArray inner = outer.getJSONArray(i);
                         if (matcher == null || matcher.match(inner.getString(0))) {
                             List<String> rows = Lists.newArrayList();
+                            rows.add(String.valueOf(beId));
                             rows.add(host);
                             rows.add(inner.getString(0));  // key
                             rows.add(inner.getString(2));  // value
-                            rows.add(inner.getString(1));  // value
+                            rows.add(inner.getString(1));  // Type
                             rows.add(inner.getString(3));  // isMutable
                             results.add(rows);
                         }
