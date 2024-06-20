@@ -172,33 +172,19 @@ public abstract class AbstractJob implements Writable {
     public abstract Status updateRepo(Repository repo);
 
     public static AbstractJob read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            AbstractJob job = null;
-            JobType type = JobType.valueOf(Text.readString(in));
-            if (type == JobType.BACKUP) {
-                job = new BackupJob();
-            } else if (type == JobType.RESTORE) {
-                job = new RestoreJob();
-            } else {
-                throw new IOException("Unknown job type: " + type.name());
-            }
-
-            job.setTypeRead(true);
-            job.readFields(in);
-            return job;
+        AbstractJob job = null;
+        JobType type = JobType.valueOf(Text.readString(in));
+        if (type == JobType.BACKUP) {
+            job = new BackupJob();
+        } else if (type == JobType.RESTORE) {
+            job = new RestoreJob();
         } else {
-            String json = Text.readString(in);
-            JsonObject jsonObject = GsonUtils.GSON.fromJson(json, JsonObject.class);
-            JobType type = JobType.valueOf(jsonObject.get("t").getAsString());
-            switch (type) {
-                case BACKUP:
-                    return GsonUtils.GSON.fromJson(json, BackupJob.class);
-                case RESTORE:
-                    return GsonUtils.GSON.fromJson(json, RestoreJob.class);
-                default:
-                    throw new IOException("Unknown job type: " + type.name());
-            }
+            throw new IOException("Unknown job type: " + type.name());
         }
+
+        job.setTypeRead(true);
+        job.readFields(in);
+        return job;
     }
 
     @Override
