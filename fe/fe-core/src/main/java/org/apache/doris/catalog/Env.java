@@ -5827,7 +5827,7 @@ public class Env {
             }
         }
         olapTable.replaceTempPartitions(db.getId(), partitionNames, tempPartitionNames, isStrictRange,
-                useTempPartitionName, true);
+                useTempPartitionName, isForceDropNormal);
         long version;
         long versionTime = System.currentTimeMillis();
         if (Config.isNotCloudMode()) {
