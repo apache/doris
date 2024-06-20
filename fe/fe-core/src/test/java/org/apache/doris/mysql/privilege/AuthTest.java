@@ -2252,6 +2252,12 @@ public class AuthTest {
                 "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt3.analyze(analyzer));
     }
 
+    private void dropUser(UserIdentity userIdentity) throws UserException {
+        DropUserStmt dropUserStmt = new DropUserStmt(userIdentity);
+        dropUserStmt.analyze(analyzer);
+        auth.dropUser(dropUserStmt);
+    }
+
     private void createUser(UserIdentity userIdentity) throws UserException {
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
         CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
@@ -2335,6 +2341,56 @@ public class AuthTest {
         revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("viewdb", "*"),
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV)));
         revoke(revokeStmt);
+    }
+
+    @Test
+    public void testTableNamesCaseSensitive() throws UserException {
+        new Expectations() {
+            {
+                Env.isTableNamesCaseSensitive();
+                minTimes = 0;
+                result = true;
+            }
+        };
+        UserIdentity userIdentity = new UserIdentity("sensitiveUser", "%");
+        createUser(userIdentity);
+        // `load_priv` and `select_priv` can not `show create view`
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, new TablePattern("sensitivedb", "sensitiveTable"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV)));
+        grant(grantStmt);
+        Assert.assertTrue(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb", "sensitiveTable",
+                        PrivPredicate.SELECT));
+
+        Assert.assertFalse(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb", "sensitivetable",
+                        PrivPredicate.SELECT));
+        dropUser(userIdentity);
+    }
+
+    @Test
+    public void testTableNamesCaseInsensitive() throws UserException {
+        new Expectations() {
+            {
+                Env.isTableNamesCaseSensitive();
+                minTimes = 0;
+                result = false;
+            }
+        };
+        UserIdentity userIdentity = new UserIdentity("sensitiveUser1", "%");
+        createUser(userIdentity);
+        // `load_priv` and `select_priv` can not `show create view`
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, new TablePattern("sensitivedb1", "sensitiveTable"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV)));
+        grant(grantStmt);
+        Assert.assertTrue(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb1", "sensitiveTable",
+                        PrivPredicate.SELECT));
+
+        Assert.assertTrue(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb1", "sensitivetable",
+                        PrivPredicate.SELECT));
+        dropUser(userIdentity);
     }
 
     @Test
