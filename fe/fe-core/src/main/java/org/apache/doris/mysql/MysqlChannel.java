@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
@@ -406,7 +407,7 @@ public class MysqlChannel implements BytesChannel {
                 TimeUnit.SECONDS);
         if (bufLen != writeLen) {
             long duration = System.currentTimeMillis() - start;
-            throw new IOException("Write mysql packet failed.[write=" + writeLen
+            throw new ConnectionException("Write mysql packet failed.[write=" + writeLen
                     + ", needToWrite=" + bufLen + "], duration: " + duration + " ms");
         }
         Channels.flushBlocking(conn.getSinkChannel(), context.getNetWriteTimeout(), TimeUnit.SECONDS);
