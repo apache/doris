@@ -21,11 +21,13 @@ suite("alter_column_test_generated_column") {
         while (tryTimes-- > 0) {
             def jobResult = sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
             def jobState = jobResult[0][9].toString()
+            if (jobState == null) {
+                return;
+            }
             if ('cancelled'.equalsIgnoreCase(jobState)) {
                 logger.info("jobResult:{}", jobResult)
                 throw new IllegalStateException("${tableName}'s job has been cancelled")
             }
-            logger.info(jobState)
             if ('finished'.equalsIgnoreCase(jobState)) {
                 logger.info("jobResult:{}", jobResult)
                 sleep(3000)
