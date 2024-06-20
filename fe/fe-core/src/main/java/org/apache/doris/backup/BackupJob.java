@@ -978,6 +978,12 @@ public class BackupJob extends AbstractJob {
         return Joiner.on(", ").join(list);
     }
 
+    public static BackupJob read(DataInput in) throws IOException {
+        BackupJob job = new BackupJob();
+        job.readFields(in);
+        return job;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
@@ -1034,13 +1040,6 @@ public class BackupJob extends AbstractJob {
         }
     }
 
-    public static BackupJob read(DataInput in) throws IOException {
-        BackupJob job = new BackupJob();
-        job.readFields(in);
-        return job;
-    }
-
-    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

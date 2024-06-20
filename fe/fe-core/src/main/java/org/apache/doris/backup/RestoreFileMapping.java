@@ -17,6 +17,8 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -33,7 +35,7 @@ import java.util.Map;
 
 public class RestoreFileMapping implements Writable {
 
-    public static class IdChain implements Writable {
+    public static class IdChain {
         // tblId, partId, idxId, tabletId, replicaId
         @SerializedName("c")
         private Long[] chain;
@@ -102,11 +104,6 @@ public class RestoreFileMapping implements Writable {
             return code;
         }
 
-        @Override
-        public void write(DataOutput out) throws IOException {
-            Text.writeString(out, GsonUtils.GSON.toJson(this));
-        }
-
         public void readFields(DataInput in) throws IOException {
             int size = in.readInt();
             chain = new Long[size];
@@ -154,9 +151,13 @@ public class RestoreFileMapping implements Writable {
     }
 
     public static RestoreFileMapping read(DataInput in) throws IOException {
-        RestoreFileMapping mapping = new RestoreFileMapping();
-        mapping.readFields(in);
-        return mapping;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
+            RestoreFileMapping mapping = new RestoreFileMapping();
+            mapping.readFields(in);
+            return mapping;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), RestoreFileMapping.class);
+        }
     }
 
     public void clear() {
@@ -166,17 +167,7 @@ public class RestoreFileMapping implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(mapping.size());
-        for (Map.Entry<IdChain, IdChain> entry : mapping.entrySet()) {
-            entry.getKey().write(out);
-            entry.getValue().write(out);
-        }
-
-        out.writeInt(overwriteMap.size());
-        for (Map.Entry<Long, Boolean> entry : overwriteMap.entrySet()) {
-            out.writeLong(entry.getKey());
-            out.writeBoolean(entry.getValue());
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public void readFields(DataInput in) throws IOException {
