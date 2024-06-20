@@ -17,7 +17,6 @@
 
 suite("test_dup_schema_key_drop", "p0") {
     def tbName1 = "test_dup_schema_key_drop"
-    def tbName2 = "test_dup_schema_key_drop_1"
     sql """ DROP TABLE IF EXISTS ${tbName1} """
     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName1}' ORDER BY createtime DESC LIMIT 1  "
     def errorMessage = ""
