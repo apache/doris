@@ -18,29 +18,31 @@
 suite("check_before_quit", "nonConcurrent,p0") {
     //NOTE: this suite is used to check whether workload group's query queue works correctly when all query finished
     long beginTime = System.currentTimeMillis();
-    long timeoutMs = 300000000 // 300s
-    boolean final_check_result = false
-    List<List<Object>> result = new ArrayList()
+    long timeoutMs = 300 * 1000 // 300s
+    boolean clear = false
+
     while ((System.currentTimeMillis() - beginTime) < timeoutMs) {
-        result = sql "show workload groups;"
-        boolean check_result = true
+        List<List<Object>> result = sql "show workload groups;"
+        logger.info("result, ${result}")
+
+        clear = true
         for (int i = 0; i < result.size(); i++) {
             List<Object> row = result.get(i)
             int col_size = row.size()
             int running_query_num = Integer.valueOf(row.get(col_size - 2).toString())
             int waiting_query_num = Integer.valueOf(row.get(col_size - 1).toString())
             if (running_query_num != 0 || waiting_query_num != 0) {
-                check_result = false
+                clear = false
                 break
             }
         }
-        if (check_result) {
-            final_check_result = true
+
+        if (clear) {
             break
         }
+
         Thread.sleep(500)
     }
 
-    logger.info("${result}")
-    assertTrue(final_check_result)
+    assertTrue(clear)
 }
