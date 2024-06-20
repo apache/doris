@@ -59,7 +59,7 @@ suite("alter_column_test_generated_column") {
     multi_sql """
     drop table if exists alter_column_gen_col;
     create table alter_column_gen_col (a int, b int, c int as(a+b), d int as(c+1), e int)
-    duplicate key(a) distributed by hash(a) ;
+    duplicate key(a) distributed by hash(a) PROPERTIES("replication_num" = "1");
     alter table alter_column_gen_col add rollup r1 (c,b,a)
     """
     waitForMVJob("alter_column_gen_col", 3000)
