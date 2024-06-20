@@ -23,7 +23,7 @@ import org.apache.commons.lang3.Range;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
+import java.util.Arrays;
 
 public class RangeGeneratorTest {
 
@@ -34,17 +34,17 @@ public class RangeGeneratorTest {
     public void testGenerateRanges() {
         // Tests when the range size is less than the shard count
         Assertions.assertIterableEquals(
-                List.of(Range.between(1L, 1L), Range.between(2L, 2L)),
+                Arrays.asList(Range.between(1L, 1L), Range.between(2L, 2L)),
                 SQLRangeGenerator.generateRanges(3, 1L, 2L)
         );
 
         // Tests a case where the range can be evenly divided
         Assertions.assertIterableEquals(
-                List.of(Range.between(1L, 5L), Range.between(6L, 10L)),
+                Arrays.asList(Range.between(1L, 5L), Range.between(6L, 10L)),
                 SQLRangeGenerator.generateRanges(2, 1L, 10L)
         );
         Assertions.assertIterableEquals(
-                List.of(Range.between(1L, 5L), Range.between(6L, 11L)),
+                Arrays.asList(Range.between(1L, 5L), Range.between(6L, 11L)),
                 SQLRangeGenerator.generateRanges(2, 1L, 11L)
         );
     }
