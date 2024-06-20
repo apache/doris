@@ -74,8 +74,9 @@ public class IcebergTransaction implements Transaction {
     }
 
     public void finishInsert(SimpleTableInfo tableInfo, Optional<InsertCommandContext> insertCtx) {
-
-        LOG.info("iceberg table {} insert table finished!", tableInfo);
+        if (LOG.isDebugEnabled()) {
+            LOG.info("iceberg table {} insert table finished!", tableInfo);
+        }
 
         //create  start the  iceberg transaction
         TUpdateMode updateMode = TUpdateMode.APPEND;
@@ -96,14 +97,17 @@ public class IcebergTransaction implements Transaction {
         List<WriteResult> pendingResults = Lists.newArrayList(writeResult);
 
         if (spec.isPartitioned()) {
-            LOG.info("{} {} table  partition manifest ...", tableInfo, updateMode);
             partitionManifestUpdate(updateMode, table, pendingResults);
-            LOG.info("{} {} table partition manifest  successful and writeResult : {}..", tableInfo, updateMode,
-                    writeResult);
+            if (LOG.isDebugEnabled()) {
+                LOG.info("{} {} table partition manifest  successful and writeResult : {}..", tableInfo, updateMode,
+                        writeResult);
+            }
         } else {
-            LOG.info("{} {} table  manifest ...", tableInfo, updateMode);
             tableManifestUpdate(updateMode, table, pendingResults);
-            LOG.info("{} {}  table  manifest  successful and writeResult : {}..", tableInfo, updateMode, writeResult);
+            if (LOG.isDebugEnabled()) {
+                LOG.info("{} {}  table  manifest  successful and writeResult : {}..", tableInfo, updateMode,
+                        writeResult);
+            }
         }
     }
 
@@ -154,7 +158,9 @@ public class IcebergTransaction implements Transaction {
             return;
         }
         // Commit the appendPartitionOperator transaction.
-        LOG.info("{} tableManifestUp method call  ", table.name());
+        if (LOG.isDebugEnabled()) {
+            LOG.info("{} tableManifestUp method call  ", table.name());
+        }
         if (updateMode == TUpdateMode.APPEND) {
             commitAppendTxn(table, pendingResults);
         } else {

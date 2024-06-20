@@ -209,56 +209,37 @@ public:
     const TypeDescriptor& get_result_type() const override { return _source_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnInt32* col_integer = check_and_get_column<ColumnInt32>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col_integer->get_data().size());
-            const ColumnInt32::Container& in_data = col_integer->get_data();
-            const int* end_in = in_data.data() + in_data.size();
+        const auto& in_data = assert_cast<const ColumnInt32*>(column_ptr.get())->get_data();
 
-            const Int32* __restrict p_in = in_data.data();
-            Int32* __restrict p_out = out_data.data();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
+        const int* end_in = in_data.data() + in_data.size();
+        const Int32* __restrict p_in = in_data.data();
+        Int32* __restrict p_out = out_data.data();
 
-            while (p_in < end_in) {
-                *p_out = *p_in - ((*p_in % _width) + _width) % _width;
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else if (auto col_right_const = check_and_get_column_const<ColumnInt32>(column_ptr)) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "IntegerTruncatePartitionColumnTransform  transform partition "
-                                   "error use column_pos {} ",
-                                   column_pos);
-        } else {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "IntegerTruncatePartitionColumnTransform  transform partition "
-                                   "error use column_pos {} ",
-                                   column_pos);
+        while (p_in < end_in) {
+            *p_out = *p_in - ((*p_in % _width) + _width) % _width;
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
 private:
@@ -276,56 +257,37 @@ public:
     const TypeDescriptor& get_result_type() const override { return _source_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnInt64* col_integer = check_and_get_column<ColumnInt64>(column_ptr)) {
-            auto col_res = ColumnInt64::create();
-            ColumnInt64::Container& out_data = col_res->get_data();
-            out_data.resize(col_integer->get_data().size());
-            const ColumnInt64::Container& in_data = col_integer->get_data();
-            const Int64* end_in = in_data.data() + in_data.size();
+        const auto& in_data = assert_cast<const ColumnInt64*>(column_ptr.get())->get_data();
 
-            const Int64* __restrict p_in = in_data.data();
-            Int64* __restrict p_out = out_data.data();
+        //3) do partition routing
+        auto col_res = ColumnInt64::create();
+        ColumnInt64::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
+        const Int64* end_in = in_data.data() + in_data.size();
+        const Int64* __restrict p_in = in_data.data();
+        Int64* __restrict p_out = out_data.data();
 
-            while (p_in < end_in) {
-                *p_out = *p_in - ((*p_in % _width) + _width) % _width;
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else if (auto col_right_const = check_and_get_column_const<ColumnInt64>(column_ptr)) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "BigintTruncatePartitionColumnTransform  transform partition "
-                                   "error use column_pos {} ",
-                                   column_pos);
-        } else {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "BigintTruncatePartitionColumnTransform  transform partition "
-                                   "error use column_pos {} ",
-                                   column_pos);
+        while (p_in < end_in) {
+            *p_out = *p_in - ((*p_in % _width) + _width) % _width;
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
 private:
@@ -405,56 +367,39 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnInt32* col_integer = check_and_get_column<ColumnInt32>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col_integer->get_data().size());
+        const auto& in_data = assert_cast<const ColumnInt32*>(column_ptr.get())->get_data();
 
-            const ColumnInt32::Container& in_data = col_integer->get_data();
-            const int* end_in = in_data.data() + in_data.size();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
+        const int* end_in = in_data.data() + in_data.size();
+        const Int32* __restrict p_in = in_data.data();
+        Int32* __restrict p_out = out_data.data();
 
-            const Int32* __restrict p_in = in_data.data();
-            Int32* __restrict p_out = out_data.data();
-
-            while (p_in < end_in) {
-                Int64 long_value = static_cast<Int64>(*p_in);
-                uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
-
-                *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {res_column,
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            //assert(0);
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "IntBucketPartitionColumnTransform  transform partition error "
-                                   "use column_pos {} ",
-                                   column_pos);
+        while (p_in < end_in) {
+            Int64 long_value = static_cast<Int64>(*p_in);
+            uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
+            *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
 private:
@@ -473,56 +418,39 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnInt64* col_integer = check_and_get_column<ColumnInt64>(column_ptr)) {
-            auto col_res = ColumnInt64::create();
-            ColumnInt64::Container& out_data = col_res->get_data();
-            out_data.resize(col_integer->get_data().size());
+        const auto& in_data = assert_cast<const ColumnInt64*>(column_ptr.get())->get_data();
 
-            const ColumnInt64::Container& in_data = col_integer->get_data();
-            const Int64* end_in = in_data.data() + in_data.size();
-
-            const Int64* __restrict p_in = in_data.data();
-            Int64* __restrict p_out = out_data.data();
-
-            while (p_in < end_in) {
-                Int64 long_value = static_cast<Int64>(*p_in);
-                uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
-
-                *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {res_column,
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            //assert(0);
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "IntBucketPartitionColumnTransform  transform partition error "
-                                   "use column_pos {} ",
-                                   column_pos);
+        //3) do partition routing
+        auto col_res = ColumnInt64::create();
+        ColumnInt64::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
+        const Int64* end_in = in_data.data() + in_data.size();
+        const Int64* __restrict p_in = in_data.data();
+        Int64* __restrict p_out = out_data.data();
+        while (p_in < end_in) {
+            Int64 long_value = static_cast<Int64>(*p_in);
+            uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
+            int value = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+            *p_out = value;
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
 private:
@@ -542,62 +470,43 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnDecimal<T>* col_decimal =
-                    check_and_get_column<ColumnDecimal<T>>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col_decimal->get_data().size());
-            const auto& vec_src = col_decimal->get_data();
+        const auto& in_data = assert_cast<const ColumnDecimal<T>*>(column_ptr.get())->get_data();
 
-            auto& vec_res = col_res->get_data();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
+        auto& vec_res = col_res->get_data();
 
-            const typename T::NativeType* __restrict p_in =
-                    reinterpret_cast<const T::NativeType*>(vec_src.data());
-            const typename T::NativeType* end_in =
-                    reinterpret_cast<const T::NativeType*>(vec_src.data()) + vec_src.size();
-            typename T::NativeType* __restrict p_out =
-                    reinterpret_cast<T::NativeType*>(vec_res.data());
+        const typename T::NativeType* __restrict p_in =
+                reinterpret_cast<const T::NativeType*>(in_data.data());
+        const typename T::NativeType* end_in =
+                reinterpret_cast<const T::NativeType*>(in_data.data()) + in_data.size();
+        typename T::NativeType* __restrict p_out = reinterpret_cast<T::NativeType*>(vec_res.data());
 
-            while (p_in < end_in) {
-                std::string buffer = BitUtil::IntToByteBuffer(*p_in);
-
-                uint32_t hash_value = HashUtil::murmur_hash3_32(buffer.data(), buffer.size(), 0);
-
-                *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            // assert(0);
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "DecimalBucketPartitionColumnTransform  transform partition "
-                                   "error use column_pos {} ",
-                                   column_pos);
+        while (p_in < end_in) {
+            std::string buffer = BitUtil::IntToByteBuffer(*p_in);
+            uint32_t hash_value = HashUtil::murmur_hash3_32(buffer.data(), buffer.size(), 0);
+            *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -629,60 +538,45 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnDateV2* col = check_and_get_column<ColumnDateV2>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col->get_data().size());
+        const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
 
-            const ColumnDateV2::Container& in_data = col->get_data();
-            const auto* end_in = in_data.data() + in_data.size();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
+        const auto* end_in = in_data.data() + in_data.size();
 
-            const auto* __restrict p_in = in_data.data();
-            auto* __restrict p_out = out_data.data();
+        const auto* __restrict p_in = in_data.data();
+        auto* __restrict p_out = out_data.data();
 
-            while (p_in < end_in) {
-                DateV2Value<DateV2ValueType> value =
-                        binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
+        while (p_in < end_in) {
+            DateV2Value<DateV2ValueType> value =
+                    binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
 
-                int32_t days_from_unix_epoch = value.daynr() - 719528;
-                Int64 long_value = static_cast<Int64>(days_from_unix_epoch);
-                uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
+            int32_t days_from_unix_epoch = value.daynr() - 719528;
+            Int64 long_value = static_cast<Int64>(days_from_unix_epoch);
+            uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
 
-                *p_out = (hash_value & INT32_MAX) % _bucket_num;
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            //assert(0);
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "DateBucketPartitionColumnTransform  transform partition error "
-                                   "use column_pos {} ",
-                                   column_pos);
+            *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
 private:
@@ -701,71 +595,55 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnDateTimeV2* col = check_and_get_column<ColumnDateTimeV2>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col->get_data().size());
+        const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
 
-            const ColumnDateTimeV2::Container& in_data = col->get_data();
-            const auto* end_in = in_data.data() + in_data.size();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
+        const auto* end_in = in_data.data() + in_data.size();
 
-            const auto* __restrict p_in = in_data.data();
-            auto* __restrict p_out = out_data.data();
+        const auto* __restrict p_in = in_data.data();
+        auto* __restrict p_out = out_data.data();
 
-            while (p_in < end_in) {
-                DateV2Value<DateTimeV2ValueType> value =
-                        binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
+        while (p_in < end_in) {
+            DateV2Value<DateTimeV2ValueType> value =
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
 
-                int64_t timestamp;
-                if (!value.unix_timestamp(&timestamp, "UTC")) {
-                    LOG(WARNING) << "Failed to call unix_timestamp :" << value.debug_string();
-                    timestamp = 0;
-                }
-                Int64 long_value = static_cast<Int64>(timestamp) * 1000000;
-                uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
-
-                *p_out = (hash_value & INT32_MAX) % _bucket_num;
-                ++p_in;
-                ++p_out;
+            int64_t timestamp;
+            if (!value.unix_timestamp(&timestamp, "UTC")) {
+                LOG(WARNING) << "Failed to call unix_timestamp :" << value.debug_string();
+                timestamp = 0;
             }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            //assert(0);
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "TimestampBucketPartitionColumnTransform  transform partition "
-                                   "error use column_pos {} ",
-                                   column_pos);
+            Int64 long_value = static_cast<Int64>(timestamp) * 1000000;
+            uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
+
+            *p_out = (hash_value & INT32_MAX) % _bucket_num;
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
         if (value.has_value()) {
-            std::string bucket_index_str = std::to_string(std::any_cast<Int32>(value));
-            LOG(INFO) << "TimestampBucketPartitionColumnTransform send  " << bucket_index_str;
-            return bucket_index_str;
+            return std::to_string(std::any_cast<Int32>(value));
+            ;
         } else {
             return "null";
         }
@@ -787,58 +665,42 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnString* col = check_and_get_column<ColumnString>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
+        const auto* str_col = assert_cast<const ColumnString*>(column_ptr.get());
 
-            const auto& data = col->get_chars();
-            const auto& offsets = col->get_offsets();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        const auto& data = str_col->get_chars();
+        const auto& offsets = str_col->get_offsets();
 
-            size_t offset_size = offsets.size();
+        size_t offset_size = offsets.size();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(offset_size);
+        auto* __restrict p_out = out_data.data();
 
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(offset_size);
+        for (int i = 0; i < offset_size; i++) {
+            const unsigned char* raw_str = &data[offsets[i - 1]];
+            ColumnString::Offset size = offsets[i] - offsets[i - 1];
+            uint32_t hash_value = HashUtil::murmur_hash3_32(raw_str, size, 0);
 
-            auto* __restrict p_out = out_data.data();
-
-            for (int i = 0; i < offset_size; i++) {
-                const unsigned char* raw_str = &data[offsets[i - 1]];
-                ColumnString::Offset size = offsets[i] - offsets[i - 1];
-                uint32_t hash_value = HashUtil::murmur_hash3_32(raw_str, size, 0);
-
-                *p_out = (hash_value & INT32_MAX) % _bucket_num;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            //assert(0);
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "StringBucketPartitionColumnTransform  transform partition "
-                                   "error use column_pos {} ",
-                                   column_pos);
+            *p_out = (hash_value & INT32_MAX) % _bucket_num;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
 private:
@@ -857,57 +719,40 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnDateV2* col = check_and_get_column<ColumnDateV2>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
+        const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
 
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col->get_data().size());
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
 
-            const ColumnDateV2::Container& in_data = col->get_data();
-            const auto* end_in = in_data.data() + in_data.size();
+        const auto* end_in = in_data.data() + in_data.size();
+        const auto* __restrict p_in = in_data.data();
+        auto* __restrict p_out = out_data.data();
 
-            const auto* __restrict p_in = in_data.data();
-            auto* __restrict p_out = out_data.data();
-
-            while (p_in < end_in) {
-                DateV2Value<DateV2ValueType> value =
-                        binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-
-                *p_out = datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_date(), value);
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            //assert(0);
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "DateYearPartitionColumnTransform  transform partition error "
-                                   "use column_pos {} ",
-                                   column_pos);
+        while (p_in < end_in) {
+            DateV2Value<DateV2ValueType> value =
+                    binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
+            *p_out = datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_date(), value);
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -933,57 +778,40 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnDateTimeV2* col = check_and_get_column<ColumnDateTimeV2>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col->get_data().size());
+        const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
 
-            const ColumnDateTimeV2::Container& in_data = col->get_data();
-            const auto* end_in = in_data.data() + in_data.size();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
 
-            const auto* __restrict p_in = in_data.data();
-            auto* __restrict p_out = out_data.data();
+        const auto* end_in = in_data.data() + in_data.size();
+        const auto* __restrict p_in = in_data.data();
+        auto* __restrict p_out = out_data.data();
 
-            while (p_in < end_in) {
-                DateV2Value<DateTimeV2ValueType> value =
-                        binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-
-                *p_out =
-                        datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_datetime(), value);
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            //assert(0);
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "TimestampYearPartitionColumnTransform  transform partition "
-                                   "error use column_pos {} ",
-                                   column_pos);
+        while (p_in < end_in) {
+            DateV2Value<DateTimeV2ValueType> value =
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
+            *p_out = datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -1009,56 +837,40 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnDateV2* col = check_and_get_column<ColumnDateV2>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col->get_data().size());
+        const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
 
-            const ColumnDateV2::Container& in_data = col->get_data();
-            const auto* end_in = in_data.data() + in_data.size();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
 
-            const auto* __restrict p_in = in_data.data();
-            auto* __restrict p_out = out_data.data();
+        const auto* end_in = in_data.data() + in_data.size();
+        const auto* __restrict p_in = in_data.data();
+        auto* __restrict p_out = out_data.data();
 
-            while (p_in < end_in) {
-                DateV2Value<DateV2ValueType> value =
-                        binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-
-                *p_out = datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_date(), value);
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            //assert(0);
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "DateMonthPartitionColumnTransform  transform partition error "
-                                   "use column_pos {} ",
-                                   column_pos);
+        while (p_in < end_in) {
+            DateV2Value<DateV2ValueType> value =
+                    binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
+            *p_out = datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_date(), value);
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -1084,57 +896,40 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnDateTimeV2* col = check_and_get_column<ColumnDateTimeV2>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col->get_data().size());
+        const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
 
-            const ColumnDateTimeV2::Container& in_data = col->get_data();
-            const auto* end_in = in_data.data() + in_data.size();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
 
-            const auto* __restrict p_in = in_data.data();
-            auto* __restrict p_out = out_data.data();
+        const auto* end_in = in_data.data() + in_data.size();
+        const auto* __restrict p_in = in_data.data();
+        auto* __restrict p_out = out_data.data();
 
-            while (p_in < end_in) {
-                DateV2Value<DateTimeV2ValueType> value =
-                        binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-
-                *p_out = datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_datetime(),
-                                              value);
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            //assert(0);
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "TimestampMonthPartitionColumnTransform  transform partition "
-                                   "error use column_pos {} ",
-                                   column_pos);
+        while (p_in < end_in) {
+            DateV2Value<DateTimeV2ValueType> value =
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
+            *p_out = datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -1160,57 +955,41 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnDateV2* col = check_and_get_column<ColumnDateV2>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col->get_data().size());
+        const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
 
-            const ColumnDateV2::Container& in_data = col->get_data();
-            const auto* end_in = in_data.data() + in_data.size();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
 
-            const auto* __restrict p_in = in_data.data();
-            auto* __restrict p_out = out_data.data();
+        const auto* end_in = in_data.data() + in_data.size();
+        const auto* __restrict p_in = in_data.data();
+        auto* __restrict p_out = out_data.data();
 
-            while (p_in < end_in) {
-                DateV2Value<DateV2ValueType> value =
-                        binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-
-                *p_out = datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_date(), value);
-                ;
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            //assert(0);
-            throw doris::Exception(
-                    doris::ErrorCode::INTERNAL_ERROR,
-                    "DateDayPartitionColumnTransform  transform partition error use column_pos {} ",
-                    column_pos);
+        while (p_in < end_in) {
+            DateV2Value<DateV2ValueType> value =
+                    binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
+            *p_out = datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_date(), value);
+            ;
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -1220,13 +999,7 @@ public:
     std::string get_partition_value(const TypeDescriptor& type,
                                     const std::any& value) const override {
         if (value.has_value()) {
-            int day_value = 0;
-            try {
-                day_value = std::any_cast<Int32>(value);
-            } catch (std::bad_any_cast& e) {
-                std::cout << "DateDayPartitionColumnTransform parse value  error. " << e.what()
-                          << std::endl;
-            }
+            int day_value = std::any_cast<Int32>(value);
             return PartitionColumnTransformUtils::human_day(day_value);
         } else {
             return "null";
@@ -1248,55 +1021,40 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnDateTimeV2* col = check_and_get_column<ColumnDateTimeV2>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col->get_data().size());
+        const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
 
-            const ColumnDateTimeV2::Container& in_data = col->get_data();
-            const auto* end_in = in_data.data() + in_data.size();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
 
-            const auto* __restrict p_in = in_data.data();
-            auto* __restrict p_out = out_data.data();
+        const auto* end_in = in_data.data() + in_data.size();
+        const auto* __restrict p_in = in_data.data();
+        auto* __restrict p_out = out_data.data();
 
-            while (p_in < end_in) {
-                DateV2Value<DateTimeV2ValueType> value =
-                        binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-
-                *p_out = datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_datetime(), value);
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "TimestampDayPartitionColumnTransform  transform partition "
-                                   "error use clolumn_pos {} ",
-                                   column_pos);
+        while (p_in < end_in) {
+            DateV2Value<DateTimeV2ValueType> value =
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
+            *p_out = datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -1327,56 +1085,40 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+        //1) get the target column prt
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
+        ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
+        CHECK(column_ptr != nullptr);
 
-        ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
-        bool is_nullable = false;
-        if (auto* nullable_column =
-                    check_and_get_column<ColumnNullable>(column_with_type_and_name.column)) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+        //2) get the input data from block
+        if (column_ptr->is_nullable()) {
+            const ColumnNullable* nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             column_ptr = nullable_column->get_nested_column_ptr();
-            is_nullable = true;
-        } else {
-            column_ptr = column_with_type_and_name.column;
-            is_nullable = false;
         }
-        if (const ColumnDateTimeV2* col = check_and_get_column<ColumnDateTimeV2>(column_ptr)) {
-            auto col_res = ColumnInt32::create();
-            ColumnInt32::Container& out_data = col_res->get_data();
-            out_data.resize(col->get_data().size());
+        const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
 
-            const ColumnDateTimeV2::Container& in_data = col->get_data();
-            const auto* end_in = in_data.data() + in_data.size();
+        //3) do partition routing
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
+        out_data.resize(in_data.size());
 
-            const auto* __restrict p_in = in_data.data();
-            auto* __restrict p_out = out_data.data();
+        const auto* end_in = in_data.data() + in_data.size();
+        const auto* __restrict p_in = in_data.data();
+        auto* __restrict p_out = out_data.data();
 
-            while (p_in < end_in) {
-                DateV2Value<DateTimeV2ValueType> value =
-                        binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-
-                *p_out =
-                        datetime_diff<HOUR>(PartitionColumnTransformUtils::epoch_datetime(), value);
-                ++p_in;
-                ++p_out;
-            }
-            if (is_nullable) {
-                auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
-                return {std::move(res_column),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), true),
-                        column_with_type_and_name.name};
-            } else {
-                return {std::move(col_res),
-                        DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                        column_with_type_and_name.name};
-            }
-        } else {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "TimestampHourPartitionColumnTransform  transform partition "
-                                   "error use column_pos {} ",
-                                   column_pos);
+        while (p_in < end_in) {
+            DateV2Value<DateTimeV2ValueType> value =
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
+            *p_out = datetime_diff<HOUR>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            ++p_in;
+            ++p_out;
         }
+
+        //4) create the partition column and return
+        return {std::move(col_res),
+                DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                column_with_type_and_name.name};
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
