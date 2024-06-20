@@ -2046,6 +2046,7 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
             if (!st.ok()) {
                 LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
             } else {
+                closure_guard.release();
                 for (int i = 0; i < request->data().size(); ++i) {
                     std::unique_ptr<PDataRow> row(new PDataRow());
                     row->CopyFrom(request->data(i));
@@ -2055,7 +2056,6 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                     }
                 }
                 if (st.ok()) {
-                    closure_guard.release();
                     static_cast<void>(pipe->finish());
                 }
             }
