@@ -259,4 +259,17 @@ public class MTMVRewriteUtilTest {
         Assert.assertEquals(1, mtmvCanRewritePartitions.size());
     }
 
+    @Test
+    public void testGetMTMVCanRewritePartitionsRefreshStateInit() {
+        new Expectations() {
+            {
+                status.getRefreshState();
+                minTimes = 0;
+                result = MTMVRefreshState.INIT;
+            }
+        };
+        Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
+                .getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMills);
+        Assert.assertEquals(0, mtmvCanRewritePartitions.size());
+    }
 }
