@@ -150,12 +150,18 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexFilterTime", parquet_profile, 1);
         _parquet_profile.row_group_filter_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RowGroupFilterTime", parquet_profile, 1);
+        _parquet_profile.file_meta_read_calls = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "FileMetaReadCalls", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.file_meta_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "FileMetaReadBytes", TUnit::BYTES, parquet_profile, 1);
+        _parquet_profile.file_meta_read_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FileMetaReadTime", parquet_profile, 1);
+        _parquet_profile.file_meta_hit_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "FileMetaHitCount", TUnit::UNIT, parquet_profile, 1);
 
         _parquet_profile.file_read_time = ADD_TIMER_WITH_LEVEL(_profile, "FileReadTime", 1);
         _parquet_profile.file_read_calls =
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileReadCalls", TUnit::UNIT, 1);
-        _parquet_profile.file_meta_read_calls =
-                ADD_COUNTER_WITH_LEVEL(_profile, "FileMetaReadCalls", TUnit::UNIT, 1);
         _parquet_profile.file_read_bytes =
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileReadBytes", TUnit::BYTES, 1);
         _parquet_profile.decompress_time =
@@ -213,25 +219,18 @@ Status ParquetReader::_open_file() {
             return Status::EndOfFile("open file failed, empty parquet file {} with size: {}",
                                      _scan_range.path, _file_reader->size());
         }
-        size_t meta_size = 0;
         if (_meta_cache == nullptr) {
-            auto st = parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx);
+            auto st = parse_thrift_footer(
+                    _file_reader, &_file_metadata, _io_ctx, &_statistics.meta_read_calls,
+                    &_statistics.meta_read_bytes, &_statistics.meta_read_time);
             // wrap it with unique ptr, so that it can be released finally.
             _file_metadata_ptr.reset(_file_metadata);
             RETURN_IF_ERROR(st);
-
-            _column_statistics.read_bytes += meta_size;
-            // parse magic number & parse meta data
-            _column_statistics.meta_read_calls += 1;
         } else {
-            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_file_reader, _io_ctx,
-                                                            _file_description.mtime, &meta_size,
-                                                            &_meta_cache_handle));
-            _column_statistics.read_bytes += meta_size;
-            if (meta_size > 0) {
-                _column_statistics.meta_read_calls += 1;
-            }
-
+            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(
+                    _file_reader, _io_ctx, _file_description.mtime, &_meta_cache_handle,
+                    &_statistics.meta_read_calls, &_statistics.meta_read_bytes,
+                    &_statistics.meta_read_time, &_statistics.meta_hit_count));
             _file_metadata = (FileMetaData*)_meta_cache_handle.data<FileMetaData>();
         }
 
@@ -239,9 +238,6 @@ Status ParquetReader::_open_file() {
             return Status::InternalError("failed to get file meta data: {}",
                                          _file_description.path);
         }
-        _column_statistics.read_bytes += meta_size;
-        // parse magic number & parse meta data
-        _column_statistics.read_calls += 1;
     }
     return Status::OK();
 }
@@ -754,18 +750,24 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     uint8_t col_index_buff[page_index._column_index_size];
     size_t bytes_read = 0;
     Slice result(col_index_buff, page_index._column_index_size);
-    RETURN_IF_ERROR(
-            _file_reader->read_at(page_index._column_index_start, result, &bytes_read, _io_ctx));
-    _column_statistics.read_bytes += bytes_read;
+    {
+        SCOPED_RAW_TIMER(&_statistics.meta_read_time);
+        RETURN_IF_ERROR(_file_reader->read_at(page_index._column_index_start, result, &bytes_read,
+                                              _io_ctx));
+        _statistics.meta_read_bytes += bytes_read;
+        _statistics.meta_read_calls += 1;
+    }
     auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
     uint8_t off_index_buff[page_index._offset_index_size];
     Slice res(off_index_buff, page_index._offset_index_size);
-    RETURN_IF_ERROR(
-            _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
-    _column_statistics.read_bytes += bytes_read;
-    // read twice: parse column index & parse offset index
-    _column_statistics.meta_read_calls += 2;
+    {
+        SCOPED_RAW_TIMER(&_statistics.meta_read_time);
+        RETURN_IF_ERROR(
+                _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
+        _statistics.meta_read_bytes += bytes_read;
+        _statistics.meta_read_calls += 1;
+    }
     for (auto& read_col : _read_columns) {
         auto conjunct_iter = _colname_to_value_range->find(read_col);
         if (_colname_to_value_range->end() == conjunct_iter) {
@@ -936,13 +938,16 @@ void ParquetReader::_collect_profile() {
     COUNTER_UPDATE(_parquet_profile.open_file_num, _statistics.open_file_num);
     COUNTER_UPDATE(_parquet_profile.page_index_filter_time, _statistics.page_index_filter_time);
     COUNTER_UPDATE(_parquet_profile.row_group_filter_time, _statistics.row_group_filter_time);
+    COUNTER_UPDATE(_parquet_profile.file_meta_read_calls, _statistics.meta_read_calls);
+    COUNTER_UPDATE(_parquet_profile.file_meta_read_bytes, _statistics.meta_read_bytes);
+    COUNTER_UPDATE(_parquet_profile.file_meta_read_time, _statistics.meta_read_time);
+    COUNTER_UPDATE(_parquet_profile.file_meta_hit_count, _statistics.meta_hit_count);
 
     COUNTER_UPDATE(_parquet_profile.skip_page_header_num, _column_statistics.skip_page_header_num);
     COUNTER_UPDATE(_parquet_profile.parse_page_header_num,
                    _column_statistics.parse_page_header_num);
     COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
     COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
-    COUNTER_UPDATE(_parquet_profile.file_meta_read_calls, _column_statistics.meta_read_calls);
     COUNTER_UPDATE(_parquet_profile.file_read_bytes, _column_statistics.read_bytes);
     COUNTER_UPDATE(_parquet_profile.decompress_time, _column_statistics.decompress_time);
     COUNTER_UPDATE(_parquet_profile.decompress_cnt, _column_statistics.decompress_cnt);

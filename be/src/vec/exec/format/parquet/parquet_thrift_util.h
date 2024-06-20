@@ -37,12 +37,18 @@ constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 constexpr size_t INIT_META_SIZE = 128 * 1024; // 128k
 
 static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_metadata,
-                                  size_t* meta_size, io::IOContext* io_ctx) {
+                                  io::IOContext* io_ctx, int64_t* read_calls, int64_t* read_bytes,
+                                  int64_t* read_time) {
     size_t file_size = file->size();
     size_t bytes_read = std::min(file_size, INIT_META_SIZE);
     uint8_t footer[bytes_read];
-    RETURN_IF_ERROR(
-            file->read_at(file_size - bytes_read, Slice(footer, bytes_read), &bytes_read, io_ctx));
+    {
+        SCOPED_RAW_TIMER(read_time);
+        RETURN_IF_ERROR(file->read_at(file_size - bytes_read, Slice(footer, bytes_read),
+                                      &bytes_read, io_ctx));
+        *read_bytes += bytes_read;
+        *read_calls += 1;
+    }
 
     // validate magic
     uint8_t* magic_ptr = footer + bytes_read - 4;
@@ -65,8 +71,14 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     uint8_t* meta_ptr;
     if (metadata_size > bytes_read - PARQUET_FOOTER_SIZE) {
         new_buff.reset(new uint8_t[metadata_size]);
-        RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE - metadata_size,
-                                      Slice(new_buff.get(), metadata_size), &bytes_read, io_ctx));
+        {
+            SCOPED_RAW_TIMER(read_time);
+            RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE - metadata_size,
+                                          Slice(new_buff.get(), metadata_size), &bytes_read,
+                                          io_ctx));
+            *read_bytes += bytes_read;
+            *read_calls += 1;
+        }
         meta_ptr = new_buff.get();
     } else {
         meta_ptr = footer + bytes_read - PARQUET_FOOTER_SIZE - metadata_size;
@@ -76,8 +88,6 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     // deserialize footer
     RETURN_IF_ERROR(deserialize_thrift_msg(meta_ptr, &metadata_size, true, &t_metadata));
     *file_metadata = new FileMetaData(t_metadata);
-    RETURN_IF_ERROR((*file_metadata)->init_schema());
-    *meta_size = PARQUET_FOOTER_SIZE + metadata_size;
-    return Status::OK();
+    return (*file_metadata)->init_schema();
 }
 } // namespace doris::vectorized

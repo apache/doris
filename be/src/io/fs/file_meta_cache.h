@@ -35,7 +35,8 @@ public:
     ObjLRUCache& cache() { return _cache; }
 
     Status get_parquet_footer(io::FileReaderSPtr file_reader, io::IOContext* io_ctx, int64_t mtime,
-                              size_t* meta_size, ObjLRUCache::CacheHandle* handle);
+                              ObjLRUCache::CacheHandle* handle, int64_t* read_calls,
+                              int64_t* read_bytes, int64_t* read_time, int64_t* hit_count);
 
     Status get_orc_footer() {
         // TODO: implement

@@ -89,6 +89,10 @@ public:
         int64_t open_file_num = 0;
         int64_t row_group_filter_time = 0;
         int64_t page_index_filter_time = 0;
+        int64_t meta_read_calls = 0;
+        int64_t meta_read_bytes = 0;
+        int64_t meta_read_time = 0;
+        int64_t meta_hit_count = 0;
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -174,6 +178,9 @@ private:
         RuntimeProfile::Counter* file_read_time = nullptr;
         RuntimeProfile::Counter* file_read_calls = nullptr;
         RuntimeProfile::Counter* file_meta_read_calls = nullptr;
+        RuntimeProfile::Counter* file_meta_read_bytes = nullptr;
+        RuntimeProfile::Counter* file_meta_read_time = nullptr;
+        RuntimeProfile::Counter* file_meta_hit_count = nullptr;
         RuntimeProfile::Counter* file_read_bytes = nullptr;
         RuntimeProfile::Counter* decompress_time = nullptr;
         RuntimeProfile::Counter* decompress_cnt = nullptr;
