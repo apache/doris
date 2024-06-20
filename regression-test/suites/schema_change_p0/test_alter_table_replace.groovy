@@ -145,9 +145,9 @@ suite("test_alter_table_replace") {
             PROPERTIES("use_temp_partition_name" = "true", "force_drop_normal" = "false");
         """
     qt_before_recover """ select * from ${tbNameC} order by user_id desc """
-    sql """ ALTER TABLE DROP PARTITION tp201701 FORCE """
-    sql """ ALTER TABLE DROP PARTITION tp201702 FORCE """
-    sql """ ALTER TABLE DROP PARTITION tp201703 FORCE """
+    sql """ ALTER TABLE ${tbNameC} DROP PARTITION tp201701 FORCE """
+    sql """ ALTER TABLE ${tbNameC} DROP PARTITION tp201702 FORCE """
+    sql """ ALTER TABLE ${tbNameC} DROP PARTITION tp201703 FORCE """
     sql """ RECOVER PARTITION p201701 FROM ${tbNameC} """
     sql """ RECOVER PARTITION p201702 FROM ${tbNameC} """
     sql """ RECOVER PARTITION p201703 FROM ${tbNameC} """
