@@ -29,14 +29,15 @@ import java.util.ArrayList
 import java.util.List
 import java.util.concurrent.CopyOnWriteArrayList
 
-suite("insert_group_commit_with_prepare_stmt") {
+suite("insert_group_commit_with_prepare_stmt", "nonConcurrent") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def realDb = "regression_test_insert_p0"
     def table = realDb + ".insert_group_commit_with_prepare_stmt"
 
     sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
-
+    // group commit not supported in nereids
+    sql "set global enable_server_side_prepared_statement = false"
     def getRowCount = { expectedRowCount ->
         def retry = 0
         while (retry < 30) {
@@ -266,4 +267,5 @@ suite("insert_group_commit_with_prepare_stmt") {
             // try_sql("DROP TABLE ${table}")
         }
     }
+    sql "set global enable_server_side_prepared_statement = true"
 }

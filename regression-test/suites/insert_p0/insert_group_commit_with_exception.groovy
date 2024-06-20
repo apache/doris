@@ -20,9 +20,9 @@ import java.sql.DriverManager
 import java.sql.Statement
 import java.sql.PreparedStatement
 
-suite("insert_group_commit_with_exception") {
+suite("insert_group_commit_with_exception", "nonConcurrent") {
     def table = "insert_group_commit_with_exception"
-
+    sql "set global enable_server_side_prepared_statement = false"
     def getRowCount = { expectedRowCount ->
         def retry = 0
         while (retry < 30) {
@@ -292,4 +292,5 @@ suite("insert_group_commit_with_exception") {
             // try_sql("DROP TABLE ${table}")
         }
     }
+    sql "set global enable_server_side_prepared_statement = true"
 }

@@ -1404,7 +1404,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = MAX_PREPARED_STMT_COUNT,  flag = VariableMgr.GLOBAL,
             needForward = true, description = {
-            "服务端prepared statement最大个数", "the maximum prepared statements server holds."})
+                "服务端prepared statement最大个数", "the maximum prepared statements server holds."})
     public int maxPreparedStmtCount = 100000;
 
     // Default value is false, which means the group by and having clause
