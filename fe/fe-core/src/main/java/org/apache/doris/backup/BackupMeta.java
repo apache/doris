@@ -114,14 +114,9 @@ public class BackupMeta implements Writable, GsonPostProcessable {
     }
 
     public static BackupMeta read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            BackupMeta backupMeta = new BackupMeta();
-            backupMeta.readFields(in);
-            return backupMeta;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, BackupMeta.class);
-        }
+        BackupMeta backupMeta = new BackupMeta();
+        backupMeta.readFields(in);
+        return backupMeta;
     }
 
     @Override
