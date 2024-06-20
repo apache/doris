@@ -203,6 +203,7 @@ DorisCompoundReader::~DorisCompoundReader() {
             LOG(ERROR) << "DorisCompoundReader finalize error:" << err.what();
         }
     }
+    _CLDELETE(entries)
 }
 
 const char* DorisCompoundReader::getClassName() {
@@ -225,10 +226,6 @@ bool DorisCompoundReader::fileExists(const char* name) const {
 
 lucene::store::Directory* DorisCompoundReader::getDirectory() {
     return dir;
-}
-
-std::string DorisCompoundReader::getPath() const {
-    return ((DorisFSDirectory*)dir)->getCfsDirName();
 }
 
 int64_t DorisCompoundReader::fileModified(const char* name) const {
@@ -294,7 +291,6 @@ void DorisCompoundReader::close() {
     }
     if (entries != nullptr) {
         entries->clear();
-        _CLDELETE(entries)
     }
     if (ram_dir) {
         ram_dir->close();

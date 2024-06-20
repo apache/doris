@@ -321,16 +321,13 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     }
 
     RETURN_IF_ERROR(init_iterators());
-    if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
-        _is_char_type.resize(_schema->columns().size(), false);
-        _vec_init_char_column_id();
-    }
 
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
     }
 
     _storage_name_and_type.resize(_schema->columns().size());
+    auto storage_format = _opts.tablet_schema->get_inverted_index_storage_format();
     for (int i = 0; i < _schema->columns().size(); ++i) {
         const Field* col = _schema->column(i);
         if (col) {
@@ -340,7 +337,26 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             if (storage_type == nullptr) {
                 storage_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
             }
-            _storage_name_and_type[i] = std::make_pair(col->name(), storage_type);
+            // Currently, when writing a lucene index, the field of the document is column_name, and the column name is
+            // bound to the index field. Since version 1.2, the data file storage has been changed from column_name to
+            // column_unique_id, allowing the column name to be changed. Due to current limitations, previous inverted
+            // index data cannot be used after Doris changes the column name. Column names also support Unicode
+            // characters, which may cause other problems with indexing in non-ASCII characters.
+            // After consideration, it was decided to change the field name from column_name to column_unique_id in
+            // format V2, while format V1 continues to use column_name.
+            std::string field_name;
+            if (storage_format == InvertedIndexStorageFormatPB::V1) {
+                field_name = col->name();
+            } else {
+                if (col->is_extracted_column()) {
+                    // variant sub col
+                    // field_name format: parent_unique_id.sub_col_name
+                    field_name = std::to_string(col->parent_unique_id()) + "." + col->name();
+                } else {
+                    field_name = std::to_string(col->unique_id());
+                }
+            }
+            _storage_name_and_type[i] = std::make_pair(field_name, storage_type);
         }
     }
 
@@ -543,6 +559,13 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 }
             }
             _col_preds_except_leafnode_of_andnode.clear();
+            // 1. if all conditions in the compound hit the inverted index and there are no other expr to handle.
+            // 2. then there is no need to generate index_result_column.
+            if (_enable_common_expr_pushdown && _remaining_conjunct_roots.empty()) {
+                for (auto& iter : _rowid_result_for_index) {
+                    iter.second.first = false;
+                }
+            }
         }
         _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     }
@@ -1295,7 +1318,8 @@ Status SegmentIterator::_apply_inverted_index() {
     if (_opts.runtime_state &&
         _opts.runtime_state->enable_common_expr_pushdown_for_inverted_index()) {
         // support expr to evaluate inverted index
-        std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair, InvertedIndexIterator*>>
+        std::unordered_map<ColumnId,
+                           std::pair<vectorized::IndexFieldNameAndTypePair, InvertedIndexIterator*>>
                 iter_map;
         for (auto col_id : _common_expr_columns_for_index) {
             auto tablet_col_id = _schema->column_id(col_id);
@@ -1843,19 +1867,23 @@ bool SegmentIterator::_has_char_type(const Field& column_desc) {
     }
 };
 
-void SegmentIterator::_vec_init_char_column_id() {
+void SegmentIterator::_vec_init_char_column_id(vectorized::Block* block) {
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         const Field* column_desc = _schema->column(cid);
 
-        if (_has_char_type(*column_desc)) {
-            _char_type_idx.emplace_back(i);
-            if (i != 0) {
-                _char_type_idx_no_0.emplace_back(i);
+        // The additional deleted filter condition will be in the materialized column at the end of the block.
+        // After _output_column_by_sel_idx, it will be erased, so we do not need to shrink it.
+        if (i < block->columns()) {
+            if (_has_char_type(*column_desc)) {
+                _char_type_idx.emplace_back(i);
+                if (i != 0) {
+                    _char_type_idx_no_0.emplace_back(i);
+                }
             }
-        }
-        if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-            _is_char_type[cid] = true;
+            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                _is_char_type[cid] = true;
+            }
         }
     }
 }
@@ -2292,6 +2320,10 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
         _current_return_columns.resize(_schema->columns().size());
         _converted_column_ids.resize(_schema->columns().size(), 0);
+        if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
+            _is_char_type.resize(_schema->columns().size(), false);
+            _vec_init_char_column_id(block);
+        }
         for (size_t i = 0; i < _schema->num_column_ids(); i++) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);

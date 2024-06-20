@@ -268,6 +268,7 @@ public class PrepareStmt extends StatementBase {
         }
         for (int i = 0; i < values.size(); ++i) {
             inner.getPlaceHolders().get(i).setLiteral(values.get(i));
+            inner.getPlaceHolders().get(i).analysisDone();
         }
         if (!values.isEmpty()) {
             if (LOG.isDebugEnabled()) {
