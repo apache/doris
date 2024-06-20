@@ -45,7 +45,17 @@ suite("prune_bucket_with_bucket_shuffle_join") {
                 log.info("Explain result:\n${result}")
 
                 assertTrue(result.contains(containsString))
-                checkExchangeNum(result.count("VEXCHANGE"))
+
+                def fragmentContainsJoin = result.split("PLAN FRAGMENT")
+                        .toList()
+                        .stream()
+                        .filter { it.contains(containsString) }
+                        .findFirst()
+                        .get()
+
+                log.info("Fragment:\n${fragmentContainsJoin}")
+
+                checkExchangeNum(fragmentContainsJoin.count("VEXCHANGE"))
             }
         }
     }
@@ -67,6 +77,7 @@ suite("prune_bucket_with_bucket_shuffle_join") {
         set enable_pipeline_x_engine=true;
         set disable_join_reorder=true;
         """
+
     assertExplain(sqlStr, "RIGHT OUTER JOIN(BUCKET_SHUFFLE)") { exchangeNum ->
         assertTrue(exchangeNum == 1)
     }
@@ -82,5 +93,4 @@ suite("prune_bucket_with_bucket_shuffle_join") {
     }
 
     order_qt_fillup_bucket sqlStr
-
 }

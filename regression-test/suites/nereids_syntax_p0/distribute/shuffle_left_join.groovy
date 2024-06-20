@@ -45,7 +45,17 @@ suite("shuffle_left_join") {
                 log.info("Explain result:\n${result}")
 
                 assertTrue(result.contains(containsString))
-                checkExchangeNum(result.count("VEXCHANGE"))
+
+                def fragmentContainsJoin = result.split("PLAN FRAGMENT")
+                        .toList()
+                        .stream()
+                        .filter { it.contains(containsString) }
+                        .findFirst()
+                        .get()
+
+                log.info("Fragment:\n${fragmentContainsJoin}")
+
+                checkExchangeNum(fragmentContainsJoin.count("VEXCHANGE"))
             }
         }
     }
@@ -59,7 +69,7 @@ suite("shuffle_left_join") {
         """
 
     assertExplain(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
-        assertTrue(exchangeNum > 1)
+        assertTrue(exchangeNum == 2)
     }
 
     order_qt_shuffle_left_and_right sqlStr
