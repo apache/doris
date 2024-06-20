@@ -529,8 +529,9 @@ struct TMaterializedViewsMetadataParams {
 }
 
 struct TPartitionsMetadataParams {
-  1: optional string database
-  2: optional string table
+  1: optional string catalog
+  2: optional string database
+  3: optional string table
 }
 
 struct TJobsMetadataParams {
