@@ -22,21 +22,36 @@ suite("colocate_union_numbers") {
         set disable_join_reorder=true;
         """
 
+    def extractFragment = { String sqlStr, String containsString, Closure<Integer> checkExchangeNum ->
+        explain {
+            sql sqlStr
+            check { result ->
+                log.info("Explain result:\n${result}")
+
+                assertTrue(result.contains(containsString))
+
+                def fragmentContainsJoin = result.split("PLAN FRAGMENT")
+                        .toList()
+                        .stream()
+                        .filter { it.contains(containsString) }
+                        .findFirst()
+                        .get()
+
+                log.info("Fragment:\n${fragmentContainsJoin}")
+
+                checkExchangeNum(fragmentContainsJoin.count("VEXCHANGE"))
+            }
+        }
+    }
+
     def sqlStr = """
         select * from numbers('number'='3')a
         union all
         select * from numbers('number'='4')b
         """
 
-    explain {
-        sql sqlStr
-        check { explainStr ->
-            log.info(explainStr)
-
-            // union all with two exchange
-            assertTrue(explainStr.count("VEXCHANGE") > 1)
-            assertTrue(explainStr.count("VDataGenScanNode") == 2)
-        }
+    extractFragment(sqlStr, "VUNION") { exchangeNum ->
+        assertTrue(exchangeNum == 2)
     }
 
     multi_sql """
@@ -45,15 +60,8 @@ suite("colocate_union_numbers") {
         set disable_join_reorder=true;
         """
 
-    explain {
-        sql "distributed plan ${sqlStr}"
-        check { explainStr ->
-            log.info(explainStr)
-
-            // only contains one instance
-            assertTrue(explainStr.count("StaticAssignedJob") == 1)
-            assertTrue(explainStr.count(" DataGenScanNode{") == 2)
-        }
+    extractFragment(sqlStr, "VUNION") { exchangeNum ->
+        assertTrue(exchangeNum == 0)
     }
 
     order_qt_union_all sqlStr
