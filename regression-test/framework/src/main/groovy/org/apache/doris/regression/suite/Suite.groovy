@@ -712,6 +712,10 @@ class Suite implements GroovyInterceptable {
         runAction(new ProfileAction(context, tag), actionSupplier)
     }
 
+    String getMVStmt(String name, String sql) {
+        return "CREATE MATERIALIZED VIEW " + name + " AS " + sql
+    }
+
     void checkNereidsExecute(String sqlString) {
         String tag = UUID.randomUUID().toString();
         log.info("start check" + tag)
