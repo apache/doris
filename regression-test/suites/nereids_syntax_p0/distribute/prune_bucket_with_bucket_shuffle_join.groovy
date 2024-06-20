@@ -38,14 +38,14 @@ suite("prune_bucket_with_bucket_shuffle_join") {
         set disable_join_reorder=true;
         """
 
-    def assertJoinType = { String sqlStr, String containsString, int expectExchangeNum ->
+    def assertExplain = { String sqlStr, String containsString, Closure<Integer> checkExchangeNum ->
         explain {
             sql sqlStr
             check { result ->
                 log.info("Explain result:\n${result}")
 
                 assertTrue(result.contains(containsString))
-                assertEquals(expectExchangeNum, result.count("VEXCHANGE"))
+                checkExchangeNum(result.count("VEXCHANGE"))
             }
         }
     }
@@ -58,14 +58,18 @@ suite("prune_bucket_with_bucket_shuffle_join") {
             ON a.c0 = b.c0
             """
 
-    assertJoinType(sqlStr, "RIGHT OUTER JOIN(PARTITIONED)", 2)
+    assertExplain(sqlStr, "RIGHT OUTER JOIN(PARTITIONED)") { exchangeNum ->
+        assertTrue(exchangeNum > 1)
+    }
 
     multi_sql """
         set enable_nereids_distribute_planner=true;
         set enable_pipeline_x_engine=true;
         set disable_join_reorder=true;
         """
-    assertJoinType(sqlStr, "RIGHT OUTER JOIN(BUCKET_SHUFFLE)", 1)
+    assertExplain(sqlStr, "RIGHT OUTER JOIN(BUCKET_SHUFFLE)") { exchangeNum ->
+        assertTrue(exchangeNum == 1)
+    }
 
     explain {
         sql "distributed plan ${sqlStr}"

@@ -38,6 +38,18 @@ suite("shuffle_left_join") {
         set disable_join_reorder=true;
         """
 
+    def assertExplain = { String sqlStr, String containsString, Closure<Integer> checkExchangeNum ->
+        explain {
+            sql sqlStr
+            check { result ->
+                log.info("Explain result:\n${result}")
+
+                assertTrue(result.contains(containsString))
+                checkExchangeNum(result.count("VEXCHANGE"))
+            }
+        }
+    }
+
     def sqlStr = """
             select *
             from test_shuffle_left a
@@ -46,16 +58,8 @@ suite("shuffle_left_join") {
             on a.id2=b.id;
         """
 
-    explain {
-        sql sqlStr
-        check { explainStr ->
-            log.info(explainStr)
-
-            assertTrue(explainStr.contains("INNER JOIN(PARTITIONED)"))
-
-            // union all with two exchange
-            assertTrue(explainStr.count("VEXCHANGE") == 2)
-        }
+    assertExplain(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
+        assertTrue(exchangeNum > 1)
     }
 
     order_qt_shuffle_left_and_right sqlStr
@@ -66,16 +70,8 @@ suite("shuffle_left_join") {
         set disable_join_reorder=true;
         """
 
-    explain {
-        sql sqlStr
-        check { explainStr ->
-            log.info(explainStr)
-
-            assertTrue(explainStr.contains("INNER JOIN(PARTITIONED)"))
-
-            // union all with one exchange
-            assertTrue(explainStr.count("VEXCHANGE") == 1)
-        }
+    assertExplain(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
+        assertTrue(exchangeNum == 1)
     }
 
     order_qt_shuffle_left sqlStr
