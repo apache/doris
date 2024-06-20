@@ -111,9 +111,9 @@ public:
         const auto* p = end;
 
         if constexpr (trim_single) {
+            const auto ch = remove_str.data[0];
 #if defined(__AVX2__) || defined(__aarch64__)
             constexpr auto AVX2_BYTES = sizeof(__m256i);
-            const auto ch = remove_str.data[0];
             const auto size = end - begin;
             const auto* const avx2_begin = end - size / AVX2_BYTES * AVX2_BYTES;
             const auto spaces = _mm256_set1_epi8(ch);
@@ -152,9 +152,9 @@ public:
         const auto* p = begin;
 
         if constexpr (trim_single) {
+            const auto ch = remove_str.data[0];
 #if defined(__AVX2__) || defined(__aarch64__)
             constexpr auto AVX2_BYTES = sizeof(__m256i);
-            const auto ch = remove_str.data[0];
             const auto size = end - begin;
             const auto* const avx2_end = begin + size / AVX2_BYTES * AVX2_BYTES;
             const auto spaces = _mm256_set1_epi8(ch);
