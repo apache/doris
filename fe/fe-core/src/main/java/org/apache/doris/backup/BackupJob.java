@@ -1045,10 +1045,11 @@ public class BackupJob extends AbstractJob {
 
         // table refs
         int size = in.readInt();
+        LOG.info("read {} tablerefs ", size);
+
         tableRefs = Lists.newArrayList();
         for (int i = 0; i < size; i++) {
-            TableRef tblRef = new TableRef();
-            tblRef.readFields(in);
+            TableRef tblRef = TableRef.read(in);
             tableRefs.add(tblRef);
         }
 
@@ -1060,14 +1061,16 @@ public class BackupJob extends AbstractJob {
 
         // snapshot info
         size = in.readInt();
+        LOG.info("read {} snapshotinfo ", size);
+
         for (int i = 0; i < size; i++) {
-            SnapshotInfo snapshotInfo = new SnapshotInfo();
-            snapshotInfo.readFields(in);
+            SnapshotInfo snapshotInfo = SnapshotInfo.read(in);
             snapshotInfos.put(snapshotInfo.getTabletId(), snapshotInfo);
         }
 
         // backup meta
         if (in.readBoolean()) {
+            LOG.info("read backup meta");
             backupMeta = BackupMeta.read(in);
         }
 
@@ -1083,6 +1086,8 @@ public class BackupJob extends AbstractJob {
         }
         // read properties
         size = in.readInt();
+        LOG.info("read {} property ", size);
+
         for (int i = 0; i < size; i++) {
             String key = Text.readString(in);
             String value = Text.readString(in);

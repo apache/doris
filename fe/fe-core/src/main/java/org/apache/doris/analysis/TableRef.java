@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -33,6 +34,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hudi.HudiUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
@@ -977,23 +979,20 @@ public class TableRef implements ParseNode, Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        name.write(out);
-        if (partitionNames == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            partitionNames.write(out);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
 
-        if (hasExplicitAlias()) {
-            out.writeBoolean(true);
-            Text.writeString(out, getExplicitAlias());
+    public static TableRef read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
+            TableRef ref = new TableRef();
+            ref.readFields(in);
+            return ref;
         } else {
-            out.writeBoolean(false);
+            return GsonUtils.GSON.fromJson(Text.readString(in), TableRef.class);
         }
     }
 
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         name = new TableName();
         name.readFields(in);
         if (in.readBoolean()) {

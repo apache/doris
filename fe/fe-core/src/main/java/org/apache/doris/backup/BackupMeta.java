@@ -127,18 +127,7 @@ public class BackupMeta implements Writable {
     // We can not change, because backup meta stored in external storage
     @Override
     public void write(DataOutput out) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            out.writeInt(tblNameMap.size());
-            for (Table table : tblNameMap.values()) {
-                table.write(out);
-            }
-            out.writeInt(resourceNameMap.size());
-            for (Resource resource : resourceNameMap.values()) {
-                resource.write(out);
-            }
-        } else {
-            Text.writeString(out, toJson());
-        }
+        Text.writeString(out, toJson());
     }
 
     public void readFields(DataInput in) throws IOException {
