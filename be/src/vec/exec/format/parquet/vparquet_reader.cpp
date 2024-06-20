@@ -525,7 +525,6 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     Status batch_st =
             _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
     if (batch_st.is<ErrorCode::END_OF_FILE>()) {
-        block->clear_column_data();
         _current_group_reader.reset(nullptr);
         *read_rows = 0;
         *eof = true;
