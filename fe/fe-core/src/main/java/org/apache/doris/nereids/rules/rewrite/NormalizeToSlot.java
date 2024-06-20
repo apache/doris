@@ -59,6 +59,7 @@ public interface NormalizeToSlot {
             newMap.putAll(context.getNormalizeToSlotMap());
             return new NormalizeToSlotContext(newMap);
         }
+
         /**
          * build normalization context by follow step.
          *   1. collect all exists alias by input parameters existsAliases build a reverted map: expr -> alias

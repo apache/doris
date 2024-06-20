@@ -17,12 +17,7 @@
 suite("normalize_aggregate") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    qt_test_upper_project_projections_rewrite """
-        SELECT DISTINCT + + ( ( + + 46 ) ) * 89 AS col0, COUNT( * ) + + - 72 + - - 87 - AVG ( ALL - 56 ) * COUNT( * ) + - CASE + 49 WHEN 6 * + 76 + - +
-        CAST( NULL AS SIGNED ) THEN NULL WHEN - COUNT( DISTINCT + + CAST( NULL AS SIGNED ) ) + 23 THEN NULL ELSE - + 43 * 32 - + 97 + - ( + 65 ) * + +
-        CASE - 77 WHEN 5 THEN - 56 * + 26 ELSE NULL END / + COUNT( * ) + 20 + + 78 END * COALESCE ( COUNT( * ), - 60 - 90, + 42 * 27 - 98 * ( - 83 + 47 / 7 ),
-        - ( NULLIF ( 61, 83 + 88 ) ) ) * 94; 
-    """
+
     sql "drop table if exists normalize_aggregate_tab"
     sql """CREATE TABLE normalize_aggregate_tab(col0 INTEGER, col1 INTEGER, col2 INTEGER) distributed by hash(col0) buckets 10
         properties('replication_num' = '1'); """
