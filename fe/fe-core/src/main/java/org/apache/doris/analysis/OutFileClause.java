@@ -694,8 +694,9 @@ public class OutFileClause {
     private void getParquetProperties(Set<String> processedPropKeys) throws AnalysisException {
         // save compress type
         if (properties.containsKey(COMPRESS_TYPE)) {
-            if (PARQUET_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE))) {
-                this.parquetCompressionType = PARQUET_COMPRESSION_TYPE_MAP.get(properties.get(COMPRESS_TYPE));
+            if (PARQUET_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE).toLowerCase())) {
+                this.parquetCompressionType = PARQUET_COMPRESSION_TYPE_MAP.get(
+                        properties.get(COMPRESS_TYPE).toLowerCase());
             } else {
                 LOG.debug("not set parquet compression type or is invalid, set default to SNAPPY type.");
             }
@@ -755,8 +756,8 @@ public class OutFileClause {
         // get compression type
         // save compress type
         if (properties.containsKey(COMPRESS_TYPE)) {
-            if (ORC_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE))) {
-                this.orcCompressionType = ORC_COMPRESSION_TYPE_MAP.get(properties.get(COMPRESS_TYPE));
+            if (ORC_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE).toLowerCase())) {
+                this.orcCompressionType = ORC_COMPRESSION_TYPE_MAP.get(properties.get(COMPRESS_TYPE).toLowerCase());
             } else {
                 LOG.debug("not set orc compression type or is invalid, set default to ZLIB type.");
             }
