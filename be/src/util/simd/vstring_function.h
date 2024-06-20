@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <immintrin.h>
 #include <unistd.h>
 
 #include <array>
@@ -108,8 +109,9 @@ public:
             return end;
         }
         const auto* p = end;
-#if defined(__AVX2__)
+
         if constexpr (trim_single) {
+#if defined(__AVX2__) || defined(__aarch64__)
             constexpr auto AVX2_BYTES = sizeof(__m256i);
             const auto ch = remove_str.data[0];
             const auto size = end - begin;
@@ -123,11 +125,12 @@ public:
                 }
             }
             p += AVX2_BYTES;
+#endif
             for (; (p - 1) >= begin && *(p - 1) == ch; p--) {
             }
             return p;
         }
-#endif
+
         const auto remove_size = remove_str.size;
         const auto* const remove_data = remove_str.data;
         while (p - begin >= remove_size) {
@@ -147,8 +150,9 @@ public:
             return begin;
         }
         const auto* p = begin;
-#if defined(__AVX2__)
+
         if constexpr (trim_single) {
+#if defined(__AVX2__) || defined(__aarch64__)
             constexpr auto AVX2_BYTES = sizeof(__m256i);
             const auto ch = remove_str.data[0];
             const auto size = end - begin;
@@ -161,11 +165,11 @@ public:
                     break;
                 }
             }
+#endif
             for (; p < end && *p == ch; ++p) {
             }
             return p;
         }
-#endif
 
         const auto remove_size = remove_str.size;
         const auto* const remove_data = remove_str.data;
