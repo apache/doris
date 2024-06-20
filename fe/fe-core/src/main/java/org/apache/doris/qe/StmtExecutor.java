@@ -1827,6 +1827,16 @@ public class StmtExecutor {
         if (selectStmt.getValueList() != null) {
             Table tbl = txnEntry.getTable();
             int schemaSize = tbl.getBaseSchema(false).size();
+            if (parsedStmt instanceof NativeInsertStmt
+                    && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null) {
+                NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
+                if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)) {
+                    schemaSize++;
+                }
+                if (nativeInsertStmt.containTargetColumnName(Column.DELETE_SIGN)) {
+                    schemaSize++;
+                }
+            }
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
                 // the value columns are columns which are visible to user, so here we use
                 // getBaseSchema(), not getFullSchema()
@@ -1900,6 +1910,16 @@ public class StmtExecutor {
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId())
                 .setExecMemLimit(maxExecMemByte).setTimeout((int) timeoutSecond)
                 .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism);
+        if (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null) {
+            NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
+            if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)
+                    || nativeInsertStmt.containTargetColumnName(Column.DELETE_SIGN)) {
+                if (nativeInsertStmt.containTargetColumnName(Column.SEQUENCE_COL)) {
+                    request.setSequenceCol(Column.SEQUENCE_COL);
+                }
+                request.setColumns("`" + String.join("`,`", nativeInsertStmt.getTargetColumnNames()) + "`");
+            }
+        }
 
         // execute begin txn
         InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);

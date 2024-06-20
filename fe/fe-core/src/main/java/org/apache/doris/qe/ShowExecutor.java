@@ -88,6 +88,7 @@ import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
@@ -423,6 +424,8 @@ public class ShowExecutor {
             handleShowCreateMaterializedView();
         } else if (stmt instanceof ShowPolicyStmt) {
             handleShowPolicy();
+        } else if (stmt instanceof ShowStoragePolicyUsingStmt) {
+            handleShowStoragePolicyUsing();
         } else if (stmt instanceof ShowCatalogStmt) {
             handleShowCatalogs();
         } else if (stmt instanceof ShowCreateCatalogStmt) {
@@ -988,14 +991,27 @@ public class ShowExecutor {
     private void handleShowCreateDb() throws AnalysisException {
         ShowCreateDbStmt showStmt = (ShowCreateDbStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDb());
+
         StringBuilder sb = new StringBuilder();
-        sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
-        if (db.getDbProperties().getProperties().size() > 0) {
-            sb.append("\nPROPERTIES (\n");
-            sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
-            sb.append("\n)");
+        CatalogIf catalog = ctx.getCurrentCatalog();
+        if (catalog instanceof HMSExternalCatalog) {
+            String simpleDBName = ClusterNamespace.getNameFromFullName(showStmt.getDb());
+            org.apache.hadoop.hive.metastore.api.Database db = ((HMSExternalCatalog) catalog).getClient()
+                    .getDatabase(simpleDBName);
+            sb.append("CREATE DATABASE `").append(simpleDBName).append("`")
+                .append(" LOCATION '")
+                .append(db.getLocationUri())
+                .append("'");
+        } else {
+            DatabaseIf db = catalog.getDbOrAnalysisException(showStmt.getDb());
+            sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
+            if (db.getDbProperties().getProperties().size() > 0) {
+                sb.append("\nPROPERTIES (\n");
+                sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
+                sb.append("\n)");
+            }
         }
+
 
         rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(showStmt.getDb()), sb.toString()));
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -2688,6 +2704,11 @@ public class ShowExecutor {
     public void handleShowPolicy() throws AnalysisException {
         ShowPolicyStmt showStmt = (ShowPolicyStmt) stmt;
         resultSet = Env.getCurrentEnv().getPolicyMgr().showPolicy(showStmt);
+    }
+
+    public void handleShowStoragePolicyUsing() throws AnalysisException {
+        ShowStoragePolicyUsingStmt showStmt = (ShowStoragePolicyUsingStmt) stmt;
+        resultSet = Env.getCurrentEnv().getPolicyMgr().showStoragePolicyUsing(showStmt);
     }
 
     public void handleShowCatalogs() throws AnalysisException {

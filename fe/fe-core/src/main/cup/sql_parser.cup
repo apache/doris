@@ -474,11 +474,6 @@ terminal String
     KW_MATCH_PHRASE,
     KW_MATCH_PHRASE_PREFIX,
     KW_MATCH_REGEXP,
-    KW_MATCH_ELEMENT_EQ,
-    KW_MATCH_ELEMENT_LT,
-    KW_MATCH_ELEMENT_GT,
-    KW_MATCH_ELEMENT_LE,
-    KW_MATCH_ELEMENT_GE,
     KW_NAME,
     KW_NAMES,
     KW_NATURAL,
@@ -969,7 +964,7 @@ precedence left KW_AND;
 precedence left KW_NOT, NOT;
 precedence left KW_BETWEEN, KW_IN, KW_IS, KW_EXISTS;
 precedence left KW_LIKE, KW_REGEXP;
-precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH_REGEXP, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
+precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH_REGEXP, KW_MATCH;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
@@ -3768,6 +3763,14 @@ show_stmt ::=
     | KW_SHOW KW_STORAGE KW_POLICY
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
+    :}
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING
+    {:
+        RESULT = new ShowStoragePolicyUsingStmt(null);
+    :}
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident:policy
+    {:
+        RESULT = new ShowStoragePolicyUsingStmt(policy);
     :}
     ;
 
@@ -7078,16 +7081,6 @@ match_predicate ::=
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE_PREFIX, e1, e2); :}
   | expr:e1 KW_MATCH_REGEXP expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_REGEXP, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_EQ expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_EQ, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_LT expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_LT, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_GT expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_GT, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_LE expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_LE, e1, e2); :}
-  | expr:e1 KW_MATCH_ELEMENT_GE expr:e2
-  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_GE, e1, e2); :}
   ;
 
 // Avoid a reduce/reduce conflict with compound_predicate by explicitly

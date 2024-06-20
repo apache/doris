@@ -395,6 +395,16 @@ public class Config extends ConfigBase {
             "The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
     public static int thrift_client_timeout_ms = 0;
 
+    // The default value is inherited from org.apache.thrift.TConfiguration
+    @ConfField(description = {"thrift server 接收请求大小的上限",
+            "The maximum size of a (received) message of the thrift server, in bytes"})
+    public static int thrift_max_message_size = 100 * 1024 * 1024;
+
+    // The default value is inherited from org.apache.thrift.TConfiguration
+    @ConfField(description = {"thrift server transport 接收的每帧数据大小的上限",
+            "The limits of the size of one frame of thrift server transport"})
+    public static int thrift_max_frame_size = 16384000;
+
     @ConfField(description = {"thrift server 的 backlog 数量。"
             + "如果调大这个值，则需同时调整 /proc/sys/net/core/somaxconn 的值",
             "The backlog number of thrift server. "
@@ -455,6 +465,10 @@ public class Config extends ConfigBase {
             + "If time exceeds this, and for each tablet it has at least one replica publish successful, "
             + "then the load task will be successful." })
     public static int publish_wait_time_second = 300;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"单个事务 publish 失败打日志间隔",
+            "print log interval for publish transaction failed interval"})
+    public static long publish_fail_log_interval_second = 5 * 60;
 
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
@@ -2070,17 +2084,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
 
-    /**
-     * Now we not fully support array/struct/map nesting complex type in many situation,
-     * so just disable creating nesting complex data type when create table.
-     * We can make it able after we fully support
-     */
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "当前默认设置为 true，不支持建表时创建复杂类型(array/struct/map)嵌套复杂类型, 仅支持array类型自身嵌套。",
-            "Now default set to true, not support create complex type(array/struct/map) nested complex type "
-                    + "when we create table, only support array type nested array"})
-    public static boolean disable_nested_complex_type  = true;
-
     /*
      * This variable indicates the number of digits by which to increase the scale
      * of the result of division operations performed with the `/` operator. The
@@ -2232,13 +2235,13 @@ public class Config extends ConfigBase {
     })
     public static long analyze_record_limit = 20000;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = true, masterOnly = true, description = {
             "Auto Buckets中最小的buckets数目",
             "min buckets of auto bucket"
     })
     public static int autobucket_min_buckets = 1;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = true, masterOnly = true, description = {
         "Auto Buckets中最大的buckets数目",
         "max buckets of auto bucket"
     })
@@ -2385,4 +2388,5 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_create_bitmap_index_as_inverted_index = true;
+
 }

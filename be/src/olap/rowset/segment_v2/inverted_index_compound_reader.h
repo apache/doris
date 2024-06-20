@@ -34,11 +34,9 @@
 
 class CLuceneError;
 
-namespace lucene {
-namespace store {
+namespace lucene::store {
 class RAMDirectory;
-} // namespace store
-} // namespace lucene
+} // namespace lucene::store
 
 namespace doris {
 
@@ -66,6 +64,7 @@ private:
     EntriesType* entries;
 
     std::mutex _this_lock;
+    bool _closed = false;
 
 protected:
     /** Removes an existing file in the directory-> */

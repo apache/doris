@@ -38,6 +38,8 @@ suite("test_index_ddl_fault_injection", "nonConcurrent") {
     }
 
     try {
+      // temporaryly disable enable_create_bitmap_index_as_inverted_index
+      sql "ADMIN SET FRONTEND CONFIG ('enable_create_bitmap_index_as_inverted_index' = 'false')"
       sql "DROP TABLE IF EXISTS `test_index_ddl_fault_injection_tbl`"
       sql """
         CREATE TABLE test_index_ddl_fault_injection_tbl (
@@ -112,5 +114,7 @@ suite("test_index_ddl_fault_injection", "nonConcurrent") {
           GetDebugPoint().disableDebugPointForAllBEs("BitmapIndexReader::new_iterator.fail");
       }
     } finally {
+      // restore enable_create_bitmap_index_as_inverted_index
+      sql "ADMIN SET FRONTEND CONFIG ('enable_create_bitmap_index_as_inverted_index' = 'true')"
     }
 }

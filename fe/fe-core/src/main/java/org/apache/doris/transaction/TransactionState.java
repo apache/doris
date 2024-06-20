@@ -230,6 +230,12 @@ public class TransactionState implements Writable {
 
     private long lastPublishVersionTime = -1;
 
+    private long publishCount = 0;
+
+    // txn may try finish many times and generate a lot of log.
+    // use lastPublishLogTime to reduce log.
+    private long lastPublishLogTime = 0;
+
     @SerializedName(value = "callbackId")
     private long callbackId = -1;
 
@@ -347,6 +353,7 @@ public class TransactionState implements Writable {
     }
 
     public void updateSendTaskTime() {
+        this.publishCount++;
         this.lastPublishVersionTime = System.currentTimeMillis();
         if (this.firstPublishVersionTime <= 0) {
             this.firstPublishVersionTime = lastPublishVersionTime;
@@ -359,6 +366,10 @@ public class TransactionState implements Writable {
 
     public long getLastPublishVersionTime() {
         return this.lastPublishVersionTime;
+    }
+
+    public long getPublishCount() {
+        return publishCount;
     }
 
     public boolean hasSendTask() {
@@ -427,6 +438,14 @@ public class TransactionState implements Writable {
 
     public String getErrorLogUrl() {
         return errorLogUrl;
+    }
+
+    public long getLastPublishLogTime() {
+        return lastPublishLogTime;
+    }
+
+    public void setLastPublishLogTime(long lastPublishLogTime) {
+        this.lastPublishLogTime = lastPublishLogTime;
     }
 
     public void setTransactionStatus(TransactionStatus transactionStatus) {

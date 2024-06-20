@@ -85,7 +85,8 @@ public:
                              const void* query_value, InvertedIndexQueryType query_type,
                              uint32_t* count) = 0;
 
-    Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
+    Status read_null_bitmap(OlapReaderStatistics* stats,
+                            InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr);
 
     virtual InvertedIndexReaderType type() = 0;
@@ -164,7 +165,8 @@ private:
                                   const IndexSearcherPtr& index_searcher,
                                   const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 
-    void check_null_bitmap(const IndexSearcherPtr& index_searcher, bool& null_bitmap_already_read);
+    void check_null_bitmap(OlapReaderStatistics* stats, const IndexSearcherPtr& index_searcher,
+                           bool& null_bitmap_already_read);
 
     Status match_phrase_prefix_index_search(
             OlapReaderStatistics* stats, RuntimeState* runtime_state, const std::wstring& field_ws,
@@ -307,7 +309,7 @@ public:
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr) {
-        return _reader->read_null_bitmap(cache_handle, dir);
+        return _reader->read_null_bitmap(_stats, cache_handle, dir);
     }
 
     [[nodiscard]] InvertedIndexReaderType get_inverted_index_reader_type() const;

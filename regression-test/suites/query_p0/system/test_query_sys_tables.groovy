@@ -280,4 +280,6 @@ suite("test_query_sys_tables", "query,p0") {
     qt_sql "select * from triggers"
     qt_sql "select * from parameters"
     qt_sql "select * from profiling"
+
+    sql "select * from information_schema.PROCESSLIST;"
 }

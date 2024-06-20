@@ -929,9 +929,12 @@ public class HiveMetaStoreClientHelper {
             }
         } else {
             String hadoopUserName = conf.get(HdfsResource.HADOOP_USER_NAME);
-            if (hadoopUserName != null) {
-                ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
+            if (hadoopUserName == null) {
+                hadoopUserName = "hadoop";
+                LOG.debug(HdfsResource.HADOOP_USER_NAME + " is unset, use default user: hadoop");
             }
+            ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
+            UserGroupInformation.setLoginUser(ugi);
         }
         return ugi;
     }

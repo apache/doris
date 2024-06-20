@@ -100,6 +100,7 @@ bool InvertedIndexReader::_is_match_query(InvertedIndexQueryType query_type) {
 }
 
 bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
+    // SCOPED_RAW_TIMER(&stats->inverted_index_query_file_exists_timer);
     bool exists = false;
     RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
     return exists;
@@ -155,7 +156,7 @@ void InvertedIndexReader::get_analyse_result(std::vector<std::string>& analyse_r
                                              bool drop_duplicates) {
     analyse_result.clear();
 
-    std::wstring field_ws = std::wstring(field_name.begin(), field_name.end());
+    std::wstring field_ws = StringUtil::string_to_wstring(field_name);
     std::unique_ptr<lucene::analysis::TokenStream> token_stream(
             analyzer->tokenStream(field_ws.c_str(), reader));
 
@@ -189,8 +190,10 @@ Status InvertedIndexReader::get_index_search(OlapReaderStatistics* stats,
     return Status::OK();
 }
 
-Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
+Status InvertedIndexReader::read_null_bitmap(OlapReaderStatistics* stats,
+                                             InvertedIndexQueryCacheHandle* cache_handle,
                                              lucene::store::Directory* dir) {
+    SCOPED_RAW_TIMER(&stats->inverted_index_query_null_bitmap_timer);
     lucene::store::IndexInput* null_bitmap_in = nullptr;
     bool owned_dir = false;
     try {
@@ -208,7 +211,10 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         }
 
         bool exists = false;
-        RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
+        {
+            SCOPED_RAW_TIMER(&stats->inverted_index_query_file_exists_timer);
+            RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
+        }
         if (!exists) {
             LOG(WARNING) << "inverted index: " << index_file_path.native() << " not exist.";
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
@@ -316,7 +322,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
 
         IndexSearcherPtr index_searcher = nullptr;
         std::unique_ptr<lucene::search::Query> query;
-        std::wstring field_ws = std::wstring(column_name.begin(), column_name.end());
+        std::wstring field_ws = StringUtil::string_to_wstring(column_name);
 
         roaring::Roaring query_match_bitmap;
         bool null_bitmap_already_read = false;
@@ -494,7 +500,7 @@ Status FullTextIndexReader::normal_index_search(
         const IndexSearcherPtr& index_searcher, bool& null_bitmap_already_read,
         const std::unique_ptr<lucene::search::Query>& query,
         const std::shared_ptr<roaring::Roaring>& term_match_bitmap) {
-    check_null_bitmap(index_searcher, null_bitmap_already_read);
+    check_null_bitmap(stats, index_searcher, null_bitmap_already_read);
 
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
@@ -578,13 +584,15 @@ Status FullTextIndexReader::match_regexp_index_search(
     return Status::OK();
 }
 
-void FullTextIndexReader::check_null_bitmap(const IndexSearcherPtr& index_searcher,
+void FullTextIndexReader::check_null_bitmap(OlapReaderStatistics* stats,
+                                            const IndexSearcherPtr& index_searcher,
                                             bool& null_bitmap_already_read) {
     // try to reuse index_searcher's directory to read null_bitmap to cache
     // to avoid open directory additionally for null_bitmap
     if (!null_bitmap_already_read) {
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
+        read_null_bitmap(stats, &null_bitmap_cache_handle,
+                         index_searcher->getReader()->directory());
         null_bitmap_already_read = true;
     }
 }
@@ -635,7 +643,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
-    std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
+    std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
     std::wstring search_str_ws = StringUtil::string_to_wstring(search_str);
     // unique_ptr with custom deleter
     std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
@@ -699,7 +707,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     // try to reuse index_searcher's directory to read null_bitmap to cache
     // to avoid open directory additionally for null_bitmap
     InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-    read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
+    read_null_bitmap(stats, &null_bitmap_cache_handle, index_searcher->getReader()->directory());
 
     try {
         if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||

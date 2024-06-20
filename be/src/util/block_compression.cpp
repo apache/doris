@@ -609,7 +609,7 @@ public:
     // REQUIRES: Available() >= n
     void Skip(size_t n) override {
         _available -= n;
-        do {
+        while (n > 0) {
             auto left = _slices[_cur_slice].size - _slice_off;
             if (left > n) {
                 // n can be digest in current slice
@@ -619,7 +619,7 @@ public:
             _slice_off = 0;
             _cur_slice++;
             n -= left;
-        } while (n > 0);
+        }
     }
 
 private:

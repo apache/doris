@@ -378,7 +378,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      *  A    B    C    D
      */
     private void relocateAndBalanceGroups() {
-        Set<GroupId> groupIds = Sets.newHashSet(Env.getCurrentEnv().getColocateTableIndex().getAllGroupIds());
+        Set<GroupId> groupIds = Env.getCurrentEnv().getColocateTableIndex().getAllGroupIds();
 
         // balance only inside each group, excluded balance between all groups
         Set<GroupId> changeGroups = relocateAndBalanceGroup(groupIds, false);
@@ -410,6 +410,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             }
 
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+            if (groupSchema == null) {
+                LOG.info("Not found colocate group {}, maybe delete", groupId);
+                continue;
+            }
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             try {
                 Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
@@ -475,12 +479,19 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         // check each group
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
+            ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+            if (groupSchema == null) {
+                LOG.info("Not found colocate group {}, maybe delete", groupId);
+                continue;
+            }
+
             List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
             List<Set<Long>> backendBucketsSeq = colocateIndex.getBackendsPerBucketSeqSet(groupId);
             if (backendBucketsSeq.isEmpty()) {
                 continue;
             }
 
+            ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             String unstableReason = null;
             OUT:
             for (Long tableId : tableIds) {
@@ -499,8 +510,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getPartitions()) {
-                        ReplicaAllocation replicaAlloc
-                                = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
                         short replicationNum = replicaAlloc.getTotalReplicaNum();
                         long visibleVersion = partition.getVisibleVersion();
                         // Here we only get VISIBLE indexes. All other indexes are not queryable.
@@ -508,8 +517,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             Preconditions.checkState(backendBucketsSeq.size() == index.getTablets().size(),
                                     backendBucketsSeq.size() + " vs. " + index.getTablets().size());
-                            int idx = 0;
-                            for (Long tabletId : index.getTabletIdsInOrder()) {
+                            List<Long> tabletIdsInOrder = index.getTabletIdsInOrder();
+                            for (int idx = 0; idx < tabletIdsInOrder.size(); idx++) {
+                                Long tabletId = tabletIdsInOrder.get(idx);
                                 counter.totalTabletNum++;
                                 Set<Long> bucketsSeq = backendBucketsSeq.get(idx);
                                 Preconditions.checkState(bucketsSeq.size() == replicationNum,
@@ -531,8 +541,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     TabletSchedCtx tabletCtx = new TabletSchedCtx(
                                             TabletSchedCtx.Type.REPAIR,
                                             db.getId(), tableId, partition.getId(), index.getId(), tablet.getId(),
-                                            olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                                            System.currentTimeMillis());
+                                            replicaAlloc, System.currentTimeMillis());
                                     // the tablet status will be set again when being scheduled
                                     tabletCtx.setTabletStatus(st);
                                     tabletCtx.setPriority(Priority.NORMAL);
@@ -550,7 +559,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                         counter.tabletInScheduler++;
                                     }
                                 }
-                                idx++;
                             }
                         }
                     }
@@ -582,6 +590,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         for (GroupId groupId : groupIds) {
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
             if (groupSchema == null) {
+                LOG.info("Not found colocate group {}, maybe delete", groupId);
                 continue;
             }
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
@@ -712,6 +721,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             GlobalColocateStatistic globalColocateStatistic, List<List<Long>> balancedBackendsPerBucketSeq,
             boolean balanceBetweenGroups) {
         ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+        if (groupSchema == null) {
+            LOG.info("Not found colocate group {}, maybe delete", groupId);
+            return false;
+        }
         short replicaNum = groupSchema.getReplicaAlloc().getReplicaNumByTag(tag);
         List<List<Long>> backendsPerBucketSeq = Lists.newArrayList(
                 colocateIndex.getBackendsPerBucketSeqByTag(groupId, tag));

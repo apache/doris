@@ -29,7 +29,7 @@ suite("prepare_insert") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE ${tableName} (
-            `id` int(11) NOT NULL,
+            `id` int(11) NULL,
             `name` varchar(50) NULL,
             `score` int(11) NULL DEFAULT "-1"
         ) ENGINE=OLAP
@@ -86,6 +86,19 @@ suite("prepare_insert") {
 
         stmt.close()
     }
+
+    // insert with null
+    result1 = connect(user = user, password = password, url = url) {
+         def stmt = prepareStatement "insert into ${tableName} values(?, ?, ?)"
+         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt.class)
+         stmt.setNull(1, java.sql.Types.INTEGER)
+         stmt.setNull(2, java.sql.Types.VARCHAR)
+         stmt.setNull(3, java.sql.Types.INTEGER)
+         def result = stmt.execute()
+         logger.info("result: ${result}")
+
+         stmt.close()
+     }
 
     // insert with label
     def label = "insert_" + System.currentTimeMillis()

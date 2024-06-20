@@ -17,7 +17,6 @@
 
 suite("test_load_with_map_nested_array", "p0") {
     def tableName = "test_load_with_map_nested_array"
-    sql """ ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false'); """
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     sql """

@@ -492,5 +492,8 @@ suite("test_window_function") {
            ( SELECT k2, k1, row_number () over (PARTITION BY k2 ORDER BY k3) AS wj  
            FROM baseall ) AS A JOIN ( SELECT k2, k1, row_number () over  
            (PARTITION BY k2 ORDER BY k3) AS wj FROM baseall ) AS B WHERE A.k2=B.k2"""
+
+    sql """set enable_nereids_planner=false"""
+    qt_sql """SELECT row_number() OVER (partition by 1 order by 2) from baseall order by 1; """
 }
 

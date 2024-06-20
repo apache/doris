@@ -484,10 +484,12 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             return st;
         }
 
-        // if the delete sign is marked, it means that the value columns of the row
-        // will not be read. So we don't need to read the missing values from the previous rows.
-        // But we still need to mark the previous row on delete bitmap
-        if (have_delete_sign) {
+        // 1. if the delete sign is marked, it means that the value columns of the row will not
+        //    be read. So we don't need to read the missing values from the previous rows.
+        // 2. the one exception is when there are sequence columns in the table, we need to read
+        //    the sequence columns, otherwise it may cause the merge-on-read based compaction
+        //    policy to produce incorrect results
+        if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
         } else {
@@ -508,7 +510,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                     {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
         }
     }
-    CHECK(use_default_or_null_flag.size() == num_rows);
+    CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
         _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
@@ -580,7 +582,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     // create old value columns
     const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
-    CHECK(cids_missing.size() == old_value_block.columns());
+    CHECK_EQ(cids_missing.size(), old_value_block.columns());
     auto mutable_old_columns = old_value_block.mutate_columns();
     bool has_row_column = _tablet_schema->store_row_column();
     // record real pos, key is input line num, value is old_block line num
@@ -666,7 +668,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             (delete_sign_column_data != nullptr &&
              delete_sign_column_data[read_index[idx + segment_start_pos]] != 0)) {
             for (auto i = 0; i < cids_missing.size(); ++i) {
-                // if the column has default value, fiil it with default value
+                // if the column has default value, fill it with default value
                 // otherwise, if the column is nullable, fill it with null value
                 const auto& tablet_column = _tablet_schema->column(cids_missing[i]);
                 if (tablet_column.has_default_value()) {
@@ -1071,7 +1073,7 @@ Status SegmentWriter::_write_short_key_index() {
 }
 
 Status SegmentWriter::_write_primary_key_index() {
-    CHECK(_primary_key_index_builder->num_rows() == _row_count);
+    CHECK_EQ(_primary_key_index_builder->num_rows(), _row_count);
     return _primary_key_index_builder->finalize(_footer.mutable_primary_key_index_meta());
 }
 

@@ -248,7 +248,8 @@ public class ConnectProcessor {
                         continue;
                     }
                     LiteralExpr l = prepareCtx.stmt.placeholders().get(i).createLiteralFromType();
-                    l.setupParamFromBinary(packetBuf);
+                    boolean isUnsigned = prepareCtx.stmt.placeholders().get(i).isUnsigned();
+                    l.setupParamFromBinary(packetBuf, isUnsigned);
                     realValueExprs.add(l);
                 }
             }

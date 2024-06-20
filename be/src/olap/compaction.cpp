@@ -432,6 +432,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                         _tablet->table_id());
                 DCHECK(false) << err_msg;
                 LOG(WARNING) << err_msg;
+                return Status::InternalError(err_msg);
             }
         }
 

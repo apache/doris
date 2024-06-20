@@ -72,7 +72,7 @@ struct ColumnPredicateInfo {
     std::string debug_string() const {
         std::stringstream ss;
         ss << "column_name=" << column_name << ", query_op=" << query_op
-           << ", query_value=" << join(query_values, ",");
+           << ", query_value=" << boost::join(query_values, ",");
         return ss.str();
     }
 
@@ -97,7 +97,7 @@ struct ColumnPredicateInfo {
     }
 
     std::string column_name;
-    std::vector<std::string> query_values;
+    std::set<std::string> query_values;
     std::string query_op;
 };
 
@@ -200,7 +200,7 @@ private:
     // TODO: Fix Me
     // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
     // so segment iterator need to shrink char column before output it. only use in vec query engine.
-    void _vec_init_char_column_id();
+    void _vec_init_char_column_id(vectorized::Block* block);
     bool _has_char_type(const Field& column_desc);
 
     uint32_t segment_id() const { return _segment->id(); }

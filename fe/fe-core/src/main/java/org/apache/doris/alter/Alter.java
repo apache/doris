@@ -830,6 +830,12 @@ public class Alter {
                 // check currentStoragePolicy resource exist.
                 Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
                 partitionInfo.setStoragePolicy(partition.getId(), currentStoragePolicy);
+            } else {
+                if (partition.getRemoteDataSize() > 0) {
+                    throw new AnalysisException(
+                        "Cannot cancel storage policy for partition which is already on code storage.");
+                }
+                partitionInfo.setStoragePolicy(partition.getId(), "");
             }
 
             // 4.4 analyze new properties
