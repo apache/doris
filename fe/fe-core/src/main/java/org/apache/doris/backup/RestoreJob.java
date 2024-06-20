@@ -67,7 +67,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
+// import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -100,6 +100,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -2096,14 +2097,43 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    public static RestoreJob read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            RestoreJob job = new RestoreJob();
-            job.readFields(in);
-            return job;
+    public void write(DataOutput out) throws IOException {
+        // ATTN: must write type first
+        Text.writeString(out, type.name());
+
+        out.writeLong(repoId);
+        Text.writeString(out, label);
+        out.writeLong(jobId);
+        out.writeLong(dbId);
+        Text.writeString(out, dbName);
+
+        out.writeLong(createTime);
+        out.writeLong(finishedTime);
+        out.writeLong(timeoutMs);
+
+        if (!taskErrMsg.isEmpty()) {
+            out.writeBoolean(true);
+            // we only save at most 3 err msgs
+            int savedNum = Math.min(3, taskErrMsg.size());
+            out.writeInt(savedNum);
+            for (Map.Entry<Long, String> entry : taskErrMsg.entrySet()) {
+                if (savedNum == 0) {
+                    break;
+                }
+                out.writeLong(entry.getKey());
+                Text.writeString(out, entry.getValue());
+                savedNum--;
+            }
+            Preconditions.checkState(savedNum == 0, savedNum);
         } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), RestoreJob.class);
+            out.writeBoolean(false);
         }
+    }
+
+    public static RestoreJob read(DataInput in) throws IOException {
+        RestoreJob job = new RestoreJob();
+        job.readFields(in);
+        return job;
     }
 
     @Deprecated
