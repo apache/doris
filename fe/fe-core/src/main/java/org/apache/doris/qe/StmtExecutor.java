@@ -1885,8 +1885,8 @@ public class StmtExecutor {
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
             coordBase = coord;
         } else {
-            coord = EnvFactory.getInstance().createCoordinator(context, analyzer,
-                planner, context.getStatsErrorEstimator());
+            coord = EnvFactory.getInstance().createCoordinator(
+                    context, analyzer, planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));

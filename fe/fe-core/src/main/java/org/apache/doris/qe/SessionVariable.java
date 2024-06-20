@@ -3080,6 +3080,9 @@ public class SessionVariable implements Serializable, Writable {
 
     /** canUseNereidsDistributePlanner */
     public static boolean canUseNereidsDistributePlanner() {
+        if (Config.isCloudMode()) {
+            return false;
+        }
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext == null) {
             return false;
