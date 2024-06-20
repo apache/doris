@@ -108,9 +108,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class NewSparkLoadJob extends LoadJob {
+public class BucketLoadJob extends LoadJob {
 
-    public static final Logger LOG = LogManager.getLogger(NewSparkLoadJob.class);
+    public static final Logger LOG = LogManager.getLogger(BucketLoadJob.class);
 
     private long etlStartTimestamp = -1;
 
@@ -141,13 +141,13 @@ public class NewSparkLoadJob extends LoadJob {
 
     private final Map<String, String> hadoopProperties = new HashMap<>();
 
-    public NewSparkLoadJob() {
-        super(EtlJobType.SPARK);
+    public BucketLoadJob() {
+        super(EtlJobType.BUCKET);
     }
 
-    public NewSparkLoadJob(long dbId, String label, List<String> tableNames, UserIdentity userInfo)
+    public BucketLoadJob(long dbId, String label, List<String> tableNames, UserIdentity userInfo)
             throws LoadException {
-        super(EtlJobType.SPARK, dbId, label);
+        super(EtlJobType.BUCKET, dbId, label);
         this.loadTableIds = getLoadTableIds(tableNames);
         this.userInfo = userInfo;
     }
