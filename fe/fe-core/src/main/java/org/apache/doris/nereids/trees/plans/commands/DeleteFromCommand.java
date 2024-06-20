@@ -33,20 +33,17 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -67,7 +64,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -160,12 +156,9 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
         }
 
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            EqualTo deleteSignEqualTo =
-                    new EqualTo(new UnboundSlot("__DORIS_DELETE_SIGN__"), new TinyIntLiteral((byte) 1));
-            UpdateCommand updateCommand = new UpdateCommand(this.nameParts, this.tableAlias,
-                    Collections.singletonList(deleteSignEqualTo), this.logicalQuery, Optional.empty());
-            updateCommand.setDeleteCommand(true);
-            updateCommand.run(ctx, executor);
+            new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
+                    logicalQuery, Optional.empty()).run(ctx, executor);
+            return;
         }
 
         // call delete handler to process
