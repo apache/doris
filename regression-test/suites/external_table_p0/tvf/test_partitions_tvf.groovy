@@ -38,7 +38,7 @@ suite("test_partitions_tvf","p0,external,tvf,external_docker") {
         );
         """
     order_qt_desc "desc function partitions('catalog'='internal','database'='${dbName}','table'='${tableName}');"
-    List<List<Object>> res =  sql """ select * from partitions("database"="${dbName}","table"="${tableName}"); """
+    List<List<Object>> res =  sql """ select * from partitions('catalog'='internal',"database"="${dbName}","table"="${tableName}"); """
     logger.info("res: " + res.toString())
 
     assertEquals(1, res.size());
