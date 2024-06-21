@@ -56,7 +56,9 @@ import java.util.List;
 
 public class AzureRemote extends RemoteBase {
 
-    private static final Logger LOG = LogManager.getLogger(DefaultRemote.class);
+    private static final Logger LOG = LogManager.getLogger(AzureRemote.class);
+
+    private static final String URI_TEMPLATE = "https://%s.blob.core.windows.net/%s";
 
     private BlobContainerClient client;
 
@@ -64,7 +66,7 @@ public class AzureRemote extends RemoteBase {
         super(obj);
     }
 
-    private long SESSION_EXPIRE_SECOND = 1800;
+    private long SESSION_EXPIRE_SECOND = 3600;
 
     @Override
     public String getPresignedUrl(String fileName) {
@@ -72,7 +74,7 @@ public class AzureRemote extends RemoteBase {
             BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
             builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
             String containerName = obj.getBucket();
-            String uri = String.format("https://%s.blob.core.windows.net/%s", obj.getAk(),
+            String uri = String.format(URI_TEMPLATE, obj.getAk(),
                     containerName);
             builder.endpoint(uri);
             BlobContainerClient containerClient = builder.buildClient();
@@ -119,12 +121,12 @@ public class AzureRemote extends RemoteBase {
             return new ListObjectsResult(Lists.newArrayList(objectFile), false, null);
         } catch (BlobStorageException e) {
             if (e.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
-                LOG.warn("NoSuchKey when head object for S3, subKey={}", subKey);
+                LOG.warn("NoSuchKey when head object for Azure, subKey={}", subKey);
                 return new ListObjectsResult(Lists.newArrayList(), false, null);
             }
-            LOG.warn("Failed to head object for S3, subKey={}", subKey, e);
+            LOG.warn("Failed to head object for Azure, subKey={}", subKey, e);
             throw new DdlException(
-                    "Failed to head object for S3, subKey=" + subKey + " Error message=" + e.getMessage());
+                    "Failed to head object for Azure, subKey=" + subKey + " Error message=" + e.getMessage());
         }
     }
 
@@ -134,7 +136,7 @@ public class AzureRemote extends RemoteBase {
             BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
             builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
             String containerName = obj.getBucket();
-            String uri = String.format("https://%s.blob.core.windows.net/%s", obj.getAk(),
+            String uri = String.format(URI_TEMPLATE, obj.getAk(),
                     containerName);
             builder.endpoint(uri);
             BlobContainerClient containerClient = builder.buildClient();
@@ -157,7 +159,7 @@ public class AzureRemote extends RemoteBase {
             String sasToken = containerClient.generateUserDelegationSas(sasValues, userDelegationKey);
             return Triple.of(obj.getAk(), obj.getSk(), sasToken);
         } catch (Throwable e) {
-            LOG.warn("Failed get s3 sts token", e);
+            LOG.warn("Failed get Azure sts token", e);
             throw new DdlException(e.getMessage());
         }
     }
@@ -192,9 +194,7 @@ public class AzureRemote extends RemoteBase {
 
     @Override
     public void close() {
-        if (client != null) {
-            client = null;
-        }
+        client = null;
     }
 
     @Override
@@ -231,7 +231,7 @@ public class AzureRemote extends RemoteBase {
                 builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
             }
             String containerName = obj.getBucket();
-            String uri = String.format("https://%s.blob.core.windows.net/%s", obj.getAk(),
+            String uri = String.format(URI_TEMPLATE, obj.getAk(),
                     containerName);
             builder.endpoint(uri);
             client = builder.buildClient();
