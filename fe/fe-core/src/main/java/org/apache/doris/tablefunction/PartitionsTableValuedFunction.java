@@ -18,11 +18,20 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -34,12 +43,14 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The Implement of table valued function
@@ -49,10 +60,12 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
     private static final Logger LOG = LogManager.getLogger(PartitionsTableValuedFunction.class);
 
     public static final String NAME = "partitions";
+
+    private static final String CATALOG = "catalog";
     private static final String DB = "database";
     private static final String TABLE = "table";
 
-    private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(DB, TABLE);
+    private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(CATALOG, DB, TABLE);
 
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("PartitionId", ScalarType.createType(PrimitiveType.BIGINT)),
@@ -76,6 +89,9 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("SyncWithBaseTables", ScalarType.createType(PrimitiveType.BOOLEAN)),
             new Column("UnsyncTables", ScalarType.createStringType()));
 
+    private static final ImmutableList<Column> OTHER_SCHEMA = ImmutableList.of(
+            new Column("Partition", ScalarType.createStringType()));
+
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
     static {
@@ -90,6 +106,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         return COLUMN_TO_INDEX.get(columnName.toLowerCase());
     }
 
+    private final String catalogName;
     private final String databaseName;
     private final String tableName;
 
@@ -105,23 +122,67 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
             // check ctl, db, tbl
             validParams.put(key.toLowerCase(), params.get(key));
         }
+        String catalogName = validParams.get(CATALOG);
         String dbName = validParams.get(DB);
         String tableName = validParams.get(TABLE);
-        if (StringUtils.isEmpty(dbName) || StringUtils.isEmpty(tableName)) {
+        if (StringUtils.isEmpty(catalogName) ||StringUtils.isEmpty(dbName) || StringUtils.isEmpty(tableName)) {
             throw new AnalysisException("Invalid partitions metadata query");
         }
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                        tableName, PrivPredicate.SHOW)) {
-            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SHOW PARTITIONS",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    dbName + ": " + tableName);
-            throw new AnalysisException(message);
-        }
+        analyze(catalogName, dbName, tableName);
+        this.catalogName = catalogName;
         this.databaseName = dbName;
         this.tableName = tableName;
         if (LOG.isDebugEnabled()) {
             LOG.debug("PartitionsTableValuedFunction() end");
+        }
+    }
+
+    private void analyze(String catalogName, String dbName, String tableName) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), catalogName, dbName,
+                        tableName, PrivPredicate.SHOW)) {
+            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SHOW PARTITIONS",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    catalogName + ": " + dbName + ": " + tableName);
+            throw new AnalysisException(message);
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (catalog == null) {
+            throw new AnalysisException("can not find catalog: " + catalogName);
+        }
+        // disallow unsupported catalog
+        if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
+                || catalog instanceof MaxComputeExternalCatalog)) {
+            throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
+                    catalog.getType()));
+        }
+
+        Optional<DatabaseIf> db = catalog.getDb(dbName);
+        if (!db.isPresent()) {
+            throw new AnalysisException("can not find database: " + dbName);
+        }
+        TableIf table = null;
+        try {
+            table = db.get().getTableOrMetaException(tableName, TableType.OLAP,
+                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
+        } catch (MetaNotFoundException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+
+        if (table instanceof HMSExternalTable) {
+            if (((HMSExternalTable) table).isView()) {
+                throw new AnalysisException("Table " + tableName + " is not a partitioned table");
+            }
+            if (CollectionUtils.isEmpty(((HMSExternalTable) table).getPartitionColumns())) {
+                throw new AnalysisException("Table " + tableName + " is not a partitioned table");
+            }
+            return;
+        }
+
+        if (table instanceof MaxComputeExternalTable) {
+            if (((MaxComputeExternalTable) table).getOdpsTable().getPartitions().isEmpty()) {
+                throw new AnalysisException("Table " + tableName + " is not a partitioned table");
+            }
         }
     }
 
@@ -138,6 +199,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.PARTITIONS);
         TPartitionsMetadataParams partitionParam = new TPartitionsMetadataParams();
+        partitionParam.setCatalog(catalogName);
         partitionParam.setDatabase(databaseName);
         partitionParam.setTable(tableName);
         metaScanRange.setPartitionsParams(partitionParam);
@@ -154,6 +216,10 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
-        return SCHEMA;
+        if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
+            return SCHEMA;
+        } else {
+            return OTHER_SCHEMA;
+        }
     }
 }

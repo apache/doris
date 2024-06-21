@@ -41,7 +41,9 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
@@ -793,6 +795,10 @@ public class MetadataGenerator {
         }
 
         TPartitionsMetadataParams partitionsMetadataParams = params.getPartitionsMetadataParams();
+        String catalogName = partitionsMetadataParams.getCatalog();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("catalogName: " + catalogName);
+        }
         String dbName = partitionsMetadataParams.getDatabase();
         if (LOG.isDebugEnabled()) {
             LOG.debug("dbName: " + dbName);
@@ -801,11 +807,13 @@ public class MetadataGenerator {
         if (LOG.isDebugEnabled()) {
             LOG.debug("tableName: " + tableName);
         }
-        List<TRow> dataBatch = Lists.newArrayList();
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+
+        CatalogIf catalog;
         TableIf table;
         Database db;
         try {
+            catalog = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(catalogName);
             db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
             table = db.getTableOrAnalysisException(tableName);
         } catch (AnalysisException e) {
@@ -813,22 +821,60 @@ public class MetadataGenerator {
             return errorResult(e.getMessage());
         }
 
-        if (!(table instanceof OlapTable)) {
-            return errorResult("not olap table");
+        if (catalog instanceof InternalCatalog) {
+            return dealInternalCatalog(db, table);
+        } else if (catalog instanceof MaxComputeExternalCatalog) {
+            return dealMaxComputeCatalog((MaxComputeExternalCatalog) catalog, db, table);
+        } else if (catalog instanceof HMSExternalCatalog) {
+            return dealHMSCatalog((HMSExternalCatalog) catalog, db, table);
         }
 
-        PartitionsProcDir dir = new PartitionsProcDir(db, (OlapTable) table, false);
-
-        try {
-            dataBatch = dir.getPartitionInfosForTvf();
-        } catch (AnalysisException e) {
-            return errorResult(e.getMessage());
-        }
-        result.setDataBatch(dataBatch);
-        result.setStatus(new TStatus(TStatusCode.OK));
         if (LOG.isDebugEnabled()) {
             LOG.debug("partitionMetadataResult() end");
         }
+        return errorResult("not support catalog: " + catalogName);
+    }
+
+    private static TFetchSchemaTableDataResult dealHMSCatalog(HMSExternalCatalog catalog, Database db, TableIf table) {
+        List<TRow> dataBatch = Lists.newArrayList();
+        List<String> partitionNames = catalog.getClient().listPartitionNames(db.getName(), table.getName());
+        for (String partition : partitionNames) {
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setStringVal(partition));
+            dataBatch.add(trow);
+        }
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        result.setDataBatch(dataBatch);
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult dealMaxComputeCatalog(MaxComputeExternalCatalog catalog, Database db,
+            TableIf table) {
+        List<TRow> dataBatch = Lists.newArrayList();
+        List<String> partitionNames = catalog.listPartitionNames(db.getName(), table.getName());
+        for (String partition : partitionNames) {
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setStringVal(partition));
+            dataBatch.add(trow);
+        }
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        result.setDataBatch(dataBatch);
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult dealInternalCatalog(Database db, TableIf table) {
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        if (!(table instanceof OlapTable)) {
+            return errorResult("not olap table");
+        }
+        PartitionsProcDir dir = new PartitionsProcDir(db, (OlapTable) table, false);
+        try {
+            List<TRow> dataBatch = dir.getPartitionInfosForTvf();
+            result.setDataBatch(dataBatch);
+        } catch (AnalysisException e) {
+            return errorResult(e.getMessage());
+        }
+        result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }
 
