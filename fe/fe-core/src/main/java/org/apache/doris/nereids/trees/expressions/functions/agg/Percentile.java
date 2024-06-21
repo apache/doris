@@ -91,11 +91,6 @@ public class Percentile extends NullableAggregateFunction
     }
 
     @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Percentile(distinct, alwaysNullable, children.get(0), children.get(1));
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitPercentile(this, context);
     }
