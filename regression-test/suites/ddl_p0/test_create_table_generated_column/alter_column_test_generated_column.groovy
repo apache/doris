@@ -21,6 +21,7 @@ suite("alter_column_test_generated_column") {
         while (tryTimes-- > 0) {
             def jobResult = sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
             if (jobResult == null || jobResult.isEmpty()) {
+                sleep(3000)
                 return;
             }
             def jobState = jobResult[0][9].toString()
