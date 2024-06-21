@@ -25,7 +25,6 @@
 #include <string>
 #include <vector>
 
-#include "common/status.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"

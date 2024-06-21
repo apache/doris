@@ -673,7 +673,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
-        RETURN_IF_CATCH_EXCEPTION(_serialize_block_to_row_column(full_block));
+        _serialize_block_to_row_column(full_block);
     }
 
     // convert missing columns and send to column writer
