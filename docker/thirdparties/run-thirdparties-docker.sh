@@ -541,6 +541,7 @@ if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
         sudo rm -f /keytabs
         sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
         sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
+        sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf
 
         echo '172.31.71.25 hadoop-master' >> /etc/hosts
         echo '172.31.71.26 hadoop-master-2' >> /etc/hosts
