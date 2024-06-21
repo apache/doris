@@ -54,10 +54,12 @@ public class CompressAsLargeInt extends ScalarFunction
     public CompressAsLargeInt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new CompressAsLargeInt(children.get(0));
-
     }
 
-   }
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
+    }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

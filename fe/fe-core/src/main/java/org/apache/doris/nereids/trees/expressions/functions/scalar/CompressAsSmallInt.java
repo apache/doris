@@ -57,7 +57,10 @@ public class CompressAsSmallInt extends ScalarFunction
 
     }
 
-   }
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
+    }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
