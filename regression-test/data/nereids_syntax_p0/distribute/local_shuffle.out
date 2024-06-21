@@ -22,3 +22,6 @@
 2	2	\N	\N
 3	3	\N	\N
 
+-- !bucket_shuffle_with_prune_tablets3 --
+1	1	\N	\N
+

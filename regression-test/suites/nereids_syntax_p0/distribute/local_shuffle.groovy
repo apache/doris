@@ -111,4 +111,17 @@ suite("local_shuffle") {
         ) a
         on a.id=test_local_shuffle2.id2
         """
+
+    order_qt_bucket_shuffle_with_prune_tablets3 """
+        select *
+        from
+        (
+            select *
+            from test_local_shuffle1
+            where id=1
+        ) a
+        left outer join [shuffle]
+        test_local_shuffle2
+        on a.id=test_local_shuffle2.id2
+        """
 }
