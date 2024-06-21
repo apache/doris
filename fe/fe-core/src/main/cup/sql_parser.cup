@@ -4052,6 +4052,10 @@ show_param ::=
     {:
         RESULT = new ShowCreateTableStmt(table, true, false);
     :}
+    | KW_CREATE KW_MATERIALIZED KW_VIEW table_name:table
+    {:
+        RESULT = new ShowCreateMTMVStmt(table);
+    :}
     /* Create database */
     | KW_CREATE KW_DATABASE db_name:db
     {:
