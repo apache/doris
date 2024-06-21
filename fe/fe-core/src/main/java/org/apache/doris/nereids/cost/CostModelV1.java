@@ -328,13 +328,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             PhysicalHashAggregate<? extends Plan> aggregate, PlanContext context) {
         Statistics inputStatistics = context.getChildStatistics(0);
         double exprCost = expressionTreeCost(aggregate.getExpressions());
-        double factor = 1 + Math.max(0.5, (exprCost / 100));
         if (aggregate.getAggPhase().isLocal()) {
-            return CostV1.of(context.getSessionVariable(), factor * inputStatistics.getRowCount() / beNumber,
+            return CostV1.of(context.getSessionVariable(),
+                    exprCost / 100 + inputStatistics.getRowCount() / beNumber,
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
             // global
-            return CostV1.of(context.getSessionVariable(), factor * inputStatistics.getRowCount(),
+            return CostV1.of(context.getSessionVariable(), exprCost / 100 + inputStatistics.getRowCount(),
                     inputStatistics.getRowCount(), 0);
         }
     }
