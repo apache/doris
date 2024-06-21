@@ -107,6 +107,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.InvalidateStatsTarget;
 import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.UpdatePartitionStatsTarget;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -240,6 +241,7 @@ import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
+import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
@@ -989,6 +991,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
+    public TStatus updatePartitionStatsCache(TUpdateFollowerPartitionStatsCacheRequest request) {
+        UpdatePartitionStatsTarget target = GsonUtils.GSON.fromJson(request.key, UpdatePartitionStatsTarget.class);
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        analysisManager.updateLocalPartitionStatsCache(target.catalogId, target.dbId, target.tableId,
+                target.indexId, target.partitions, target.columnName);
+        return new TStatus(TStatusCode.OK);
+    }
+
+    @Override
     public TMasterResult finishTask(TFinishTaskRequest request) throws TException {
         return masterImpl.finishTask(request);
     }
@@ -1217,7 +1228,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.tbl, TableType.OLAP);
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
-        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, clientIp);
+        Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
+        long startTime = backend != null ? backend.getLastStartTime() : 0;
+        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, request.getBackendId(), clientIp, startTime);
         if (request.isSetToken()) {
             txnCoord.isFromInternal = true;
         }
@@ -1325,10 +1338,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // step 5: get timeout
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
 
+        Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
+        long startTime = backend != null ? backend.getLastStartTime() : 0;
+        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, request.getBackendId(), clientIp, startTime);
         // step 6: begin transaction
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), tableIdList, request.getLabel(), request.getRequestId(),
-                new TxnCoordinator(TxnSourceType.BE, clientIp),
+                db.getId(), tableIdList, request.getLabel(), request.getRequestId(), txnCoord,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
 
         // step 7: return result
@@ -1954,18 +1969,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return result;
             } else {
                 streamLoadHandler.generatePlan();
-                if (Config.enable_pipeline_load) {
-                    result.setPipelineParams((TPipelineFragmentParams) streamLoadHandler.getFragmentParams().get(0));
-                } else {
-                    throw new UserException("Pipeline load should be enabled");
-                }
+                result.setPipelineParams((TPipelineFragmentParams) streamLoadHandler.getFragmentParams().get(0));
             }
             if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
-                if (Config.enable_pipeline_load) {
-                    result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
-                } else {
-                    result.params.setWorkloadGroups(tWorkloadGroupList);
-                }
+                result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
             }
         } catch (MetaNotFoundException e) {
             LOG.warn("failed to rollback txn, id: {}, label: {}", request.getTxnId(), request.getLabel(), e);
@@ -2033,14 +2040,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } finally {
             ConnectContext.remove();
         }
-        if (Config.enable_pipeline_load) {
-            result.setPipelineParams(planFragmentParamsList);
-            LOG.info("receive stream load multi table put request result: {}", result);
-            return result;
-        }
-        result.setParams(planFragmentParamsList);
+        result.setPipelineParams(planFragmentParamsList);
         LOG.info("receive stream load multi table put request result: {}", result);
-
         return result;
     }
 
@@ -2105,6 +2106,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             httpStreamParams.getParams().setLoadStreamPerNode(loadStreamPerNode);
             httpStreamParams.getParams().setTotalLoadStreams(loadStreamPerNode);
             httpStreamParams.getParams().setNumLocalSink(1);
+
+            TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(
+                    httpStreamParams.getDb().getId(), httpStreamParams.getTxnId());
+            if (txnState == null) {
+                LOG.warn("Not found http stream related txn, txn id = {}", httpStreamParams.getTxnId());
+            } else {
+                TxnCoordinator txnCoord = txnState.getCoordinator();
+                Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
+                if (backend != null) {
+                    // only modify txnCoord in memory, not write editlog yet.
+                    txnCoord.sourceType = TxnSourceType.BE;
+                    txnCoord.id = backend.getId();
+                    txnCoord.ip = backend.getHost();
+                    txnCoord.startTime = backend.getLastStartTime();
+                    LOG.info("Change http stream related txn {} to coordinator {}",
+                            httpStreamParams.getTxnId(), txnCoord);
+                }
+            }
+
             result.setPipelineParams(httpStreamParams.getParams());
             result.getPipelineParams().setDbName(httpStreamParams.getDb().getFullName());
             result.getPipelineParams().setTableName(httpStreamParams.getTable().getName());

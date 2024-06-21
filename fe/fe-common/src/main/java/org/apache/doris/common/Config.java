@@ -1379,12 +1379,6 @@ public class Config extends ConfigBase {
     public static boolean recover_with_empty_tablet = false;
 
     /**
-     * Whether to add a delete sign column when create unique table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_batch_delete_by_default = true;
-
-    /**
      * Whether to add a version column when create unique table
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1668,9 +1662,6 @@ public class Config extends ConfigBase {
      * */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
-
-    @ConfField(mutable = true)
-    public static boolean enable_pipeline_load = true;
 
     /*---------------------- JOB CONFIG START------------------------*/
     /**
@@ -2651,6 +2642,11 @@ public class Config extends ConfigBase {
             "如果 checkpoint 连续多次因内存不足而无法进行时，先尝试手动触发 GC",
             "The threshold to do manual GC when doing checkpoint but not enough memory"})
     public static int checkpoint_manual_gc_threshold = 0;
+
+    @ConfField(mutable = true, description = {
+            "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
+            "Should the request content be logged before each request starts, specifically the query statements"})
+    public static boolean enable_print_request_before_execution = false;
 
     //==========================================================================
     //                    begin of cloud config

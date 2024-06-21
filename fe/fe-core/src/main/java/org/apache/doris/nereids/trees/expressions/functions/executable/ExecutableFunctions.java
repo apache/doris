@@ -80,7 +80,7 @@ public class ExecutableFunctions {
         return new DoubleLiteral(Math.abs(literal.getValue()));
     }
 
-    @ExecFunction(name = "abs", argTypes = {"DECIMAL"}, returnType = "DECIMAL")
+    @ExecFunction(name = "abs", argTypes = {"DECIMALV2"}, returnType = "DECIMALV2")
     public static Expression abs(DecimalLiteral literal) {
         return new DecimalLiteral(literal.getValue().abs());
     }

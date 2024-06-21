@@ -304,6 +304,9 @@ DECLARE_mInt32(thrift_connect_timeout_seconds);
 DECLARE_mInt32(fetch_rpc_timeout_seconds);
 // default thrift client retry interval (in milliseconds)
 DECLARE_mInt64(thrift_client_retry_interval_ms);
+// max message size of thrift request
+// default: 100 * 1024 * 1024
+DECLARE_mInt64(thrift_max_message_size);
 // max row count number for single scan range, used in segmentv1
 DECLARE_mInt32(doris_scan_range_row_count);
 // max bytes number for single scan range, used in segmentv2
@@ -1177,6 +1180,9 @@ DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
+// USED FOR DEBUGING
+// core directly if the compaction found there's duplicate key on mow table
+DECLARE_mBool(enable_mow_compaction_correctness_check_core);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
 // When the number of missing versions is more than this value, do not directly

@@ -51,9 +51,15 @@ import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -276,4 +282,28 @@ public class RestoreJobTest {
         System.out.println("tbl signature: " + tbl.getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
     }
 
+    @Test
+    public void testSerialization() throws IOException, AnalysisException {
+        // 1. Write objects to file
+        final Path path = Files.createTempFile("restoreJob", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+        job.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+        RestoreJob job2 = RestoreJob.read(in);
+
+        Assert.assertEquals(job.getJobId(), job2.getJobId());
+        Assert.assertEquals(job.getDbId(), job2.getDbId());
+        Assert.assertEquals(job.getCreateTime(), job2.getCreateTime());
+        Assert.assertEquals(job.getType(), job2.getType());
+
+        // 3. delete files
+        in.close();
+        Files.delete(path);
+    }
 }

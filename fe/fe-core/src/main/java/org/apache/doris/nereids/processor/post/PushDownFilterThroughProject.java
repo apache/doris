@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -36,14 +37,10 @@ public class PushDownFilterThroughProject extends PlanPostProcessor {
         }
 
         PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
-        if (project.hasPushedDownToProjectionFunctions()) {
-            // ignore project which is pulled up from LogicalOlapScan
-            return filter;
-        }
         PhysicalFilter<? extends Plan> newFilter = filter.withConjunctsAndChild(
                 ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
                 project.child());
-        return ((PhysicalProject) project.withChildren(newFilter.accept(this, context)))
+        return ((AbstractPhysicalPlan) project.withChildren(newFilter.accept(this, context)))
                 .copyStatsAndGroupIdFrom(project);
     }
 }

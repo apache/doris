@@ -69,7 +69,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -102,7 +101,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /** ExpressionAnalyzer */
@@ -123,12 +121,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
     private boolean currentInLambda;
-
-    // Keep track of which element_at function's level
-    // e.g. element_at(element_at(v, 'repo'), 'name') level 1
-    //      element_at(v, 'repo') level 2
-    // Only works with function ElementAt which satisfy condition PushDownToProjectionFunction.validToPushDown
-    private int currentElementAtLevel = 0;
     private boolean hasNondeterministic;
 
     /** ExpressionAnalyzer */
@@ -316,7 +308,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 .stream()
                 .filter(slot -> !(slot instanceof SlotReference)
                         || (((SlotReference) slot).isVisible()) || showHidden)
-                .filter(slot -> !(((SlotReference) slot).hasSubColPath()))
                 .collect(Collectors.toList());
         switch (qualifier.size()) {
             case 0: // select *
@@ -336,9 +327,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
      * ******************************************************************************************** */
     @Override
     public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
-        if (unboundFunction.getName().equalsIgnoreCase("element_at")) {
-            ++currentElementAtLevel;
-        }
         if (unboundFunction.isHighOrder()) {
             unboundFunction = bindHighOrderFunction(unboundFunction, context);
         } else {
@@ -399,17 +387,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 // so wrap COUNT with Nvl to ensure it's result is 0 instead of null to get the correct result
                 castFunction = new Nvl(castFunction, new BigIntLiteral(0));
             }
-
-            if (currentElementAtLevel == 1
-                    && PushDownToProjectionFunction.validToPushDown(castFunction)) {
-                // Only rewrite the top level of PushDownToProjectionFunction, otherwise invalid slot will be generated
-                // currentElementAtLevel == 1 means at the top of element_at function, other levels will be ignored.
-                currentElementAtLevel = 0;
-                return visitElementAt((ElementAt) castFunction, context);
-            }
-            if (castFunction instanceof ElementAt) {
-                --currentElementAtLevel;
-            }
             return castFunction;
         }
     }
@@ -418,39 +395,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
-    }
-
-    @Override
-    public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
-        ElementAt boundFunction = (ElementAt) visitBoundFunction(elementAt, context);
-        if (PushDownToProjectionFunction.validToPushDown(boundFunction)) {
-            if (ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable() != null
-                    && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
-                return boundFunction;
-            }
-            // TODO: push down logic here is very tricky, we will refactor it later
-            Set<Slot> inputSlots = boundFunction.getInputSlots();
-            if (inputSlots.isEmpty()) {
-                return boundFunction;
-            }
-            Slot slot = inputSlots.iterator().next();
-            if (slot.hasUnbound()) {
-                slot = (Slot) slot.accept(this, context);
-            }
-            StatementContext statementContext = context.cascadesContext.getStatementContext();
-            Expression originBoundFunction = boundFunction.rewriteUp(expr -> {
-                if (expr instanceof SlotReference) {
-                    Expression originalExpr = statementContext.getOriginalExpr((SlotReference) expr);
-                    return originalExpr == null ? expr : originalExpr;
-                }
-                return expr;
-            });
-            // rewrite to slot and bound this slot
-            return PushDownToProjectionFunction.rewriteToSlot(
-                    (PushDownToProjectionFunction) originBoundFunction, (SlotReference) slot);
-        }
-        return boundFunction;
     }
 
     /**
@@ -813,15 +757,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     private boolean shouldBindSlotBy(int namePartSize, Slot boundSlot) {
-        if (boundSlot instanceof SlotReference
-                && ((SlotReference) boundSlot).hasSubColPath()) {
-            // already bounded
-            return false;
-        }
-        if (namePartSize > boundSlot.getQualifier().size() + 1) {
-            return false;
-        }
-        return true;
+        return namePartSize <= boundSlot.getQualifier().size() + 1;
     }
 
     private List<Slot> bindSingleSlotByName(String name, Scope scope) {

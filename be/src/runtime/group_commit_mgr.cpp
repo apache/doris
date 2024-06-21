@@ -26,6 +26,7 @@
 #include "common/compiler_util.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "util/debug_points.h"
@@ -149,7 +150,8 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
                           << ", runtime_state=" << runtime_state;
             }
         }
-        _get_cond.wait_for(l, std::chrono::milliseconds(std::min(left_milliseconds, 10000L)));
+        _get_cond.wait_for(l, std::chrono::milliseconds(
+                                      std::min(left_milliseconds, static_cast<int64_t>(10000))));
     }
     if (runtime_state->is_cancelled()) {
         auto st = runtime_state->cancel_reason();
@@ -205,6 +207,7 @@ Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
                                             load_instance_id.to_string());
     }
     _load_ids.emplace(load_id);
+    group_commit_load_count.fetch_add(1);
     return Status::OK();
 }
 
@@ -272,7 +275,7 @@ Status GroupCommitTable::get_first_block_load_queue(
             }
             if (!_is_creating_plan_fragment) {
                 _is_creating_plan_fragment = true;
-                RETURN_IF_ERROR(_thread_pool->submit_func([&] {
+                RETURN_IF_ERROR(_thread_pool->submit_func([this, be_exe_version, mem_tracker] {
                     auto st = _create_group_commit_load(be_exe_version, mem_tracker);
                     if (!st.ok()) {
                         LOG(WARNING) << "create group commit load error, st=" << st.to_string();
@@ -459,8 +462,10 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
             {
                 std::unique_lock l2(load_block_queue->mutex);
                 load_block_queue->process_finish = true;
+                for (auto dep : load_block_queue->dependencies) {
+                    dep->set_always_ready();
+                }
             }
-            load_block_queue->internal_group_commit_finish_cv.notify_all();
         }
         _load_block_queues.erase(instance_id);
     }
@@ -614,6 +619,15 @@ Status LoadBlockQueue::close_wal() {
         RETURN_IF_ERROR(_v_wal_writer->close());
     }
     return Status::OK();
+}
+
+void LoadBlockQueue::append_dependency(std::shared_ptr<pipeline::Dependency> finish_dep) {
+    std::lock_guard<std::mutex> lock(mutex);
+    // If not finished, dependencies should be blocked.
+    if (!process_finish) {
+        finish_dep->block();
+        dependencies.push_back(finish_dep);
+    }
 }
 
 bool LoadBlockQueue::has_enough_wal_disk_space(size_t estimated_wal_bytes) {

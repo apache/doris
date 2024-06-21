@@ -301,7 +301,7 @@ class Suite implements GroovyInterceptable {
             // wait be report
             Thread.sleep(5000)
             def url = String.format(
-                    "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
+                    "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
             def conn = DriverManager.getConnection(url, user, password)
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
@@ -630,9 +630,15 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null) {
-        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${fieldName}"
-        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${fieldName}"
+    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null, String orderByFieldName = null) {
+        String orderByName = ""
+        if (ObjectUtils.isEmpty(orderByFieldName)){
+            orderByName = fieldName;
+        }else {
+            orderByName = orderByFieldName;
+        }
+        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${orderByName}"
+        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${orderByName}"
         List<Object> tbData1 = new ArrayList<Object>();
         for (List<Object> items:tb1Result){
             tbData1.add(items.get(0))
@@ -646,6 +652,12 @@ class Suite implements GroovyInterceptable {
                 throw new RuntimeException("tbData should be same")
             }
         }
+    }
+
+    String getRandomBoolean() {
+        Random random = new Random()
+        boolean randomBoolean = random.nextBoolean()
+        return randomBoolean ? "true" : "false"
     }
 
     void expectExceptionLike(Closure userFunction, String errorMessage = null) {
@@ -915,6 +927,33 @@ class Suite implements GroovyInterceptable {
         String hdfsUser = context.config.otherConfigs.get("hdfsUser")
         Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
         return hdfs.downLoad(label)
+    }
+
+    void runStreamLoadExample(String tableName, String coordidateBeHostPort = "") {
+        def backends = sql_return_maparray "show backends"
+        sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    id int,
+                    name varchar(255)
+                )
+                DISTRIBUTED BY HASH(id) BUCKETS 1
+                PROPERTIES (
+                  "replication_num" = "${backends.size()}"
+                )
+            """
+
+        streamLoad {
+            table tableName
+            set 'column_separator', ','
+            file context.config.dataPath + "/demo_p0/streamload_input.csv"
+            time 10000
+            if (!coordidateBeHostPort.equals("")) {
+                def pos = coordidateBeHostPort.indexOf(':')
+                def host = coordidateBeHostPort.substring(0, pos)
+                def httpPort = coordidateBeHostPort.substring(pos + 1).toInteger()
+                directToBe host, httpPort
+            }
+        }
     }
 
     void streamLoad(Closure actionSupplier) {

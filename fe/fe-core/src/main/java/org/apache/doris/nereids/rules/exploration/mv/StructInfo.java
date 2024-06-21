@@ -728,26 +728,32 @@ public class StructInfo {
 
     /**
      * Add filter on table scan according to table filter map
+     *
+     * @return Pair(Plan, Boolean) first is the added filter plan, value is the identifier that represent whether
+     *         need to add filter.
+     *         return null if add filter fail.
      */
-    public static Plan addFilterOnTableScan(Plan queryPlan, Map<BaseTableInfo, Set<String>> partitionOnOriginPlan,
-            String partitionColumn,
-            CascadesContext parentCascadesContext) {
+    public static Pair<Plan, Boolean> addFilterOnTableScan(Plan queryPlan, Map<BaseTableInfo,
+            Set<String>> partitionOnOriginPlan, String partitionColumn, CascadesContext parentCascadesContext) {
         // Firstly, construct filter form invalid partition, this filter should be added on origin plan
         PredicateAddContext predicateAddContext = new PredicateAddContext(partitionOnOriginPlan, partitionColumn);
         Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(),
                 predicateAddContext);
-        if (!predicateAddContext.isAddSuccess()) {
+        if (!predicateAddContext.isHandleSuccess()) {
             return null;
+        }
+        if (!predicateAddContext.isNeedAddFilter()) {
+            return Pair.of(queryPlan, false);
         }
         // Deep copy the plan to avoid the plan output is the same with the later union output, this may cause
         // exec by mistake
         queryPlanWithUnionFilter = new LogicalPlanDeepCopier().deepCopy(
                 (LogicalPlan) queryPlanWithUnionFilter, new DeepCopierContext());
         // rbo rewrite after adding filter on origin plan
-        return MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
+        return Pair.of(MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
-        }, queryPlanWithUnionFilter, queryPlan);
+        }, queryPlanWithUnionFilter, queryPlan), true);
     }
 
     /**

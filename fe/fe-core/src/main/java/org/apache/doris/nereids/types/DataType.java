@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -142,7 +143,11 @@ public abstract class DataType {
                 // NOTICE, maybe convert to decimalv3, so do not truc here.
                 switch (types.size()) {
                     case 1:
-                        dataType = DecimalV2Type.CATALOG_DEFAULT;
+                        if (Config.enable_decimal_conversion) {
+                            return DecimalV3Type.createDecimalV3Type(38, 9);
+                        } else {
+                            dataType = DecimalV2Type.CATALOG_DEFAULT;
+                        }
                         break;
                     case 2:
                         dataType = DecimalV2Type.createDecimalV2TypeWithoutTruncate(

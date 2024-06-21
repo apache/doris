@@ -337,7 +337,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
     }
 
+    /**
+     * Post process of commitTxn
+     * 1. update some stats
+     * 2. produce event for further processes like async MV
+     * @param commitTxnResponse commit txn call response from meta-service
+     */
     public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse) {
+        // ========================================
+        // update some table stats
+        // ========================================
         long dbId = commitTxnResponse.getTxnInfo().getDbId();
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
         // 1. update rowCountfor AnalysisManager
@@ -388,6 +397,25 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         if (sb.length() > 0) {
             LOG.info("notify partition first load. {}", sb);
+        }
+
+        // ========================================
+        // produce event
+        // ========================================
+        List<Long> tableList = commitTxnResponse.getTxnInfo().getTableIdsList()
+                .stream().distinct().collect(Collectors.toList());
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of transaction
+        try {
+            for (Long tableId : tableList) {
+                Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DataChangeEvent(InternalCatalog.INTERNAL_CATALOG_ID, dbId, tableId));
+            }
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("produceEvent failed, db {}, tables {} ", dbId, tableList, t);
         }
     }
 
@@ -528,23 +556,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
         }
         afterCommitTxnResp(commitTxnResponse);
-        // Here, we only wait for the EventProcessor to finish processing the event,
-        // but regardless of the success or failure of the result,
-        // it does not affect the logic of transaction
-        try {
-            produceEvent(dbId, tableList);
-        } catch (Throwable t) {
-            // According to normal logic, no exceptions will be thrown,
-            // but in order to avoid bugs affecting the original logic, all exceptions are caught
-            LOG.warn("produceEvent failed: ", t);
-        }
-    }
-
-    private void produceEvent(long dbId, List<Table> tableList) {
-        for (Table table : tableList) {
-            Env.getCurrentEnv().getEventProcessor().processEvent(
-                    new DataChangeEvent(InternalCatalog.INTERNAL_CATALOG_ID, dbId, table.getId()));
-        }
     }
 
     private List<OlapTable> getMowTableList(List<Table> tableList) {
@@ -1160,7 +1171,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit) {
+    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime) {
+        // do nothing in cloud mode
+    }
+
+    @Override
+    public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit) {
         // do nothing in cloud mode
     }
 
