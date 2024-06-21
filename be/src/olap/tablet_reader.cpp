@@ -123,6 +123,7 @@ TabletReader::~TabletReader() {
 
 Status TabletReader::init(const ReaderParams& read_params) {
     _predicate_arena = std::make_unique<vectorized::Arena>();
+    RETURN_IF_ERROR(_predicate_arena->init());
 
     Status res = _init_params(read_params);
     if (!res.ok()) {

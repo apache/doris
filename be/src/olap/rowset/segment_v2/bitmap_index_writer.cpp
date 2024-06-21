@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "common/status.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
@@ -64,6 +65,9 @@ struct BitmapIndexTraits<Slice> {
 //
 template <FieldType field_type>
 class BitmapIndexWriterImpl : public BitmapIndexWriter {
+private:
+    Status init() override { return _arena.init(); }
+
 public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using MemoryIndexType = typename BitmapIndexTraits<CppType>::MemoryIndexType;
@@ -257,7 +261,8 @@ Status BitmapIndexWriter::create(const TypeInfo* type_info,
         return Status::NotSupported("unsupported type for bitmap index: {}",
                                     std::to_string(int(type)));
     }
-    return Status::OK();
+
+    return res->get()->init();
 }
 
 } // namespace segment_v2

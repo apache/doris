@@ -26,6 +26,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
@@ -115,11 +116,12 @@ Status MemTableWriter::write(const vectorized::Block* block,
     }
 
     _total_received_rows += row_idxs.size();
-    RETURN_IF_ERROR(_mem_table->insert(block, row_idxs));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_mem_table->insert(block, row_idxs));
 
     if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
-        _mem_table->shrink_memtable_by_agg();
+        RETURN_IF_CATCH_EXCEPTION(_mem_table->shrink_memtable_by_agg());
     }
+
     if (UNLIKELY(_mem_table->need_flush())) {
         auto s = _flush_memtable_async();
         _reset_mem_table();

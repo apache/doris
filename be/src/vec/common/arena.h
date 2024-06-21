@@ -99,11 +99,7 @@ private:
     /// If chunks size is less than 'linear_growth_threshold', then use exponential growth, otherwise - linear growth
     ///  (to not allocate too much excessive memory).
     size_t next_size(size_t min_next_size) {
-        if (UNLIKELY(head == nullptr)) {
-            head = new Chunk(_initial_size, nullptr);
-            size_in_bytes += head->size();
-        }
-
+        DCHECK(head != nullptr);
         size_t size_after_grow = 0;
 
         if (head->size() < linear_growth_threshold) {
@@ -127,11 +123,7 @@ private:
 
     /// Add next contiguous chunk of memory with size not less than specified.
     void NO_INLINE add_chunk(size_t min_size) {
-        if (UNLIKELY(head == nullptr)) {
-            head = new Chunk(_initial_size, nullptr);
-            size_in_bytes += head->size();
-        }
-
+        DCHECK(head != nullptr);
         _used_size_no_head += head->used();
         head = new Chunk(next_size(min_size + pad_right), head);
         size_in_bytes += head->size();
@@ -149,7 +141,10 @@ public:
               _initial_size(initial_size_),
               _used_size_no_head(0) {}
 
-    ~Arena() { delete head; }
+    ~Arena() {
+        DCHECK(head != nullptr);
+        delete head;
+    }
 
     /// Get piece of memory, without alignment.
     char* alloc(size_t size) {
@@ -170,10 +165,7 @@ public:
 
     /// Get piece of memory with alignment
     char* aligned_alloc(size_t size, size_t alignment) {
-        if (UNLIKELY(head == nullptr)) {
-            head = new Chunk(_initial_size, nullptr);
-            size_in_bytes += head->size();
-        }
+        DCHECK(head != nullptr);
 
         do {
             void* head_pos = head->pos;
@@ -202,10 +194,7 @@ public:
 	  * the allocation it intended to roll back was indeed the last one.
       */
     void* rollback(size_t size) {
-        if (UNLIKELY(head == nullptr)) {
-            head = new Chunk(_initial_size, nullptr);
-            size_in_bytes += head->size();
-        }
+        DCHECK(head != nullptr);
 
         head->pos -= size;
         ASAN_POISON_MEMORY_REGION(head->pos, size + pad_right);
@@ -226,10 +215,7 @@ public:
       */
     [[nodiscard]] char* alloc_continue(size_t additional_bytes, char const*& range_start,
                                        size_t start_alignment = 0) {
-        if (UNLIKELY(head == nullptr)) {
-            head = new Chunk(_initial_size, nullptr);
-            size_in_bytes += head->size();
-        }
+        DCHECK(head != nullptr);
 
         if (!range_start) {
             // Start a new memory range.
@@ -323,9 +309,7 @@ public:
     * and only 128M can be reused when you apply for 4G memory again.
     */
     void clear() {
-        if (head == nullptr) {
-            return;
-        }
+        DCHECK(head != nullptr);
 
         if (head->prev) {
             delete head->prev;
@@ -337,21 +321,18 @@ public:
     }
 
     /// Size of chunks in bytes.
-    size_t size() const { return size_in_bytes; }
+    size_t size() const {
+        DCHECK(head != nullptr);
+        return size_in_bytes;
+    }
 
     size_t used_size() const {
-        if (UNLIKELY(head == nullptr)) {
-            return 0;
-        }
-
+        DCHECK(head != nullptr);
         return _used_size_no_head + head->used();
     }
 
     size_t remaining_space_in_current_chunk() const {
-        if (UNLIKELY(head == nullptr)) {
-            return 0;
-        }
-
+        DCHECK(head != nullptr);
         return head->remaining();
     }
 };

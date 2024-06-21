@@ -28,6 +28,7 @@
 
 #include "bvar/bvar.h"
 #include "common/config.h"
+#include "common/status.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_schema.h"
@@ -183,6 +184,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
     vectorized::Block target_block = *input_block;
     target_block = input_block->copy_block(_column_offset);
     if (_is_first_insertion) {
+        RETURN_IF_ERROR(_arena->init());
         _is_first_insertion = false;
         auto cloneBlock = target_block.clone_without_columns();
         _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
@@ -243,6 +245,8 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
     // dst is non-sequence row, or dst sequence is smaller
     for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
         auto col_ptr = mutable_block.mutable_columns()[cid].get();
+        // What if memory exception happens here?
+        // Currently, it is safe, see: MemTableWriter::write
         _agg_functions[cid]->add(dst_row->agg_places(cid),
                                  const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                                  src_row->_row_pos, _arena.get());
