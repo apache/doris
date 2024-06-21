@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -40,7 +40,7 @@ public class DecompressVarchar extends ScalarFunction
        implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(TinyIntType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(SmallIntType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(IntegerType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(LargeIntType.INSTANCE)
