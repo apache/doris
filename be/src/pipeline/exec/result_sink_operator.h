@@ -104,7 +104,7 @@ struct ResultFileOptions {
     }
 };
 
-constexpr int RESULT_SINK_BUFFER_SIZE = 4096 * 8;
+constexpr int RESULT_SINK_BUFFER_SIZE = 4096;
 
 class ResultSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
