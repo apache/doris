@@ -88,13 +88,14 @@ public:
 
     std::string debug_string() const {
         fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer,
-                       "load_instance_id={}, label={}, txn_id={}, "
-                       "wait_internal_group_commit_finish={}, data_size_condition={}, "
-                       "group_commit_load_count={}, process_finish={}",
-                       load_instance_id.to_string(), label, txn_id,
-                       wait_internal_group_commit_finish, data_size_condition,
-                       group_commit_load_count, process_finish.load());
+        fmt::format_to(
+                debug_string_buffer,
+                "load_instance_id={}, label={}, txn_id={}, "
+                "wait_internal_group_commit_finish={}, data_size_condition={}, "
+                "group_commit_load_count={}, process_finish={}, _need_commit={}, schema_version={}",
+                load_instance_id.to_string(), label, txn_id, wait_internal_group_commit_finish,
+                data_size_condition, group_commit_load_count, process_finish.load(), _need_commit,
+                schema_version);
         return fmt::to_string(debug_string_buffer);
     }
 

@@ -263,7 +263,6 @@ Status GroupCommitTable::get_first_block_load_queue(
                 if (base_schema_version == inner_block_queue->schema_version) {
                     if (inner_block_queue->add_load_id(load_id, put_block_dep).ok()) {
                         load_block_queue = inner_block_queue;
-
                         return Status::OK();
                     }
                 } else {
