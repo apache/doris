@@ -15,13 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_unique_model_schema_key_drop", "p0") {
-    def tbName = "test_unique_model_schema_key_drop"
+suite("test_unique_schema_key_change_drop", "p0") {
+    def tbName = "test_unique_schema_key_change_drop"
     def tbName2 = "test_unique_model_schema_key_drop_1"
     sql """ DROP TABLE IF EXISTS ${tbName} """
     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1  "
     def errorMessage = ""
     def insertSql = "insert into ${tbName} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+    def on_write = getRandomBoolean()
+    println String.format("current enable_unique_key_merge_on_write is : %s ",on_write)
 
 
     /**
@@ -50,7 +52,7 @@ suite("test_unique_model_schema_key_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "              \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n" +
             "          );"
 
     def initTableData = "insert into ${tbName} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00')," +
