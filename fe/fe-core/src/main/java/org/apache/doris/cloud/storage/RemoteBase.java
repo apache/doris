@@ -116,6 +116,8 @@ public abstract class RemoteBase {
 
     public ObjectInfo obj;
 
+    protected static long SESSION_EXPIRE_SECOND = 3600;
+
     public RemoteBase(ObjectInfo obj) {
         this.obj = obj;
     }

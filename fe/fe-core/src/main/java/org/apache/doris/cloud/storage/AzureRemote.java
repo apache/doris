@@ -66,8 +66,6 @@ public class AzureRemote extends RemoteBase {
         super(obj);
     }
 
-    private long SESSION_EXPIRE_SECOND = 3600;
-
     @Override
     public String getPresignedUrl(String fileName) {
         try {
