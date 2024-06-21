@@ -16,50 +16,58 @@
 # under the License.
 version: "3"
 services:
-    hive-krb:
-        image: ghcr.io/trinodb/testing/hdp3.1-hive-kerberized
-        volumes:
-            - ./two-kerberos-hives:/keytabs
-            - ./sql:/usr/local/sql
-            - ./common/hadoop/apply-config-overrides.sh:/etc/hadoop-init.d/00-apply-config-overrides.sh
-            - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
-            - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
-            - ./entrypoint-hive-master.sh:/usr/local/entrypoint-hive-master.sh
-        hostname: hadoop-master
-        entrypoint: /usr/local/entrypoint-hive-master.sh
-        healthcheck:
-          test: ./health-checks/health.sh
-        ports:
-            - "5006:5806"
-            - "8020:8820"
-            - "8042:8842"
-            - "9000:9800"
-            - "9083:9883"
-            - "10000:18000"
-            - "19888:19888"
-        networks:
-            doris_net:
-                ipv4_address: 172.20.70.25
+  hive-krb:
+    image: ghcr.io/trinodb/testing/hdp3.1-hive-kerberized
+    container_name: doris--kerberos1
+    volumes:
+      - ./two-kerberos-hives:/keytabs
+      - ./sql:/usr/local/sql
+      - ./common/hadoop/apply-config-overrides.sh:/etc/hadoop-init.d/00-apply-config-overrides.sh
+      - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
+      - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
+      - ./entrypoint-hive-master.sh:/usr/local/entrypoint-hive-master.sh
+    hostname: hadoop-master
+    entrypoint: /usr/local/entrypoint-hive-master.sh
+    healthcheck:
+      test: ./health-checks/health.sh
+    ports:
+      - "5806:5006"
+      - "8820:8020"
+      - "8842:8042"
+      - "9800:9000"
+      - "9883:9083"
+      - "18000:10000"
+    networks:
+      doris--krb_net:
+        ipv4_address: 172.20.71.25
 
-    hive-krb2:
-        image: ghcr.io/trinodb/testing/hdp3.1-hive-kerberized-2:96
-        volumes:
-            - ./two-kerberos-hives:/keytabs
-            - ./sql:/usr/local/sql
-            - ./common/hadoop/apply-config-overrides.sh:/etc/hadoop-init.d/00-apply-config-overrides.sh
-            - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
-            - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
-            - ./entrypoint-hive-master-2.sh:/usr/local/entrypoint-hive-master-2.sh
-        hostname: hadoop-master-2
-        entrypoint: /usr/local/entrypoint-hive-master-2.sh
-        healthcheck:
-          test: ./health-checks/health.sh
-        networks:
-            doris_net:
-                ipv4_address: 172.20.70.26
+  hive-krb2:
+    image: ghcr.io/trinodb/testing/hdp3.1-hive-kerberized-2:96
+    container_name: doris--kerberos2
+    hostname: hadoop-master-2
+    volumes:
+      - ./two-kerberos-hives:/keytabs
+      - ./sql:/usr/local/sql
+      - ./common/hadoop/apply-config-overrides.sh:/etc/hadoop-init.d/00-apply-config-overrides.sh
+      - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
+      - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
+      - ./entrypoint-hive-master-2.sh:/usr/local/entrypoint-hive-master-2.sh
+    entrypoint: /usr/local/entrypoint-hive-master-2.sh
+    healthcheck:
+      test: ./health-checks/health.sh
+    ports:
+      - "15806:5006"
+      - "18820:8020"
+      - "18842:8042"
+      - "19800:9000"
+      - "19883:9083"
+      - "18800:10000"
+    networks:
+      doris--krb_net:
+        ipv4_address: 172.20.71.26
 
 networks:
-    doris_net:
-        ipam:
-            config:
-                - subnet: 172.20.70.0/24
+  doris--krb_net:
+    ipam:
+      config:
+        - subnet: 172.20.71.0/24

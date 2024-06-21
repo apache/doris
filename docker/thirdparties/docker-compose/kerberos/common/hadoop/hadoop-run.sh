@@ -13,6 +13,7 @@ HADOOP_INIT_D=${HADOOP_INIT_D:-/etc/hadoop-init.d/}
 echo "Applying hadoop init.d scripts from ${HADOOP_INIT_D}"
 if test -d "${HADOOP_INIT_D}"; then
     for init_script in "${HADOOP_INIT_D}"*; do
+        chmod a+x "${init_script}"
         "${init_script}"
     done
 fi

@@ -171,7 +171,7 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_DB2=1
     elif [[ "${element}"x == "lakesoul"x ]]; then
         RUN_LAKESOUL=1
-    elif [[ "${element}"x == "lakesoul"x ]]; then
+    elif [[ "${element}"x == "kerberos"x ]]; then
         RUN_KERBEROS=1
     else
         echo "Invalid component: ${element}"
@@ -524,10 +524,12 @@ if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
 #    git checkout doris_dev
     cd LakeSoul/rust
     cargo test load_tpch_data --package lakesoul-datafusion --features=ci -- --nocapture
+fi
 
 if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
     echo "RUN_KERBEROS"
-    cp "${ROOT}"/docker-compose/lakesoul/kerberos.yaml.tpl "${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    cp "${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl "${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kerberos/kerberos.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml down
     sudo rm -rf "${ROOT}"/docker-compose/kerberos/data
     if [[ "${STOP}" -ne 1 ]]; then
