@@ -304,7 +304,8 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
     }
     s3_bytes_written_total << buf.get_size();
 
-    ObjectCompleteMultiPart completed_part {static_cast<int>(part_num), std::move(resp.etag)};
+    ObjectCompleteMultiPart completed_part {
+            static_cast<int>(part_num), resp.etag.has_value() ? std::move(resp.etag.value()) : ""};
 
     std::unique_lock<std::mutex> lck {_completed_lock};
     _completed_parts.emplace_back(std::move(completed_part));
@@ -319,8 +320,8 @@ Status S3FileWriter::_complete() {
         _wait_until_finish("early quit");
         return _st;
     }
-    // upload id is empty means there was no multipart upload
-    if (upload_id().empty()) {
+    // When the part num is only one, it means the data is less than 5MB so we can just put it.
+    if (_cur_part_num == 1) {
         _wait_until_finish("PutObject");
         return _st;
     }

@@ -43,12 +43,9 @@ std::string wrap_object_storage_path_msg(const doris::io::ObjectStoragePathOptio
 }
 
 auto base64_encode_part_num(int part_num) {
-    auto part_num_str = std::to_string(part_num);
     return Aws::Utils::HashingUtils::Base64Encode(
-            {(unsigned char*)part_num_str.c_str(), part_num_str.size()});
+            {reinterpret_cast<unsigned char*>(&part_num), sizeof(part_num)});
 }
-
-constexpr char AZURE_FAKE_UPLOAD_ID[] = "AZURE_FAKE_UPLOAD_ID";
 } // namespace
 
 namespace doris::io {
@@ -81,7 +78,7 @@ ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOption
 // Azure would do nothing
 ObjectStorageUploadResponse AzureObjStorageClient::create_multipart_upload(
         const ObjectStoragePathOptions& opts) {
-    return {.upload_id = std::string(AZURE_FAKE_UPLOAD_ID)};
+    return {};
 }
 
 ObjectStorageResponse AzureObjStorageClient::put_object(const ObjectStoragePathOptions& opts,
@@ -126,10 +123,9 @@ ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
         const std::vector<ObjectCompleteMultiPart>& completed_parts) {
     auto client = _client->GetBlockBlobClient(opts.key);
     std::vector<std::string> string_block_ids;
-    std::ranges::transform(completed_parts, std::back_inserter(string_block_ids),
-                           [](const ObjectCompleteMultiPart& i) {
-                               return base64_encode_part_num(i.get_part_num());
-                           });
+    std::ranges::transform(
+            completed_parts, std::back_inserter(string_block_ids),
+            [](const ObjectCompleteMultiPart& i) { return base64_encode_part_num(i.part_num); });
     return do_azure_client_call([&]() { client.CommitBlockList(string_block_ids); }, opts);
 }
 

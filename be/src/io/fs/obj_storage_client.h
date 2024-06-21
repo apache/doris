@@ -47,9 +47,7 @@ struct ObjectStoragePathOptions {
 
 struct ObjectCompleteMultiPart {
     int part_num = 0;
-    std::optional<std::string> etag = std::nullopt;
-    int get_part_num() const { return part_num; }
-    std::string get_etag() const { return etag.has_value() ? *etag : ""; }
+    std::string etag = std::string();
 };
 
 struct ObjectStorageStatus {

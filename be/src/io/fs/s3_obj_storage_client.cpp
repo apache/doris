@@ -189,8 +189,8 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
     std::ranges::transform(completed_parts, std::back_inserter(complete_parts),
                            [](const ObjectCompleteMultiPart& part_ptr) {
                                CompletedPart part;
-                               part.SetPartNumber(part_ptr.get_part_num());
-                               part.SetETag(part_ptr.get_etag());
+                               part.SetPartNumber(part_ptr.part_num);
+                               part.SetETag(part_ptr.etag);
                                return part;
                            });
     completed_upload.SetParts(std::move(complete_parts));
