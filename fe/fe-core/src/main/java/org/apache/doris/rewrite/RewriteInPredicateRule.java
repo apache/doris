@@ -98,7 +98,11 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
             // cannot be directly converted to LargeIntLiteral, so it is converted to decimal first.
             if (childExpr.getType().getPrimitiveType().isCharFamily() || childExpr.getType().isFloatingPointType()) {
                 try {
-                    childExpr = (LiteralExpr) childExpr.castTo(Type.DECIMALV2);
+                    Expr tmpExpr = childExpr.castTo(columnType);
+                    if (tmpExpr instanceof CastExpr && tmpExpr.getChild(0) instanceof PlaceHolderExpr) {
+                        tmpExpr = ((PlaceHolderExpr) tmpExpr.getChild(0)).getLiteral().castTo(columnType);
+                    }
+                    childExpr = (LiteralExpr) tmpExpr.castTo(Type.DECIMALV2);
                 } catch (AnalysisException e) {
                     if (ConnectContext.get() != null) {
                         ConnectContext.get().getState().reset();
