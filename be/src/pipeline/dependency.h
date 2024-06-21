@@ -623,7 +623,6 @@ struct HashJoinSharedState : public JoinSharedState {
     std::vector<bool> is_null_safe_eq_join;
     // mark the build hash table whether it needs to store null value
     std::vector<bool> store_null_in_hash_table;
-    // TODO: need init.
     std::shared_ptr<vectorized::Arena> arena = std::make_shared<vectorized::Arena>();
 
     // maybe share hash table with other fragment instances

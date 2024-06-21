@@ -258,8 +258,7 @@ Status BitmapIndexWriter::create(const TypeInfo* type_info,
         return Status::NotSupported("unsupported type for bitmap index: {}",
                                     std::to_string(int(type)));
     }
-
-    return res->get()->init();
+    return Status::OK();
 }
 
 } // namespace segment_v2

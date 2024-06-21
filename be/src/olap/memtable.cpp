@@ -28,7 +28,6 @@
 
 #include "bvar/bvar.h"
 #include "common/config.h"
-#include "common/status.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_schema.h"
