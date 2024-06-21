@@ -810,11 +810,11 @@ public class MetadataGenerator {
 
         CatalogIf catalog;
         TableIf table;
-        Database db;
+        DatabaseIf db;
         try {
             catalog = Env.getCurrentEnv().getCatalogMgr()
                     .getCatalogOrAnalysisException(catalogName);
-            db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
+            db = catalog.getDbOrAnalysisException(dbName);
             table = db.getTableOrAnalysisException(tableName);
         } catch (AnalysisException e) {
             LOG.warn(e.getMessage());
@@ -822,11 +822,11 @@ public class MetadataGenerator {
         }
 
         if (catalog instanceof InternalCatalog) {
-            return dealInternalCatalog(db, table);
+            return dealInternalCatalog((Database) db, table);
         } else if (catalog instanceof MaxComputeExternalCatalog) {
-            return dealMaxComputeCatalog((MaxComputeExternalCatalog) catalog, db, table);
+            return dealMaxComputeCatalog((MaxComputeExternalCatalog) catalog, dbName, tableName);
         } else if (catalog instanceof HMSExternalCatalog) {
-            return dealHMSCatalog((HMSExternalCatalog) catalog, db, table);
+            return dealHMSCatalog((HMSExternalCatalog) catalog, dbName, tableName);
         }
 
         if (LOG.isDebugEnabled()) {
@@ -835,9 +835,10 @@ public class MetadataGenerator {
         return errorResult("not support catalog: " + catalogName);
     }
 
-    private static TFetchSchemaTableDataResult dealHMSCatalog(HMSExternalCatalog catalog, Database db, TableIf table) {
+    private static TFetchSchemaTableDataResult dealHMSCatalog(HMSExternalCatalog catalog, String dbName,
+            String tableName) {
         List<TRow> dataBatch = Lists.newArrayList();
-        List<String> partitionNames = catalog.getClient().listPartitionNames(db.getName(), table.getName());
+        List<String> partitionNames = catalog.getClient().listPartitionNames(dbName, tableName);
         for (String partition : partitionNames) {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(partition));
@@ -848,10 +849,10 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult dealMaxComputeCatalog(MaxComputeExternalCatalog catalog, Database db,
-            TableIf table) {
+    private static TFetchSchemaTableDataResult dealMaxComputeCatalog(MaxComputeExternalCatalog catalog, String dbName,
+            String tableName) {
         List<TRow> dataBatch = Lists.newArrayList();
-        List<String> partitionNames = catalog.listPartitionNames(db.getName(), table.getName());
+        List<String> partitionNames = catalog.listPartitionNames(dbName, tableName);
         for (String partition : partitionNames) {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(partition));
