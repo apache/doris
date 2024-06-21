@@ -44,6 +44,7 @@ import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
@@ -3439,10 +3440,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         erasePartitionDropBackendReplicas(oldPartitions);
 
-        if (truncateEntireTable) {
-            // Drop the whole table stats after truncate the entire table
-            Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
-        }
+        PartitionNames partitionNames = truncateEntireTable ? null
+                : new PartitionNames(false, tblRef.getPartitionNames().getPartitionNames());
+        Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, partitionNames);
         Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords, db.getId(), olapTable.getId());
         LOG.info("finished to truncate table {}, partitions: {}", tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
