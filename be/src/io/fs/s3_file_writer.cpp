@@ -388,7 +388,7 @@ std::string S3FileWriter::_dump_completed_part() const {
     std::stringstream ss;
     ss << "part_numbers:";
     for (const auto& part : _completed_parts) {
-        ss << " " << part.get_part_num();
+        ss << " " << part.part_num;
     }
     return ss.str();
 }
