@@ -2602,6 +2602,10 @@ public class Config extends ConfigBase {
     public static boolean enable_proxy_protocol = false;
     public static int profile_async_collect_expire_time_secs = 5;
 
+    @ConfField(description = {"方言转换服务器地址",
+            "Dialect translation services info"})
+    public static String dialect_converter_services = "";
+
 
     //==========================================================================
     //                    begin of cloud config

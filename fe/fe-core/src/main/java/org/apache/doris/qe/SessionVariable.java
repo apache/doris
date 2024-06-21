@@ -574,6 +574,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
 
+    public static final String ENABLE_MULTI_DIALECT_CONVERT_SERVICE = "enable_multi_dialect_convert_service";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -1777,6 +1779,10 @@ public class SessionVariable implements Serializable, Writable {
                     "用于控制结果反序列化时 thrift 字段的最大值，当遇到类似\"MaxMessageSize reached\"这样的错误时可以考虑修改该参数"})
     public int maxMsgSizeOfResultReceiver = TConfiguration.DEFAULT_MAX_MESSAGE_SIZE;
 
+    @VariableMgr.VarAttr(name = ENABLE_MULTI_DIALECT_CONVERT_SERVICE,
+            description = {"当开启多个方言转换服务器开关时，方言转换轮询使用fe.conf中dialect_converter_services设置的多个服务器",
+                "dialect_converter_services config take effect"})
+    private boolean enableMultiDialectConvertService = false;
 
     // CLOUD_VARIABLES_BEGIN
     @VariableMgr.VarAttr(name = CLOUD_CLUSTER)
@@ -3814,5 +3820,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getMaxMsgSizeOfResultReceiver() {
         return this.maxMsgSizeOfResultReceiver;
+    }
+
+    public boolean isEnableMultiDialectConvertService() {
+        return this.enableMultiDialectConvertService;
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.plugin.dialect;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.plugin.DialectConverterPlugin;
@@ -32,6 +33,9 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -66,9 +70,13 @@ import javax.annotation.Nullable;
  * */
 public class HttpDialectConverterPlugin extends Plugin implements DialectConverterPlugin {
 
+    private static final Logger LOG = LogManager.getLogger(HttpDialectConverterPlugin.class);
+
     private volatile boolean isInit = false;
     private volatile ImmutableSet<Dialect> acceptDialects;
     private final PluginInfo pluginInfo;
+    private static int chooseServerIdx = 0;
+    private static List<String> dialectConverterSerInfo = Lists.newArrayList();
 
     public HttpDialectConverterPlugin() {
         pluginInfo = new PluginInfo(PluginMgr.BUILTIN_PLUGIN_PREFIX + "SqlDialectConverter", PluginType.DIALECT,
@@ -76,10 +84,25 @@ public class HttpDialectConverterPlugin extends Plugin implements DialectConvert
                 DigitalVersion.fromString("1.8.31"), HttpDialectConverterPlugin.class.getName(), null, null);
         acceptDialects = ImmutableSet.copyOf(Arrays.asList(Dialect.PRESTO, Dialect.TRINO, Dialect.HIVE,
                 Dialect.SPARK, Dialect.POSTGRES, Dialect.CLICKHOUSE));
+        analyzeConverterSevicesInfo();
     }
 
     public PluginInfo getPluginInfo() {
         return pluginInfo;
+    }
+
+    private static void analyzeConverterSevicesInfo() {
+        String  dialectConverterServices = Config.dialect_converter_services;
+        if (Strings.isNullOrEmpty(dialectConverterServices)) {
+            return;
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("configured dialect_converter_services value: {}", dialectConverterServices);
+        }
+
+        String[] serviceList = dialectConverterServices.split(";");
+        dialectConverterSerInfo = Lists.newArrayList(serviceList);
     }
 
     @Override
@@ -100,10 +123,43 @@ public class HttpDialectConverterPlugin extends Plugin implements DialectConvert
     @Override
     public @Nullable String convertSql(String originSql, SessionVariable sessionVariable) {
         String targetURL = GlobalVariable.sqlConverterServiceUrl;
-        if (Strings.isNullOrEmpty(targetURL)) {
+
+        if (Strings.isNullOrEmpty(targetURL) && dialectConverterSerInfo.isEmpty()) {
             return null;
         }
-        return HttpDialectUtils.convertSql(targetURL, originSql, sessionVariable.getSqlDialect());
+
+        if (!Strings.isNullOrEmpty(targetURL)) {
+            String resultStr = HttpDialectUtils.convertSql(targetURL, originSql, sessionVariable.getSqlDialect());
+            if (Strings.isNullOrEmpty(resultStr)) {
+                return originSql;
+            } else {
+                return resultStr;
+            }
+        } else {
+            if (!sessionVariable.isEnableMultiDialectConvertService()) {
+                return originSql;
+            }
+
+            int retryCount = 0;
+            while (retryCount < dialectConverterSerInfo.size()) {
+                String chooseServer = dialectConverterSerInfo.get(chooseServerIdx++ % dialectConverterSerInfo.size());
+                retryCount++;
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("convertsql server is : {}", chooseServer);
+                }
+
+                targetURL = "http://" + chooseServer + "/api/v1/convert";
+                String resultStr = HttpDialectUtils.convertSql(targetURL, originSql,
+                        sessionVariable.getSqlDialect());
+
+                if (Strings.isNullOrEmpty(resultStr)) {
+                    continue;
+                } else {
+                    return resultStr;
+                }
+            }
+            return originSql;
+        }
     }
 
     // no need to override parseSqlWithDialect, just return null
