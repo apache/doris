@@ -113,6 +113,9 @@ public:
     // According to the prefix, recursively delete all files under the prefix.
     virtual ObjectStorageResponse delete_objects_recursively(
             const ObjectStoragePathOptions& opts) = 0;
+    // Return a presigned URL for users to access the object
+    virtual std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
+                                               int64_t expiration_secs) = 0;
 };
 } // namespace io
 } // namespace doris
