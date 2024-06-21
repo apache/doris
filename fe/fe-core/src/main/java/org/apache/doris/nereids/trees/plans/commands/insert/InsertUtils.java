@@ -142,7 +142,10 @@ public class InsertUtils {
     }
 
     /**
-     * literal expr in insert operation
+     * Used by txn insert and group commit, these two loads execute `insert into values` in the stream load way.
+     * This function transform the value expression to string which is sent to BE directly.
+     * For complex data type, there is a quota problem, otherwise, we may get `too many filtered rows`.
+     * The same function in legacy planner is `InsertStmtExecutor#getRowStringValue`.
      */
     public static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols) {
         if (cols.isEmpty()) {
