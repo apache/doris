@@ -387,4 +387,10 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
     return {};
 }
 
+std::string S3ObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
+                                                       int64_t expiration_secs) {
+    return _client->GeneratePresignedUrl(opts.bucket, opts.key, Aws::Http::HttpMethod::HTTP_GET,
+                                         expiration_secs);
+}
+
 } // namespace doris::io

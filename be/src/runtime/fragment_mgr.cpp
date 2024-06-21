@@ -51,6 +51,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -117,6 +118,9 @@ uint64_t get_fragment_last_active_time() {
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
         return "";
+    }
+    if (file_name.compare(0, 4, "http") == 0) {
+        return file_name;
     }
     std::stringstream url;
     url << "http://" << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
@@ -497,7 +501,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
         stream_load_ctx->table = params.txn_conf.tbl;
         stream_load_ctx->txn_id = params.txn_conf.txn_id;
         stream_load_ctx->id = UniqueId(params.query_id);
-        stream_load_ctx->put_result.pipeline_params = params;
+        stream_load_ctx->put_result.__set_pipeline_params(params);
         stream_load_ctx->use_streaming = true;
         stream_load_ctx->load_type = TLoadType::MANUL_LOAD;
         stream_load_ctx->load_src_type = TLoadSourceType::RAW;
