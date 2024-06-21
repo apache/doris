@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("query_constant") {
+suite("shuffle") {
+    createTestTable "test_shuffle"
+
     multi_sql """
         set enable_nereids_distribute_planner=true;
         set enable_pipeline_x_engine=true;
@@ -23,17 +25,10 @@ suite("query_constant") {
         set force_to_local_shuffle=false;
         """
 
-    order_qt_query_one_row "select 100 id, 'abc' name"
-
-    order_qt_union_all """
-        select 100 id, 'hello' name
-        union all
-        select 200 id, 'world' name
-        """
-
-    order_qt_union """
-        select 100 id, 'hello' name
-        union
-        select 200 id, 'world' name
+    order_qt_4_phase_agg """
+        select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT,TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI,THREE_PHASE_AGGREGATE_WITH_DISTINCT,FOUR_PHASE_AGGREGATE_WITH_DISTINCT')*/
+        id, count(distinct value)
+        from test_shuffle
+        group by id
         """
 }

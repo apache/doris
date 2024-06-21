@@ -36,6 +36,8 @@ suite("prune_bucket_with_bucket_shuffle_join") {
         set enable_nereids_distribute_planner=false;
         set enable_pipeline_x_engine=true;
         set disable_join_reorder=true;
+        set enable_local_shuffle=false;
+        set force_to_local_shuffle=false;
         """
 
     def extractFragment = { String sqlStr, String containsString, Closure<Integer> checkExchangeNum ->
