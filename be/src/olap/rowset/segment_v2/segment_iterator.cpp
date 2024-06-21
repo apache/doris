@@ -1093,6 +1093,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
 
         if (need_remaining_after_evaluate) {
             remaining_predicates.emplace_back(pred);
+            _need_read_data_indices[pred->column_id()] = true;
             return Status::OK();
         }
 
