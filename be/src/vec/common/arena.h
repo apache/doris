@@ -122,11 +122,18 @@ private:
     }
 
     /// Add next contiguous chunk of memory with size not less than specified.
-    void NO_INLINE add_chunk(size_t min_size) {
+    void NO_INLINE _add_chunk(size_t min_size) {
         DCHECK(head != nullptr);
         _used_size_no_head += head->used();
         head = new Chunk(next_size(min_size + pad_right), head);
         size_in_bytes += head->size();
+    }
+
+    void _init_head_if_needed() {
+        if (UNLIKELY(head == nullptr)) {
+            head = new Chunk(_initial_size, nullptr);
+            size_in_bytes += head->size();
+        }
     }
 
     friend class ArenaAllocator;
@@ -148,13 +155,10 @@ public:
 
     /// Get piece of memory, without alignment.
     char* alloc(size_t size) {
-        if (UNLIKELY(head == nullptr)) {
-            head = new Chunk(_initial_size, nullptr);
-            size_in_bytes += head->size();
-        }
+        _init_head_if_needed();
 
         if (UNLIKELY(head->pos + size > head->end)) {
-            add_chunk(size);
+            _add_chunk(size);
         }
 
         char* res = head->pos;
@@ -165,7 +169,7 @@ public:
 
     /// Get piece of memory with alignment
     char* aligned_alloc(size_t size, size_t alignment) {
-        DCHECK(head != nullptr);
+        _init_head_if_needed();
 
         do {
             void* head_pos = head->pos;
@@ -179,7 +183,7 @@ public:
                 return res;
             }
 
-            add_chunk(size + alignment);
+            _add_chunk(size + alignment);
         } while (true);
     }
 
@@ -215,8 +219,6 @@ public:
       */
     [[nodiscard]] char* alloc_continue(size_t additional_bytes, char const*& range_start,
                                        size_t start_alignment = 0) {
-        DCHECK(head != nullptr);
-
         if (!range_start) {
             // Start a new memory range.
             char* result = start_alignment ? aligned_alloc(additional_bytes, start_alignment)
@@ -225,6 +227,8 @@ public:
             range_start = result;
             return result;
         }
+
+        DCHECK(head != nullptr);
 
         // Extend an existing memory range with 'additional_bytes'.
 

@@ -184,7 +184,6 @@ Status MemTable::insert(const vectorized::Block* input_block,
     vectorized::Block target_block = *input_block;
     target_block = input_block->copy_block(_column_offset);
     if (_is_first_insertion) {
-        RETURN_IF_ERROR(_arena->init());
         _is_first_insertion = false;
         auto cloneBlock = target_block.clone_without_columns();
         _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);

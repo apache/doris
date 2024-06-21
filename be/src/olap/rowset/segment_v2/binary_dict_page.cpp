@@ -48,7 +48,6 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _encoding_type(DICT_ENCODING) {}
 
 Status BinaryDictPageBuilder::init() {
-    RETURN_IF_ERROR(_arena.init());
     // initially use DICT_ENCODING
     // TODO: the data page builder type can be created by Factory according to user config
     PageBuilder* data_page_builder_ptr = nullptr;

@@ -51,8 +51,6 @@ public:
 
     virtual uint64_t size() const = 0;
 
-    virtual Status init() = 0;
-
 private:
     DISALLOW_COPY_AND_ASSIGN(BitmapIndexWriter);
 };

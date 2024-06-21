@@ -65,9 +65,6 @@ struct BitmapIndexTraits<Slice> {
 //
 template <FieldType field_type>
 class BitmapIndexWriterImpl : public BitmapIndexWriter {
-private:
-    Status init() override { return _arena.init(); }
-
 public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using MemoryIndexType = typename BitmapIndexTraits<CppType>::MemoryIndexType;

@@ -388,7 +388,6 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
     _predicate_arena = std::make_unique<vectorized::Arena>();
-    RETURN_IF_ERROR(_predicate_arena->init());
 
     for (const auto& delete_pred : delete_preds) {
         // Skip the delete condition with large version
