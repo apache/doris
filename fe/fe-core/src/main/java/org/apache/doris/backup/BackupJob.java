@@ -58,6 +58,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -92,18 +93,24 @@ public class BackupJob extends AbstractJob {
     }
 
     // all objects which need backup
+    @SerializedName("ref")
     private List<TableRef> tableRefs = Lists.newArrayList();
 
+    @SerializedName("st")
     private BackupJobState state;
 
+    @SerializedName("sft")
     private long snapshotFinishedTime = -1;
+    @SerializedName("suft")
     private long snapshotUploadFinishedTime = -1;
 
     // save task id map to the backend it be executed
     private Map<Long, Long> unfinishedTaskIds = Maps.newConcurrentMap();
     // tablet id -> snapshot info
+    @SerializedName("si")
     private Map<Long, SnapshotInfo> snapshotInfos = Maps.newConcurrentMap();
     // save all related table[partition] info
+    @SerializedName("meta")
     private BackupMeta backupMeta;
     // job info file content
     private BackupJobInfo jobInfo;
@@ -112,9 +119,12 @@ public class BackupJob extends AbstractJob {
     // after job is done, this dir should be deleted
     private Path localJobDirPath = null;
     // save the local file path of meta info and job info file
+    @SerializedName("mifp")
     private String localMetaInfoFilePath = null;
+    @SerializedName("jifp")
     private String localJobInfoFilePath = null;
     // backup properties && table commit seq with table id
+    @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
 
     private byte[] metaInfoBytes = null;
@@ -1033,10 +1043,11 @@ public class BackupJob extends AbstractJob {
 
         // table refs
         int size = in.readInt();
+        LOG.info("read {} tablerefs ", size);
+
         tableRefs = Lists.newArrayList();
         for (int i = 0; i < size; i++) {
-            TableRef tblRef = new TableRef();
-            tblRef.readFields(in);
+            TableRef tblRef = TableRef.read(in);
             tableRefs.add(tblRef);
         }
 
@@ -1048,14 +1059,16 @@ public class BackupJob extends AbstractJob {
 
         // snapshot info
         size = in.readInt();
+        LOG.info("read {} snapshotinfo ", size);
+
         for (int i = 0; i < size; i++) {
-            SnapshotInfo snapshotInfo = new SnapshotInfo();
-            snapshotInfo.readFields(in);
+            SnapshotInfo snapshotInfo = SnapshotInfo.read(in);
             snapshotInfos.put(snapshotInfo.getTabletId(), snapshotInfo);
         }
 
         // backup meta
         if (in.readBoolean()) {
+            LOG.info("read backup meta");
             backupMeta = BackupMeta.read(in);
         }
 
@@ -1071,6 +1084,8 @@ public class BackupJob extends AbstractJob {
         }
         // read properties
         size = in.readInt();
+        LOG.info("read {} property ", size);
+
         for (int i = 0; i < size; i++) {
             String key = Text.readString(in);
             String value = Text.readString(in);
