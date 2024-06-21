@@ -35,7 +35,6 @@ import org.apache.doris.planner.ScanNode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -199,7 +198,11 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         for (Entry<Worker, Collection<Integer>> workerToBuckets : missingBuckets.asMap().entrySet()) {
             Map<Integer, Map<ScanNode, ScanRanges>> scanEmptyBuckets = Maps.newLinkedHashMap();
             for (Integer bucketIndex : workerToBuckets.getValue()) {
-                scanEmptyBuckets.put(bucketIndex, ImmutableMap.of());
+                Map<ScanNode, ScanRanges> scanTableWithEmptyData = Maps.newLinkedHashMap();
+                for (ScanNode scanNode : scanNodes) {
+                    scanTableWithEmptyData.put(scanNode, new ScanRanges());
+                }
+                scanEmptyBuckets.put(bucketIndex, scanTableWithEmptyData);
             }
 
             AssignedJob fillUpInstance;
