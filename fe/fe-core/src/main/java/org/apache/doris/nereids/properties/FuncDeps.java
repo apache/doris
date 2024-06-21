@@ -61,6 +61,7 @@ public class FuncDeps {
     }
 
     private final Set<FuncDepsItem> items;
+    // determinants -> dependencies
     private final Map<Set<Slot>, Set<Set<Slot>>> edges;
 
     public FuncDeps() {
@@ -144,21 +145,22 @@ public class FuncDeps {
         return items.contains(new FuncDepsItem(dominate, dependency));
     }
 
+    public boolean isCircleDeps(Set<Slot> dominate, Set<Slot> dependency) {
+        return items.contains(new FuncDepsItem(dominate, dependency))
+                && items.contains(new FuncDepsItem(dependency, dominate));
+    }
+
     /**
-     * find the cycle of dependencies
+     * find the determinants of dependencies
      */
-    public Set<Set<Slot>> calBinaryDependencies(Set<Slot> slotSet) {
-        Set<Set<Slot>> binaryDeps = new HashSet<>();
-        Set<Set<Slot>> dependencies = edges.get(slotSet);
-        if (dependencies == null) {
-            return binaryDeps;
-        }
-        for (Set<Slot> other : dependencies) {
-            if (edges.get(other).contains(slotSet)) {
-                binaryDeps.add(other);
+    public Set<Set<Slot>> findDeterminats(Set<Slot> dependency) {
+        Set<Set<Slot>> determinants = new HashSet<>();
+        for (FuncDepsItem item : items) {
+            if (item.dependencies.equals(dependency)) {
+                determinants.add(item.determinants);
             }
         }
-        return binaryDeps;
+        return determinants;
     }
 
     @Override

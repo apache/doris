@@ -66,7 +66,7 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(any(), logicalAggregate()))
+                .matches(logicalJoin(logicalAggregate(), any()))
                 .printlnTree();
     }
 
@@ -77,21 +77,21 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(any(), logicalProject(logicalAggregate())))
+                .matches(logicalJoin(logicalProject(logicalAggregate()), any()))
                 .printlnTree();
         sql = "select pri.id1 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
                 + "group by foreign_not_null.id2, pri.id1, pri.name";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(any(), logicalAggregate()))
+                .matches(logicalJoin(logicalAggregate(), any()))
                 .printlnTree();
         sql = "select pri.id1 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
                 + "group by foreign_not_null.id2, pri.id1, pri.name, foreign_not_null.name";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(any(), logicalProject(logicalAggregate())))
+                .matches(logicalJoin(logicalProject(logicalAggregate()), any()))
                 .printlnTree();
     }
 
@@ -102,14 +102,14 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(any(), logicalAggregate()))
+                .matches(logicalJoin(logicalAggregate(), any()))
                 .printlnTree();
         sql = "select count(foreign_not_null.id2) from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
                 + "group by foreign_not_null.id2, pri.id1";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(any(), logicalAggregate()))
+                .matches(logicalJoin(logicalAggregate(), any()))
                 .printlnTree();
     }
 
@@ -120,7 +120,7 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(any(), logicalAggregate()))
+                .matches(logicalJoin(logicalAggregate(), any()))
                 .printlnTree();
     }
 
@@ -132,6 +132,27 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
                 .analyze(sql)
                 .rewrite()
                 .matches(logicalAggregate(logicalProject(logicalJoin())))
+                .printlnTree();
+    }
+
+    @Test
+    void testMultiJoin() {
+        String sql = "select count(pri.id1), pri.name from foreign_not_null inner join foreign_null on foreign_null.name = foreign_not_null.name\n"
+                + " inner join pri on pri.id1 = foreign_not_null.id2\n"
+                + "group by foreign_not_null.id2, pri.id1, pri.name";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(logicalAggregate(), any()))
+                .printlnTree();
+
+        sql = "select count(pri.id1), pri.name from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
+                + "inner join foreign_null on foreign_null.name = foreign_not_null.name\n"
+                + "group by foreign_not_null.id2, pri.id1, pri.name";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(logicalAggregate(), any()))
                 .printlnTree();
     }
 }

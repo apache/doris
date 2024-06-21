@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FuncDeps;
 import org.apache.doris.nereids.rules.Rule;
@@ -36,14 +37,15 @@ import org.apache.doris.nereids.util.JoinUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.P;
 import org.apache.thrift.annotation.Nullable;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 
 /**
@@ -85,36 +87,72 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         );
     }
 
-    private List<LogicalJoin<?, ?>> collectContiguousInnerJoin() {
-
-    }
-
     private @Nullable Plan pushAgg(LogicalAggregate<?> agg, LogicalJoin<?, ?> join) {
-        Plan foreign = tryExtractForeign(join);
-        if (foreign == null) {
+        InnerJoinCluster innerJoinCluster = new InnerJoinCluster();
+        innerJoinCluster.collectContiguousInnerJoins(join);
+        if (!innerJoinCluster.isValid()) {
             return null;
         }
-        LogicalAggregate<?> newAgg = tryGroupByForeign(agg, foreign);
-        if (newAgg == null) {
-            return null;
-        }
-
-        if (join.left() == foreign) {
-            return join.withChildren(newAgg, join.right());
-        } else if (join.right() == foreign) {
-            return join.withChildren(join.left(), newAgg);
+        for (Entry<BitSet, LogicalJoin<?, ?>> e : innerJoinCluster.getJoinsMap().entrySet()) {
+            LogicalJoin<?, ?> subJoin = e.getValue();
+            Pair<Plan, Plan> primaryAndForeign = tryExtractPrimaryForeign(subJoin);
+            if (primaryAndForeign == null) {
+                continue;
+            }
+            LogicalAggregate<?> newAgg = eliminatePrimaryOutput(agg, primaryAndForeign.first, primaryAndForeign.second);
+            if (newAgg == null) {
+                return null;
+            }
+            LogicalJoin<?, ?> newJoin = innerJoinCluster
+                    .constructJoinWithPrimary(e.getKey(), subJoin, primaryAndForeign.first);
+            if (newJoin != null && newJoin.left() == primaryAndForeign.first) {
+                return newJoin.withChildren(newJoin.left(), newAgg.withChildren(newJoin.right()));
+            } else if (newJoin != null && newJoin.right() == primaryAndForeign.first) {
+                return newJoin.withChildren(newAgg.withChildren(newJoin.left()), newJoin.right());
+            }
         }
         return null;
     }
 
-    private @Nullable Set<Expression> constructNewGroupBy(LogicalAggregate<?> agg, Set<Slot> foreignOutput,
+    // eliminate the slot of primary plan in agg
+    private LogicalAggregate<?> eliminatePrimaryOutput(LogicalAggregate<?> agg,
+            Plan primary, Plan foreign) {
+        Set<Slot> aggInputs = agg.getInputSlots();
+        if (primary.getOutputSet().stream().noneMatch(aggInputs::contains)) {
+            return agg;
+        }
+        Set<Slot> primaryOutputSet = primary.getOutputSet();
+        Set<Slot> primarySlots = Sets.intersection(aggInputs, primaryOutputSet);
+        DataTrait dataTrait = agg.child().getLogicalProperties().getTrait();
+        FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(Sets.union(foreign.getOutputSet(), primary.getOutputSet()));
+        HashMap<Slot, Slot> primaryToForeignDeps = new HashMap<>();
+        for (Slot slot : primarySlots) {
+            Set<Set<Slot>> replacedSlotSets = funcDeps.findDeterminats(ImmutableSet.of(slot));
+            for (Set<Slot> replacedSlots : replacedSlotSets) {
+                if (primaryOutputSet.stream().noneMatch(replacedSlots::contains)
+                        && replacedSlots.size() == 1) {
+                    primaryToForeignDeps.put(slot, replacedSlots.iterator().next());
+                    break;
+                }
+            }
+        }
+
+        Set<Expression> newGroupBySlots = constructNewGroupBy(agg, primaryOutputSet, primaryToForeignDeps);
+        List<NamedExpression> newOutput = constructNewOutput(agg, primaryOutputSet, primaryToForeignDeps, funcDeps);
+        if (newGroupBySlots == null || newOutput == null) {
+            return null;
+        }
+        return agg.withGroupByAndOutput(ImmutableList.copyOf(newGroupBySlots), ImmutableList.copyOf(newOutput));
+    }
+
+    private @Nullable Set<Expression> constructNewGroupBy(LogicalAggregate<?> agg, Set<Slot> primaryOutputs,
             Map<Slot, Slot> primaryToForeignBiDeps) {
         Set<Expression> newGroupBySlots = new HashSet<>();
         for (Expression expression : agg.getGroupByExpressions()) {
             if (!(expression instanceof Slot)) {
                 return null;
             }
-            if (!foreignOutput.contains((Slot) expression)
+            if (primaryOutputs.contains((Slot) expression)
                     && !primaryToForeignBiDeps.containsKey((Slot) expression)) {
                 return null;
             }
@@ -124,21 +162,37 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         return newGroupBySlots;
     }
 
-    private @Nullable List<NamedExpression> constructNewOutput(LogicalAggregate<?> agg, Set<Slot> foreignOutput,
-            Map<Slot, Slot> primaryToForeignBiDeps) {
+    private @Nullable List<NamedExpression> constructNewOutput(LogicalAggregate<?> agg, Set<Slot> primaryOutput,
+            Map<Slot, Slot> primaryToForeignDeps, FuncDeps funcDeps) {
         List<NamedExpression> newOutput = new ArrayList<>();
         for (NamedExpression expression : agg.getOutputExpressions()) {
-            if (expression instanceof Slot && primaryToForeignBiDeps.containsKey(expression)) {
-                expression = primaryToForeignBiDeps.getOrDefault(expression, expression.toSlot());
+            // There are three cases for output expressions:
+            // 1. Slot: the slot is from primary plan, we need to replace it with
+            //             the corresponding slot from foreign plan,
+            //             or skip it when it isn't in group by.
+            // 2. Count: the count is from primary plan,
+            //             we need to replace the slot in the count with the corresponding slot
+            //             from foreign plan
+            // 3. Others: the expression is not from primary plan, we need to keep it
+            if (expression instanceof Slot && primaryToForeignDeps.containsKey(expression)) {
+                expression = primaryToForeignDeps.getOrDefault(expression, expression.toSlot());
             }
-            if (expression instanceof Alias && expression.child(0) instanceof Count) {
-                expression = (NamedExpression) expression.rewriteUp(e ->
-                        e instanceof Slot
-                                ? primaryToForeignBiDeps.getOrDefault((Slot) e, (Slot) e)
-                                : e);
+            if (expression instanceof Alias
+                    && expression.child(0) instanceof Count
+                    && expression.child(0).child(0) instanceof Slot) {
+                // count(slot) can be rewritten by circle deps
+                Slot slot = (Slot) expression.child(0).child(0);
+                if (primaryToForeignDeps.containsKey(slot)
+                        && funcDeps.isCircleDeps(
+                                ImmutableSet.of(slot), ImmutableSet.of(primaryToForeignDeps.get(slot)))) {
+                    expression = (NamedExpression) expression.rewriteUp(e ->
+                            e instanceof Slot
+                                    ? primaryToForeignDeps.getOrDefault((Slot) e, (Slot) e)
+                                    : e);
+                }
             }
             if (!(expression instanceof Slot)
-                    && !foreignOutput.containsAll(expression.getInputSlots())) {
+                    && expression.getInputSlots().stream().anyMatch(primaryOutput::contains)) {
                 return null;
             }
             newOutput.add(expression);
@@ -146,68 +200,118 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         return newOutput;
     }
 
-    private @Nullable LogicalAggregate<?> tryGroupByForeign(
-            LogicalAggregate<?> agg, Plan foreign) {
-        Set<Slot> groupBySlots = new HashSet<>();
-        for (Expression expr : agg.getGroupByExpressions()) {
-            groupBySlots.addAll(expr.getInputSlots());
-        }
-        if (foreign.getOutputSet().containsAll(groupBySlots)) {
-            return agg;
-        }
-        Set<Slot> foreignOutput = foreign.getOutputSet();
-        Set<Slot> primarySlots = Sets.difference(groupBySlots, foreignOutput);
-        DataTrait dataTrait = agg.child().getLogicalProperties().getTrait();
-        FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(Sets.union(groupBySlots, foreign.getOutputSet()));
-        HashMap<Slot, Slot> primaryToForeignBiDeps = new HashMap<>();
-        for (Slot slot : primarySlots) {
-            Set<Set<Slot>> replacedSlotSets = funcDeps.calBinaryDependencies(ImmutableSet.of(slot));
-            for (Set<Slot> replacedSlots : replacedSlotSets) {
-                if (foreignOutput.containsAll(replacedSlots) && replacedSlots.size() == 1) {
-                    primaryToForeignBiDeps.put(slot, replacedSlots.iterator().next());
-                    break;
-                }
-            }
-        }
-
-        Set<Expression> newGroupBySlots = constructNewGroupBy(agg, foreignOutput, primaryToForeignBiDeps);
-        List<NamedExpression> newOutput = constructNewOutput(agg, foreignOutput, primaryToForeignBiDeps);
-        if (newGroupBySlots == null || newOutput == null) {
-            return null;
-        }
-        LogicalAggregate<?> newAgg =
-                agg.withGroupByAndOutput(ImmutableList.copyOf(newGroupBySlots), ImmutableList.copyOf(newOutput));
-        return (LogicalAggregate<?>) newAgg.withChildren(foreign);
-    }
-
-    private @Nullable Plan tryExtractForeign(LogicalJoin<?, ?> join) {
+    private @Nullable Pair<Plan, Plan> tryExtractPrimaryForeign(LogicalJoin<?, ?> join) {
+        Plan primary;
         Plan foreign;
         if (JoinUtils.canEliminateByFk(join, join.left(), join.right())) {
+            primary = join.left();
             foreign = join.right();
         } else if (JoinUtils.canEliminateByFk(join, join.right(), join.left())) {
+            primary = join.right();
             foreign = join.left();
         } else {
             return null;
         }
-        return foreign;
+        return Pair.of(primary, foreign);
     }
 
     static class InnerJoinCluster {
-        private List<LogicalJoin<?, ?>> contiguousInnerJoins = new ArrayList<>();
-        private List<Plan> leaf = new ArrayList<>();
+        private final Map<BitSet, LogicalJoin<?, ?>> innerJoins = new HashMap<>();
+        private final List<Plan> leaf = new ArrayList<>();
 
         void collectContiguousInnerJoins(Plan plan) {
-            if (plan instanceof LogicalProject) {
-                boolean isSlotProject = ((LogicalProject<?>) plan).getProjects().stream()
-                        .allMatch(Slot.class::isInstance);
-                if (!isSlotProject) {
-                    leaf.add(plan);
-                    return;
-                }
+            if (!isSlotProject(plan) && !isInnerJoin(plan)) {
+                leaf.add(plan);
+                return;
             }
             for (Plan child : plan.children()) {
                 collectContiguousInnerJoins(child);
             }
+            if (isInnerJoin(plan)) {
+                LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+                Set<Slot> inputSlots = join.getInputSlots();
+                BitSet childrenIndices = new BitSet();
+                List<Plan> children = new ArrayList<>();
+                for (int i = 0; i < leaf.size(); i++) {
+                    if (!Sets.intersection(leaf.get(i).getOutputSet(), inputSlots).isEmpty()) {
+                        childrenIndices.set(i);
+                        children.add(leaf.get(i));
+                    }
+                }
+                if (childrenIndices.cardinality() == 2) {
+                    join = join.withChildren(children);
+                }
+                innerJoins.put(childrenIndices, join);
+            }
+        }
+
+        boolean isValid() {
+            // we cannot handle the case that there is any join with more than 2 children
+            return innerJoins.keySet().stream().allMatch(x -> x.cardinality() == 2);
+        }
+
+        @Nullable LogicalJoin<?, ?> constructJoinWithPrimary(BitSet bitSet, LogicalJoin<?, ?> join, Plan primary) {
+            Set<BitSet> forbiddenJoin = new HashSet<>();
+            forbiddenJoin.add(bitSet);
+            BitSet totalBitset = new BitSet();
+            totalBitset.set(0, leaf.size());
+            totalBitset.set(leaf.indexOf(primary), false);
+            Plan childPlan = constructPlan(totalBitset, forbiddenJoin);
+            if (childPlan == null) {
+                return null;
+            }
+            return (LogicalJoin<?, ?>) join.withChildren(childPlan, primary);
+        }
+
+        @Nullable Plan constructPlan(BitSet bitSet, Set<BitSet> forbiddenJoin) {
+            if (bitSet.cardinality() == 1) {
+                return leaf.get(bitSet.nextSetBit(0));
+            }
+
+            BitSet currentBitset = new BitSet();
+            Plan currentPlan = null;
+            while (!currentBitset.equals(bitSet)) {
+                boolean addJoin = false;
+                for (Entry<BitSet, LogicalJoin<?, ?>> entry : innerJoins.entrySet()) {
+                    if (forbiddenJoin.contains(entry.getKey())) {
+                        continue;
+                    }
+                    if (currentBitset.isEmpty()) {
+                        addJoin = true;
+                        currentBitset.or(entry.getKey());
+                        currentPlan = entry.getValue();
+                        forbiddenJoin.add(entry.getKey());
+                    } else if (currentBitset.intersects(entry.getKey())) {
+                        addJoin = true;
+                        currentBitset.or(entry.getKey());
+                        currentPlan = currentPlan.withChildren(currentPlan, entry.getValue());
+                        forbiddenJoin.add(entry.getKey());
+                    }
+                }
+                if (!addJoin) {
+                    // if we cannot find any join to add, just return null
+                    // It means we cannot construct a join
+                    return null;
+                }
+            }
+            return currentPlan;
+        }
+
+        Map<BitSet, LogicalJoin<?, ?>> getJoinsMap() {
+            return innerJoins;
+        }
+
+        boolean isSlotProject(Plan plan) {
+            return plan instanceof LogicalProject
+                    && ((LogicalProject<?>) (plan)).isAllSlots();
+
+        }
+
+        boolean isInnerJoin(Plan plan) {
+            return plan instanceof LogicalJoin
+                    && ((LogicalJoin<?, ?>) plan).getJoinType().isInnerJoin()
+                    && !((LogicalJoin<?, ?>) plan).isMarkJoin()
+                    && ((LogicalJoin<?, ?>) plan).getOtherJoinConjuncts().isEmpty();
         }
     }
 }
