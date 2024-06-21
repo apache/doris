@@ -1775,7 +1775,6 @@ class Suite implements GroovyInterceptable {
 
         def udf_file_dir = new File(udf_file_path).parent
         backendId_to_backendIP.values().each { be_ip ->
-            sshExec ("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"rm -rf ${udf_file_path}\"")
             sshExec ("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"")
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
