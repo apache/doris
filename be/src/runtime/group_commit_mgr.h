@@ -70,10 +70,11 @@ public:
               _all_block_queues_bytes(all_block_queues_bytes) {};
 
     Status add_block(RuntimeState* runtime_state, std::shared_ptr<vectorized::Block> block,
-                     bool write_wal);
+                     bool write_wal, UniqueId& load_id);
     Status get_block(RuntimeState* runtime_state, vectorized::Block* block, bool* find_block,
                      bool* eos);
-    Status add_load_id(const UniqueId& load_id);
+    Status add_load_id(const UniqueId& load_id,
+                       const std::shared_ptr<pipeline::Dependency> put_block_dep);
     void remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
     bool need_commit() { return _need_commit; }
@@ -117,7 +118,7 @@ private:
     void _cancel_without_lock(const Status& st);
 
     // the set of load ids of all blocks in this queue
-    std::set<UniqueId> _load_ids;
+    std::map<UniqueId, std::shared_ptr<pipeline::Dependency>> _load_ids_to_write_dep;
     std::list<BlockData> _block_queue;
 
     // wal
@@ -135,7 +136,6 @@ private:
 
     // memory back pressure, memory consumption of all tables' load block queues
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
-    std::condition_variable _put_cond;
     std::condition_variable _get_cond;
     static constexpr size_t MEM_BACK_PRESSURE_WAIT_TIME = 1000;      // 1s
     static constexpr size_t MEM_BACK_PRESSURE_WAIT_TIMEOUT = 120000; // 120s
@@ -155,7 +155,8 @@ public:
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version,
                                       std::shared_ptr<MemTrackerLimiter> mem_tracker,
-                                      std::shared_ptr<pipeline::Dependency> dep);
+                                      std::shared_ptr<pipeline::Dependency> create_plan_dep,
+                                      std::shared_ptr<pipeline::Dependency> put_block_dep);
     Status get_load_block_queue(const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
@@ -199,7 +200,8 @@ public:
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version,
                                       std::shared_ptr<MemTrackerLimiter> mem_tracker,
-                                      std::shared_ptr<pipeline::Dependency> dep);
+                                      std::shared_ptr<pipeline::Dependency> create_plan_dep,
+                                      std::shared_ptr<pipeline::Dependency> put_block_dep);
     std::promise<Status> debug_promise;
     std::future<Status> debug_future = debug_promise.get_future();
 

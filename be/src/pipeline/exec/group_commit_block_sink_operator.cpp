@@ -52,22 +52,21 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
     for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
     }
-    _write_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                  "GroupCommitBlockSinkDependency", true);
-
+    _create_plan_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                        "CreateGroupCommitPlanDependency", true);
+    _put_block_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "GroupCommitPutBlockDependency", true);
     WARN_IF_ERROR(_initialize_load_queue(), "");
     return Status::OK();
 }
 
 Status GroupCommitBlockSinkLocalState::_initialize_load_queue() {
     auto& p = _parent->cast<GroupCommitBlockSinkOperatorX>();
-    TUniqueId load_id;
-    load_id.__set_hi(p._load_id.hi);
-    load_id.__set_lo(p._load_id.lo);
     if (_state->exec_env()->wal_mgr()->is_running()) {
         RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
-                p._db_id, p._table_id, p._base_schema_version, load_id, _load_block_queue,
-                _state->be_exec_version(), _state->query_mem_tracker(), _write_dependency));
+                p._db_id, p._table_id, p._base_schema_version, p._load_id, _load_block_queue,
+                _state->be_exec_version(), _state->query_mem_tracker(), _create_plan_dependency,
+                _put_block_dependency));
         return Status::OK();
     } else {
         return Status::InternalError("be is stopping");
@@ -137,7 +136,8 @@ Status GroupCommitBlockSinkLocalState::_add_block(RuntimeState* state,
             RETURN_IF_ERROR(_add_blocks(state, false));
         }
         RETURN_IF_ERROR(_load_block_queue->add_block(
-                state, output_block, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
+                state, output_block, _group_commit_mode == TGroupCommitMode::ASYNC_MODE,
+                _parent->cast<GroupCommitBlockSinkOperatorX>()._load_id));
     }
     return Status::OK();
 }
@@ -180,9 +180,6 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
                                                    bool is_blocks_contain_all_load_data) {
     DCHECK(_is_block_appended == false);
     auto& p = _parent->cast<GroupCommitBlockSinkOperatorX>();
-    TUniqueId load_id;
-    load_id.__set_hi(p._load_id.hi);
-    load_id.__set_lo(p._load_id.lo);
     if (_state->exec_env()->wal_mgr()->is_running()) {
         if (_group_commit_mode == TGroupCommitMode::ASYNC_MODE) {
             size_t estimated_wal_bytes =
@@ -211,7 +208,7 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
     }
     for (auto it = _blocks.begin(); it != _blocks.end(); ++it) {
         RETURN_IF_ERROR(_load_block_queue->add_block(
-                state, *it, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
+                state, *it, _group_commit_mode == TGroupCommitMode::ASYNC_MODE, p._load_id));
     }
     _is_block_appended = true;
     _blocks.clear();
