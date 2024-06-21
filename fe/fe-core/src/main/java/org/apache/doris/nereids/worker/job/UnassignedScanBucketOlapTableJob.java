@@ -205,19 +205,31 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
                 scanEmptyBuckets.put(bucketIndex, scanTableWithEmptyData);
             }
 
-            AssignedJob fillUpInstance;
+            AssignedJob fillUpInstance = null;
             Worker worker = workerToBuckets.getKey();
             BucketScanSource scanSource = new BucketScanSource(scanEmptyBuckets);
             if (useLocalShuffle) {
-                fillUpInstance = new LocalShuffleAssignedJob(
-                        newInstances.size(), shareScanIdGenerator.getAndIncrement(), this, worker, scanSource
-                );
+                boolean mergedBucketsInSameWorkerInstance = false;
+                for (AssignedJob newInstance : newInstances) {
+                    if (newInstance.getAssignedWorker().equals(worker)) {
+                        BucketScanSource bucketScanSource = (BucketScanSource) newInstance.getScanSource();
+                        bucketScanSource.bucketIndexToScanNodeToTablets.putAll(scanEmptyBuckets);
+                        mergedBucketsInSameWorkerInstance = true;
+                    }
+                }
+                if (!mergedBucketsInSameWorkerInstance) {
+                    fillUpInstance = new LocalShuffleAssignedJob(
+                            newInstances.size(), shareScanIdGenerator.getAndIncrement(), this, worker, scanSource
+                    );
+                }
             } else {
                 fillUpInstance = assignWorkerAndDataSources(
                         newInstances.size(), worker, scanSource
                 );
             }
-            newInstances.add(fillUpInstance);
+            if (fillUpInstance != null) {
+                newInstances.add(fillUpInstance);
+            }
         }
         return newInstances;
     }

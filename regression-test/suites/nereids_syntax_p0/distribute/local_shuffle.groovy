@@ -124,4 +124,36 @@ suite("local_shuffle") {
         test_local_shuffle2
         on a.id=test_local_shuffle2.id2
         """
+
+    multi_sql """
+        drop table if exists test_outer_join_decimal1;
+        CREATE TABLE IF NOT EXISTS test_outer_join_decimal1 (
+         c0 int
+        )
+        DISTRIBUTED BY HASH (c0) BUCKETS 10 PROPERTIES ("replication_num" = "1");
+        
+        drop table if exists test_outer_join_decimal2;
+        CREATE TABLE IF NOT EXISTS test_outer_join_decimal2 (
+          c0 int
+        )
+        DISTRIBUTED BY HASH (c0) BUCKETS 10 PROPERTIES ("replication_num" = "1");
+        INSERT INTO test_outer_join_decimal1 (c0) VALUES (1), (3);
+        INSERT INTO test_outer_join_decimal2 (c0) VALUES (2), (3);
+        
+        sync;
+        
+        set enable_nereids_distribute_planner=true;
+        set enable_pipeline_x_engine=true;
+        set disable_join_reorder=true;
+        set enable_local_shuffle=true;
+        set force_to_local_shuffle=true;
+        """
+
+    order_qt_fillup_bucket """
+            SELECT cast(a.c0 as int), cast(b.c0 as int) FROM
+            (select * from test_outer_join_decimal1 where c0 =1)a
+            RIGHT OUTER JOIN
+            (select * from test_outer_join_decimal2)b
+            ON a.c0 = b.c0
+            """
 }

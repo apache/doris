@@ -21,7 +21,6 @@ import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.planner.ScanNode;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -96,7 +95,7 @@ public class BucketScanSource extends ScanSource {
         // rebuild BucketScanSource for each instance
         ImmutableList.Builder<ScanSource> instancesScanSource = ImmutableList.builder();
         for (List<Entry<Integer, Map<ScanNode, ScanRanges>>> oneInstanceScanBuckets : scanBucketsPerInstance) {
-            ImmutableMap.Builder<Integer, Map<ScanNode, ScanRanges>> bucketsScanSources = ImmutableMap.builder();
+            Map<Integer, Map<ScanNode, ScanRanges>> bucketsScanSources = Maps.newLinkedHashMap();
             for (Entry<Integer, Map<ScanNode, ScanRanges>> bucketIndexToScanNodeToScanRange : oneInstanceScanBuckets) {
                 Integer bucketIndex = bucketIndexToScanNodeToScanRange.getKey();
                 Map<ScanNode, ScanRanges> scanNodeToScanRanges = bucketIndexToScanNodeToScanRange.getValue();
@@ -104,7 +103,7 @@ public class BucketScanSource extends ScanSource {
             }
 
             instancesScanSource.add(new BucketScanSource(
-                    bucketsScanSources.build()
+                    bucketsScanSources
             ));
         }
         return instancesScanSource.build();

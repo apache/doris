@@ -100,14 +100,15 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
                 // |(share scan node, and local shuffle data to other local instances to parallel compute this data)|
                 // +------------------------------------------------------------------------------------------------+
                 ScanSource shareScanSource = instanceToScanRanges.get(0);
+
+                // one scan range generate multiple instances,
+                // different instances reference the same scan source
+                int shareScanId = shareScanIdGenerator.getAndIncrement();
                 for (int i = 0; i < instanceNum; i++) {
-                    // one scan range generate multiple instances,
-                    // different instances reference the same scan source
                     LocalShuffleAssignedJob instance = new LocalShuffleAssignedJob(
-                            instanceIndexInFragment++, shareScanIdGenerator.get(), this, worker, shareScanSource);
+                            instanceIndexInFragment++, shareScanId, this, worker, shareScanSource);
                     instances.add(instance);
                 }
-                shareScanIdGenerator.incrementAndGet();
             } else {
                 // split the scanRanges to some partitions, one partition for one instance
                 // for example:
