@@ -125,7 +125,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         String catalogName = validParams.get(CATALOG);
         String dbName = validParams.get(DB);
         String tableName = validParams.get(TABLE);
-        if (StringUtils.isEmpty(catalogName) ||StringUtils.isEmpty(dbName) || StringUtils.isEmpty(tableName)) {
+        if (StringUtils.isEmpty(catalogName) || StringUtils.isEmpty(dbName) || StringUtils.isEmpty(tableName)) {
             throw new AnalysisException("Invalid partitions metadata query");
         }
         analyze(catalogName, dbName, tableName);
