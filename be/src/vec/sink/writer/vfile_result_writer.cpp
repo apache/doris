@@ -194,7 +194,7 @@ std::string VFileResultWriter::_file_format_to_name() {
     }
 }
 
-Status VFileResultWriter::write(RuntimeState* state, Block& block) {
+Status VFileResultWriter::write(Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -291,8 +291,7 @@ Status VFileResultWriter::_send_result() {
     attach_infos.insert(std::make_pair("URL", file_url));
 
     result->result_batch.__set_attached_infos(attach_infos);
-    RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(_state, result),
-                                   "failed to send outfile result");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "failed to send outfile result");
     return Status::OK();
 }
 
