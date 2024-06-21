@@ -1034,8 +1034,10 @@ void ScanLocalState<Derived>::_normalize_compound_predicate(
         auto compound_fn_name = expr->fn().name.function_name;
         auto children_num = expr->children().size();
         for (auto i = 0; i < children_num; ++i) {
-            auto child_expr = expr->children()[i].get();
-            if (TExprNodeType::BINARY_PRED == child_expr->node_type()) {
+            auto* child_expr = expr->children()[i].get();
+            if (TExprNodeType::BINARY_PRED == child_expr->node_type() ||
+                TExprNodeType::IN_PRED == child_expr->node_type() ||
+                TExprNodeType::MATCH_PRED == child_expr->node_type()) {
                 SlotDescriptor* slot = nullptr;
                 ColumnValueRangeType* range_on_slot = nullptr;
                 if (_is_predicate_acting_on_slot(child_expr, in_predicate_checker, &slot,
@@ -1050,30 +1052,16 @@ void ScanLocalState<Derived>::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                static_cast<void>(_normalize_binary_in_compound_predicate(
-                                        child_expr, expr_ctx, slot, value_range, pdt));
-                            },
-                            active_range);
-
-                    _compound_value_ranges.emplace_back(active_range);
-                }
-            } else if (TExprNodeType::MATCH_PRED == child_expr->node_type()) {
-                SlotDescriptor* slot = nullptr;
-                ColumnValueRangeType* range_on_slot = nullptr;
-                if (_is_predicate_acting_on_slot(child_expr, in_predicate_checker, &slot,
-                                                 &range_on_slot) ||
-                    _is_predicate_acting_on_slot(child_expr, eq_predicate_checker, &slot,
-                                                 &range_on_slot)) {
-                    ColumnValueRangeType active_range =
-                            *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
-                    std::visit(
-                            [&](auto& value_range) {
-                                Defer mark_runtime_filter_flag {[&]() {
-                                    value_range.mark_runtime_filter_predicate(
-                                            _is_runtime_filter_predicate);
-                                }};
-                                static_cast<void>(_normalize_match_in_compound_predicate(
-                                        child_expr, expr_ctx, slot, value_range, pdt));
+                                if (TExprNodeType::BINARY_PRED == child_expr->node_type()) {
+                                    static_cast<void>(_normalize_binary_compound_predicate(
+                                            child_expr, expr_ctx, slot, value_range, pdt));
+                                } else if (TExprNodeType::IN_PRED == child_expr->node_type()) {
+                                    static_cast<void>(_normalize_in_and_not_in_compound_predicate(
+                                            child_expr, expr_ctx, slot, value_range, pdt));
+                                } else {
+                                    static_cast<void>(_normalize_match_compound_predicate(
+                                            child_expr, expr_ctx, slot, value_range, pdt));
+                                }
                             },
                             active_range);
 
@@ -1090,7 +1078,7 @@ void ScanLocalState<Derived>::_normalize_compound_predicate(
 
 template <typename Derived>
 template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_binary_in_compound_predicate(
+Status ScanLocalState<Derived>::_normalize_binary_compound_predicate(
         vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
         ColumnValueRange<T>& range, vectorized::VScanNode::PushDownType* pdt) {
     DCHECK(expr->children().size() == 2);
@@ -1149,7 +1137,56 @@ Status ScanLocalState<Derived>::_normalize_binary_in_compound_predicate(
 
 template <typename Derived>
 template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_match_in_compound_predicate(
+Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
+        vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+        ColumnValueRange<T>& range, PushDownType* pdt) {
+    if (TExprNodeType::IN_PRED == expr->node_type()) {
+        std::string fn_name = expr->op() == TExprOpcode::type::FILTER_IN ? "in" : "not_in";
+
+        HybridSetBase::IteratorBase* iter = nullptr;
+        auto hybrid_set = expr->get_set_func();
+
+        if (hybrid_set != nullptr) {
+            if (hybrid_set->size() <=
+                _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
+                iter = hybrid_set->begin();
+            } else {
+                _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
+                *pdt = PushDownType::ACCEPTABLE;
+                return Status::OK();
+            }
+        } else {
+            vectorized::VInPredicate* pred = static_cast<vectorized::VInPredicate*>(expr);
+
+            vectorized::InState* state = reinterpret_cast<vectorized::InState*>(
+                    expr_ctx->fn_context(pred->fn_context_index())
+                            ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+
+            if (!state->use_set) {
+                return Status::OK();
+            }
+
+            iter = state->hybrid_set->begin();
+        }
+
+        while (iter->has_next()) {
+            if (nullptr == iter->get_value()) {
+                iter->next();
+                continue;
+            }
+            auto* value = const_cast<void*>(iter->get_value());
+            RETURN_IF_ERROR(_change_value_range<false>(
+                    range, value, ColumnValueRange<T>::add_compound_value_range, fn_name, 0));
+            iter->next();
+        }
+        *pdt = PushDownType::ACCEPTABLE;
+    }
+    return Status::OK();
+}
+
+template <typename Derived>
+template <PrimitiveType T>
+Status ScanLocalState<Derived>::_normalize_match_compound_predicate(
         vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
         ColumnValueRange<T>& range, vectorized::VScanNode::PushDownType* pdt) {
     DCHECK(expr->children().size() == 2);
