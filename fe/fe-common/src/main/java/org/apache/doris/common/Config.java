@@ -2646,7 +2646,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {
             "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
             "Should the request content be logged before each request starts, specifically the query statements"})
-    public static boolean enable_print_request_before_execution = false;
+    public static boolean enable_print_request_before_execution = true;
 
     //==========================================================================
     //                    begin of cloud config
