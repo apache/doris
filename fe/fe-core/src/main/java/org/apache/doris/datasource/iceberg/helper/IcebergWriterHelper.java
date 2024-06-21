@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class IcebergWriterHelper {
 
@@ -57,6 +58,8 @@ public class IcebergWriterHelper {
                 if (Objects.isNull(partitionValues) || partitionValues.isEmpty()) {
                     throw new VerifyException("No partition data for partitioned table");
                 }
+                partitionValues = partitionValues.stream().map(s -> s.equals("null") ? null : s)
+                        .collect(Collectors.toList());
                 partValues = Optional.of(partitionValues);
             }
             DataFile dataFile = genDataFile(format, location, spec, partValues, stat);

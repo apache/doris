@@ -413,6 +413,10 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     if (col_ptr->is_nullable()) {
         const ColumnNullable* nullable_column =
                 reinterpret_cast<const vectorized::ColumnNullable*>(col_ptr.get());
+        auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+        if (null_map_data[position]) {
+            return std::any();
+        }
         col_ptr = nullable_column->get_nested_column_ptr();
     }
 

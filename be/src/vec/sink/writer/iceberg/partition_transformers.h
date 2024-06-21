@@ -209,15 +209,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _source_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnInt32*>(column_ptr.get())->get_data();
@@ -237,9 +241,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {res_column,
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
 private:
@@ -257,15 +268,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _source_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnInt64*>(column_ptr.get())->get_data();
@@ -285,9 +300,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {res_column,
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
 private:
@@ -367,15 +389,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnInt32*>(column_ptr.get())->get_data();
@@ -397,9 +423,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
 private:
@@ -418,15 +451,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnInt64*>(column_ptr.get())->get_data();
@@ -448,9 +485,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
 private:
@@ -470,15 +514,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDecimal<T>*>(column_ptr.get())->get_data();
@@ -504,9 +552,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -538,15 +593,20 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
@@ -574,9 +634,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
 private:
@@ -595,15 +662,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
@@ -635,9 +706,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -665,15 +743,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto* str_col = assert_cast<const ColumnString*>(column_ptr.get());
@@ -698,9 +780,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
 private:
@@ -719,15 +808,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
@@ -750,9 +843,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -778,15 +878,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
@@ -809,9 +913,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -837,15 +948,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
@@ -868,9 +983,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -896,15 +1018,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
@@ -927,9 +1053,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -955,15 +1088,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
@@ -981,15 +1118,21 @@ public:
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
             *p_out = datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_date(), value);
-            ;
             ++p_in;
             ++p_out;
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -1021,15 +1164,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
@@ -1052,9 +1199,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
@@ -1085,15 +1239,19 @@ public:
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
     ColumnWithTypeAndName apply(Block& block, int column_pos) override {
-        //1) get the target column prt
+        //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
         //2) get the input data from block
+        ColumnPtr null_map_column_ptr;
+        bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            is_nullable = true;
+            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
@@ -1116,9 +1274,16 @@ public:
         }
 
         //4) create the partition column and return
-        return {std::move(col_res),
-                DataTypeFactory::instance().create_data_type(get_result_type(), false),
-                column_with_type_and_name.name};
+        if (is_nullable) {
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            return {std::move(res_column),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), true),
+                    column_with_type_and_name.name};
+        } else {
+            return {std::move(col_res),
+                    DataTypeFactory::instance().create_data_type(get_result_type(), false),
+                    column_with_type_and_name.name};
+        }
     }
 
     std::string to_human_string(const TypeDescriptor& type, const std::any& value) const override {
