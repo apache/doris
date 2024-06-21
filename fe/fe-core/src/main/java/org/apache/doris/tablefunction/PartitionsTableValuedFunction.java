@@ -36,6 +36,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMetaScanRange;
+import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TPartitionsMetadataParams;
 
@@ -93,6 +94,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("Partition", ScalarType.createStringType()));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> OTHER_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
@@ -100,10 +102,26 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
             builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
         }
         COLUMN_TO_INDEX = builder.build();
+
+        ImmutableMap.Builder<String, Integer> otherBuilder = new ImmutableMap.Builder();
+        for (int i = 0; i < OTHER_SCHEMA.size(); i++) {
+            otherBuilder.put(OTHER_SCHEMA.get(i).getName().toLowerCase(), i);
+        }
+        OTHER_COLUMN_TO_INDEX = builder.build();
     }
 
-    public static Integer getColumnIndexFromColumnName(String columnName) {
-        return COLUMN_TO_INDEX.get(columnName.toLowerCase());
+    public static Integer getColumnIndexFromColumnName(String columnName, TMetadataTableRequestParams params)
+            throws org.apache.doris.common.AnalysisException {
+        if (!params.isSetPartitionsMetadataParams()) {
+            throw new org.apache.doris.common.AnalysisException("Partitions metadata params is not set.");
+        }
+        TPartitionsMetadataParams partitionsMetadataParams = params.getPartitionsMetadataParams();
+        String catalogName = partitionsMetadataParams.getCatalog();
+        if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
+            return COLUMN_TO_INDEX.get(columnName.toLowerCase());
+        } else {
+            return OTHER_COLUMN_TO_INDEX.get(columnName.toLowerCase());
+        }
     }
 
     private final String catalogName;
