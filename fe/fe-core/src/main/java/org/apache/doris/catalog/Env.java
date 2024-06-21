@@ -2031,11 +2031,11 @@ public class Env {
 
     public long loadHeaderCOR1(DataInputStream dis, long checksum) throws IOException {
         int journalVersion = dis.readInt();
-        if (journalVersion > FeMetaVersion.VERSION_CURRENT) {
-            throw new IOException("The meta version of image is " + journalVersion
-                    + ", which is higher than FE current version " + FeMetaVersion.VERSION_CURRENT
-                    + ". Please upgrade your cluster to the latest version first.");
-        }
+        // if (journalVersion > FeMetaVersion.VERSION_CURRENT) {
+        //     throw new IOException("The meta version of image is " + journalVersion
+        //             + ", which is higher than FE current version " + FeMetaVersion.VERSION_CURRENT
+        //             + ". Please upgrade your cluster to the latest version first.");
+        // }
 
         long newChecksum = checksum ^ journalVersion;
         MetaContext.get().setMetaVersion(journalVersion);
