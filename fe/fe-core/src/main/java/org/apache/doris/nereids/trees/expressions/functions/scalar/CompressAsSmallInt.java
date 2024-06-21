@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
-import java.util.List;
-
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -30,21 +28,23 @@ import org.apache.doris.nereids.types.VarcharType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.List;
+
 /**
  * ScalarFunction 'CompressAsTinyInt'.
  */
 public class CompressAsSmallInt extends ScalarFunction
-       implements ExplicitlyCastableSignature, PropagateNullable {
+        implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(SmallIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
-       );
+    );
 
     /**
      * constructor with 1 arguments.
      */
     public CompressAsSmallInt(Expression arg0) {
-       super("compress_as_smallint", arg0);
+        super("compress_as_smallint", arg0);
     }
 
     /**
@@ -52,9 +52,9 @@ public class CompressAsSmallInt extends ScalarFunction
      */
     @Override
     public CompressAsSmallInt withChildren(List<Expression> children) {
-       Preconditions.checkArgument(children.size() == 1);
-       return new CompressAsSmallInt(children.get(0));
-        
+        Preconditions.checkArgument(children.size() == 1);
+        return new CompressAsSmallInt(children.get(0));
+
     }
 
     @Override

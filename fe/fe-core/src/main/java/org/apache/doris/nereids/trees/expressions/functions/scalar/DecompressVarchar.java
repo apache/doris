@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
-import java.util.List;
-
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -33,24 +31,26 @@ import org.apache.doris.nereids.types.VarcharType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.List;
+
 /**
  * ScalarFunction 'DecompressVarchar'.
  */
 public class DecompressVarchar extends ScalarFunction
-       implements ExplicitlyCastableSignature, PropagateNullable {
+        implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(SmallIntType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(IntegerType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(LargeIntType.INSTANCE)
-       );
+    );
 
     /**
      * constructor with 1 arguments.
      */
-       public DecompressVarchar(Expression arg0) {
-       super("decompress_varchar", arg0);
+    public DecompressVarchar(Expression arg0) {
+        super("decompress_varchar", arg0);
     }
 
     /**
@@ -58,9 +58,9 @@ public class DecompressVarchar extends ScalarFunction
      */
     @Override
     public DecompressVarchar withChildren(List<Expression> children) {
-       Preconditions.checkArgument(children.size() == 1);
-       return new DecompressVarchar(children.get(0));
-        
+        Preconditions.checkArgument(children.size() == 1);
+        return new DecompressVarchar(children.get(0));
+
     }
 
     @Override
