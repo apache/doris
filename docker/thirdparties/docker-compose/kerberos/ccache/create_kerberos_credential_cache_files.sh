@@ -16,10 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-################################################################
-# This script will restart all thirdparty containers
-################################################################
-
 set -exuo pipefail
 
 TICKET_LIFETIME='30m'

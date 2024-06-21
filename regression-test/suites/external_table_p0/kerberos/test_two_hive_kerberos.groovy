@@ -24,8 +24,8 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
             CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
             PROPERTIES ( 
                 "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.20.71.25:9083",
-                "fs.defaultFS" = "hdfs://172.20.71.25:8020",
+                "hive.metastore.uris" = "thrift://172.31.71.25:9083",
+                "fs.defaultFS" = "hdfs://172.31.71.25:8020",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",
@@ -39,8 +39,8 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
             CREATE CATALOG IF NOT EXISTS other_${hms_catalog_name}
             PROPERTIES (
                 "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.20.71.26:9083",
-                "fs.defaultFS" = "hdfs://172.20.71.26:8020",
+                "hive.metastore.uris" = "thrift://172.31.71.26:9083",
+                "fs.defaultFS" = "hdfs://172.31.71.26:8020",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@OTHERREALM.COM",
                 "hadoop.kerberos.keytab" = "/keytabs/other-presto-server.keytab",

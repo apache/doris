@@ -16,10 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-################################################################
-# This script will restart all thirdparty containers
-################################################################
-
 set -euo pipefail
 
 echo "Copying kerberos keytabs to keytabs/"

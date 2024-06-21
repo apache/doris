@@ -16,10 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-################################################################
-# This script will restart all thirdparty containers
-################################################################
-
 # test whether OVERRIDES_DIR is set
 if [[ -n "${OVERRIDES_DIR+x}" ]]; then
     echo "The OVERRIDES_DIR (${OVERRIDES_DIR}) support is disabled as it was deemed unused." >&2

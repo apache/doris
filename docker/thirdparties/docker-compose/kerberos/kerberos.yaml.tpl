@@ -39,7 +39,7 @@ services:
       - "18000:10000"
     networks:
       doris--krb_net:
-        ipv4_address: 172.20.71.25
+        ipv4_address: 172.31.71.25
 
   hive-krb2:
     image: ghcr.io/trinodb/testing/hdp3.1-hive-kerberized-2:96
@@ -64,10 +64,10 @@ services:
       - "18800:10000"
     networks:
       doris--krb_net:
-        ipv4_address: 172.20.71.26
+        ipv4_address: 172.31.71.26
 
 networks:
   doris--krb_net:
     ipam:
       config:
-        - subnet: 172.20.71.0/24
+        - subnet: 172.31.71.0/24

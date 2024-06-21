@@ -16,10 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-################################################################
-# This script will restart all thirdparty containers
-################################################################
-
 /usr/bin/mysqld_safe &
 while ! mysqladmin ping -proot --silent; do sleep 1; done
 
