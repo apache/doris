@@ -324,9 +324,7 @@ public:
     }
 
     /// Size of chunks in bytes.
-    size_t size() const {
-        return size_in_bytes;
-    }
+    size_t size() const { return size_in_bytes; }
 
     size_t used_size() const {
         if (head == nullptr) {
@@ -339,7 +337,6 @@ public:
     size_t remaining_space_in_current_chunk() const {
         if (head == nullptr) {
             return 0;
-        
         }
 
         return head->remaining();
