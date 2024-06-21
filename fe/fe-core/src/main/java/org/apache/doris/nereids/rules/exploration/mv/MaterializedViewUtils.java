@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.HashMultimap;
@@ -63,6 +64,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashSet;
@@ -255,6 +257,17 @@ public class MaterializedViewUtils {
         return new LogicalProject<>(originalRewrittenPlanExprIds.stream()
                 .map(exprId -> (NamedExpression) exprIdToNewRewrittenSlot.get(exprId)).collect(Collectors.toList()),
                 rewrittenPlan);
+    }
+
+    /**
+     * Extract nondeterministic function form plan, if the function is in whiteExpressionSet,
+     * the function would be considered as deterministic function and will not return
+     * in the result expression result
+     */
+    public static List<Expression> extractNondeterministicFunction(Plan plan) {
+        List<Expression> nondeterministicFunctions = new ArrayList<>();
+        plan.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
+        return nondeterministicFunctions;
     }
 
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
