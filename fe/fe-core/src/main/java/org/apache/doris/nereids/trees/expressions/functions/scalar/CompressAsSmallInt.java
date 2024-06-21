@@ -34,36 +34,35 @@ import com.google.common.collect.ImmutableList;
  * ScalarFunction 'CompressAsTinyInt'.
  */
 public class CompressAsSmallInt extends ScalarFunction
-       implements ExplicitlyCastableSignature, PropagateNullable {
+      implements ExplicitlyCastableSignature, PropagateNullable {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(SmallIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
-       );
+   public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+         FunctionSignature.ret(SmallIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT));
 
-    /**
-     * constructor with 1 arguments.
-     */
-    public CompressAsSmallInt(Expression arg0) {
-       super("compress_as_smallint", arg0);
-    }
+   /**
+    * constructor with 1 arguments.
+    */
+   public CompressAsSmallInt(Expression arg0) {
+      super("compress_as_smallint", arg0);
+   }
 
-    /**
-     * withChildren.
-     */
-    @Override
-    public CompressAsSmallInt withChildren(List<Expression> children) {
-       Preconditions.checkArgument(children.size() == 1);
-       return new CompressAsSmallInt(children.get(0));
-        
-    }
+   /**
+    * withChildren.
+    */
+   @Override
+   public CompressAsSmallInt withChildren(List<Expression> children) {
+      Preconditions.checkArgument(children.size() == 1);
+      return new CompressAsSmallInt(children.get(0));
 
-    @Override
-    public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
-    }
+   }
 
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitCompressAsSmallInt(this, context);
-    }
+   @Override
+   public List<FunctionSignature> getSignatures() {
+      return SIGNATURES;
+   }
+
+   @Override
+   public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+      return visitor.visitCompressAsSmallInt(this, context);
+   }
 }
