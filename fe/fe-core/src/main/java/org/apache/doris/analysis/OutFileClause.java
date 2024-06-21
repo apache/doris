@@ -697,10 +697,11 @@ public class OutFileClause {
             if (PARQUET_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE).toLowerCase())) {
                 this.parquetCompressionType = PARQUET_COMPRESSION_TYPE_MAP.get(
                         properties.get(COMPRESS_TYPE).toLowerCase());
+                processedPropKeys.add(COMPRESS_TYPE);
             } else {
-                LOG.debug("not set parquet compression type or is invalid, set default to SNAPPY type.");
+                throw new AnalysisException("parquet compression type is invalid,"
+                        + "please choose one among SNAPPY, GZIP, BROTLI, ZSTD, LZ4, LZO, BZ2 or PLAIN");
             }
-            processedPropKeys.add(COMPRESS_TYPE);
         }
 
         // save all parquet prefix property
@@ -758,10 +759,11 @@ public class OutFileClause {
         if (properties.containsKey(COMPRESS_TYPE)) {
             if (ORC_COMPRESSION_TYPE_MAP.containsKey(properties.get(COMPRESS_TYPE).toLowerCase())) {
                 this.orcCompressionType = ORC_COMPRESSION_TYPE_MAP.get(properties.get(COMPRESS_TYPE).toLowerCase());
+                processedPropKeys.add(COMPRESS_TYPE);
             } else {
-                LOG.debug("not set orc compression type or is invalid, set default to ZLIB type.");
+                throw new AnalysisException("orc compression type is invalid,"
+                        + "please choose one among ZLIB, SNAPPY, ZSTD or PLAIN");
             }
-            processedPropKeys.add(COMPRESS_TYPE);
         }
 
         // check schema. if schema is not set, Doris will gen schema by select items
