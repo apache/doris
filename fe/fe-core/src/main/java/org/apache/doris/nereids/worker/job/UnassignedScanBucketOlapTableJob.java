@@ -209,6 +209,8 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
             Worker worker = workerToBuckets.getKey();
             BucketScanSource scanSource = new BucketScanSource(scanEmptyBuckets);
             if (useLocalShuffle) {
+                // when use local shuffle, we should ensure every backend only process one instance!
+                // so here we should try to merge the missing buckets into exist instances
                 boolean mergedBucketsInSameWorkerInstance = false;
                 for (AssignedJob newInstance : newInstances) {
                     if (newInstance.getAssignedWorker().equals(worker)) {
