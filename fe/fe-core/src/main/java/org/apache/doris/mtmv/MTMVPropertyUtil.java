@@ -39,14 +39,15 @@ import java.util.Set;
 
 public class MTMVPropertyUtil {
     public static final String VARIABLE_PREFIX = "session.";
-    public static final Set<String> mvPropertyKeys = Sets.newHashSet(
+    public static final Set<String> MV_PROPERTY_KEYS = Sets.newHashSet(
             PropertyAnalyzer.PROPERTIES_GRACE_PERIOD,
             PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES,
             PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM,
             PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP,
             PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
-            PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT
+            PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT,
+            PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION
     );
 
     public static boolean isSessionVariableProperty(String key) {
@@ -56,7 +57,7 @@ public class MTMVPropertyUtil {
 
     public static boolean isMTMVProperty(String key) {
         Preconditions.checkNotNull(key);
-        return mvPropertyKeys.contains(key) || isSessionVariableProperty(key);
+        return MV_PROPERTY_KEYS.contains(key) || isSessionVariableProperty(key);
     }
 
     public static String getSessionVariableKey(String key) {
@@ -100,6 +101,8 @@ public class MTMVPropertyUtil {
                 break;
             case PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT:
                 analyzePartitionSyncLimit(value);
+                break;
+            case PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION:
                 break;
             default:
                 throw new AnalysisException("illegal key:" + key);
