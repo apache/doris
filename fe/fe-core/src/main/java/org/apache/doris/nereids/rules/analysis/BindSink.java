@@ -33,6 +33,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -221,10 +223,31 @@ public class BindSink implements AnalysisRuleFactory {
                                                     new NullLiteral(DataType.fromCatalogType(column.getType())),
                                                     column.getName()));
                                         } else {
-                                            columnToOutput.put(column.getName(),
-                                                    new Alias(Literal.of(column.getDefaultValue())
-                                                            .checkedCastTo(DataType.fromCatalogType(column.getType())),
-                                                            column.getName()));
+                                            try {
+                                                // it comes from the original planner, if default value expression is
+                                                // null, we use the literal string of the default value, or it may be
+                                                // default value function, like CURRENT_TIMESTAMP.
+                                                if (column.getDefaultValueExpr() == null) {
+                                                    columnToOutput.put(column.getName(),
+                                                            new Alias(Literal.of(column.getDefaultValue())
+                                                                    .checkedCastTo(
+                                                                            DataType.fromCatalogType(column.getType())),
+                                                                    column.getName()));
+                                                } else {
+                                                    Expression defualtValueExpression = FunctionBinder.INSTANCE.rewrite(
+                                                            new NereidsParser().parseExpression(
+                                                                    column.getDefaultValueExpr().toSql()),
+                                                            new ExpressionRewriteContext(ctx.cascadesContext));
+                                                    NamedExpression slot =
+                                                            defualtValueExpression instanceof NamedExpression
+                                                                    ? ((NamedExpression) defualtValueExpression)
+                                                                    : new Alias(defualtValueExpression);
+
+                                                    columnToOutput.put(column.getName(), slot);
+                                                }
+                                            } catch (Exception e) {
+                                                throw new AnalysisException(e.getMessage(), e.getCause());
+                                            }
                                         }
                                     }
                                 }
