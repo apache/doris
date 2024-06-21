@@ -31,15 +31,15 @@ suite("test_hms_partitions_tvf","p0,external,tvf,external_docker") {
                 String catalogName = "${suiteName}_${hivePrefix}_catalog"
                 String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-                sql """drop catalog if exists ${catalog_name}"""
-                sql """create catalog if not exists ${catalog_name} properties (
+                sql """drop catalog if exists ${catalogName}"""
+                sql """create catalog if not exists ${catalogName} properties (
                     "type"="hms",
                     'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
                 );"""
                 order_qt_desc "desc function partitions('catalog'='${catalogName}','database'='${dbName}','table'='${tableName}');"
                 order_qt_partitions "select * from partitions('catalog'='${catalogName}','database'='${dbName}','table'='${tableName}');"
 
-                sql """drop catalog if exists ${catalog_name}"""
+                sql """drop catalog if exists ${catalogName}"""
             } finally {
             }
         }
