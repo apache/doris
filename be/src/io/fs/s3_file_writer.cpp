@@ -339,7 +339,7 @@ Status S3FileWriter::_complete() {
         }
         // make sure _completed_parts are ascending order
         std::sort(_completed_parts.begin(), _completed_parts.end(),
-                  [](auto& p1, auto& p2) { return p1.get_part_num() < p2.get_part_num(); });
+                  [](auto& p1, auto& p2) { return p1.part_num < p2.part_num; });
         TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:2", &_completed_parts);
         auto resp = client->complete_multipart_upload(_obj_storage_path_opts, _completed_parts);
         if (resp.status.code != ErrorCode::OK) {
