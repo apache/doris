@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,7 +60,9 @@ public class AliasFunction extends Function {
 
     private static final String DIGITAL_MASKING = "digital_masking";
 
+    @SerializedName("of")
     private Expr originFunction;
+    @SerializedName("pm")
     private List<String> parameters = new ArrayList<>();
     private List<String> typeDefParams = new ArrayList<>();
 

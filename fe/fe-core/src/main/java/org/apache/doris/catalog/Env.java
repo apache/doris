@@ -2085,10 +2085,12 @@ public class Env {
     }
 
     public long loadBackends(DataInputStream dis, long checksum) throws IOException {
+        LOG.info("start loading backends from image");
         return systemInfo.loadBackends(dis, checksum);
     }
 
     public long loadDb(DataInputStream dis, long checksum) throws IOException, DdlException {
+        LOG.info("start loading db from image");
         return getInternalCatalog().loadDb(dis, checksum);
     }
 
@@ -2315,6 +2317,7 @@ public class Env {
      * Load catalogs through file.
      **/
     public long loadCatalog(DataInputStream in, long checksum) throws IOException {
+        LOG.info("start loading catalog from image");
         CatalogMgr mgr = CatalogMgr.read(in);
         // When enable the multi catalog in the first time, the "mgr" will be a null value.
         // So ignore it to use default catalog manager.

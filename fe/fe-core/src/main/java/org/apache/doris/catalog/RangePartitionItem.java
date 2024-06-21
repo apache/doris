@@ -23,12 +23,14 @@ import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.mtmv.MTMVUtil;
 
 import com.google.common.collect.Range;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Optional;
 
 public class RangePartitionItem extends PartitionItem {
+    @SerializedName(value = "range")
     private Range<PartitionKey> partitionKeyRange;
     public static final Range<PartitionKey> DUMMY_RANGE;
     public static final RangePartitionItem DUMMY_ITEM;

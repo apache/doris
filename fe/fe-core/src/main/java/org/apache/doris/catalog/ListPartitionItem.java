@@ -24,6 +24,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -37,6 +38,7 @@ import java.util.stream.Collectors;
 public class ListPartitionItem extends PartitionItem {
     public static final ListPartitionItem DUMMY_ITEM = new ListPartitionItem(Lists.newArrayList());
 
+    @SerializedName(value = "partitionKeys")
     private final List<PartitionKey> partitionKeys;
     private boolean isDefaultPartition = false;
 

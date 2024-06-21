@@ -41,6 +41,8 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
@@ -524,7 +526,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return hashCode + ret;
     }
 
-    public static class PartitionKeySerializer implements JsonSerializer<PartitionKey> {
+    // added by ccr, and we have to follow.
+    public static class PartitionKeySerializer
+                implements JsonSerializer<PartitionKey>, JsonDeserializer<PartitionKey> {
         @Override
         public JsonElement serialize(PartitionKey partitionKey, java.lang.reflect.Type reflectType,
                                      JsonSerializationContext context) {
@@ -595,6 +599,82 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             }
 
             return result;
+        }
+
+        @Override
+        public PartitionKey deserialize(JsonElement json, java.lang.reflect.Type typeOfT,
+                                        JsonDeserializationContext context) throws JsonParseException {
+            PartitionKey partitionKey = new PartitionKey();
+            JsonArray jsonArray = json.getAsJsonArray();
+            for (int i = 0; i < jsonArray.size(); i++) {
+                JsonArray typeAndKey = jsonArray.get(i).getAsJsonArray();
+                PrimitiveType type = PrimitiveType.valueOf(typeAndKey.get(0).getAsString());
+                if (type == PrimitiveType.NULL_TYPE) {
+                    String realType = typeAndKey.get(1).getAsString();
+                    type = PrimitiveType.valueOf(realType);
+                    partitionKey.types.add(type);
+                    partitionKey.keys.add(NullLiteral.create(Type.fromPrimitiveType(type)));
+                    continue;
+                }
+                LiteralExpr literal = null;
+                partitionKey.types.add(type);
+                if (typeAndKey.get(1).getAsString().equals("MAX_VALUE")) {
+                    literal = MaxLiteral.MAX_VALUE;
+                } else {
+                    switch (type) {
+                        case TINYINT:
+                        case SMALLINT:
+                        case INT:
+                        case BIGINT: {
+                            long value = typeAndKey.get(1).getAsLong();
+                            literal = new IntLiteral(value);
+                        }
+                            break;
+                        case LARGEINT: {
+                            String value = typeAndKey.get(1).getAsString();
+                            try {
+                                literal = new LargeIntLiteral(value);
+                            } catch (AnalysisException e) {
+                                throw new JsonParseException("LargeIntLiteral deserialize failed: " + e.getMessage());
+                            }
+                        }
+                            break;
+                        case DATE:
+                        case DATETIME:
+                        case DATEV2:
+                        case DATETIMEV2: {
+                            String value = typeAndKey.get(1).getAsString();
+                            try {
+                                literal = new DateLiteral(value);
+                            } catch (AnalysisException e) {
+                                throw new JsonParseException("DateLiteral deserialize failed: " + e.getMessage());
+                            }
+                        }
+                            break;
+                        case CHAR:
+                        case VARCHAR:
+                        case STRING: {
+                            String value = typeAndKey.get(1).getAsString();
+                            literal = new StringLiteral(value);
+                        }
+                            break;
+                        case BOOLEAN: {
+                            boolean value = typeAndKey.get(1).getAsBoolean();
+                            literal = new BoolLiteral(value);
+                        }
+                            break;
+                        default:
+                            throw new JsonParseException(
+                                    "type[" + type.name() + "] not supported: ");
+                    }
+                }
+                if (type != PrimitiveType.DATETIMEV2) {
+                    literal.setType(Type.fromPrimitiveType(type));
+                }
+
+                partitionKey.keys.add(literal);
+            }
+            return partitionKey;
         }
     }
 

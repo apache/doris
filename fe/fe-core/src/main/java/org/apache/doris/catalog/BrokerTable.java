@@ -26,12 +26,12 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
@@ -46,11 +46,16 @@ public class BrokerTable extends Table {
     private static final String COLUMN_SEPARATOR = "column_separator";
     private static final String LINE_DELIMITER = "line_delimiter";
     private static final String FILE_FORMAT = "format";
+    @SerializedName("bn")
     private String brokerName;
+    @SerializedName("ps")
     private List<String> paths;
+    @SerializedName("cs")
     private String columnSeparator;
+    @SerializedName("ld")
     private String lineDelimiter;
     private String fileFormat;
+    @SerializedName("bp")
     private Map<String, String> brokerProperties;
 
     public BrokerTable() {
@@ -209,24 +214,7 @@ public class BrokerTable extends Table {
         return tTableDescriptor;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        Text.writeString(out, brokerName);
-        out.writeInt(paths.size());
-        for (String path : paths) {
-            Text.writeString(out, path);
-        }
-        Text.writeString(out, columnSeparator);
-        Text.writeString(out, lineDelimiter);
-        out.writeInt(brokerProperties.size());
-        for (Map.Entry<String, String> prop : brokerProperties.entrySet()) {
-            Text.writeString(out, prop.getKey());
-            Text.writeString(out, prop.getValue());
-        }
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

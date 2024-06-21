@@ -35,7 +35,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -136,29 +135,7 @@ public class ListPartitionInfo extends PartitionInfo {
         ListUtil.checkListsConflict(list1, list2);
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        // partition columns
-        out.writeInt(partitionColumns.size());
-        for (Column column : partitionColumns) {
-            column.write(out);
-        }
-
-        out.writeInt(idToItem.size());
-        for (Map.Entry<Long, PartitionItem> entry : idToItem.entrySet()) {
-            out.writeLong(entry.getKey());
-            entry.getValue().write(out);
-        }
-
-        out.writeInt(idToTempItem.size());
-        for (Map.Entry<Long, PartitionItem> entry : idToTempItem.entrySet()) {
-            out.writeLong(entry.getKey());
-            entry.getValue().write(out);
-        }
-
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

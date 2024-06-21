@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 public class SinglePartitionInfo extends PartitionInfo {
@@ -30,14 +29,5 @@ public class SinglePartitionInfo extends PartitionInfo {
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.readFields(in);
         return partitionInfo;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
     }
 }
