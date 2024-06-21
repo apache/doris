@@ -30,11 +30,13 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.P;
 import org.apache.thrift.annotation.Nullable;
 
 import java.util.ArrayList;
@@ -81,6 +83,10 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
                         .thenApply(ctx -> pushAgg(ctx.root, ctx.root.child().child()))
                         .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ON_PKFK)
         );
+    }
+
+    private List<LogicalJoin<?, ?>> collectContiguousInnerJoin() {
+
     }
 
     private @Nullable Plan pushAgg(LogicalAggregate<?> agg, LogicalJoin<?, ?> join) {
@@ -184,5 +190,24 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
             return null;
         }
         return foreign;
+    }
+
+    static class InnerJoinCluster {
+        private List<LogicalJoin<?, ?>> contiguousInnerJoins = new ArrayList<>();
+        private List<Plan> leaf = new ArrayList<>();
+
+        void collectContiguousInnerJoins(Plan plan) {
+            if (plan instanceof LogicalProject) {
+                boolean isSlotProject = ((LogicalProject<?>) plan).getProjects().stream()
+                        .allMatch(Slot.class::isInstance);
+                if (!isSlotProject) {
+                    leaf.add(plan);
+                    return;
+                }
+            }
+            for (Plan child : plan.children()) {
+                collectContiguousInnerJoins(child);
+            }
+        }
     }
 }
