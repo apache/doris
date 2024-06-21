@@ -280,7 +280,7 @@ public class HudiScanNode extends HiveScanNode {
                             partitionValues.getSingleColumnRangeMap(),
                             true);
                     Collection<Long> filteredPartitionIds = pruner.prune();
-                    this.readPartitionNum = filteredPartitionIds.size();
+                    this.selectedPartitionNum = filteredPartitionIds.size();
                     // 3. get partitions from cache
                     String dbName = hmsTable.getDbName();
                     String tblName = hmsTable.getName();
@@ -305,7 +305,7 @@ public class HudiScanNode extends HiveScanNode {
                 hmsTable.getRemoteTable().getSd().getInputFormat(),
                 hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
         this.totalPartitionNum = 1;
-        this.readPartitionNum = 1;
+        this.selectedPartitionNum = 1;
         return Lists.newArrayList(dummyPartition);
     }
 

@@ -197,7 +197,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                     partitionValues.getSingleColumnRangeMap(),
                     false);
             Collection<Long> filteredPartitionIds = pruner.prune();
-            this.readPartitionNum = filteredPartitionIds.size();
+            this.selectedPartitionNum = filteredPartitionIds.size();
             // get partitions from cache
             Map<Long, String> partitionIdToNameMap = partitionValues.getPartitionIdToNameMap();
             filteredPartitionIds.forEach(id -> result.add(partitionIdToNameMap.get(id)));

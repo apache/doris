@@ -99,6 +99,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected PartitionInfo partitionsInfo = null;
     protected SplitAssignment splitAssignment = null;
 
+    protected long selectedPartitionNum = 0;
+    protected long selectedSplitNum = 0;
+
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
 
@@ -747,6 +750,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return hasLimit() && getLimit() < limitRowsForSingleInstance && conjuncts.isEmpty();
     }
 
+<<<<<<< HEAD
     // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.
     // After all scan node are collected, it is possible to gain a snapshot of the partition version.
     public static void setVisibleVersionForOlapScanNodes(List<ScanNode> scanNodes) throws UserException {
@@ -833,4 +837,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return !topnFilterSortNodes.isEmpty();
     }
 
+    public long getSelectedPartitionNum() {
+        return selectedPartitionNum;
+    }
+
+    public long getSelectedSplitNum() {
+        return selectedSplitNum;
+    }
 }
