@@ -30,7 +30,6 @@
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "common/exception.h"
 #include "common/logging.h" // LOG
 #include "common/status.h"
 #include "gutil/port.h"
