@@ -37,7 +37,7 @@ suite("test_partitions_tvf","p0,external,tvf,external_docker") {
             "replication_num" = "1"
         );
         """
-    order_qt_desc "desc function partitions('database'='${dbName}','table'='${tableName}');"
+    order_qt_desc "desc function partitions('catalog'='internal','database'='${dbName}','table'='${tableName}');"
     List<List<Object>> res =  sql """ select * from partitions("database"="${dbName}","table"="${tableName}"); """
     logger.info("res: " + res.toString())
 
@@ -64,7 +64,7 @@ suite("test_partitions_tvf","p0,external,tvf,external_docker") {
 
     // test exception
     test {
-        sql """ select * from partitions("database"="${dbName}","table"="xxx"); """
+        sql """ select * from partitions("catalog"="internal","database"="${dbName}","table"="xxx"); """
         // check exception
         exception "Unknown"
     }
