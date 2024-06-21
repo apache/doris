@@ -107,7 +107,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         for (int i = 0; i < OTHER_SCHEMA.size(); i++) {
             otherBuilder.put(OTHER_SCHEMA.get(i).getName().toLowerCase(), i);
         }
-        OTHER_COLUMN_TO_INDEX = builder.build();
+        OTHER_COLUMN_TO_INDEX = otherBuilder.build();
     }
 
     public static Integer getColumnIndexFromColumnName(String columnName, TMetadataTableRequestParams params)
