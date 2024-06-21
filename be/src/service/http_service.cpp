@@ -31,6 +31,7 @@
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
+#include "http/action/clear_cache_action.h"
 #include "http/action/compaction_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
@@ -178,6 +179,11 @@ Status HttpService::start() {
     // Register BE health action
     HealthAction* health_action = _pool.add(new HealthAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
+
+    // Dump all running pipeline tasks
+    ClearDataCacheAction* clear_data_cache_action = _pool.add(new ClearDataCacheAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/clear_data_cache",
+                                      clear_data_cache_action);
 
     // Dump all running pipeline tasks
     PipelineTaskAction* pipeline_task_action = _pool.add(new PipelineTaskAction());
