@@ -48,6 +48,7 @@ const std::string kBinlogVersionParameter = "binlog_version";
 const std::string kRowsetIdParameter = "rowset_id";
 const std::string kSegmentIndexParameter = "segment_index";
 const std::string kSegmentIndexIdParameter = "segment_index_id";
+const std::string kAcquireMD5Parameter = "acquire_md5";
 
 // get http param, if no value throw exception
 const auto& get_http_param(HttpRequest* req, const std::string& param_name) {
@@ -103,12 +104,14 @@ void handle_get_segment_file(StorageEngine& engine, HttpRequest* req,
                              bufferevent_rate_limit_group* rate_limit_group) {
     // Step 1: get download file path
     std::string segment_file_path;
+    bool is_acquire_md5 = false;
     try {
         const auto& tablet_id = get_http_param(req, kTabletIdParameter);
         auto tablet = get_tablet(engine, tablet_id);
         const auto& rowset_id = get_http_param(req, kRowsetIdParameter);
         const auto& segment_index = get_http_param(req, kSegmentIndexParameter);
         segment_file_path = tablet->get_segment_filepath(rowset_id, segment_index);
+        is_acquire_md5 = !req->param(kAcquireMD5Parameter).empty();
     } catch (const std::exception& e) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
         LOG(WARNING) << "get download file path failed, error: " << e.what();
@@ -129,7 +132,7 @@ void handle_get_segment_file(StorageEngine& engine, HttpRequest* req,
         LOG(WARNING) << "file not exist, file path: " << segment_file_path;
         return;
     }
-    do_file_response(segment_file_path, req, rate_limit_group);
+    do_file_response(segment_file_path, req, rate_limit_group, is_acquire_md5);
 }
 
 /// handle get segment index file, need tablet_id, rowset_id, segment_index && segment_index_id
@@ -137,6 +140,7 @@ void handle_get_segment_index_file(StorageEngine& engine, HttpRequest* req,
                                    bufferevent_rate_limit_group* rate_limit_group) {
     // Step 1: get download file path
     std::string segment_index_file_path;
+    bool is_acquire_md5 = false;
     try {
         const auto& tablet_id = get_http_param(req, kTabletIdParameter);
         auto tablet = get_tablet(engine, tablet_id);
@@ -145,6 +149,7 @@ void handle_get_segment_index_file(StorageEngine& engine, HttpRequest* req,
         const auto& segment_index_id = req->param(kSegmentIndexIdParameter);
         segment_index_file_path =
                 tablet->get_segment_index_filepath(rowset_id, segment_index, segment_index_id);
+        is_acquire_md5 = !req->param(kAcquireMD5Parameter).empty();
     } catch (const std::exception& e) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
         LOG(WARNING) << "get download file path failed, error: " << e.what();
@@ -165,7 +170,7 @@ void handle_get_segment_index_file(StorageEngine& engine, HttpRequest* req,
         LOG(WARNING) << "file not exist, file path: " << segment_index_file_path;
         return;
     }
-    do_file_response(segment_index_file_path, req, rate_limit_group);
+    do_file_response(segment_index_file_path, req, rate_limit_group, is_acquire_md5);
 }
 
 void handle_get_rowset_meta(StorageEngine& engine, HttpRequest* req) {
