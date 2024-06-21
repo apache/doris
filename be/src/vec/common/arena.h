@@ -149,7 +149,6 @@ public:
               _used_size_no_head(0) {}
 
     ~Arena() {
-        DCHECK(head != nullptr);
         delete head;
     }
 
