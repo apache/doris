@@ -666,4 +666,155 @@ suite("test_inlineview_with_project") {
 
     sql """DROP TABLE IF EXISTS `dr_user_test_t1`;"""
     sql """DROP TABLE IF EXISTS `dr_user_test_t2`;"""
+
+    sql """
+        drop table if exists dws_mf_wms_join_t1;
+    """
+
+    sql """
+        drop table if exists dws_mf_wms_join_t2;
+    """
+    
+
+    sql """CREATE TABLE `dws_mf_wms_join_t1` (
+          `ddate` DATE NULL COMMENT '日期字段',
+          `game_id` VARCHAR(65533) NULL,
+          `main_currency_stock` BIGINT NULL
+          ) ENGINE=OLAP
+          DUPLICATE KEY(`ddate`)
+          DISTRIBUTED BY HASH(`ddate`) BUCKETS 10
+          PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+         );"""
+
+    sql """CREATE TABLE `dws_mf_wms_join_t2` (
+          `game_id` VARCHAR(65533) NULL,
+          ) ENGINE=OLAP
+          DUPLICATE KEY(`game_id`)
+          DISTRIBUTED BY HASH(`game_id`) BUCKETS 10
+          PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+         );"""
+
+    sql """insert into dws_mf_wms_join_t1 values('2020-01-01','12345',100);"""
+    sql """insert into dws_mf_wms_join_t2 values('12345');"""
+
+    qt_select6 """SELECT
+                a1.ddate
+            FROM
+                (
+                    SELECT
+                        aaa.ddate
+                    FROM
+                        (
+                            SELECT
+                                aa.ddate,
+                                CONCAT('main', aa.main_currency_stock) AS arr,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY aa.ddate
+                                ) AS rn
+                            FROM
+                                (
+                                    SELECT
+                                        ddate,
+                                        main_currency_stock,
+                                        game_id
+                                    FROM
+                                        dws_mf_wms_join_t1 a
+                                ) aa
+                                LEFT JOIN (
+                                    SELECT
+                                        game_id
+                                    FROM
+                                        dws_mf_wms_join_t2
+                                ) b ON aa.game_id = b.game_id
+                        ) aaa
+                        CROSS JOIN (
+                            select
+                                1 as newarr
+                        ) b
+                    WHERE
+                        rn = 1
+                ) a1
+            GROUP BY
+                GROUPING SETS (
+                    (
+                        a1.ddate
+                    )
+                );"""
+
+    sql """
+        CREATE TABLE `slot_resolve_test1` (
+            `id` int(11) NOT NULL COMMENT '',
+            `name` int(11) NOT NULL COMMENT '',
+            `dt` date NOT NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 2
+        PROPERTIES(
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        CREATE TABLE `slot_resolve_test2` (
+            `id` int(11) NOT NULL COMMENT '',
+            `name` int(11) NOT NULL COMMENT ''
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 2
+        PROPERTIES(
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    
+    sql """
+       CREATE TABLE `slot_resolve_test_dim` (
+            `id` int(11) NOT NULL COMMENT ''
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 2
+        PROPERTIES(
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    // should work well with no exception
+    sql """
+        create table if not exists slot_resolve_tmp_table PROPERTIES("replication_num" = "1") as
+            select id
+            from
+              (SELECT t1.id,
+                      ifnull(t1.name, "noname")
+               FROM
+                 (SELECT id,
+                         name
+                  FROM slot_resolve_test1
+                  WHERE id NOT IN (
+                                   SELECT id
+                                    FROM slot_resolve_test_dim)
+                    UNION ALL
+                    SELECT id,
+                           name
+                    FROM slot_resolve_test1) t1
+               JOIN slot_resolve_test2 t2 ON t1.id = t2.id) t2;
+    """
+
+    sql """
+        drop table if exists slot_resolve_test1;
+    """
+    sql """
+        drop table if exists slot_resolve_test2;
+    """
+    sql """
+        drop table if exists slot_resolve_tmp_table;
+    """
+
+    sql """
+        drop table if exists dws_mf_wms_join_join_t1;
+    """
+
+    sql """
+        drop table if exists dws_mf_wms_join_join_t2;
+    """
 }
