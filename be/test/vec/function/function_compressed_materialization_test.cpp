@@ -170,8 +170,6 @@ TEST(CompressedMaterializationTest, abnormal_test) {
         col_source_str_mutate->insert(Field(random_bytes.c_str(), random_bytes.size()));
     }
 
-    
-
     auto col_source_str = std::move(col_source_str_mutate);
     std::cerr << fmt::format("max bytes {}\n", col_source_str->get_max_row_byte_size());
 
@@ -201,8 +199,7 @@ TEST(CompressedMaterializationTest, abnormal_test) {
                 function_name, {argument_for_compress}, return_type_of_compress);
 
         FunctionContext* context = nullptr;
-        Status st = compress_func->execute(context, input_block_compress, {0}, 1,
-                                                            input_rows_count);
+        Status st = compress_func->execute(context, input_block_compress, {0}, 1, input_rows_count);
         ASSERT_FALSE(st.ok());
     }
 }
