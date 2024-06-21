@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -33,27 +33,27 @@ import com.google.common.collect.ImmutableList;
 /**
  * ScalarFunction 'CompressAsTinyInt'.
  */
-public class CompressAsTinyInt extends ScalarFunction
+public class CompressAsSmallInt extends ScalarFunction
        implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(SmallIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
        );
 
     /**
      * constructor with 1 arguments.
      */
-    public CompressAsTinyInt(Expression arg0) {
-       super("compress_as_tinyint", arg0);
+    public CompressAsSmallInt(Expression arg0) {
+       super("compress_as_smallint", arg0);
     }
 
     /**
      * withChildren.
      */
     @Override
-    public CompressAsTinyInt withChildren(List<Expression> children) {
+    public CompressAsSmallInt withChildren(List<Expression> children) {
        Preconditions.checkArgument(children.size() == 1);
-       return new CompressAsTinyInt(children.get(0));
+       return new CompressAsSmallInt(children.get(0));
         
     }
 
@@ -64,6 +64,6 @@ public class CompressAsTinyInt extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitCompressAsTinyInt(this, context);
+        return visitor.visitCompressAsSmallInt(this, context);
     }
 }

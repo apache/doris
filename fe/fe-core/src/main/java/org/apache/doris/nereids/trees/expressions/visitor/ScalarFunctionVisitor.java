@@ -125,7 +125,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsLargeInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsTinyInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsSmallInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -863,8 +863,8 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(charFunc, context);
     }
 
-    default R visitCompressAsTinyInt(CompressAsTinyInt compressAsTinyInt, C context) {
-        return visitScalarFunction(compressAsTinyInt, context);
+    default R visitCompressAsSmallInt(CompressAsSmallInt compressAsSmallInt, C context) {
+        return visitScalarFunction(compressAsSmallInt, context);
     }
 
     default R visitCompressAsInt(CompressAsInt compress, C context) {

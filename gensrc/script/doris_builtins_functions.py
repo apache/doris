@@ -1591,11 +1591,11 @@ visible_functions = {
 
     # String builtin functions
     "String": [
-        [['compress_as_tinyint'], 'TINYINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['compress_as_smallint'], 'SMALLINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
         [['compress_as_int'], 'INT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
         [['compress_as_bigint'], 'BIGINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
         [['compress_as_largeint'], 'LARGEINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
-        [['decompress_varchar'], 'VARCHAR', ['TINYINT'], 'DEPEND_ON_ARGUMENT'],
+        [['decompress_varchar'], 'VARCHAR', ['SMALLINT'], 'DEPEND_ON_ARGUMENT'],
         [['decompress_varchar'], 'VARCHAR', ['INT'], 'DEPEND_ON_ARGUMENT'],
         [['decompress_varchar'], 'VARCHAR', ['BIGINT'], 'DEPEND_ON_ARGUMENT'],
         [['decompress_varchar'], 'VARCHAR', ['LARGEINT'], 'DEPEND_ON_ARGUMENT'],

@@ -34,8 +34,8 @@
 
 namespace doris::vectorized {
 
-struct CompressAsTinyInt {
-    static constexpr auto name = "compress_as_tinyint";
+struct CompressAsSmallInt {
+    static constexpr auto name = "compress_as_smallint";
 };
 
 struct CompressAsInt {
@@ -87,14 +87,7 @@ public:
         // max_row_byte_size = size of string + size of offset value
         size_t max_str_size = col_str->get_max_row_byte_size() - sizeof(UInt32);
 
-        if constexpr (std::is_same_v<ReturnType, Int8>) {
-            if (max_str_size > 1) {
-                return Status::InternalError(
-                        "String is too long to compress, input string size {}, max valid "
-                        "string size for {} is {}",
-                        max_str_size, name, 1);
-            }
-        } else if (max_str_size > sizeof(ReturnType) - 1) {
+        if (max_str_size > sizeof(ReturnType) - 1) {
             return Status::InternalError(
                     "String is too long to compress, input string size {}, max valid string "
                     "size for {} is {}",
@@ -104,33 +97,21 @@ public:
         auto col_res = ColumnVector<ReturnType>::create(input_rows_count, 0);
         auto& col_res_data = col_res->get_data();
 
-        if constexpr (std::is_same_v<ReturnType, Int8>) {
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                const char* __restrict str_ptr = col_str->get_data_at(i).data;
-                UInt8 str_size = static_cast<UInt8>(col_str->get_data_at(i).size);
-                col_res_data[i] = str_size == 0 ? 0 : *str_ptr;
-            }
-        } else {
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                const char* str_ptr = col_str->get_data_at(i).data;
-                UInt8 str_size = static_cast<UInt8>(col_str->get_data_at(i).size);
-                ReturnType* res = &col_res_data[i];
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const char* str_ptr = col_str->get_data_at(i).data;
+            UInt8 str_size = static_cast<UInt8>(col_str->get_data_at(i).size);
+            ReturnType* res = &col_res_data[i];
+            UInt8* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
 
-                if constexpr (std::is_same_v<ReturnType, Int8>) {
-                    memcpy(res, str_ptr, str_size);
-                } else {
-                    UInt8* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
-                    memcpy(ui8_ptr, str_ptr, str_size);
-                    // "reverse" the order of string on little endian machine.
-                    reverse_bytes(ui8_ptr, sizeof(ReturnType));
-                    // Lowest byte of Integer stores the size of the string, bit left shiflted by 1 so that we can get
-                    // correct size after right shifting by 1
-                    memset(ui8_ptr, str_size << 1, 1);
-                    *res >>= 1;
-                    // operator &= can not be applied to Int128
-                    *res = *res & std::numeric_limits<ReturnType>::max();
-                }
-            }
+            memcpy(ui8_ptr, str_ptr, str_size);
+            // "reverse" the order of string on little endian machine.
+            reverse_bytes(ui8_ptr, sizeof(ReturnType));
+            // Lowest byte of Integer stores the size of the string, bit left shiflted by 1 so that we can get
+            // correct size after right shifting by 1
+            memset(ui8_ptr, str_size << 1, 1);
+            *res >>= 1;
+            // operator &= can not be applied to Int128
+            *res = *res & std::numeric_limits<ReturnType>::max();
         }
 
         block.get_by_position(result).column = std::move(col_res);
@@ -140,7 +121,7 @@ public:
 };
 
 void register_function_compress_varchar(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionCompressVarchar<CompressAsTinyInt, Int8>>();
+    factory.register_function<FunctionCompressVarchar<CompressAsSmallInt, Int16>>();
     factory.register_function<FunctionCompressVarchar<CompressAsInt, Int32>>();
     factory.register_function<FunctionCompressVarchar<CompressAsBigInt, Int64>>();
     factory.register_function<FunctionCompressVarchar<CompressAsLargeInt, Int128>>();

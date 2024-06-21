@@ -1,4 +1,5 @@
 #include <fmt/core.h>
+
 #include <cstddef>
 #include <limits>
 #include <type_traits>
@@ -45,8 +46,8 @@ public:
     bool is_variadic() const override { return true; }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (std::is_same_v<IntegerType, Int8>) {
-            return {std::make_shared<DataTypeInt8>()};
+        if constexpr (std::is_same_v<IntegerType, Int16>) {
+            return {std::make_shared<DataTypeInt16>()};
         } else if constexpr (std::is_same_v<IntegerType, Int32>) {
             return {std::make_shared<DataTypeInt32>()};
         } else if constexpr (std::is_same_v<IntegerType, Int64>) {
@@ -80,38 +81,28 @@ public:
         col_res_data.resize(input_rows_count * sizeof(IntegerType));
         col_res_offset.resize(input_rows_count);
 
-        if constexpr (std::is_same_v<IntegerType, Int8>) {
-            for (Int32 i = 0; i < input_rows_count; ++i) {
-                const Int8& value = col_source->get_element(i);
-                UInt32 str_size = value == 0 ? 0 : 1;
-                // col_res_offset[-1] is valid for PaddedPODArray, will get 0
-                col_res_offset[i] = col_res_offset[i - 1] + str_size;
-                memcpy(col_res_data.data() + col_res_offset[i - 1], &value, str_size);
+        for (Int32 i = 0; i < input_rows_count; ++i) {
+            IntegerType value = col_source->get_element(i);
+            const UInt8* const __restrict ui8_ptr = reinterpret_cast<const UInt8*>(&value);
+            UInt32 str_size = static_cast<UInt32>(*ui8_ptr) & 0x7F;
+
+            if (str_size >= sizeof(IntegerType)) {
+                auto type_ptr = block.get_by_position(arguments[0]).type;
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Invalid input of function {}, input type {} value {}, "
+                                       "string size {}, should not be larger than {}",
+                                       name, type_ptr->get_name(), value, str_size,
+                                       sizeof(IntegerType));
             }
-        } else {
-            for (Int32 i = 0; i < input_rows_count; ++i) {
-                IntegerType value = col_source->get_element(i);
-                const UInt8* const __restrict ui8_ptr = reinterpret_cast<const UInt8*>(&value);
-                UInt32 str_size = static_cast<UInt32>(*ui8_ptr) & 0x7F;
 
-                if (str_size >= sizeof(IntegerType)) {
-                    auto type_ptr = block.get_by_position(arguments[0]).type;
-                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                           "Invalid input of function {}, input type {} value {}, "
-                                           "string size {}, should not be larger than {}",
-                                           name, type_ptr->get_name(), value, str_size,
-                                           sizeof(IntegerType));
-                }
+            // col_res_offset[-1] is valid for PaddedPODArray, will get 0
+            col_res_offset[i] = col_res_offset[i - 1] + str_size;
+            value <<= 1;
 
-                // col_res_offset[-1] is valid for PaddedPODArray, will get 0
-                col_res_offset[i] = col_res_offset[i - 1] + str_size;
-                value <<= 1;
+            memcpy(col_res_data.data() + col_res_offset[i - 1],
+                   ui8_ptr + sizeof(IntegerType) - str_size, str_size);
 
-                memcpy(col_res_data.data() + col_res_offset[i - 1],
-                       ui8_ptr + sizeof(IntegerType) - str_size, str_size);
-
-                reverse_bytes(col_res_data.data() + col_res_offset[i - 1], str_size);
-            }
+            reverse_bytes(col_res_data.data() + col_res_offset[i - 1], str_size);
         }
 
         block.get_by_position(result).column = std::move(col_res);
@@ -121,7 +112,7 @@ public:
 };
 
 void register_function_decompress_varchar(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionDecompressVarchar<Int8>>();
+    factory.register_function<FunctionDecompressVarchar<Int16>>();
     factory.register_function<FunctionDecompressVarchar<Int32>>();
     factory.register_function<FunctionDecompressVarchar<Int64>>();
     factory.register_function<FunctionDecompressVarchar<Int128>>();

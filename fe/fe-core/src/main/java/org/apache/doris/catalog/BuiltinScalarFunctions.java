@@ -118,7 +118,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsLargeInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsTinyInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsSmallInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -559,7 +559,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Char.class, "char"),
             scalar(CharacterLength.class, "char_length", "character_length"),
             scalar(Coalesce.class, "coalesce"),
-            scalar(CompressAsTinyInt.class, "compress_as_tinyint"),
+            scalar(CompressAsSmallInt.class, "compress_as_smallint"),
             scalar(CompressAsInt.class, "compress_as_int"),
             scalar(CompressAsBigInt.class, "compress_as_bigint"),
             scalar(CompressAsLargeInt.class, "compress_as_largeint"),
