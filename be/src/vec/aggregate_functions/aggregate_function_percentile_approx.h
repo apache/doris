@@ -366,7 +366,7 @@ struct PercentileState {
         inited_flag = false;
     }
 
-    double get() const { return vec_counts[0].terminate(vec_quantile[0]); }
+    double get() const { return vec_counts.empty() ? 0 : vec_counts[0].terminate(vec_quantile[0]); }
 
     void insert_result_into(IColumn& to) const {
         auto& column_data = assert_cast<ColumnVector<Float64>&>(to).get_data();

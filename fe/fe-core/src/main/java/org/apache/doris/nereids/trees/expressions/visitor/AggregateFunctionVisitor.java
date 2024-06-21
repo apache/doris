@@ -246,7 +246,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitPercentile(Percentile percentile, C context) {
-        return visitAggregateFunction(percentile, context);
+        return visitNullableAggregateFunction(percentile, context);
     }
 
     default R visitPercentileApprox(PercentileApprox percentileApprox, C context) {
