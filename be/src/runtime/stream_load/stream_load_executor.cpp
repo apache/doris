@@ -294,8 +294,6 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
     request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
     request.sync = true;
-    // When number loaded rows > 0, ctx->commit_infos can't be empty
-    DCHECK(ctx->number_loaded_rows = 0 || !ctx->commit_infos.empty());
     request.commitInfos = ctx->commit_infos;
     request.__isset.commitInfos = true;
     request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
