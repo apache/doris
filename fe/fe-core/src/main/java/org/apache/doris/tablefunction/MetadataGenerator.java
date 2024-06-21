@@ -846,6 +846,7 @@ public class MetadataGenerator {
         }
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }
 
@@ -860,6 +861,7 @@ public class MetadataGenerator {
         }
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }
 
