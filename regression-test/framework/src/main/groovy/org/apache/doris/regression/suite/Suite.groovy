@@ -630,9 +630,15 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null) {
-        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${fieldName}"
-        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${fieldName}"
+    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null, String orderByFieldName = null) {
+        String orderByName = ""
+        if (ObjectUtils.isEmpty(orderByFieldName)){
+            orderByName = fieldName;
+        }else {
+            orderByName = orderByFieldName;
+        }
+        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${orderByName}"
+        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${orderByName}"
         List<Object> tbData1 = new ArrayList<Object>();
         for (List<Object> items:tb1Result){
             tbData1.add(items.get(0))
