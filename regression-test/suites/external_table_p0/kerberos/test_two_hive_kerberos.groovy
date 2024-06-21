@@ -24,43 +24,55 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
             CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
             PROPERTIES ( 
                 "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.20.70.25:9083",
-                "fs.defaultFS" = "hdfs://172.20.70.25:8020",
+                "hive.metastore.uris" = "thrift://172.20.71.25:9083",
+                "fs.defaultFS" = "hdfs://172.20.71.25:8020",
                 "hadoop.security.authentication" = "kerberos",
-                "hadoop.kerberos.principal"="presto-server/trino-coordinator.docker.cluster@LABS.TERADATA.COM",
+                "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",
                 "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM"
             );
         """
 
-        sql """switch ${hms_catalog_name};"""
-        logger.info("switched to catalog " + hms_catalog_name)
-        sql """ show databases """
-        sql """ use test_krb_hive_db """
-
-        sql """ select * from test_krb_hive_db.test_krb_hive_tbl """
-
         sql """drop catalog if exists other_${hms_catalog_name};"""
         sql """
             CREATE CATALOG IF NOT EXISTS other_${hms_catalog_name}
             PROPERTIES (
                 "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.20.70.26:9083",
-                "fs.defaultFS" = "hdfs://172.20.70.26:8020",
+                "hive.metastore.uris" = "thrift://172.20.71.26:9083",
+                "fs.defaultFS" = "hdfs://172.20.71.26:8020",
                 "hadoop.security.authentication" = "kerberos",
-                "hadoop.kerberos.principal"="presto-server/trino-worker.docker.cluster@OTHERREALM.COM",
-                "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",
+                "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@OTHERREALM.COM",
+                "hadoop.kerberos.keytab" = "/keytabs/other-presto-server.keytab",
                 "hive.metastore.sasl.enabled " = "true",
-                "hive.metastore.kerberos.principal" = "hive/_HOST@OTHERREALM.COM"
+                "hive.metastore.kerberos.principal" = "hive/_HOST@OTHERREALM.COM",
+                "hadoop.security.auth_to_local" ="RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
+                                                  RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+                                                  DEFAULT"
             );
         """
 
+        // 1. catalogA
+        sql """switch ${hms_catalog_name};"""
+        logger.info("switched to catalog " + hms_catalog_name)
+        sql """ show databases """
+        sql """ use test_krb_hive_db """
+
+        order_qt_q01 """ select * from test_krb_hive_db.test_krb_hive_tbl """
+        // test cross catalog
+        order_qt_q02 """ select * from other_${hms_catalog_name}.test_krb_hive_db.test_krb_hive_tbl """
+        order_qt_q03 """ select * from ${hms_catalog_name}.test_krb_hive_db.test_krb_hive_tbl """
+
+        // 2. catalogB
         sql """switch other_${hms_catalog_name};"""
         logger.info("switched to other catalog " + hms_catalog_name)
         sql """ show databases """
         sql """ use test_krb_hive_db """
-        sql """ select * from test_krb_hive_db.test_krb_hive_tbl """
+        order_qt_q04 """ select * from test_krb_hive_db.test_krb_hive_tbl """
+
+        // test cross catalog
+        order_qt_q05 """ select * from ${hms_catalog_name}.test_krb_hive_db.test_krb_hive_tbl """
+        order_qt_q06 """ select * from other_${hms_catalog_name}.test_krb_hive_db.test_krb_hive_tbl """
 
         sql """drop catalog ${hms_catalog_name};"""
         sql """drop catalog other_${hms_catalog_name};"""

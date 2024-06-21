@@ -19,58 +19,83 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_catalog_name = "test_single_hive_kerberos"
-        sql """drop catalog if exists ${hms_catalog_name};"""
+        sql """drop catalog if exists hms_kerberos;"""
         sql """
-            CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
+            CREATE CATALOG IF NOT EXISTS hms_kerberos
             PROPERTIES (
                 "type" = "hms",
-                "hive.metastore.uris" = "thrift://172.20.70.25:9083",
-                "fs.defaultFS" = "hdfs://172.20.70.25:8020",
+                "hive.metastore.uris" = "thrift://172.20.71.25:9083",
+                "fs.defaultFS" = "hdfs://172.20.71.25:8020",
                 "hadoop.security.authentication" = "kerberos",
-                "hadoop.kerberos.principal"="presto-server/trino-worker.docker.cluster@LABS.TERADATA.COM",
-                "hadoop.kerberos.keytab" = "presto-server.keytab",
+                "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
+                "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",
                 "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM"
             );
         """
-        logger.info("switched to catalog " + hms_catalog_name)
+        sql """ switch hms_kerberos """
         sql """ show databases """
-        sql """ use test_krb_hive_db """
-        sql """ select * from test_krb_hive_db.test_krb_hive_tbl """
-        sql """drop catalog ${hms_catalog_name};"""
+        order_qt_q01 """ select * from hms_kerberos.test_krb_hive_db.test_krb_hive_tbl """
+        sql """drop catalog hms_kerberos;"""
 
         try {
+            sql """drop catalog if exists hms_kerberos_hadoop_err1;"""
             sql """
-                CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
+                CREATE CATALOG IF NOT EXISTS hms_kerberos_hadoop_err1
                 PROPERTIES (
                     "type" = "hms",
-                    "hive.metastore.uris" = "thrift://hadoop-master:9083",
-                    "fs.defaultFS" = "hdfs://hadoop-master:8020",
+                    "hive.metastore.uris" = "thrift://172.20.71.25:9083",
+                    "fs.defaultFS" = "hdfs://172.20.71.25:8020",
                     "hadoop.security.authentication" = "kerberos",
-                    "hadoop.kerberos.principal"="presto-server/trino-worker.docker.cluster@LABS.TERADATA.COM",
-                    "hadoop.kerberos.keytab" = "presto-server.keytab"
+                    "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
+                    "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab"
                 );
             """
+            sql """ switch hms_kerberos_hadoop_err1 """
+            sql """ show databases """
         } catch (Exception e) {
-            logger.error(e.contains("new client talking to old server. Continuing without it."))
+            logger.info(e.toString())
+            // caused by a warning msg if enable sasl on hive but "hive.metastore.sasl.enabled" is not true:
+            // "set_ugi() not successful, Likely cause: new client talking to old server. Continuing without it."
+            assertTrue(e.toString().contains("org.apache.thrift.transport.TTransportException: null"))
         }
 
         try {
+            sql """drop catalog if exists hms_kerberos_hadoop_err2;"""
             sql """
-                CREATE CATALOG IF NOT EXISTS hms_keberos_ccache
+                CREATE CATALOG IF NOT EXISTS hms_kerberos_hadoop_err2
                 PROPERTIES (
                     "type" = "hms",
-                    "hive.metastore.uris" = "thrift://172.20.70.25:9083",
-                    "fs.defaultFS" = "hdfs://172.20.70.25:8020",
-                    "hadoop.security.authentication" = "kerberos",
-                    "hadoop.kerberos.principal"="presto-server/trino-worker.docker.cluster@LABS.TERADATA.COM",
-                    "hadoop.kerberos.keytab" = "presto-server.keytab",
-                    "hive.metastore.thrift.impersonation.enabled" = true"
-                    "hive.metastore.client.credential-cache.location" = "hive-presto-master-krbcc"
+                    "hive.metastore.sasl.enabled " = "true",
+                    "hive.metastore.uris" = "thrift://172.20.71.25:9083",
+                    "fs.defaultFS" = "hdfs://172.20.71.25:8020"
                 );
             """
+            sql """ switch hms_kerberos_hadoop_err2 """
+            sql """ show databases """
         } catch (Exception e) {
-            logger.error(e.message)
+            // org.apache.thrift.transport.TTransportException: GSS initiate failed
+            assertTrue(e.toString().contains("Could not connect to meta store using any of the URIs provided. Most recent failure: shade.doris.hive.org.apache.thrift.transport.TTransportException: GSS initiate failed"))
         }
+
+        //        try {
+        //            sql """
+        //                CREATE CATALOG IF NOT EXISTS hms_keberos_ccache
+        //                PROPERTIES (
+        //                    "type" = "hms",
+        //                    "hive.metastore.uris" = "thrift://172.20.71.25:9083",
+        //                    "fs.defaultFS" = "hdfs://172.20.71.25:8020",
+        //                    "hadoop.security.authentication" = "kerberos",
+        //                    "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
+        //                    "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",
+        //                    "hive.metastore.thrift.impersonation.enabled" = true"
+        //                    "hive.metastore.client.credential-cache.location" = "hive-presto-master-krbcc"
+        //                );
+        //            """
+        //            sql """ switch hms_keberos_ccache """
+        //            sql """ show databases """
+        //        } catch (Exception e) {
+        //            logger.error(e.message)
+        //        }
     }
 }

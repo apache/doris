@@ -538,5 +538,11 @@ if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
         rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
         sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up -d
+        sudo rm -f /keytabs
+        sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
+        sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
+
+        echo '172.20.71.25 hadoop-master' >> /etc/hosts
+        echo '172.20.71.26 hadoop-master-2' >> /etc/hosts
     fi
 fi
