@@ -2774,6 +2774,9 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
     if (cids.contains(cid)) {
         return false;
     }
+    if (_column_pred_in_remaining_vconjunct.contains(_opts.tablet_schema->column(cid).name())) {
+        return false;
+    }
 
     if (column->is_nullable()) {
         auto* nullable_col_ptr = reinterpret_cast<vectorized::ColumnNullable*>(column.get());

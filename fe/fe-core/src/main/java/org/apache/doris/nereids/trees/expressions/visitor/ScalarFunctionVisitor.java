@@ -328,6 +328,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplace
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplaceOne;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Repeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Replace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ReplaceEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Reverse;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Right;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
@@ -1685,6 +1686,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitReplace(Replace replace, C context) {
         return visitScalarFunction(replace, context);
+    }
+
+    default R visitReplaceEmpty(ReplaceEmpty replaceEmpty, C context) {
+        return visitScalarFunction(replaceEmpty, context);
     }
 
     default R visitReverse(Reverse reverse, C context) {

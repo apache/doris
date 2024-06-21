@@ -33,11 +33,11 @@ namespace doris {
 bvar::Adder<int64_t> g_loadchannel_cnt("loadchannel_cnt");
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
-                         const std::string& sender_ip, int64_t backend_id, bool enable_profile)
+                         std::string sender_ip, int64_t backend_id, bool enable_profile)
         : _load_id(load_id),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
-          _sender_ip(sender_ip),
+          _sender_ip(std::move(sender_ip)),
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
     std::shared_ptr<QueryContext> query_context =
@@ -96,6 +96,10 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         if (it != _tablets_channels.end()) {
             channel = it->second;
         } else {
+            // just for VLOG
+            if (_txn_id == 0) [[unlikely]] {
+                _txn_id = params.txn_id();
+            }
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
             // TODO(plat1ko): CloudTabletsChannel
@@ -161,6 +165,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     }
 
     // 3. handle eos
+    // if channel is incremental, maybe hang on close until all close request arrived.
     if (request.has_eos() && request.eos()) {
         st = _handle_eos(channel.get(), request, response);
         _report_profile(response);
@@ -182,6 +187,24 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     auto index_id = request.index_id();
 
     RETURN_IF_ERROR(channel->close(this, request, response, &finished));
+
+    // for init node, we close waiting(hang on) all close request and let them return together.
+    if (request.has_hang_wait() && request.hang_wait()) {
+        DCHECK(!channel->is_incremental_channel());
+        VLOG_DEBUG << fmt::format("txn {}: reciever index {} close waiting by sender {}", _txn_id,
+                                  request.index_id(), request.sender_id());
+        int count = 0;
+        while (!channel->is_finished()) {
+            bthread_usleep(1000);
+            count++;
+        }
+        // now maybe finished or cancelled.
+        VLOG_TRACE << "reciever close wait finished!" << request.sender_id();
+        if (count >= 1000 * _timeout_s) { // maybe config::streaming_load_rpc_max_alive_time_sec
+            return Status::InternalError("Tablets channel didn't wait all close");
+        }
+    }
+
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
         {
@@ -191,6 +214,7 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
                     std::make_pair(channel->total_received_rows(), channel->num_rows_filtered())));
             _tablets_channels.erase(index_id);
         }
+        LOG(INFO) << "txn " << _txn_id << " closed tablets_channel " << index_id;
         _finished_channel_ids.emplace(index_id);
     }
     return Status::OK();
