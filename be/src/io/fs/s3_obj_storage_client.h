@@ -28,11 +28,6 @@ class CompletedPart;
 } // namespace Aws::S3
 
 namespace doris::io {
-
-struct S3CompleteMultiParts : public ObjectCompleteMultiParts {
-    std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>& parts;
-};
-
 class ObjClientHolder;
 
 class S3ObjStorageClient final : public ObjStorageClient {
@@ -47,7 +42,7 @@ public:
                                             int partNum) override;
     ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,
-            const ObjectCompleteMultiParts& completed_parts) override;
+            const std::vector<ObjectCompleteMultiPart>& completed_parts) override;
     ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
                                      size_t offset, size_t bytes_read,
