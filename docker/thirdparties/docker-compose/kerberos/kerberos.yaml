@@ -61,6 +61,19 @@ services:
             doris_net:
                 ipv4_address: 172.20.70.26
 
+    doris:
+      image: ghcr.io/trinodb/testing/centos7-oj17
+      volumes:
+        - /mnt/disk1/jinzhe/output:/root/output
+        - ./common/conf/doris-krb5.conf:/root/conf/doris-krb5.conf
+        - ./entrypoint-doris.sh:/usr/local/entrypoint-doris.sh
+      hostname: doris-master
+      command: tail -f /dev/null
+      entrypoint: /usr/local/entrypoint-doris.sh
+      networks:
+        doris_net:
+          ipv4_address: 172.20.70.27
+
 networks:
     doris_net:
         ipam:
