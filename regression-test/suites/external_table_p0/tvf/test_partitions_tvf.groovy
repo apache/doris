@@ -66,7 +66,7 @@ suite("test_partitions_tvf","p0,external,tvf,external_docker") {
     test {
         sql """ select * from partitions("catalog"="internal","database"="${dbName}","table"="xxx"); """
         // check exception
-        exception "Unknown"
+        exception "xxx"
     }
     test {
         sql """ select * from partitions("database"="${dbName}"); """
