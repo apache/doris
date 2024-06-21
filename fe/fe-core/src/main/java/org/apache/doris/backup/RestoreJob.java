@@ -66,6 +66,8 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+// import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -93,6 +95,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -106,7 +109,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-public class RestoreJob extends AbstractJob {
+public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private static final String PROP_RESERVE_REPLICA = "reserve_replica";
     private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
@@ -129,21 +132,31 @@ public class RestoreJob extends AbstractJob {
     }
     // CHECKSTYLE ON
 
+    @SerializedName("bts")
     private String backupTimestamp;
 
+    @SerializedName("j")
     private BackupJobInfo jobInfo;
+    @SerializedName("al")
     private boolean allowLoad;
 
+    @SerializedName("st")
     private RestoreJobState state;
 
+    @SerializedName("meta")
     private BackupMeta backupMeta;
 
+    @SerializedName("fm")
     private RestoreFileMapping fileMapping = new RestoreFileMapping();
 
+    @SerializedName("mpt")
     private long metaPreparedTime = -1;
+    @SerializedName("sft")
     private long snapshotFinishedTime = -1;
+    @SerializedName("dft")
     private long downloadFinishedTime = -1;
 
+    @SerializedName("ra")
     private ReplicaAllocation replicaAlloc;
 
     private boolean reserveReplica = false;
@@ -151,14 +164,19 @@ public class RestoreJob extends AbstractJob {
 
     // this 2 members is to save all newly restored objs
     // tbl name -> part
+    @SerializedName("rp")
     private List<Pair<String, Partition>> restoredPartitions = Lists.newArrayList();
+    @SerializedName("rt")
     private List<Table> restoredTbls = Lists.newArrayList();
+    @SerializedName("rr")
     private List<Resource> restoredResources = Lists.newArrayList();
 
     // save all restored partitions' version info which are already exist in catalog
     // table id -> partition id -> (version, version hash)
+    @SerializedName("rvi")
     private com.google.common.collect.Table<Long, Long, Long> restoredVersionInfo = HashBasedTable.create();
     // tablet id->(be id -> snapshot info)
+    @SerializedName("si")
     private com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos = HashBasedTable.create();
 
     private Map<Long, Long> unfinishedSignatureToId = Maps.newConcurrentMap();
@@ -175,6 +193,7 @@ public class RestoreJob extends AbstractJob {
     private boolean isBeingSynced = false;
 
     // restore properties
+    @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
 
     public RestoreJob() {
@@ -2078,12 +2097,6 @@ public class RestoreJob extends AbstractJob {
         }
     }
 
-    public static RestoreJob read(DataInput in) throws IOException {
-        RestoreJob job = new RestoreJob();
-        job.readFields(in);
-        return job;
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
@@ -2157,6 +2170,13 @@ public class RestoreJob extends AbstractJob {
         }
     }
 
+    public static RestoreJob read(DataInput in) throws IOException {
+        RestoreJob job = new RestoreJob();
+        job.readFields(in);
+        return job;
+    }
+
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -2233,6 +2253,13 @@ public class RestoreJob extends AbstractJob {
             String value = Text.readString(in);
             properties.put(key, value);
         }
+        reserveReplica = Boolean.parseBoolean(properties.get(PROP_RESERVE_REPLICA));
+        reserveDynamicPartitionEnable = Boolean.parseBoolean(properties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
+        isBeingSynced = Boolean.parseBoolean(properties.get(PROP_IS_BEING_SYNCED));
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
         reserveReplica = Boolean.parseBoolean(properties.get(PROP_RESERVE_REPLICA));
         reserveDynamicPartitionEnable = Boolean.parseBoolean(properties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
         isBeingSynced = Boolean.parseBoolean(properties.get(PROP_IS_BEING_SYNCED));
