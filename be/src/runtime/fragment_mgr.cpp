@@ -497,7 +497,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
         stream_load_ctx->table = params.txn_conf.tbl;
         stream_load_ctx->txn_id = params.txn_conf.txn_id;
         stream_load_ctx->id = UniqueId(params.query_id);
-        stream_load_ctx->put_result.pipeline_params = params;
+        stream_load_ctx->put_result.__set_pipeline_params(params);
         stream_load_ctx->use_streaming = true;
         stream_load_ctx->load_type = TLoadType::MANUL_LOAD;
         stream_load_ctx->load_src_type = TLoadSourceType::RAW;
