@@ -32,9 +32,12 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** AbstractUnassignedScanJob */
 public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
+    protected final AtomicInteger shareScanIdGenerator = new AtomicInteger();
+
     public AbstractUnassignedScanJob(PlanFragment fragment,
             List<ScanNode> scanNodes, ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob) {
         super(fragment, scanNodes, exchangeToChildJob);
@@ -59,7 +62,6 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
 
         boolean useLocalShuffleToAddParallel = useLocalShuffleToAddParallel(workerToScanRanges);
         int instanceIndexInFragment = 0;
-        int shareScanIndex = 0;
         List<AssignedJob> instances = Lists.newArrayList();
         for (Entry<Worker, UninstancedScanSource> entry : workerToScanRanges.entrySet()) {
             Worker worker = entry.getKey();
@@ -102,10 +104,10 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
                     // one scan range generate multiple instances,
                     // different instances reference the same scan source
                     LocalShuffleAssignedJob instance = new LocalShuffleAssignedJob(
-                            instanceIndexInFragment++, shareScanIndex, this, worker, shareScanSource);
+                            instanceIndexInFragment++, shareScanIdGenerator.get(), this, worker, shareScanSource);
                     instances.add(instance);
                 }
-                shareScanIndex++;
+                shareScanIdGenerator.incrementAndGet();
             } else {
                 // split the scanRanges to some partitions, one partition for one instance
                 // for example:

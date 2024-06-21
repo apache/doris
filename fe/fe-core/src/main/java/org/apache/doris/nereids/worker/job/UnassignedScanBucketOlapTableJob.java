@@ -193,15 +193,27 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         ListMultimap<Worker, Integer> missingBuckets = selectWorkerForMissingBuckets(
                 olapScanNode, randomPartition, missingBucketsInLeft);
 
+        boolean useLocalShuffle = leftSideInstances.stream().anyMatch(LocalShuffleAssignedJob.class::isInstance);
+
         List<AssignedJob> newInstances = new ArrayList<>(leftSideInstances);
         for (Entry<Worker, Collection<Integer>> workerToBuckets : missingBuckets.asMap().entrySet()) {
             Map<Integer, Map<ScanNode, ScanRanges>> scanEmptyBuckets = Maps.newLinkedHashMap();
             for (Integer bucketIndex : workerToBuckets.getValue()) {
                 scanEmptyBuckets.put(bucketIndex, ImmutableMap.of());
             }
-            AssignedJob fillUpInstance = assignWorkerAndDataSources(
-                    newInstances.size(), workerToBuckets.getKey(), new BucketScanSource(scanEmptyBuckets)
-            );
+
+            AssignedJob fillUpInstance;
+            Worker worker = workerToBuckets.getKey();
+            BucketScanSource scanSource = new BucketScanSource(scanEmptyBuckets);
+            if (useLocalShuffle) {
+                fillUpInstance = new LocalShuffleAssignedJob(
+                        newInstances.size(), shareScanIdGenerator.getAndIncrement(), this, worker, scanSource
+                );
+            } else {
+                fillUpInstance = assignWorkerAndDataSources(
+                        newInstances.size(), worker, scanSource
+                );
+            }
             newInstances.add(fillUpInstance);
         }
         return newInstances;

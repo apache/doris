@@ -150,16 +150,26 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
 
         Map<Integer, Long> bucketIndexToBytes = computeEachBucketScanBytes(scanNodes, bucketBytesSupplier);
 
-        ScanNode firstScanNode = scanNodes.get(0);
         for (Entry<Integer, Long> kv : bucketIndexToBytes.entrySet()) {
             Integer bucketIndex = kv.getKey();
             long allScanNodeScanBytesInOneBucket = kv.getValue();
 
-            List<TScanRangeLocations> allPartitionTabletsInOneBucketInFirstTable
-                    = bucketScanRangeSupplier.apply(firstScanNode, bucketIndex);
-            WorkerScanRanges replicaAndWorker = selectScanReplicaAndMinWorkloadWorker(
-                    allPartitionTabletsInOneBucketInFirstTable.get(0), allScanNodeScanBytesInOneBucket);
-            Worker selectedWorker = replicaAndWorker.worker;
+            Worker selectedWorker = null;
+            for (ScanNode scanNode : scanNodes) {
+                List<TScanRangeLocations> allPartitionTabletsInOneBucketInOneTable
+                        = bucketScanRangeSupplier.apply(scanNode, bucketIndex);
+                if (!allPartitionTabletsInOneBucketInOneTable.isEmpty()) {
+                    WorkerScanRanges replicaAndWorker = selectScanReplicaAndMinWorkloadWorker(
+                            allPartitionTabletsInOneBucketInOneTable.get(0), allScanNodeScanBytesInOneBucket);
+                    selectedWorker = replicaAndWorker.worker;
+                    break;
+                }
+                // else: the bucket is pruned, we should use another ScanNode to select worker for this bucket
+            }
+            if (selectedWorker == null) {
+                throw new IllegalStateException("Can not assign worker for bucket: " + bucketIndex);
+            }
+
             long workerId = selectedWorker.id();
             for (ScanNode scanNode : scanNodes) {
                 List<TScanRangeLocations> allPartitionTabletsInOneBucket
