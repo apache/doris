@@ -3376,10 +3376,19 @@ private:
     }
 };
 
+struct ReplaceImpl {
+    static constexpr auto name = "replace";
+};
+
+struct ReplaceEmptyImpl {
+    static constexpr auto name = "replace_empty";
+};
+
+template <typename Impl, bool empty>
 class FunctionReplace : public IFunction {
 public:
-    static constexpr auto name = "replace";
-    static FunctionPtr create() { return std::make_shared<FunctionReplace>(); }
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionReplace<Impl, empty>>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 3; }
 
@@ -3421,16 +3430,33 @@ public:
 private:
     std::string replace(std::string str, std::string_view old_str, std::string_view new_str) const {
         if (old_str.empty()) {
+            if constexpr (empty) {
+                return str;
+            } else {
+                // Different from "Replace" only when the search string is empty.
+                // it will insert `new_str` in front of every character and at the end of the old str.
+                if (new_str.empty()) {
+                    return str;
+                }
+                std::string result;
+                result.reserve(str.length() * (new_str.length() + 1) + new_str.length());
+                for (char c : str) {
+                    result += new_str;
+                    result += c;
+                }
+                result += new_str;
+                return result;
+            }
+        } else {
+            std::string::size_type pos = 0;
+            std::string::size_type oldLen = old_str.size();
+            std::string::size_type newLen = new_str.size();
+            while ((pos = str.find(old_str, pos)) != std::string::npos) {
+                str.replace(pos, oldLen, new_str);
+                pos += newLen;
+            }
             return str;
         }
-        std::string::size_type pos = 0;
-        std::string::size_type oldLen = old_str.size();
-        std::string::size_type newLen = new_str.size();
-        while ((pos = str.find(old_str, pos)) != std::string::npos) {
-            str.replace(pos, oldLen, new_str);
-            pos += newLen;
-        }
-        return str;
     }
 };
 
