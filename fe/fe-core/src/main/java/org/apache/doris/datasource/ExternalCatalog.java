@@ -792,11 +792,7 @@ public abstract class ExternalCatalog
     }
 
     public String bindBrokerName() {
-        Map<String, String> properties = catalogProperty.getProperties();
-        if (properties.containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
-            return properties.get(HMSExternalCatalog.BIND_BROKER_NAME);
-        }
-        return null;
+        return catalogProperty.getProperties().get(HMSExternalCatalog.BIND_BROKER_NAME);
     }
 
     // ATTN: this method only return all cached databases.

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.Type;
@@ -114,7 +115,11 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
                 //   For example, 2.1 is converted to 2;
                 // 3. childExpr is precisely converted to column type. For example, 2.0 is converted to 2.
                 // In cases 1 and 2 above, childExpr should be discarded.
-                LiteralExpr newExpr = (LiteralExpr) childExpr.castTo(columnType);
+                Expr tmpExpr = childExpr.castTo(columnType);
+                if (tmpExpr instanceof CastExpr && tmpExpr.getChild(0) instanceof PlaceHolderExpr) {
+                    tmpExpr = ((PlaceHolderExpr) tmpExpr.getChild(0)).getLiteral().castTo(columnType);
+                }
+                LiteralExpr newExpr = (LiteralExpr) tmpExpr;
                 if (childExpr.compareLiteral(newExpr) == 0) {
                     isCast = true;
                     newInList.add(newExpr);

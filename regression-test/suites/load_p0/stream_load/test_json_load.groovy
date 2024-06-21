@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_json_load", "p0") { 
+suite("test_json_load", "p0,nonConcurrent") { 
 
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]

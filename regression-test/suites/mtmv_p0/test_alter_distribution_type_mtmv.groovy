@@ -51,7 +51,7 @@ suite("test_alter_distribution_type_mtmv","mtmv") {
         ALTER TABLE ${mvName} set ("distribution_type" = "random");
         """
 
-    def showCreateTableResult = sql """show create table ${mvName}"""
+    def showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('DISTRIBUTED BY RANDOM'))
 

@@ -1379,12 +1379,6 @@ public class Config extends ConfigBase {
     public static boolean recover_with_empty_tablet = false;
 
     /**
-     * Whether to add a delete sign column when create unique table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_batch_delete_by_default = true;
-
-    /**
      * Whether to add a version column when create unique table
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1668,9 +1662,6 @@ public class Config extends ConfigBase {
      * */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
-
-    @ConfField(mutable = true)
-    public static boolean enable_pipeline_load = true;
 
     /*---------------------- JOB CONFIG START------------------------*/
     /**

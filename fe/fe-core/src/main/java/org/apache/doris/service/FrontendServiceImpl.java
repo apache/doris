@@ -1969,18 +1969,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return result;
             } else {
                 streamLoadHandler.generatePlan();
-                if (Config.enable_pipeline_load) {
-                    result.setPipelineParams((TPipelineFragmentParams) streamLoadHandler.getFragmentParams().get(0));
-                } else {
-                    throw new UserException("Pipeline load should be enabled");
-                }
+                result.setPipelineParams((TPipelineFragmentParams) streamLoadHandler.getFragmentParams().get(0));
             }
             if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
-                if (Config.enable_pipeline_load) {
-                    result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
-                } else {
-                    result.params.setWorkloadGroups(tWorkloadGroupList);
-                }
+                result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
             }
         } catch (MetaNotFoundException e) {
             LOG.warn("failed to rollback txn, id: {}, label: {}", request.getTxnId(), request.getLabel(), e);
@@ -2048,14 +2040,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } finally {
             ConnectContext.remove();
         }
-        if (Config.enable_pipeline_load) {
-            result.setPipelineParams(planFragmentParamsList);
-            LOG.info("receive stream load multi table put request result: {}", result);
-            return result;
-        }
-        result.setParams(planFragmentParamsList);
+        result.setPipelineParams(planFragmentParamsList);
         LOG.info("receive stream load multi table put request result: {}", result);
-
         return result;
     }
 

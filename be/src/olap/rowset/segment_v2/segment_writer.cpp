@@ -137,7 +137,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
     if (_tablet_schema->has_inverted_index()) {
         _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 _opts.rowset_ctx->fs(),
-                std::string {InvertedIndexDescriptor::get_index_path_prefix(
+                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                         _opts.rowset_ctx->segment_path(segment_id))},
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format());
@@ -216,9 +216,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     }
     // indexes for this column
     opts.indexes = schema->get_indexes_for_column(column);
-    if (!InvertedIndexColumnWriter::check_column_valid(column)) {
-        // skip inverted index if invalid
-        opts.indexes.clear();
+    if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
         opts.need_zone_map = false;
         opts.need_bloom_filter = false;
         opts.need_bitmap_index = false;
@@ -318,7 +316,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     // Just invalid row cache for simplicity, since the rowset is not visible at present.
     // If we update/insert cache, if load failed rowset will not be visible but cached data
     // will be visible, and lead to inconsistency.
-    if (!config::disable_storage_row_cache && _tablet_schema->store_row_column() &&
+    if (!config::disable_storage_row_cache && _tablet_schema->has_row_store_for_all_columns() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT) {
         // invalidate cache
         RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
@@ -437,27 +435,23 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
     }
     MonotonicStopWatch watch;
     watch.start();
-    // find row column id
     int row_column_id = 0;
     for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
         if (_tablet_schema->column(i).is_row_store_column()) {
-            row_column_id = i;
+            auto* row_store_column = static_cast<vectorized::ColumnString*>(
+                    block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
+            row_store_column->clear();
+            vectorized::DataTypeSerDeSPtrs serdes =
+                    vectorized::create_data_type_serdes(block.get_data_types());
+            vectorized::JsonbSerializeUtil::block_to_jsonb(
+                    *_tablet_schema, block, *row_store_column, _tablet_schema->num_columns(),
+                    serdes,
+                    {_tablet_schema->row_columns_uids().begin(),
+                     _tablet_schema->row_columns_uids().end()});
             break;
         }
     }
-    if (row_column_id == 0) {
-        return;
-    }
-    vectorized::ColumnString* row_store_column =
-            static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)
-                                                           .column->assume_mutable_ref()
-                                                           .assume_mutable()
-                                                           .get());
-    row_store_column->clear();
-    vectorized::DataTypeSerDeSPtrs serdes =
-            vectorized::create_data_type_serdes(block.get_data_types());
-    vectorized::JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
-                                                   _tablet_schema->num_columns(), serdes);
+
     VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
                << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
                << watch.elapsed_time() / 1000;
@@ -669,11 +663,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
                                          has_default_or_nullable, segment_start_pos, block));
     full_block.set_columns(std::move(mutable_full_columns));
-    // row column should be filled here
-    if (_tablet_schema->store_row_column()) {
-        // convert block to row store format
-        _serialize_block_to_row_column(full_block);
-    }
+    // convert block to row store format
+    _serialize_block_to_row_column(full_block);
 
     // convert missing columns and send to column writer
     RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
@@ -741,7 +732,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK_EQ(cids_missing.size(), old_value_block.columns());
-    bool has_row_column = _tablet_schema->store_row_column();
+    bool has_row_column = _tablet_schema->has_row_store_for_all_columns();
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
     size_t read_idx = 0;
@@ -870,9 +861,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             << ", _column_writers.size()=" << _column_writers.size();
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
-    if (_tablet_schema->store_row_column() &&
-        (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE)) {
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
+        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
         _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
     }
 
