@@ -699,8 +699,8 @@ public class OutFileClause {
                         properties.get(COMPRESS_TYPE).toLowerCase());
                 processedPropKeys.add(COMPRESS_TYPE);
             } else {
-                throw new AnalysisException("parquet compression type is invalid,"
-                        + "please choose one among SNAPPY, GZIP, BROTLI, ZSTD, LZ4, LZO, BZ2 or PLAIN");
+                throw new AnalysisException("parquet compression type [" + properties.get(COMPRESS_TYPE)
+                        + "] is invalid, please choose one among SNAPPY, GZIP, BROTLI, ZSTD, LZ4, LZO, BZ2 or PLAIN");
             }
         }
 
@@ -761,8 +761,8 @@ public class OutFileClause {
                 this.orcCompressionType = ORC_COMPRESSION_TYPE_MAP.get(properties.get(COMPRESS_TYPE).toLowerCase());
                 processedPropKeys.add(COMPRESS_TYPE);
             } else {
-                throw new AnalysisException("orc compression type is invalid,"
-                        + "please choose one among ZLIB, SNAPPY, ZSTD or PLAIN");
+                throw new AnalysisException("orc compression type [" + properties.get(COMPRESS_TYPE) + "] is invalid,"
+                        + " please choose one among ZLIB, SNAPPY, ZSTD or PLAIN");
             }
         }
 

@@ -342,7 +342,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setTimeoutSecond(timeoutSecond);
 
         // set compress_type
-        exportJob.setCompressType(fileProperties.getOrDefault(COMPRESS_TYPE, ""));
+        if (fileProperties.containsKey(COMPRESS_TYPE)) {
+            exportJob.setCompressType(fileProperties.get(COMPRESS_TYPE));
+        }
 
         // exportJob generate outfile sql
         exportJob.generateOutfileLogicalPlans(RelationUtil.getQualifierName(ctx, this.nameParts));

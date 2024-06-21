@@ -624,7 +624,10 @@ public class ExportJob implements Writable {
             outfileProperties.put(OutFileClause.PROP_LINE_DELIMITER, lineDelimiter);
         } else {
             // orc / parquet
-            outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
+            // compressType == null means outfile will use default compression type
+            if (compressType != null) {
+                outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
+            }
         }
         if (!maxFileSize.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_MAX_FILE_SIZE, maxFileSize);
