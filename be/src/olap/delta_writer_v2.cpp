@@ -114,7 +114,7 @@ Status DeltaWriterV2::init() {
     context.tablet_schema = _tablet_schema;
     context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
-    context.tablet = nullptr;
+    context.tablet = DORIS_TRY(ExecEnv::get_tablet(_req.tablet_id));
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.tablet_id = _req.tablet_id;
     context.partition_id = _req.partition_id;
@@ -122,7 +122,7 @@ Status DeltaWriterV2::init() {
     context.enable_unique_key_merge_on_write = _streams[0]->enable_unique_mow(_req.index_id);
     context.rowset_type = RowsetTypePB::BETA_ROWSET;
     context.rowset_id = StorageEngine::instance()->next_rowset_id();
-    context.data_dir = nullptr;
+    context.data_dir = StorageEngine::instance()->tablet_manager()->get_tablet(_req.tablet_id)->data_dir();
     context.partial_update_info = _partial_update_info;
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
