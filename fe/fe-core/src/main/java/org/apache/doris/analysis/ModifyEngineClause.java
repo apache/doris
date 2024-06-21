@@ -70,6 +70,11 @@ public class ModifyEngineClause extends AlterTableClause {
     }
 
     @Override
+    public boolean needChangeMTMVState() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY ENGINE TO ").append(engine);

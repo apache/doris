@@ -336,7 +336,12 @@ public class ProfileManager {
         }
 
         List<Future<TGetRealtimeExecStatusResponse>> futures = Lists.newArrayList();
-        TUniqueId queryId = Util.parseTUniqueIdFromString(id);
+        TUniqueId queryId = null;
+        try {
+            queryId = DebugUtil.parseTUniqueIdFromString(id);
+        } catch (NumberFormatException e) {
+            LOG.warn("Failed to parse TUniqueId from string {} when fetch profile", id);
+        }
         List<QueryIdAndAddress> involvedBackends = Lists.newArrayList();
 
         if (queryId != null) {

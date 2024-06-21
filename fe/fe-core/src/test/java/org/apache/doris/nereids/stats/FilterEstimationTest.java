@@ -1153,6 +1153,35 @@ class FilterEstimationTest {
                 .setNdv(100)
                 .setAvgSizeByte(25)
                 .setNumNulls(0)
+                .setMaxExpr(new StringLiteral("200"))
+                .setMaxValue(new VarcharLiteral("200").getDouble())
+                .setMinExpr(new StringLiteral("100"))
+                .setMinValue(new VarcharLiteral("100").getDouble())
+                .setCount(100);
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(100);
+        statsBuilder.putColumnStatistics(a, columnStatisticBuilder.build());
+        Statistics baseStats = statsBuilder.build();
+        VarcharLiteral i500 = new VarcharLiteral("500");
+        Statistics filter500 = new FilterEstimation().estimate(new LessThan(a, i500), baseStats);
+        Assertions.assertEquals(100, filter500.getRowCount());
+
+        VarcharLiteral i10 = new VarcharLiteral("10");
+        Statistics filter10 = new FilterEstimation().estimate(new LessThan(i10, a), baseStats);
+        Assertions.assertEquals(100, filter10.getRowCount());
+
+        VarcharLiteral i199 = new VarcharLiteral("199");
+        Statistics filter199 = new FilterEstimation().estimate(new GreaterThan(a, i199), baseStats);
+        Assertions.assertEquals(50, filter199.getRowCount(), 0.01);
+    }
+
+    @Test
+    public void testStringRangeColToDateLiteral() {
+        SlotReference a = new SlotReference("a", new VarcharType(25));
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(25)
+                .setNumNulls(0)
                 .setMaxExpr(new StringLiteral("2022-01-01"))
                 .setMaxValue(new VarcharLiteral("2022-01-01").getDouble())
                 .setMinExpr(new StringLiteral("2020-01-01"))
@@ -1172,7 +1201,7 @@ class FilterEstimationTest {
 
         VarcharLiteral year2021 = new VarcharLiteral("2021-12-01");
         Statistics filter2021 = new FilterEstimation().estimate(new GreaterThan(a, year2021), baseStats);
-        Assertions.assertEquals(50, filter2021.getRowCount());
+        Assertions.assertEquals(4.24, filter2021.getRowCount(), 0.01);
     }
 
     @Test

@@ -33,7 +33,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t2 t1 ) leading(t1 cte )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql1_3 --
@@ -53,7 +53,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t1 t2 ) leading(t1 cte )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql1_4 --
@@ -73,7 +73,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t1 t2 ) leading(t1 cte )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql1_res_1 --
@@ -116,7 +116,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t3 alias1 )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql2_3 --
@@ -134,7 +134,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t2 t1 )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql2_4 --
@@ -152,7 +152,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t2 t1 ) leading(t3 alias1 )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql2_res_1 --
@@ -207,7 +207,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t2 t1 ) leading(t3 alias1 cte )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql3_3 --
@@ -231,7 +231,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t2 t1 )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql3_4 --
@@ -255,7 +255,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t2 t1 ) leading(t2 t1 ) leading(t3 alias1 cte )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql3_res_1 --
@@ -304,7 +304,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t3 alias1 )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql4_2 --
@@ -325,7 +325,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(alias2 t1 )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql4_3 --
@@ -346,7 +346,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t4 t2 )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql4_4 --
@@ -367,7 +367,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(alias2 t1 ) leading(t3 alias1 )
-UnUsed:
+UnUsed: 
 SyntaxError:
 
 -- !sql4_res_0 --
@@ -439,6 +439,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 
 Hint log:
 Used: leading(cte t1 )
-UnUsed:
+UnUsed: 
 SyntaxError:
 

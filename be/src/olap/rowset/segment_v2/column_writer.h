@@ -89,6 +89,18 @@ class ColumnWriter {
 public:
     static Status create(const ColumnWriterOptions& opts, const TabletColumn* column,
                          io::FileWriter* file_writer, std::unique_ptr<ColumnWriter>* writer);
+    static Status create_struct_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                       io::FileWriter* file_writer,
+                                       std::unique_ptr<ColumnWriter>* writer);
+    static Status create_array_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                      io::FileWriter* file_writer,
+                                      std::unique_ptr<ColumnWriter>* writer);
+    static Status create_map_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                    io::FileWriter* file_writer,
+                                    std::unique_ptr<ColumnWriter>* writer);
+    static Status create_agg_state_writer(const ColumnWriterOptions& opts,
+                                          const TabletColumn* column, io::FileWriter* file_writer,
+                                          std::unique_ptr<ColumnWriter>* writer);
 
     explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable)
             : _field(std::move(field)), _is_nullable(is_nullable) {}
@@ -144,8 +156,6 @@ public:
 
     virtual Status write_inverted_index() = 0;
 
-    virtual size_t get_inverted_index_size() = 0;
-
     virtual Status write_bloom_filter_index() = 0;
 
     virtual ordinal_t get_next_rowid() const = 0;
@@ -196,7 +206,6 @@ public:
     Status write_zone_map() override;
     Status write_bitmap_index() override;
     Status write_inverted_index() override;
-    size_t get_inverted_index_size() override;
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
@@ -322,7 +331,6 @@ public:
         return Status::OK();
     }
     Status write_inverted_index() override;
-    size_t get_inverted_index_size() override;
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
             return Status::NotSupported("struct not support bloom filter index");
@@ -374,7 +382,6 @@ public:
         return Status::OK();
     }
     Status write_inverted_index() override;
-    size_t get_inverted_index_size() override;
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
             return Status::NotSupported("array not support bloom filter index");
@@ -413,7 +420,6 @@ public:
     Status write_data() override;
     Status write_ordinal_index() override;
     Status write_inverted_index() override;
-    size_t get_inverted_index_size() override;
     Status append_nulls(size_t num_rows) override;
 
     Status finish_current_page() override;

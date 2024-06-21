@@ -53,7 +53,7 @@ public:
                                   std::vector<size_t>& args) override;
     Status eval_inverted_index(
             VExprContext* context,
-            const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
+            const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
                                                          segment_v2::InvertedIndexIterator*>>&
                     colid_to_inverted_index_iter,
             uint32_t num_rows, roaring::Roaring* bitmap) const override;
@@ -72,9 +72,6 @@ public:
         return VExpr::is_constant();
     }
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);
-
-    bool fast_execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                      size_t result, size_t input_rows_count);
 
 protected:
     FunctionBasePtr _function;

@@ -20,7 +20,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[count_t_one_side]
 --------PhysicalOlapScan[count_t_one_side]
 
@@ -257,7 +257,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[count_t_one_side]
 --------PhysicalOlapScan[count_t_one_side]
 
@@ -338,13 +338,12 @@ PhysicalResultSink
 
 -- !groupby_pushdown_multi_table_join --
 PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
---------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[count_t_one_side]
-----------PhysicalOlapScan[count_t_one_side]
+--hashAgg[LOCAL]
+----hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[count_t_one_side]
+--------PhysicalOlapScan[count_t_one_side]
+------PhysicalOlapScan[count_t_one_side]
 
 -- !groupby_pushdown_with_order_by --
 PhysicalResultSink

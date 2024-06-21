@@ -19,6 +19,8 @@
 
 #include <cstddef>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
@@ -34,15 +36,20 @@ namespace doris::vectorized {
 // use jsonb codec to store row format
 class JsonbSerializeUtil {
 public:
+    // encode partial columns into jsonb
+    // empty row_store_cids means encode full schema columns for compability
     static void block_to_jsonb(const TabletSchema& schema, const Block& block, ColumnString& dst,
-                               int num_cols, const DataTypeSerDeSPtrs& serdes);
+                               int num_cols, const DataTypeSerDeSPtrs& serdes,
+                               const std::unordered_set<int32_t>& row_store_cids);
     // batch rows
     static void jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const ColumnString& jsonb_column,
                                const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
-                               Block& dst, const std::vector<std::string>& default_values);
+                               Block& dst, const std::vector<std::string>& default_values,
+                               const std::unordered_set<int>& include_cids);
     // single row
     static void jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data, size_t size,
                                const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
-                               Block& dst, const std::vector<std::string>& default_values);
+                               Block& dst, const std::vector<std::string>& default_values,
+                               const std::unordered_set<int>& include_cids);
 };
 } // namespace doris::vectorized

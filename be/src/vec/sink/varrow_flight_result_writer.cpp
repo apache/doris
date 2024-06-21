@@ -53,7 +53,7 @@ void VArrowFlightResultWriter::_init_profile() {
     _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
 }
 
-Status VArrowFlightResultWriter::write(Block& input_block) {
+Status VArrowFlightResultWriter::write(RuntimeState* state, Block& input_block) {
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();
     if (UNLIKELY(input_block.rows() == 0)) {
@@ -80,7 +80,7 @@ Status VArrowFlightResultWriter::write(Block& input_block) {
         SCOPED_TIMER(_result_send_timer);
         // If this is a dry run task, no need to send data block
         if (!_is_dry_run) {
-            status = _sinker->add_arrow_batch(result);
+            status = _sinker->add_arrow_batch(state, result);
         }
         if (status.ok()) {
             _written_rows += num_rows;
@@ -92,10 +92,6 @@ Status VArrowFlightResultWriter::write(Block& input_block) {
         }
     }
     return status;
-}
-
-bool VArrowFlightResultWriter::can_sink() {
-    return _sinker->can_sink();
 }
 
 Status VArrowFlightResultWriter::close(Status st) {

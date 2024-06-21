@@ -85,7 +85,7 @@
 #define MEMORY_ORPHAN_CHECK() (void)0
 #endif
 
-#if defined(USE_MEM_TRACKER) && !defined(BE_TEST) && defined(USE_JEMALLOC_HOOK)
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
 // Count a code segment memory (memory malloc - memory free) to int64_t
 // Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT_BY_HOOK(&scope_mem); xxx; xxx; }
 #define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \
@@ -159,14 +159,12 @@ public:
 
     void attach_task(const TUniqueId& task_id,
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-#ifndef BE_TEST
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
         DCHECK(mem_tracker);
         // Orphan is thread default tracker.
         DCHECK(thread_mem_tracker()->label() == "Orphan")
                 << ", thread mem tracker label: " << thread_mem_tracker()->label()
                 << ", attach mem tracker label: " << mem_tracker->label();
-#endif
         _task_id = task_id;
         thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
         thread_mem_tracker_mgr->set_query_id(_task_id);
@@ -380,9 +378,7 @@ public:
 class SwitchThreadMemTrackerLimiter {
 public:
     explicit SwitchThreadMemTrackerLimiter(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-#ifndef BE_TEST
         DCHECK(mem_tracker);
-#endif
         ThreadLocalHandle::create_thread_local_if_not_exits();
         _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
@@ -391,9 +387,7 @@ public:
     explicit SwitchThreadMemTrackerLimiter(const QueryThreadContext& query_thread_context) {
         ThreadLocalHandle::create_thread_local_if_not_exits();
         DCHECK(thread_context()->task_id() == query_thread_context.query_id);
-#ifndef BE_TEST
         DCHECK(query_thread_context.query_mem_tracker);
-#endif
         _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
                 query_thread_context.query_mem_tracker);

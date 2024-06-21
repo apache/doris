@@ -52,7 +52,6 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/plan_fragment_executor.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"

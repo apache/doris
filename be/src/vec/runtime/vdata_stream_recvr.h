@@ -111,6 +111,7 @@ public:
     // accessing members of receiver that are allocated by Object pool
     // in this function is not safe.
     bool exceeds_limit(size_t block_byte_size);
+    bool queue_exceeds_limit(size_t byte_size) const;
     bool is_closed() const { return _is_closed; }
 
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
@@ -143,6 +144,7 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
+    size_t _sender_queue_mem_limit;
 
     std::unique_ptr<VSortedRunMerger> _merger;
 
@@ -165,7 +167,6 @@ private:
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    bool _enable_pipeline;
     std::vector<std::shared_ptr<pipeline::Dependency>> _sender_to_local_channel_dependency;
 };
 
@@ -220,6 +221,8 @@ public:
     void add_blocks_memory_usage(int64_t size);
 
     void sub_blocks_memory_usage(int64_t size);
+
+    bool exceeds_limit();
 
 protected:
     friend class pipeline::ExchangeLocalState;
@@ -279,6 +282,7 @@ protected:
     int _num_remaining_senders;
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;
+    std::unique_ptr<MemTracker> _queue_mem_tracker;
     std::list<std::pair<BlockUPtr, size_t>> _block_queue;
 
     bool _received_first_batch;

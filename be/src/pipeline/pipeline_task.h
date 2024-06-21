@@ -30,7 +30,6 @@
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class QueryContext;
@@ -83,8 +82,6 @@ public:
     }
 
     void finalize();
-
-    bool is_finished() const { return _finished.load(); }
 
     std::string debug_string();
 
@@ -141,8 +138,8 @@ public:
 
     void clear_blocking_state() {
         // We use a lock to assure all dependencies are not deconstructed here.
-        std::unique_lock<std::mutex> lc(_release_lock);
-        if (!_finished) {
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        if (!_finalized) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
                 dep->set_always_ready();
@@ -222,6 +219,12 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
+    void stop_if_finished() {
+        if (_sink->is_finished(_state)) {
+            clear_blocking_state();
+        }
+    }
+
 private:
     friend class RuntimeFilterDependency;
     bool _is_blocked();
@@ -297,8 +300,8 @@ private:
 
     Dependency* _execution_dep = nullptr;
 
-    std::atomic<bool> _finished {false};
-    std::mutex _release_lock;
+    std::atomic<bool> _finalized {false};
+    std::mutex _dependency_lock;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};

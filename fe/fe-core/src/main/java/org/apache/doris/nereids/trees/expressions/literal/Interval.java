@@ -25,6 +25,9 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.EnumUtils;
+
+import java.util.Optional;
 
 /**
  * Interval for timestamp calculation.
@@ -61,30 +64,46 @@ public class Interval extends Expression implements LeafExpression, AlwaysNotNul
      * Supported time unit.
      */
     public enum TimeUnit {
-        YEAR("YEAR", false),
-        MONTH("MONTH", false),
-        WEEK("WEEK", false),
-        DAY("DAY", false),
-        HOUR("HOUR", true),
-        MINUTE("MINUTE", true),
-        SECOND("SECOND", true);
+        YEAR("YEAR", false, 800),
+        MONTH("MONTH", false, 700),
+        QUARTER("QUARTER", false, 600),
+        WEEK("WEEK", false, 500),
+        DAY("DAY", false, 400),
+        HOUR("HOUR", true, 300),
+        MINUTE("MINUTE", true, 200),
+        SECOND("SECOND", true, 100);
 
         private final String description;
-
         private final boolean isDateTimeUnit;
+        /**
+         * Time unit level, second level is low, year level is high
+         */
+        private final int level;
 
-        TimeUnit(String description, boolean isDateTimeUnit) {
+        TimeUnit(String description, boolean isDateTimeUnit, int level) {
             this.description = description;
             this.isDateTimeUnit = isDateTimeUnit;
+            this.level = level;
         }
 
         public boolean isDateTimeUnit() {
             return isDateTimeUnit;
         }
 
+        public int getLevel() {
+            return level;
+        }
+
         @Override
         public String toString() {
             return description;
+        }
+
+        /**
+         * Construct time unit by name
+         */
+        public static Optional<TimeUnit> of(String name) {
+            return Optional.ofNullable(EnumUtils.getEnumIgnoreCase(TimeUnit.class, name));
         }
     }
 }

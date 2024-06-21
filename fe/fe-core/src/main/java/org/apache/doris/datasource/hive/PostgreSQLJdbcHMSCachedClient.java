@@ -64,6 +64,11 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     }
 
     @Override
+    public void close() {
+        // the jdbc connection is used on demand, so we do not need to close it.
+    }
+
+    @Override
     public Database getDatabase(String dbName) {
         throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }

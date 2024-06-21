@@ -30,9 +30,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.DynamicPartitionUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -61,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -167,6 +172,8 @@ public class CreateMTMVInfo {
             properties = Maps.newHashMap();
         }
 
+        CreateTableInfo.maybeRewriteByAutoBucket(distribution, properties);
+
         // analyze distribute
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         columns.forEach(c -> columnMap.put(c.getName(), c));
@@ -178,6 +185,10 @@ public class CreateMTMVInfo {
     }
 
     private void analyzeProperties() {
+        properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(mvName.getCtl(), mvName.getDb(), properties);
+        if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+            throw new AnalysisException("Not support dynamic partition properties on async materialized view");
+        }
         for (String key : MTMVPropertyUtil.mvPropertyKeys) {
             if (properties.containsKey(key)) {
                 MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
@@ -211,9 +222,48 @@ public class CreateMTMVInfo {
         }
         getRelation(planner);
         getColumns(plan);
+        analyzeKeys();
         this.mvPartitionInfo = mvPartitionDefinition
                 .analyzeAndTransferToMTMVPartitionInfo(planner, ctx, logicalQuery);
         this.partitionDesc = generatePartitionDesc(ctx);
+    }
+
+    private void analyzeKeys() {
+        boolean enableDuplicateWithoutKeysByDefault = false;
+        try {
+            if (properties != null) {
+                enableDuplicateWithoutKeysByDefault =
+                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
+            }
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+        if (keys.isEmpty() && !enableDuplicateWithoutKeysByDefault) {
+            keys = Lists.newArrayList();
+            int keyLength = 0;
+            for (ColumnDefinition column : columns) {
+                DataType type = column.getType();
+                Type catalogType = column.getType().toCatalogDataType();
+                keyLength += catalogType.getIndexSize();
+                if (keys.size() >= FeConstants.shortkey_max_column_count
+                        || keyLength > FeConstants.shortkey_maxsize_bytes) {
+                    if (keys.isEmpty() && type.isStringLikeType()) {
+                        keys.add(column.getName());
+                    }
+                    break;
+                }
+                if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
+                        || catalogType.isComplexType() || type.isBitmapType() || type.isHllType()
+                        || type.isQuantileStateType() || type.isJsonType() || type.isStructType()
+                        || column.getAggType() != null) {
+                    break;
+                }
+                keys.add(column.getName());
+                if (type.isVarcharType()) {
+                    break;
+                }
+            }
+        }
     }
 
     private void getRelation(NereidsPlanner planner) {
@@ -330,6 +380,18 @@ public class CreateMTMVInfo {
                     Optional.empty(),
                     CollectionUtils.isEmpty(simpleColumnDefinitions) ? null
                             : simpleColumnDefinitions.get(i).getComment()));
+        }
+        // add a hidden column as row store
+        if (properties != null) {
+            try {
+                boolean storeRowColumn =
+                        PropertyAnalyzer.analyzeStoreRowColumn(Maps.newHashMap(properties));
+                if (storeRowColumn) {
+                    columns.add(ColumnDefinition.newRowStoreColumnDefinition(null));
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
         }
     }
 
