@@ -98,7 +98,7 @@ public:
 
     const std::unordered_set<int32_t> include_col_uids() const { return _include_col_uids; }
 
-    RuntimeState* runtime_state() { return _runtime_state.get(); }
+    const RuntimeState& runtime_state() const { return *_runtime_state; }
 
 private:
     // caching TupleDescriptor, output_expr, etc...

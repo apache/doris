@@ -459,6 +459,19 @@ suite("regression_test_variant", "nonConcurrent"){
             """ 
             exception("errCode = 2, detailMessage = Variant type should not be used in key")
         }
+        sql """
+            CREATE TABLE `var_as_key` (
+                `k` int NULL,
+                `var` variant NULL
+            ) ENGINE=OLAP
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+        sql """insert into var_as_key values(1, '{"a" : 10}')"""
+        sql """insert into var_as_key values(2, '{"b" : 11}')"""
+        qt_sql "select * from var_as_key order by k"
 
     } finally {
         // reset flags
