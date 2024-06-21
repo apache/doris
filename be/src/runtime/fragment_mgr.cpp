@@ -640,17 +640,26 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             return Status::OK();
         }
 
+        TNetworkAddress current_connect_fe_addr;
+        // for gray upragde between 2.1 version, fe may not set current_connect_fe,
+        // then use coord addr instead
+        if (params.__isset.current_connect_fe) {
+            current_connect_fe_addr = params.current_connect_fe;
+        } else {
+            current_connect_fe_addr = params.coord;
+        }
+
         LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
                   << ", total fragment num on current host: " << params.fragment_num_on_host
                   << ", fe process uuid: " << params.query_options.fe_process_uuid
                   << ", query type: " << params.query_options.query_type
-                  << ", report audit fe:" << params.current_connect_fe;
+                  << ", report audit fe:" << current_connect_fe_addr;
 
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
                                                 params.query_options, params.coord, pipeline,
-                                                params.is_nereids, params.current_connect_fe);
+                                                params.is_nereids, current_connect_fe_addr);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
