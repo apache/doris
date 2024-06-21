@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_single_hive_kerberos", "p2,external,kerberos,external_remote,external_remote_hive") {
+suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_catalog_name = "test_single_hive_kerberos"
@@ -24,8 +24,8 @@ suite("test_single_hive_kerberos", "p2,external,kerberos,external_remote,externa
             CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
             PROPERTIES (
                 "type" = "hms",
-                "hive.metastore.uris" = "thrift://hadoop-master:9083",
-                "fs.defaultFS" = "hdfs://hadoop-master:8020",
+                "hive.metastore.uris" = "thrift://172.20.70.25:9083",
+                "fs.defaultFS" = "hdfs://172.20.70.25:8020",
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="presto-server/trino-worker.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "presto-server.keytab",
@@ -60,8 +60,8 @@ suite("test_single_hive_kerberos", "p2,external,kerberos,external_remote,externa
                 CREATE CATALOG IF NOT EXISTS hms_keberos_ccache
                 PROPERTIES (
                     "type" = "hms",
-                    "hive.metastore.uris" = "thrift://hadoop-master:9083",
-                    "fs.defaultFS" = "hdfs://hadoop-master:8020",
+                    "hive.metastore.uris" = "thrift://172.20.70.25:9083",
+                    "fs.defaultFS" = "hdfs://172.20.70.25:8020",
                     "hadoop.security.authentication" = "kerberos",
                     "hadoop.kerberos.principal"="presto-server/trino-worker.docker.cluster@LABS.TERADATA.COM",
                     "hadoop.kerberos.keytab" = "presto-server.keytab",

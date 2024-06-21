@@ -1,5 +1,5 @@
-CREATE DATABASE `test_krb_hive_db`;
-CREATE TABLE `test_krb_hive_tbl`(
+CREATE DATABASE IF NOT EXISTS `test_krb_hive_db`;
+CREATE TABLE IF NOT EXISTS `test_krb_hive_db`.`test_krb_hive_tbl`(
   `id_key` int,
   `string_key` string,
   `rate_val` double,

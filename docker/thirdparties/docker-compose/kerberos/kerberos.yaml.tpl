@@ -44,12 +44,12 @@ services:
     hive-krb2:
         image: ghcr.io/trinodb/testing/hdp3.1-hive-kerberized-2:96
         volumes:
-                - ./two-kerberos-hives:/keytabs
-                - ./sql:/usr/local/sql
-                - ./common/hadoop/apply-config-overrides.sh:/etc/hadoop-init.d/00-apply-config-overrides.sh
-                - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
-                - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
-                - ./entrypoint-hive-master-2.sh:/usr/local/entrypoint-hive-master-2.sh
+            - ./two-kerberos-hives:/keytabs
+            - ./sql:/usr/local/sql
+            - ./common/hadoop/apply-config-overrides.sh:/etc/hadoop-init.d/00-apply-config-overrides.sh
+            - ./common/hadoop/hadoop-run.sh:/usr/local/hadoop-run.sh
+            - ./health-checks/hadoop-health-check.sh:/etc/health.d/hadoop-health-check.sh
+            - ./entrypoint-hive-master-2.sh:/usr/local/entrypoint-hive-master-2.sh
         hostname: hadoop-master-2
         entrypoint: /usr/local/entrypoint-hive-master-2.sh
         healthcheck:
