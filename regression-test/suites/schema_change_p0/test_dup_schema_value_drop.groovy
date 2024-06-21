@@ -1062,7 +1062,7 @@ suite("test_dup_schema_value_drop", "p0") {
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
-        }, insertSql, false, "${tbName1}")
+        }, insertSql, true, "${tbName1}")
     }, errorMessage)
 
 
