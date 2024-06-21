@@ -148,9 +148,7 @@ public:
               _initial_size(initial_size_),
               _used_size_no_head(0) {}
 
-    ~Arena() {
-        delete head;
-    }
+    ~Arena() { delete head; }
 
     /// Get piece of memory, without alignment.
     char* alloc(size_t size) {
@@ -312,7 +310,9 @@ public:
     * and only 128M can be reused when you apply for 4G memory again.
     */
     void clear() {
-        DCHECK(head != nullptr);
+        if (head == nullptr) {
+            return;
+        }
 
         if (head->prev) {
             delete head->prev;
