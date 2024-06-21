@@ -88,7 +88,7 @@ suite("test_parquet_orc_compression", "p0") {
                 PROPERTIES(
                     "label" = "${label}",
                     "format" = "${file_format}",
-                    "${file_format}.compression" = "${compression_type}"
+                    "compress_type" = "${compression_type}"
                 )
                 WITH S3(
                     "s3.endpoint" = "${s3_endpoint}",
@@ -122,7 +122,7 @@ suite("test_parquet_orc_compression", "p0") {
             INTO OUTFILE "s3://${outFilePath}"
             FORMAT AS ${file_format}
             PROPERTIES (
-                "${file_format}.compression" = "${compression_type}",
+                "compress_type" = "${compression_type}",
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
                 "s3.secret_key"="${sk}",
@@ -151,7 +151,7 @@ suite("test_parquet_orc_compression", "p0") {
     export_compression("parquet", "LZ4")
     export_compression("parquet", "LZO")
     export_compression("parquet", "BZ2")
-    export_compression("parquet", "UNCOMPRESSED")
+    export_compression("parquet", "plain")
     // 1.2 orc
     export_compression("orc", "PLAIN")
     export_compression("orc", "SNAPPY")
@@ -167,7 +167,7 @@ suite("test_parquet_orc_compression", "p0") {
     outfile_compression("parquet", "LZ4")
     outfile_compression("parquet", "LZO")
     outfile_compression("parquet", "BZ2")
-    outfile_compression("parquet", "UNCOMPRESSED")
+    outfile_compression("parquet", "plain")
     // 2.1 orc
     outfile_compression("orc", "PLAIN")
     outfile_compression("orc", "SNAPPY")
