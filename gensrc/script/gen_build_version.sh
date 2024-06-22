@@ -30,8 +30,8 @@ set -eo pipefail
 build_version_prefix="selectdb"
 build_version_major=4
 build_version_minor=0
-build_version_patch=0
-build_version_hotfix=5
+build_version_patch=1
+build_version_hotfix=0
 build_version_rc_version=""
 
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
@@ -212,8 +212,8 @@ EOF
 build_version_prefix="selectdb"
 build_version_major=4
 build_version_minor=0
-build_version_patch=0
-build_version_hotfix=5
+build_version_patch=1
+build_version_hotfix=0
 build_version_rc_version=""
 
 if [[ -f /etc/os-release ]]; then
