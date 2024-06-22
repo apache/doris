@@ -208,6 +208,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToStri
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4ToIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6CIDRToRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
@@ -662,6 +663,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ToIpv6.class, "to_ipv6"),
             scalar(ToIpv6OrDefault.class, "to_ipv6_or_default"),
             scalar(ToIpv6OrNull.class, "to_ipv6_or_null"),
+            scalar(Ipv4ToIpv6.class, "ipv4_to_ipv6"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),

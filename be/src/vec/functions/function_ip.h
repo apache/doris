@@ -32,6 +32,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/format_ip.h"
 #include "vec/common/ipv6_to_binary.h"
+#include "vec/common/unaligned.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -1156,6 +1157,44 @@ public:
         }
 
         return Status::OK();
+    }
+};
+
+class FunctionIPv4ToIPv6 : public IFunction {
+public:
+    static constexpr auto name = "ipv4_to_ipv6";
+    static FunctionPtr create() { return std::make_shared<FunctionIPv4ToIPv6>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeIPv6>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const auto& ipv4_column_with_type_and_name = block.get_by_position(arguments[0]);
+        WhichDataType addr_type(ipv4_column_with_type_and_name.type);
+        const auto* ipv4_column =
+                assert_cast<const ColumnIPv4*>(ipv4_column_with_type_and_name.column.get());
+        const auto& ipv4_column_data = ipv4_column->get_data();
+        auto col_res = ColumnIPv6::create(input_rows_count, 0);
+        auto& col_res_data = col_res->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            map_ipv4_to_ipv6(ipv4_column_data[i], reinterpret_cast<UInt8*>(&col_res_data[i]));
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    static void map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
+        unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
+        unaligned_store<UInt64>(buf + 8, 0);
     }
 };
 

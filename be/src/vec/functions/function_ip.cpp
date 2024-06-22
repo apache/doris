@@ -58,5 +58,8 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToIP<IPConvertExceptionMode::Throw, IPv6>>();
     factory.register_function<FunctionToIP<IPConvertExceptionMode::Default, IPv6>>();
     factory.register_function<FunctionToIP<IPConvertExceptionMode::Null, IPv6>>();
+
+    /// Convert between IPv4 and IPv6 part
+    factory.register_function<FunctionIPv4ToIPv6>();
 }
 } // namespace doris::vectorized

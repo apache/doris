@@ -18,6 +18,7 @@
 #include "function_test_util.h"
 #include "gtest/gtest_pred_impl.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
@@ -78,6 +79,24 @@ TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
                                                                   const_addr_dataset));
         }
     }
+}
+
+TEST(FunctionIpTest, FunctionIPv4ToIPv6Test) {
+    std::string func_name = "ipv4_to_ipv6";
+
+    DataSet data_set = {
+            {{static_cast<IPv4>(0)}, static_cast<IPv6>(0xFFFF00000000ULL)},          // 0.0.0.0
+            {{static_cast<IPv4>(1)}, static_cast<IPv6>(0xFFFF00000001ULL)},          // 0.0.0.1
+            {{static_cast<IPv4>(2130706433)}, static_cast<IPv6>(0xFFFF7F000001ULL)}, // 127.0.0.1
+            {{static_cast<IPv4>(3232235521)}, static_cast<IPv6>(0xFFFFC0A80001ULL)}, // 192.168.0.1
+            {{static_cast<IPv4>(4294967294)},
+             static_cast<IPv6>(0xFFFFFFFFFFFEULL)}, // 255.255.255.254
+            {{static_cast<IPv4>(4294967295)},
+             static_cast<IPv6>(0xFFFFFFFFFFFFULL)} // 255.255.255.255
+    };
+
+    InputTypeSet input_types = {TypeIndex::IPv4};
+    static_cast<void>(check_function<DataTypeIPv6, true>(func_name, input_types, data_set));
 }
 
 } // namespace doris::vectorized
