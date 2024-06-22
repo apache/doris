@@ -24,7 +24,6 @@ import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
@@ -636,6 +635,7 @@ public class Function implements Writable {
         AGGREGATE(2),
         ALIAS(3);
 
+        @SerializedName("c")
         private int code;
 
         FunctionType(int code) {
@@ -660,35 +660,13 @@ public class Function implements Writable {
             return null;
         }
 
-        public void write(DataOutput output) throws IOException {
-            output.writeInt(code);
-        }
-
         public static FunctionType read(DataInput input) throws IOException {
-            return fromCode(input.readInt());
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+                return fromCode(input.readInt());
+            } else {
+                throw new IOException("FunctionType should not be serialized af");
+            }
         }
-    }
-
-    protected void writeFields(DataOutput output) throws IOException {
-        output.writeLong(id);
-        name.write(output);
-        ColumnType.write(output, retType);
-        output.writeInt(argTypes.length);
-        for (Type type : argTypes) {
-            ColumnType.write(output, type);
-        }
-        output.writeBoolean(hasVarArgs);
-        output.writeBoolean(userVisible);
-        output.writeInt(binaryType.getValue());
-        // write library URL
-        String libUrl = "";
-        if (location != null) {
-            libUrl = location.getLocation();
-        }
-        IOUtils.writeOptionString(output, libUrl);
-        IOUtils.writeOptionString(output, checksum);
-        output.writeUTF(nullableMode.toString());
-        output.writeBoolean(isUDTFunction);
     }
 
     @Override
@@ -696,7 +674,7 @@ public class Function implements Writable {
         throw new Error("Origin function cannot be serialized");
     }
 
-    public void readFields(DataInput input) throws IOException {
+    protected void readFields(DataInput input) throws IOException {
         id = input.readLong();
         name = FunctionName.read(input);
         retType = ColumnType.read(input);

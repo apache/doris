@@ -40,7 +40,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
@@ -255,21 +254,6 @@ public class AliasFunction extends Function {
                 .append(originFunction.toSql())
                 .append(";");
         return sb.toString();
-    }
-
-    @Override
-    public void write(DataOutput output) throws IOException {
-        // 1. type
-        FunctionType.ALIAS.write(output);
-        // 2. parent
-        super.writeFields(output);
-        // 3. parameter
-        output.writeInt(parameters.size());
-        for (String p : parameters) {
-            Text.writeString(output, p);
-        }
-        // 4. expr
-        Expr.writeTo(originFunction, output);
     }
 
     @Override

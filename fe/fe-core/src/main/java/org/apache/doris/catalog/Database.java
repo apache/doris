@@ -92,7 +92,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // table family group map
     private final Map<Long, Table> idToTable;
     @SerializedName(value = "nameToTable")
-    private Map<String, Table> nameToTable;
+    private ConcurrentMap<String, Table> nameToTable;
     // table name lower cast -> table name
     private final Map<String, String> lowerCaseToTableName;
 
@@ -109,7 +109,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     @SerializedName(value = "replicaQuotaSize")
     private volatile long replicaQuotaSize;
 
-    @SerializedName(value = "tq")
+    // from dbProperties;
     private volatile long transactionQuotaSize;
 
     private volatile boolean isDropped;
@@ -126,7 +126,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
 
-    @SerializedName(value = "bc")
+    // from dbProperties;
     private BinlogConfig binlogConfig = new BinlogConfig();
 
     public Database() {
@@ -602,6 +602,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     @Override
     public void gsonPostProcess() throws IOException {
+        Preconditions.checkState(nameToTable.getClass() == ConcurrentMap.class,
+                                 "nameToTable should be ConcurrentMap");
         fullQualifiedName = ClusterNamespace.getNameFromFullName(fullQualifiedName);
         nameToTable.forEach((tn, tb) -> {
             tb.setQualifiedDbName(fullQualifiedName);
@@ -612,10 +614,25 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             lowerCaseToTableName.put(tn.toLowerCase(), tn);
         });
 
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
+            String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
+                    String.valueOf(Config.max_running_txn_num_per_db));
+            transactionQuotaSize = Long.parseLong(txnQuotaStr);
+            binlogConfig = dbProperties.getBinlogConfig();
+        } else {
             transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
                     ? Config.max_running_txn_num_per_db
                     : Config.default_db_max_running_txn_num;
+        }
+
+        for (ImmutableList<Function> functions : name2Function.values()) {
+            for (Function function : functions) {
+                try {
+                    FunctionUtil.translateToNereids(null, function);
+                } catch (Exception e) {
+                    LOG.warn("Nereids add function failed", e);
+                }
+            }
         }
     }
 

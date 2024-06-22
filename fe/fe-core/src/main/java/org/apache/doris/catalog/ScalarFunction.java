@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TFunction;
@@ -33,7 +32,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -257,18 +255,6 @@ public class ScalarFunction extends Function {
             fn.getScalarFn().setSymbol("");
         }
         return fn;
-    }
-
-    @Override
-    public void write(DataOutput output) throws IOException {
-        // 1. type
-        FunctionType.SCALAR.write(output);
-        // 2. parent
-        super.writeFields(output);
-        // 3.symbols
-        Text.writeString(output, symbolName);
-        IOUtils.writeOptionString(output, prepareFnSymbol);
-        IOUtils.writeOptionString(output, closeFnSymbol);
     }
 
     public void readFields(DataInput input) throws IOException {

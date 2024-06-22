@@ -33,7 +33,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -636,33 +635,6 @@ public class AggregateFunction extends Function {
         //    agg_fn.setIgnores_distinct(ignoresDistinct);
         fn.setAggregateFn(aggFn);
         return fn;
-    }
-
-    @Override
-    public void write(DataOutput output) throws IOException {
-        // 1. type
-        FunctionType.AGGREGATE.write(output);
-        // 2. parent
-        super.writeFields(output);
-        // 3. self's member
-        boolean hasInterType = intermediateType != null;
-        output.writeBoolean(hasInterType);
-        if (hasInterType) {
-            ColumnType.write(output, intermediateType);
-        }
-        IOUtils.writeOptionString(output, updateFnSymbol);
-        IOUtils.writeOptionString(output, initFnSymbol);
-        IOUtils.writeOptionString(output, serializeFnSymbol);
-        IOUtils.writeOptionString(output, mergeFnSymbol);
-        IOUtils.writeOptionString(output, getValueFnSymbol);
-        IOUtils.writeOptionString(output, removeFnSymbol);
-        IOUtils.writeOptionString(output, finalizeFnSymbol);
-        IOUtils.writeOptionString(output, symbolName);
-
-        output.writeBoolean(ignoresDistinct);
-        output.writeBoolean(isAnalyticFn);
-        output.writeBoolean(isAggregateFn);
-        output.writeBoolean(returnsNonNullOnEmpty);
     }
 
     public void readFields(DataInput input) throws IOException {
