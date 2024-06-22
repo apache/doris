@@ -86,7 +86,7 @@ suite("shuffle_left_join") {
         assertTrue(exchangeNum == 1)
     }
 
-    test {
+    explain {
         sql "plan $sqlStr"
         check { explainStr ->
             log.info("explain plan:\n${explainStr}")
