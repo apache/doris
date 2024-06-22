@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,kerberos,iceberg,hudi,trino,kafka,mariadb,db2,lakesoul
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,lakesoul,kerberos
   "
     exit 1
 }
@@ -59,7 +59,7 @@ eval set -- "${OPTS}"
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive2,hive3,kerberos,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2"
+    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,kerberos"
 else
     while true; do
         case "$1" in
@@ -91,7 +91,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,kerberos,iceberg,hudi,trino,kafka,mariadb,db2,lakesoul"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,kerberos,lakesoul"
         fi
     fi
 fi
@@ -155,8 +155,6 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_HIVE2=1
     elif [[ "${element}"x == "hive3"x ]]; then
         RUN_HIVE3=1
-    elif [[ "${element}"x == "kerberos"x ]]; then
-        RUN_KERBEROS=1
     elif [[ "${element}"x == "kafka"x ]]; then
         RUN_KAFKA=1
     elif [[ "${element}"x == "iceberg"x ]]; then
@@ -173,6 +171,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_DB2=1
     elif [[ "${element}"x == "lakesoul"x ]]; then
         RUN_LAKESOUL=1
+    elif [[ "${element}"x == "kerberos"x ]]; then
+        RUN_KERBEROS=1
     else
         echo "Invalid component: ${element}"
         usage

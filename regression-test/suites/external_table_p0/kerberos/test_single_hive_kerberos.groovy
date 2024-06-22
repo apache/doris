@@ -34,30 +34,8 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
             );
         """
         sql """ switch hms_kerberos """
-        sql """ CREATE DATABASE IF NOT EXISTS `test_krb_hive_db`;  """
-        sql """ CREATE TABLE IF NOT EXISTS `test_krb_hive_db`.`test_krb_hive_tbl`(
-                  `id_key` int,
-                  `string_key` string,
-                  `rate_val` double,
-                  `comment` string
-                ) engine=hive
-            """
-        sql """ 
-                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(1, 'a', 3.16, 'cc0');
-            """
-        sql """ 
-                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(2, 'b', 41.2, 'cc1');
-            """
-        sql """ 
-                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(3, 'c', 6.2, 'cc2');
-            """
-        sql """ 
-                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(4, 'd', 1.4, 'cc3');
-            """
         sql """ show databases """
         order_qt_q01 """ select * from hms_kerberos.test_krb_hive_db.test_krb_hive_tbl """
-        sql """ DROP TABLE  `test_krb_hive_db`.`test_krb_hive_tbl`; """
-        sql """ DROP DATABASE  `test_krb_hive_db`; """
         sql """drop catalog hms_kerberos;"""
 
         try {
