@@ -34,6 +34,28 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
             );
         """
 
+        sql """ SWITCH ${hms_catalog_name};  """
+        sql """ CREATE DATABASE IF NOT EXISTS `test_krb_hive_db`;  """
+        sql """ CREATE TABLE IF NOT EXISTS `test_krb_hive_db`.`test_krb_hive_tbl`(
+                  `id_key` int,
+                  `string_key` string,
+                  `rate_val` double,
+                  `comment` string
+                ) engine=hive
+            """
+        sql """ 
+                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(1, 'a', 3.16, 'cc0');
+            """
+        sql """ 
+                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(2, 'b', 41.2, 'cc1');
+            """
+        sql """ 
+                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(3, 'c', 6.2, 'cc2');
+            """
+        sql """ 
+                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(4, 'd', 1.4, 'cc3');
+            """
+
         sql """drop catalog if exists other_${hms_catalog_name};"""
         sql """
             CREATE CATALOG IF NOT EXISTS other_${hms_catalog_name}
@@ -51,6 +73,28 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
                                                   DEFAULT"
             );
         """
+
+        sql """ SWITCH other_${hms_catalog_name};  """
+        sql """ CREATE DATABASE IF NOT EXISTS `test_krb_hive_db`;  """
+        sql """ CREATE TABLE IF NOT EXISTS `test_krb_hive_db`.`test_krb_hive_tbl`(
+                  `id_key` int,
+                  `string_key` string,
+                  `rate_val` double,
+                  `comment` string
+                ) engine=hive
+            """
+        sql """ 
+                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(1, 'a', 3.16, 'cc0');
+            """
+        sql """ 
+                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(2, 'b', 41.2, 'cc1');
+            """
+        sql """ 
+                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(3, 'c', 6.2, 'cc2');
+            """
+        sql """ 
+                INSERT INTO test_krb_hive_db.test_krb_hive_tbl values(4, 'd', 1.4, 'cc3');
+            """
 
         // 1. catalogA
         sql """switch ${hms_catalog_name};"""
@@ -73,6 +117,14 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
         // test cross catalog
         order_qt_q05 """ select * from ${hms_catalog_name}.test_krb_hive_db.test_krb_hive_tbl """
         order_qt_q06 """ select * from other_${hms_catalog_name}.test_krb_hive_db.test_krb_hive_tbl """
+
+        sql """ SWITCH ${hms_catalog_name};  """
+        sql """ DROP TABLE  `test_krb_hive_db`.`test_krb_hive_tbl`; """
+        sql """ DROP DATABASE  `test_krb_hive_db`; """
+
+        sql """ SWITCH other_${hms_catalog_name};  """
+        sql """ DROP TABLE  `test_krb_hive_db`.`test_krb_hive_tbl`; """
+        sql """ DROP DATABASE  `test_krb_hive_db`; """
 
         sql """drop catalog ${hms_catalog_name};"""
         sql """drop catalog other_${hms_catalog_name};"""
