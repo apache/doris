@@ -71,6 +71,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -650,6 +651,8 @@ public class GlobalTransactionMgrTest {
                 new SubTransactionInfo(table1, CatalogTestUtil.testTabletId1, allBackends));
         List<SubTransactionState> subTransactionStates = generateSubTransactionStates(transactionState,
                 subTransactionInfos);
+        transactionState.setSubTxnIds(subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
+                .collect(Collectors.toList()));
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2), transactionId,
                 subTransactionStates, 300000);
         // check status is committed
@@ -718,6 +721,8 @@ public class GlobalTransactionMgrTest {
             List<SubTransactionState> subTransactionStates = generateSubTransactionStates(transactionState,
                     subTransactionInfos);
             // commit txn
+            transactionState.setSubTxnIds(subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
+                    .collect(Collectors.toList()));
             masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2),
                     transactionId,
                     subTransactionStates, 300000);
@@ -759,6 +764,8 @@ public class GlobalTransactionMgrTest {
                     subTransactionInfos);
             // commit txn
             try {
+                transactionState.setSubTxnIds(subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
+                        .collect(Collectors.toList()));
                 masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2),
                         transactionId, subTransactionStates, 300000);
                 Assert.fail();
@@ -793,6 +800,8 @@ public class GlobalTransactionMgrTest {
             List<SubTransactionState> subTransactionStates = generateSubTransactionStates(transactionState,
                     subTransactionInfos);
             // commit txn
+            transactionState.setSubTxnIds(subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
+                    .collect(Collectors.toList()));
             masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2),
                     transactionId, subTransactionStates, 300000);
             Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
@@ -907,6 +916,8 @@ public class GlobalTransactionMgrTest {
         List<SubTransactionState> subTransactionStates = generateSubTransactionStates(transactionState,
                 subTransactionInfos);
         // commit txn
+        transactionState.setSubTxnIds(subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
+                .collect(Collectors.toList()));
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2), transactionId,
                 subTransactionStates, 300000);
         // check status is committed
@@ -928,15 +939,12 @@ public class GlobalTransactionMgrTest {
         // finish transaction
         Map<String, Map<Long, Long>> keyToSuccessTablets = new HashMap<>();
         DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets, allBackends,
-                transactionState.getSubTransactionStates().get(0).getSubTransactionId(), CatalogTestUtil.testTabletId1,
-                14);
+                subTransactionStates.get(0).getSubTransactionId(), CatalogTestUtil.testTabletId1, 14);
         DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets, allBackends,
-                transactionState.getSubTransactionStates().get(1).getSubTransactionId(), CatalogTestUtil.testTabletId2,
-                13);
+                subTransactionStates.get(1).getSubTransactionId(), CatalogTestUtil.testTabletId2, 13);
         DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets,
                 Lists.newArrayList(CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3),
-                transactionState.getSubTransactionStates().get(2).getSubTransactionId(), CatalogTestUtil.testTabletId1,
-                15);
+                subTransactionStates.get(2).getSubTransactionId(), CatalogTestUtil.testTabletId1, 15);
         DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState, allBackends, keyToSuccessTablets);
         Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
         Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
@@ -1011,6 +1019,8 @@ public class GlobalTransactionMgrTest {
             List<SubTransactionState> subTransactionStates = generateSubTransactionStates(transactionState,
                     subTransactionInfos);
             // commit txn
+            transactionState.setSubTxnIds(subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
+                    .collect(Collectors.toList()));
             masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2),
                     transactionId, subTransactionStates, 300000);
             // check status is committed
@@ -1040,14 +1050,11 @@ public class GlobalTransactionMgrTest {
             // backend2, backend3 publish failed
             DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets,
                     Lists.newArrayList(CatalogTestUtil.testBackendId1),
-                    transactionState.getSubTransactionStates().get(0).getSubTransactionId(),
-                    CatalogTestUtil.testTabletId1, 14);
+                    subTransactionStates.get(0).getSubTransactionId(), CatalogTestUtil.testTabletId1, 14);
             DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets, allBackends,
-                    transactionState.getSubTransactionStates().get(1).getSubTransactionId(), CatalogTestUtil.testTabletId2,
-                    13);
+                    subTransactionStates.get(1).getSubTransactionId(), CatalogTestUtil.testTabletId2, 13);
             DatabaseTransactionMgrTest.setSuccessTablet(keyToSuccessTablets, allBackends,
-                    transactionState.getSubTransactionStates().get(2).getSubTransactionId(),
-                    CatalogTestUtil.testTabletId1, 15);
+                    subTransactionStates.get(2).getSubTransactionId(), CatalogTestUtil.testTabletId1, 15);
             DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState, allBackends, keyToSuccessTablets);
             LOG.info("publish tasks: {}", transactionState.getPublishVersionTasks());
             // finish transaction
@@ -1131,8 +1138,7 @@ public class GlobalTransactionMgrTest {
 
     protected static List<SubTransactionState> generateSubTransactionStates(GlobalTransactionMgr masterTransMgr,
             TransactionState transactionState, List<SubTransactionInfo> subTransactionInfos) {
-        transactionState.resetSubTransactionStates();
-        List<SubTransactionState> subTransactionStates = transactionState.getSubTransactionStates();
+        List<SubTransactionState> subTransactionStates = new ArrayList<>();
         for (int i = 0; i < subTransactionInfos.size(); i++) {
             SubTransactionInfo subTransactionInfo = subTransactionInfos.get(i);
             Table table = subTransactionInfo.table;
@@ -1145,8 +1151,9 @@ public class GlobalTransactionMgrTest {
             subTransactionStates.add(generateSubTransactionState(transactionState, subTxnId, table,
                     tabletId, backends, addTableId));
         }
-        transactionState.resetSubTxnIds();
-        LOG.info("sub txn states={}", transactionState.getSubTransactionStates());
+        transactionState.setSubTxnIds(
+                subTransactionInfos.stream().map(sub -> sub.subTxnId).collect(Collectors.toList()));
+        LOG.info("sub txn states={}", subTransactionInfos);
         return subTransactionStates;
     }
 

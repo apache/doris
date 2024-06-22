@@ -32,6 +32,7 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
 import java.io.IOException;
+import java.lang.reflect.Modifier;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -282,7 +283,9 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
     }
 
     public <R> TypeAdapter<R> create(Gson gson, TypeToken<R> type) {
-        if (type.getRawType() != baseType && !subtypeToLabel.containsKey(type.getRawType())) {
+        if (baseType != type.getRawType() && !subtypeToLabel.containsKey(type.getRawType())
+                && !(Modifier.isAbstract(type.getRawType().getModifiers())
+                     && baseType.isAssignableFrom(type.getRawType()))) {
             return null;
         }
 

@@ -68,6 +68,9 @@ suite("test_stream_load_error_url", "p0") {
                 log.info("error result: " + out)
                 assertTrue(out.contains("actual column number in csv file is  more than  schema column number.actual number"))
                 log.info("url: " + json.ErrorURL)
+                if (isCloudMode()) {
+                    assertTrue(json.ErrorURL.contains("X-Amz-Signature="))
+                }
             }
         }
     } finally {

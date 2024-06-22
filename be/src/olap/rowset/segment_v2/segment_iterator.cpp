@@ -365,12 +365,18 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
         std::set<std::string> push_down_preds;
         for (auto* pred : _col_predicates) {
             if (!_check_apply_by_inverted_index(pred)) {
+                //column predicate, like column predicate etc. always need read data
+                auto cid = pred->column_id();
+                _need_read_data_indices[cid] = true;
                 continue;
             }
             push_down_preds.insert(_gen_predicate_result_sign(pred));
         }
         for (auto* pred : _col_preds_except_leafnode_of_andnode) {
             if (!_check_apply_by_inverted_index(pred)) {
+                //column predicate, like column predicate etc. always need read data
+                auto cid = pred->column_id();
+                _need_read_data_indices[cid] = true;
                 continue;
             }
             push_down_preds.insert(_gen_predicate_result_sign(pred));
@@ -1124,6 +1130,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
 
         if (need_remaining_after_evaluate) {
             remaining_predicates.emplace_back(pred);
+            _need_read_data_indices[pred->column_id()] = true;
             return Status::OK();
         }
 
@@ -2403,6 +2410,15 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         return Status::EndOfFile("no more data in segment");
     }
 
+    DBUG_EXECUTE_IF("segment_iterator._rowid_result_for_index", {
+        for (auto& iter : _rowid_result_for_index) {
+            if (iter.second.first) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "_rowid_result_for_index exists true");
+            }
+        }
+    })
+
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
         if (_non_predicate_columns.empty()) {
             return Status::InternalError("_non_predicate_columns is empty");
@@ -2840,6 +2856,9 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
 
     // If the key is present in expr, data needs to be read.
     if (cids.contains(cid)) {
+        return false;
+    }
+    if (_column_pred_in_remaining_vconjunct.contains(_opts.tablet_schema->column(cid).name())) {
         return false;
     }
 
