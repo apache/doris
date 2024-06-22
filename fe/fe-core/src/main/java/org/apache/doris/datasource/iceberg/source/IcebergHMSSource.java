@@ -41,7 +41,7 @@ public class IcebergHMSSource implements IcebergSource {
     private final org.apache.iceberg.Table icebergTable;
 
     public IcebergHMSSource(HMSExternalTable hmsTable, TupleDescriptor desc,
-                            Map<String, ColumnRange> columnNameToRange) {
+            Map<String, ColumnRange> columnNameToRange) {
         this.hmsTable = hmsTable;
         this.desc = desc;
         this.columnNameToRange = columnNameToRange;
@@ -58,7 +58,7 @@ public class IcebergHMSSource implements IcebergSource {
 
     @Override
     public String getFileFormat() throws DdlException, MetaNotFoundException {
-        return IcebergUtils.getFileFormat(icebergTable);
+        return IcebergUtils.getFileFormat(icebergTable).name();
     }
 
     public org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
