@@ -22,6 +22,8 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -826,5 +828,12 @@ public abstract class ExternalCatalog
             ret = true;
         }
         return ret;
+    }
+
+    @Override
+    public void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException {
+        TableRef tblRef = truncateTableStmt.getTblRef();
+        TableName dbTbl = tblRef.getName();
+
     }
 }
