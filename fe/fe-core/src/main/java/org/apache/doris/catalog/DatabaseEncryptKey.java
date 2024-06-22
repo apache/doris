@@ -32,6 +32,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * user define encryptKey in current db.
@@ -60,7 +61,7 @@ public class DatabaseEncryptKey implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        Preconditions.checkState(name2EncryptKey.getClass() == ConcurrentMap.class,
+        Preconditions.checkState(name2EncryptKey.getClass() == ConcurrentHashMap.class,
                 "name2EncryptKey should be ConcurrentMap, but is " + name2EncryptKey.getClass());
     }
 }

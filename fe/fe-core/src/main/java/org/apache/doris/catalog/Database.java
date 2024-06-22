@@ -61,6 +61,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -602,7 +603,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     @Override
     public void gsonPostProcess() throws IOException {
-        Preconditions.checkState(nameToTable.getClass() == ConcurrentMap.class,
+        Preconditions.checkState(nameToTable.getClass() == ConcurrentHashMap.class,
                                  "nameToTable should be ConcurrentMap");
         fullQualifiedName = ClusterNamespace.getNameFromFullName(fullQualifiedName);
         nameToTable.forEach((tn, tb) -> {

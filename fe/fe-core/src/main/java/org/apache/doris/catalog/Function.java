@@ -27,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -671,7 +672,7 @@ public class Function implements Writable {
 
     @Override
     public void write(DataOutput output) throws IOException {
-        throw new Error("Origin function cannot be serialized");
+        Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 
     protected void readFields(DataInput input) throws IOException {
