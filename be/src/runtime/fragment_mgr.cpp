@@ -51,6 +51,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -117,6 +118,9 @@ uint64_t get_fragment_last_active_time() {
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
         return "";
+    }
+    if (file_name.compare(0, 4, "http") == 0) {
+        return file_name;
     }
     std::stringstream url;
     url << "http://" << get_host_port(BackendOptions::get_localhost(), config::webserver_port)

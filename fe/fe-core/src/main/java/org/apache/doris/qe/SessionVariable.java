@@ -404,6 +404,7 @@ public class SessionVariable implements Serializable, Writable {
             = "enable_common_expr_pushdown_for_inverted_index";
 
     public static final String ENABLE_PUSHDOWN_COUNT_ON_INDEX = "enable_count_on_index_pushdown";
+    public static final String ENABLE_NO_NEED_READ_DATA_OPT = "enable_no_need_read_data_opt";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
@@ -1440,6 +1441,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
             "是否启用count_on_index pushdown。", "Set whether to pushdown count_on_index."})
     public boolean enablePushDownCountOnIndex = true;
+
+    // Whether enable no need read data opt in segment_iterator.
+    @VariableMgr.VarAttr(name = ENABLE_NO_NEED_READ_DATA_OPT, needForward = true, description = {
+            "是否启用no_need_read_data opt。", "Set whether to enable no_need_read_data opt."})
+    public boolean enableNoNeedReadDataOpt = true;
 
     // Whether enable pushdown minmax to scan node of unique table.
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = {
@@ -3248,6 +3254,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePushDownCountOnIndex = enablePushDownCountOnIndex;
     }
 
+    public boolean isEnableNoNeedReadDataOpt() {
+        return enableNoNeedReadDataOpt;
+    }
+
+    public void setEnableNoNeedReadDataOpt(boolean enableNoNeedReadDataOpt) {
+        this.enableNoNeedReadDataOpt = enableNoNeedReadDataOpt;
+    }
+
     public int getMaxTableCountUseCascadesJoinReorder() {
         return this.maxTableCountUseCascadesJoinReorder;
     }
@@ -3383,6 +3397,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
         tResult.setEnableCommonExprPushdownForInvertedIndex(enableCommonExpPushDownForInvertedIndex);
+        tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
