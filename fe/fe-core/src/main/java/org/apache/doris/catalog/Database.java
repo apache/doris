@@ -32,6 +32,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
@@ -39,6 +40,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -123,6 +125,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
+
+    @SerializedName(value = "dbComment")
+    private String dbComment;
 
     private BinlogConfig binlogConfig = new BinlogConfig();
 
@@ -291,6 +296,24 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public long getUsedDataQuotaWithLock() {
         return getUsedDataSize().first;
+    }
+
+    public String getDbComment() {
+        return getDbComment(false);
+    }
+
+    public String getDbComment(boolean escapeQuota) {
+        if (!Strings.isNullOrEmpty(dbComment)) {
+            if (!escapeQuota) {
+                return dbComment;
+            }
+            return SqlUtils.escapeQuota(dbComment);
+        }
+        return dbState.name();
+    }
+
+    public void setDbComment(String dbComment) {
+        this.dbComment = Strings.nullToEmpty(dbComment);
     }
 
     public Pair<Long, Long> getUsedDataSize() {
@@ -621,6 +644,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         Text.writeString(out, SystemInfoService.DEFAULT_CLUSTER);
         Text.writeString(out, dbState.name());
         Text.writeString(out, attachDbName);
+        Text.writeString(out, dbComment);
 
         // write functions
         FunctionUtil.write(out, name2Function);
@@ -683,6 +707,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         // read encryptKeys
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
             dbEncryptKey = DatabaseEncryptKey.read(in);
+        }
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_134) {
+            dbComment = Text.readString(in);
         }
 
         replicaQuotaSize = in.readLong();

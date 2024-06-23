@@ -46,6 +46,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import com.google.gson.internal.LinkedTreeMap;
 import org.apache.commons.lang3.NotImplementedException;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -320,6 +321,16 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public DatabaseProperty getDbProperties() {
         return dbProperties;
+    }
+
+    @Override
+    public String getDbComment() {
+        return StringUtils.EMPTY;
+    }
+
+    @Override
+    public String getDbComment(boolean escapeQuota) {
+        return StringUtils.EMPTY;
     }
 
     @Override

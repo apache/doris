@@ -27,6 +27,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
@@ -37,12 +38,18 @@ public class CreateDbStmt extends DdlStmt {
     private String ctlName;
     private String dbName;
     private Map<String, String> properties;
+    private String comment;
 
-    public CreateDbStmt(boolean ifNotExists, DbName dbName, Map<String, String> properties) {
+    public CreateDbStmt(boolean ifNotExists, DbName dbName, Map<String, String> properties, String comment) {
         this.ifNotExists = ifNotExists;
         this.ctlName = dbName.getCtl();
         this.dbName = dbName.getDb();
         this.properties = properties == null ? new HashMap<>() : properties;
+        this.comment = Strings.nullToEmpty(comment);
+    }
+
+    public CreateDbStmt(boolean ifNotExists, DbName dbName, Map<String, String> properties) {
+        this(ifNotExists, dbName, properties, null);
     }
 
     public String getFullDbName() {
@@ -59,6 +66,10 @@ public class CreateDbStmt extends DdlStmt {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     @Override
@@ -86,6 +97,9 @@ public class CreateDbStmt extends DdlStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE DATABASE ").append("`").append(dbName).append("`");
+        if (!Strings.isNullOrEmpty(comment)) {
+            stringBuilder.append("\nCOMMENT \"").append(comment).append("\"");
+        }
         if (properties.size() > 0) {
             stringBuilder.append("\nPROPERTIES (\n");
             stringBuilder.append(new PrintableMap<>(properties, "=", true, true, false));
