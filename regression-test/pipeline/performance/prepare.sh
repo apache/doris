@@ -101,7 +101,7 @@ if _get_pr_changed_files "${pr_num_from_trigger}"; then
         meta_changed_suffix="_2"
         rsync -a --delete "/data/doris-meta-${target_branch}/" "/data/doris-meta-${target_branch}${meta_changed_suffix}"
         rsync -a --delete "/data/doris-storage-${target_branch}/" "/data/doris-storage-${target_branch}${meta_changed_suffix}"
-        bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export doris_meta_suffix=${meta_changed_suffix}"
+        bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export meta_changed_suffix=${meta_changed_suffix}"
     fi
 fi
 
