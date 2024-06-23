@@ -20,6 +20,7 @@ suite("test_javaudf_with_decimal") {
     log.info("Jar path: ${jarPath}")
     try {
         try_sql("drop function IF EXISTS getarrscale(Array<Decimal(15,3)>);")
+        try_sql("drop function IF EXISTS getmapscale(Map<Decimal(15,3),Decimal(15,6)>);")
         try_sql("drop function IF EXISTS retscale(int);")
         try_sql("drop table IF EXISTS dbwithDecimal;")
         sql """
@@ -48,6 +49,15 @@ suite("test_javaudf_with_decimal") {
         """
 
         sql """
+        CREATE FUNCTION getmapscale(Map<Decimal(15,3),Decimal(15,6)>) RETURNS int PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.MyMapDecimal",
+            "always_nullable"="true",
+            "type"="JAVA_UDF"
+        );
+        """
+
+        sql """
         CREATE FUNCTION retscale(int) RETURNS Map<Decimal(15,10),Decimal(15,10)> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.MyMapRetDecimal",
@@ -57,9 +67,11 @@ suite("test_javaudf_with_decimal") {
         """
 
         qt_getarrscale """ select arr,getarrscale(arr) from dbwithDecimal order by id; """
+        qt_getmapscale """ select mp,getmapscale(mp) from dbwithDecimal order by id ; """
         qt_retscale """ select id,retscale(id) from dbwithDecimal order by id; """
     } finally {
         try_sql("drop function IF EXISTS getarrscale(Array<Decimal(15,3)>);")
+        try_sql("drop function IF EXISTS getmapscale(Map<Decimal(15,3),Decimal(15,6)>);")
         try_sql("drop function IF EXISTS retscale(int);")
         try_sql("drop table IF EXISTS dbwithDecimal;")
     }
