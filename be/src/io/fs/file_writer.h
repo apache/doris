@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <future>
 #include <memory>
 
 #include "common/status.h"
@@ -28,17 +29,36 @@
 
 namespace doris::io {
 class FileSystem;
+struct FileCacheAllocatorBuilder;
 
 // Only affects remote file writers
 struct FileWriterOptions {
+    // S3 committer will start multipart uploading all files on BE side,
+    // and then complete multipart upload these files on FE side.
+    // If you do not complete multi parts of a file, the file will not be visible.
+    // So in this way, the atomicity of a single file can be guaranteed. But it still cannot
+    // guarantee the atomicity of multiple files.
+    // Because hive committers have best-effort semantics,
+    // this shortens the inconsistent time window.
+    bool used_by_s3_committer = false;
     bool write_file_cache = false;
     bool is_cold_data = false;
     bool sync_file_data = true;         // Whether flush data into storage system
     uint64_t file_cache_expiration = 0; // Absolute time
 };
 
+struct AsyncCloseStatusPack {
+    std::promise<Status> promise;
+    std::future<Status> future;
+};
+
 class FileWriter {
 public:
+    enum class State : uint8_t {
+        OPENED = 0,
+        ASYNC_CLOSING,
+        CLOSED,
+    };
     FileWriter() = default;
     virtual ~FileWriter() = default;
 
@@ -47,21 +67,19 @@ public:
 
     // Normal close. Wait for all data to persist before returning.
     // If there is no data appended, an empty file will be persisted.
-    virtual Status close() = 0;
+    virtual Status close(bool non_block = false) = 0;
 
     Status append(const Slice& data) { return appendv(&data, 1); }
 
     virtual Status appendv(const Slice* data, size_t data_cnt) = 0;
 
-    // Call this method when there is no more data to write.
-    // FIXME(cyx): Does not seem to be an appropriate interface for file system?
-    virtual Status finalize() = 0;
-
     virtual const Path& path() const = 0;
 
     virtual size_t bytes_appended() const = 0;
 
-    virtual bool closed() const = 0;
+    virtual State state() const = 0;
+
+    virtual FileCacheAllocatorBuilder* cache_builder() const = 0;
 };
 
 } // namespace doris::io

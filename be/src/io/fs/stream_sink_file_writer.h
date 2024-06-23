@@ -33,6 +33,7 @@ struct RowsetId;
 struct SegmentStatistics;
 
 namespace io {
+struct FileCacheAllocatorBuilder;
 class StreamSinkFileWriter final : public FileWriter {
 public:
     StreamSinkFileWriter(std::vector<std::shared_ptr<LoadStreamStub>> streams)
@@ -43,13 +44,9 @@ public:
 
     Status appendv(const Slice* data, size_t data_cnt) override;
 
-    Status finalize() override;
-
-    Status close() override;
-
     size_t bytes_appended() const override { return _bytes_appended; }
 
-    bool closed() const override { return _closed; }
+    State state() const override { return _state; }
 
     // FIXME(plat1ko): Maybe it's an inappropriate abstraction?
     const Path& path() const override {
@@ -57,7 +54,12 @@ public:
         return dummy;
     }
 
+    FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
+
+    Status close(bool non_block = false) override;
+
 private:
+    Status _finalize();
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
 
     PUniqueId _load_id;
@@ -65,8 +67,8 @@ private:
     int64_t _index_id;
     int64_t _tablet_id;
     int32_t _segment_id;
-    bool _closed = false;
     size_t _bytes_appended = 0;
+    State _state {State::OPENED};
 };
 
 } // namespace io

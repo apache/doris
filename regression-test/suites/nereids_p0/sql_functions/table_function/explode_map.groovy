@@ -45,11 +45,4 @@ suite("explode_map") {
 
     // multi lateral view
     order_qt_explode_sql_multi """ select name, k,v,k1,v1 from sdu lateral view explode_map_outer(score) tmp as k,v lateral view explode_map(score) tmp2 as k1,v1 order by id;"""
-
-    // Old planner do not support explode_map
-    sql "SET enable_nereids_planner=false;"
-    test {
-        sql "select name, k,v from sdu lateral view explode_map(score) tmp as k,v;"
-        exception "errCode = 2,"
-    }
 }

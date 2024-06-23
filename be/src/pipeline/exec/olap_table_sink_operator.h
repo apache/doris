@@ -18,29 +18,9 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/volap_table_sink.h"
+#include "vec/sink/writer/vtablet_writer.h"
 
-namespace doris {
-
-namespace pipeline {
-
-class OlapTableSinkOperatorBuilder final
-        : public DataSinkOperatorBuilder<vectorized::VOlapTableSink> {
-public:
-    OlapTableSinkOperatorBuilder(int32_t id, DataSink* sink)
-            : DataSinkOperatorBuilder(id, "OlapTableSinkOperator", sink) {}
-
-    OperatorPtr build_operator() override;
-};
-
-class OlapTableSinkOperator final : public DataSinkOperator<vectorized::VOlapTableSink> {
-public:
-    OlapTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-            : DataSinkOperator(operator_builder, sink) {}
-
-    bool can_write() override { return _sink->can_write(); }
-};
+namespace doris::pipeline {
 
 class OlapTableSinkOperatorX;
 
@@ -102,5 +82,4 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

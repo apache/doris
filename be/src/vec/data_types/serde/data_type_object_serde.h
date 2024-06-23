@@ -81,9 +81,7 @@ public:
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return Status::NotSupported("write_column_to_mysql with type " + column.get_name());
-    }
+                                 int row_idx, bool col_const) const override;
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
@@ -94,6 +92,11 @@ public:
                                std::vector<StringRef>& buffer_list) const override {
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());
     }
+
+private:
+    template <bool is_binary_format>
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
 };
 } // namespace vectorized
 } // namespace doris

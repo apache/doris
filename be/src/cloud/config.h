@@ -88,4 +88,9 @@ DECLARE_mInt32(schedule_sync_tablets_interval_s);
 // Cloud mow
 DECLARE_mInt32(mow_stream_load_commit_retry_times);
 
+DECLARE_mBool(save_load_error_log_to_s3);
+
+// the theads which sync the datas which loaded in other clusters
+DECLARE_mInt32(sync_load_for_tablets_thread);
+
 } // namespace doris::config

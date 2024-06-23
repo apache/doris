@@ -57,7 +57,7 @@ class SimplifiedScanScheduler;
 class ScanTask {
 public:
     ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
-        _query_thread_context.init();
+        _query_thread_context.init_unlocked();
     }
 
     ~ScanTask() {
@@ -73,7 +73,7 @@ private:
 
 public:
     std::weak_ptr<ScannerDelegate> scanner;
-    std::list<vectorized::BlockUPtr> cached_blocks;
+    std::list<std::pair<vectorized::BlockUPtr, size_t>> cached_blocks;
     uint64_t last_submit_time; // nanoseconds
 
     void set_status(Status _status) {
@@ -102,11 +102,13 @@ class ScannerContext : public std::enable_shared_from_this<ScannerContext>,
     ENABLE_FACTORY_CREATOR(ScannerContext);
 
 public:
-    ScannerContext(RuntimeState* state, VScanNode* parent, const TupleDescriptor* output_tuple_desc,
+    ScannerContext(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
+                   const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
-                   const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
-                   int64_t max_bytes_in_blocks_queue, const int num_parallel_instances = 1,
-                   pipeline::ScanLocalStateBase* local_state = nullptr);
+                   const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
+                   int64_t limit_, int64_t max_bytes_in_blocks_queue,
+                   std::shared_ptr<pipeline::Dependency> dependency,
+                   const int num_parallel_instances);
 
     ~ScannerContext() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
@@ -117,7 +119,7 @@ public:
         }
         block.reset();
     }
-    virtual Status init();
+    Status init();
 
     vectorized::BlockUPtr get_free_block(bool force);
     void return_free_block(vectorized::BlockUPtr block);
@@ -128,8 +130,7 @@ public:
 
     // Get next block from blocks queue. Called by ScanNode/ScanOperator
     // Set eos to true if there is no more data to read.
-    virtual Status get_block_from_queue(RuntimeState* state, vectorized::Block* block, bool* eos,
-                                        int id, bool wait = true);
+    Status get_block_from_queue(RuntimeState* state, vectorized::Block* block, bool* eos, int id);
 
     [[nodiscard]] Status validate_block_schema(Block* block);
 
@@ -140,7 +141,7 @@ public:
     void submit_scan_task(std::shared_ptr<ScanTask> scan_task);
 
     // append the running scanner and its cached block to `_blocks_queue`
-    virtual void append_block_to_queue(std::shared_ptr<ScanTask> scan_task);
+    void append_block_to_queue(std::shared_ptr<ScanTask> scan_task);
 
     void set_status_on_error(const Status& status);
 
@@ -149,14 +150,14 @@ public:
     bool is_finished() { return _is_finished.load(); }
     bool should_stop() { return _should_stop.load(); }
 
-    virtual std::string debug_string();
+    std::string debug_string();
 
     RuntimeState* state() { return _state; }
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
 
     std::string parent_name();
 
-    virtual bool empty_in_queue(int id);
+    bool empty_in_queue(int id);
 
     SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
 
@@ -178,19 +179,12 @@ public:
     bool _should_reset_thread_name = true;
 
 protected:
-    ScannerContext(RuntimeState* state_, const TupleDescriptor* output_tuple_desc,
-                   const RowDescriptor* output_row_descriptor,
-                   const std::list<std::shared_ptr<ScannerDelegate>>& scanners_, int64_t limit_,
-                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
-                   pipeline::ScanLocalStateBase* local_state);
-
     /// Four criteria to determine whether to increase the parallelism of the scanners
     /// 1. It ran for at least `SCALE_UP_DURATION` ms after last scale up
     /// 2. Half(`WAIT_BLOCK_DURATION_RATIO`) of the duration is waiting to get blocks
     /// 3. `_free_blocks_memory_usage` < `_max_bytes_in_queue`, remains enough memory to scale up
     /// 4. At most scale up `MAX_SCALE_UP_RATIO` times to `_max_thread_num`
-    virtual void _set_scanner_done() {};
-
+    void _set_scanner_done();
     void _try_to_scale_up();
 
     RuntimeState* _state = nullptr;
@@ -202,7 +196,6 @@ protected:
     const RowDescriptor* _output_row_descriptor = nullptr;
 
     std::mutex _transfer_lock;
-    std::condition_variable _blocks_queue_added_cv;
     std::list<std::shared_ptr<ScanTask>> _blocks_queue;
 
     Status _process_status = Status::OK();
@@ -236,6 +229,7 @@ protected:
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     QueryThreadContext _query_thread_context;
+    std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;

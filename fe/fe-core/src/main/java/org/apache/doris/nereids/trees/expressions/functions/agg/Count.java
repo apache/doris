@@ -37,7 +37,7 @@ import java.util.List;
 
 /** count agg function. */
 public class Count extends AggregateFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable, SupportWindowAnalytic, CouldRollUp {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable, SupportWindowAnalytic, RollUpTrait {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // count(*)
@@ -151,5 +151,10 @@ public class Count extends AggregateFunction
         } else {
             return new Sum(param);
         }
+    }
+
+    @Override
+    public boolean canRollUp() {
+        return true;
     }
 }

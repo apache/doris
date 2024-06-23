@@ -45,6 +45,8 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.SqlCacheContext.ScanTable;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -70,6 +72,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -139,11 +142,8 @@ public class CacheAnalyzer {
                 enableSqlCache = true;
             }
         }
-        if (Config.cache_enable_partition_mode) {
-            if (context.getSessionVariable().isEnablePartitionCache()) {
-                enablePartitionCache = true;
-            }
-        }
+        // alread remove the entrance of partition cache, so we force set to false
+        enablePartitionCache = false;
     }
 
     public TUniqueId getQueryId() {
@@ -203,8 +203,7 @@ public class CacheAnalyzer {
     }
 
     public static boolean canUseCache(SessionVariable sessionVariable) {
-        return (sessionVariable.isEnableSqlCache() || sessionVariable.isEnablePartitionCache())
-                && commonCacheCondition(sessionVariable);
+        return (sessionVariable.isEnableSqlCache()) && commonCacheCondition(sessionVariable);
     }
 
     public static boolean canUseSqlCache(SessionVariable sessionVariable) {
@@ -212,7 +211,8 @@ public class CacheAnalyzer {
     }
 
     public static boolean commonCacheCondition(SessionVariable sessionVariable) {
-        return sessionVariable.getSqlSelectLimit() < 0 && sessionVariable.getDefaultOrderByLimit() < 0;
+        return sessionVariable.getSqlSelectLimit() < 0 && sessionVariable.getDefaultOrderByLimit() < 0
+                && !sessionVariable.dryRunQuery;
     }
 
     /**
@@ -401,7 +401,7 @@ public class CacheAnalyzer {
             }
             return CacheMode.NoNeed;
         }
-        if (!(parsedStmt instanceof LogicalPlanAdapter) || scanNodes.size() == 0) {
+        if (!(parsedStmt instanceof LogicalPlanAdapter) || scanNodes.isEmpty()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("not a select stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
             }
@@ -442,13 +442,22 @@ public class CacheAnalyzer {
                         Config.cache_last_version_interval_second * 1000);
             }
 
-            PUniqueId existsMd5 = null;
-            if (cache instanceof SqlCache) {
-                existsMd5 = ((SqlCache) cache).getOrComputeCacheMd5();
-            }
-            cache = new SqlCache(this.queryId, ((LogicalPlanAdapter) parsedStmt).getStatementContext()
-                    .getOriginStatement().originStmt);
+            String originStmt = ((LogicalPlanAdapter) parsedStmt).getStatementContext()
+                    .getOriginStatement().originStmt;
+            cache = new SqlCache(this.queryId, originStmt);
             SqlCache sqlCache = (SqlCache) cache;
+            PUniqueId existsMd5 = null;
+            if (planner instanceof NereidsPlanner) {
+                NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
+                Optional<SqlCacheContext> sqlCacheContext = nereidsPlanner
+                        .getCascadesContext()
+                        .getStatementContext()
+                        .getSqlCacheContext();
+                if (sqlCacheContext.isPresent()) {
+                    existsMd5 = sqlCacheContext.get().getOrComputeCacheKeyMd5();
+                }
+            }
+
             sqlCache.setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             sqlCache.setCacheMd5(existsMd5);
             MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
@@ -688,11 +697,11 @@ public class CacheAnalyzer {
         scanTables.add(scanTable);
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
+            scanTable.addScanPartition(partitionId);
             if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
                 cacheTable.latestPartitionId = partition.getId();
                 cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
                 cacheTable.latestPartitionVersion = partition.getVisibleVersion();
-                scanTable.addScanPartition(partitionId);
             }
         }
         return cacheTable;

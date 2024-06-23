@@ -33,6 +33,12 @@ import static org.apache.doris.regression.ConfigOptions.*
 
 import org.apache.doris.thrift.TNetworkAddress;
 
+enum RunMode {
+    UNKNOWN,
+    NOT_CLOUD,
+    CLOUD
+}
+
 @Slf4j
 @CompileStatic
 class Config {
@@ -64,18 +70,20 @@ class Config {
     public String metaServiceHttpAddress
     public String recycleServiceHttpAddress
 
+    public RunMode isCloudMode = RunMode.UNKNOWN
+
     public String suitePath
     public String dataPath
     public String realDataPath
     public String cacheDataPath
     public boolean enableCacheData
-    public boolean enableStorageVault
     public String pluginPath
     public String sslCertificatePath
     public String dorisComposePath
     public String image
     public String dockerCoverageOutputDir
     public Boolean dockerEndDeleteFiles
+    public Boolean dockerEndNoKill
     public Boolean excludeDockerTest
 
     public String testGroups
@@ -164,7 +172,6 @@ class Config {
             String realDataPath,
             String cacheDataPath,
             Boolean enableCacheData,
-            Boolean enableStorageVault,
             String testGroups,
             String excludeGroups,
             String testSuites, 
@@ -217,7 +224,6 @@ class Config {
         this.realDataPath = realDataPath
         this.cacheDataPath = cacheDataPath
         this.enableCacheData = enableCacheData
-        this.enableStorageVault = enableStorageVault
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
         this.testSuites = testSuites
@@ -271,12 +277,12 @@ class Config {
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
         config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
-        config.enableCacheData = Boolean.parseBoolean(cmd.getOptionValue(enableCacheDataOpt, "true"))
-        config.enableStorageVault = Boolean.parseBoolean(cmd.getOptionValue(enableStorageVaultOpt, "true"))
+        config.enableCacheData = Boolean.parseBoolean(cmd.getOptionValue(enableCacheDataOpt, config.enableCacheData.toString()))
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.sslCertificatePath = FileUtils.getCanonicalPath(cmd.getOptionValue(sslCertificateOpt, config.sslCertificatePath))
         config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
         config.image = cmd.getOptionValue(imageOpt, config.image)
+        config.dockerEndNoKill = cmd.hasOption(noKillDockerOpt)
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -496,7 +502,6 @@ class Config {
             configToString(obj.realDataPath),
             configToString(obj.cacheDataPath),
             configToBoolean(obj.enableCacheData),
-            configToBoolean(obj.enableStorageVault),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
@@ -532,6 +537,7 @@ class Config {
         config.image = configToString(obj.image)
         config.dockerCoverageOutputDir = configToString(obj.dockerCoverageOutputDir)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
+        config.dockerEndNoKill = configToBoolean(obj.dockerEndNoKill)
         config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
 
         def declareFileNames = config.getClass()
@@ -721,14 +727,9 @@ class Config {
             log.info("Set enableCacheData to '${config.enableCacheData}' because not specify.".toString())
         }
 
-        if (config.enableStorageVault == null) {
-            config.enableStorageVault = true
-            log.info("Set enableStorageVault to '${config.enableStorageVault}' because not specify.".toString())
-        }
-
         if (config.pluginPath == null) {
             config.pluginPath = "regression-test/plugins"
-            log.info("Set dataPath to '${config.pluginPath}' because not specify.".toString())
+            log.info("Set pluginPath to '${config.pluginPath}' because not specify.".toString())
         }
 
         if (config.sslCertificatePath == null) {
@@ -834,8 +835,25 @@ class Config {
         }
     }
 
+    boolean fetchRunMode() {
+        if (isCloudMode == RunMode.UNKNOWN) {
+            try {
+                def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'cloud_unique_id'")
+                isCloudMode = result[0].Value.toString().isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
+            } catch (Throwable t) {
+                throw new IllegalStateException("Fetch server config 'cloud_unique_id' failed, jdbcUrl: ${jdbcUrl}", t)
+            }
+        }
+        return isCloudMode == RunMode.CLOUD
+
+    }
+
     Connection getConnection() {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
+    }
+
+    Connection getRootConnection() {
+        return DriverManager.getConnection(jdbcUrl, 'root', '')
     }
 
     Connection getConnectionByDbName(String dbName) {
@@ -861,6 +879,8 @@ class Config {
     }
 
     Connection getDownstreamConnectionByDbName(String dbName) {
+        log.info("get downstream connection, url: ${ccrDownstreamUrl}, db: ${dbName}, " +
+                "user: ${ccrDownstreamUser}, passwd: ${ccrDownstreamPassword}")
         String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())

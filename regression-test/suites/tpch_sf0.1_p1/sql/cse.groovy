@@ -20,6 +20,9 @@
 // and modified by Doris.
 
 suite('cse') {
+    sql "set enable_nereids_planner=true;"
+    sql "set enable_fallback_to_original_planner=false;"
+
     def q1 = """select s_suppkey,n_regionkey,(s_suppkey + n_regionkey) + 1 as x, (s_suppkey + n_regionkey) + 2 as y 
             from supplier join nation on s_nationkey=n_nationkey order by s_suppkey , n_regionkey limit 10 ;
             """
@@ -51,4 +54,11 @@ suite('cse') {
     qt_cse_5 """select (case r_regionkey when 1 then 0 when 2 then 1 else r_regionkey+1 END) + 1 As x,
                 (case r_regionkey when 1 then 0 when 2 then 3 else r_regionkey+1 END) + 2  as y
             from region order by x, y;"""
+
+    // do not apply cse upon multiDataSink
+    explain {
+        sql "select * FROM     nation left outer join region on n_nationkey-5 = r_regionkey or n_nationkey-10=r_regionkey + 10;"
+        contains("MultiCastDataSinks")
+        notContains("intermediate projections")
+    }
 }

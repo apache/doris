@@ -175,7 +175,7 @@ struct FunctionFieldImpl {
         auto& res_data = static_cast<ColumnInt32*>(result_column)->get_data();
 
         const auto& column_size = arguments.size();
-        ColumnPtr argument_columns[column_size];
+        std::vector<ColumnPtr> argument_columns(column_size);
         for (int i = 0; i < column_size; ++i) {
             argument_columns[i] = block.get_by_position(arguments[i]).column;
         }

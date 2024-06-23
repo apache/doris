@@ -53,9 +53,9 @@ import java.util.Stack;
 public class LeadingHint extends Hint {
     private String originalString = "";
 
-    private List<String> parameters;
+    private List<String> addJoinParameters;
+    private List<String> normalizedParameters;
     private final List<String> tablelist = new ArrayList<>();
-    private final List<Integer> levellist = new ArrayList<>();
 
     private final Map<Integer, DistributeHint> distributeHints = new HashMap<>();
 
@@ -87,51 +87,81 @@ public class LeadingHint extends Hint {
     public LeadingHint(String hintName, List<String> parameters, String originalString) {
         super(hintName);
         this.originalString = originalString;
-        this.parameters = parameters;
-        int level = 0;
-        Stack<Boolean> brace = new Stack<>();
-        String lastParameter = "";
-        for (String parameter : parameters) {
-            if (parameter.equals("{")) {
-                if (lastParameter.equals("}")) {
-                    level += 2;
-                    brace.push(true);
-                } else {
-                    ++level;
-                    brace.push(false);
-                }
-            } else if (parameter.equals("}")) {
-                if (brace.pop().equals(true)) {
-                    level -= 2;
-                } else {
-                    level--;
-                }
-            } else if (parameter.equals("shuffle")) {
-                DistributeHint distributeHint = new DistributeHint(DistributeType.SHUFFLE_RIGHT);
-                distributeHints.put(tablelist.size(), distributeHint);
-                if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
-                    ConnectContext.get().getStatementContext().addHint(distributeHint);
-                }
-            } else if (parameter.equals("broadcast")) {
-                DistributeHint distributeHint = new DistributeHint(DistributeType.BROADCAST_RIGHT);
-                distributeHints.put(tablelist.size(), distributeHint);
-                if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
-                    ConnectContext.get().getStatementContext().addHint(distributeHint);
-                }
+        addJoinParameters = insertJoinIntoParameters(parameters);
+        normalizedParameters = parseIntoReversePolishNotation(addJoinParameters);
+    }
+
+    /**
+     * insert join string into leading string
+     * @param list of sql input leading string
+     * @return list of string adding joins into tables
+     */
+    public static List<String> insertJoinIntoParameters(List<String> list) {
+        List<String> output = new ArrayList<>();
+
+        for (String item : list) {
+            if (item.equals("shuffle") || item.equals("broadcast")) {
+                output.remove(output.size() - 1);
+                output.add(item);
+                continue;
+            } else if (item.equals("{")) {
+                output.add(item);
+                continue;
+            } else if (item.equals("}")) {
+                output.remove(output.size() - 1);
+                output.add(item);
             } else {
-                tablelist.add(parameter);
-                levellist.add(level);
+                output.add(item);
             }
-            lastParameter = parameter;
+            output.add("join");
         }
+        output.remove(output.size() - 1);
+        return output;
+    }
+
+    /**
+     * parse list string of original leading string with join string to Reverse Polish notation
+     * @param list of leading with join string
+     * @return Reverse Polish notation which can be used directly changed into logical join
+     */
+    public List<String> parseIntoReversePolishNotation(List<String> list) {
+        Stack<String> s1 = new Stack<>();
+        List<String> s2 = new ArrayList<>();
+
+        for (String item : list) {
+            if (!(item.equals("shuffle") || item.equals("broadcast") || item.equals("{")
+                    || item.equals("}") || item.equals("join"))) {
+                tablelist.add(item);
+                s2.add(item);
+            } else if (item.equals("{")) {
+                s1.push(item);
+            } else if (item.equals("}")) {
+                while (!s1.peek().equals("{")) {
+                    String pop = s1.pop();
+                    s2.add(pop);
+                }
+                s1.pop();
+            } else {
+                if (item.equals("shuffle")) {
+                    distributeHints.put(item.hashCode(), new DistributeHint(DistributeType.SHUFFLE_RIGHT));
+                } else if (item.equals("broadcast")) {
+                    distributeHints.put(item.hashCode(), new DistributeHint(DistributeType.BROADCAST_RIGHT));
+                }
+
+                while (s1.size() != 0 && !s1.peek().equals("{")) {
+                    s2.add(s1.pop());
+                }
+                s1.push(item);
+            }
+        }
+        while (s1.size() > 0) {
+            s2.add(s1.pop());
+        }
+        return s2;
     }
 
     public List<String> getTablelist() {
         return tablelist;
-    }
-
-    public List<Integer> getLevellist() {
-        return levellist;
     }
 
     public Map<RelationId, LogicalPlan> getRelationIdToScanMap() {
@@ -144,18 +174,18 @@ public class LeadingHint extends Hint {
             return originalString;
         }
         StringBuilder out = new StringBuilder();
-        int tableIndex = 0;
-        for (String parameter : parameters) {
+        for (String parameter : addJoinParameters) {
             if (parameter.equals("{") || parameter.equals("}") || parameter.equals("[") || parameter.equals("]")) {
                 out.append(parameter + " ");
             } else if (parameter.equals("shuffle") || parameter.equals("broadcast")) {
-                DistributeHint distributeHint = distributeHints.get(tableIndex);
+                DistributeHint distributeHint = distributeHints.get(parameter.hashCode());
                 if (distributeHint.isSuccess()) {
                     out.append(parameter + " ");
                 }
+            } else if (parameter.equals("join")) {
+                continue;
             } else {
                 out.append(parameter + " ");
-                tableIndex++;
             }
         }
         return "leading(" + out.toString() + ")";
@@ -186,6 +216,10 @@ public class LeadingHint extends Hint {
         for (Pair<RelationId, String> pair : relationIdAndTableName) {
             if (pair.first.equals(relationIdTableNamePair.first)) {
                 pair.second = relationIdTableNamePair.second;
+                isUpdate = true;
+            }
+            if (pair.second.equals(relationIdTableNamePair.second)) {
+                pair.first = relationIdTableNamePair.first;
                 isUpdate = true;
             }
         }
@@ -472,96 +506,75 @@ public class LeadingHint extends Hint {
         return JoinType.INNER_JOIN;
     }
 
+    private DistributeHint getDistributeJoinHint(String distributeJoinType) {
+        DistributeHint distributeHint = null;
+        if (distributeJoinType.equals("join")) {
+            distributeHint = new DistributeHint(DistributeType.NONE);
+        } else if (distributeJoinType.equals("shuffle") || distributeJoinType.equals("broadcast")) {
+            distributeHint = distributeHints.get(distributeJoinType.hashCode());
+        }
+        distributeHint.setSuccessInLeading(true);
+        if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
+            ConnectContext.get().getStatementContext().addHint(distributeHint);
+        }
+        distributeHints.put(0, distributeHint);
+        return distributeHint;
+    }
+
+    private LogicalPlan makeJoinPlan(LogicalPlan leftChild, LogicalPlan rightChild, String distributeJoinType) {
+        List<Expression> conditions = getJoinConditions(
+                getFilters(), leftChild, rightChild);
+        Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
+                leftChild.getOutput(), rightChild.getOutput(), conditions);
+        // leading hint would set status inside if not success
+        JoinType joinType = computeJoinType(getBitmap(leftChild),
+                getBitmap(rightChild), conditions);
+        if (joinType == null) {
+            this.setStatus(HintStatus.SYNTAX_ERROR);
+            this.setErrorMessage("JoinType can not be null");
+        } else if (!isConditionJoinTypeMatched(conditions, joinType)) {
+            this.setStatus(HintStatus.UNUSED);
+            this.setErrorMessage("condition does not matched joinType");
+        }
+        if (!this.isSuccess()) {
+            return null;
+        }
+        // get joinType
+        DistributeHint distributeHint = getDistributeJoinHint(distributeJoinType);
+        LogicalJoin logicalJoin = new LogicalJoin<>(joinType, pair.first,
+                pair.second,
+                distributeHint,
+                Optional.empty(),
+                leftChild,
+                rightChild, null);
+        logicalJoin.getJoinReorderContext().setLeadingJoin(true);
+        logicalJoin.setBitmap(LongBitmap.or(getBitmap(leftChild), getBitmap(rightChild)));
+        return logicalJoin;
+    }
+
     /**
      * using leading to generate plan, it could be failed, if failed set leading status to unused or syntax error
      * @return plan
      */
     public Plan generateLeadingJoinPlan() {
-        Stack<Pair<Integer, Pair<LogicalPlan, Integer>>> stack = new Stack<>();
-        int index = 0;
-        LogicalPlan logicalPlan = getLogicalPlanByName(getTablelist().get(index));
-        if (logicalPlan == null) {
-            return null;
-        }
-        logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
-        assert (logicalPlan != null);
-        stack.push(Pair.of(getLevellist().get(index), Pair.of(logicalPlan, index)));
-        int stackTopLevel = getLevellist().get(index++);
-        while (index < getTablelist().size()) {
-            int currentLevel = getLevellist().get(index);
-            if (currentLevel == stackTopLevel) {
-                // should return error if can not found table
-                logicalPlan = getLogicalPlanByName(getTablelist().get(index++));
-                int distributeIndex = index - 1;
-                if (logicalPlan == null) {
+        Stack<LogicalPlan> stack = new Stack<>();
+        for (String item : normalizedParameters) {
+            if (item.equals("join") || item.equals("shuffle") || item.equals("broadcast")) {
+                LogicalPlan rightChild = stack.pop();
+                LogicalPlan leftChild = stack.pop();
+                LogicalPlan joinPlan = makeJoinPlan(leftChild, rightChild, item);
+                if (joinPlan == null) {
                     return null;
                 }
-                logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
-                Pair<Integer, Pair<LogicalPlan, Integer>> newStackTop = stack.peek();
-                while (!(stack.isEmpty() || stackTopLevel != newStackTop.first)) {
-                    // check join is legal and get join type
-                    newStackTop = stack.pop();
-                    List<Expression> conditions = getJoinConditions(
-                            getFilters(), newStackTop.second.first, logicalPlan);
-                    Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
-                            newStackTop.second.first.getOutput(), logicalPlan.getOutput(), conditions);
-                    // leading hint would set status inside if not success
-                    JoinType joinType = computeJoinType(getBitmap(newStackTop.second.first),
-                            getBitmap(logicalPlan), conditions);
-                    if (joinType == null) {
-                        this.setStatus(HintStatus.SYNTAX_ERROR);
-                        this.setErrorMessage("JoinType can not be null");
-                    } else if (!isConditionJoinTypeMatched(conditions, joinType)) {
-                        this.setStatus(HintStatus.UNUSED);
-                        this.setErrorMessage("condition does not matched joinType");
-                    }
-                    if (!this.isSuccess()) {
-                        return null;
-                    }
-                    // get joinType
-                    DistributeHint distributeHint = getJoinHint(distributeIndex);
-                    LogicalJoin logicalJoin = new LogicalJoin<>(joinType, pair.first,
-                            pair.second,
-                            distributeHint,
-                            Optional.empty(),
-                            newStackTop.second.first,
-                            logicalPlan, null);
-                    logicalJoin.getJoinReorderContext().setLeadingJoin(true);
-                    distributeIndex = newStackTop.second.second;
-                    logicalJoin.setBitmap(LongBitmap.or(getBitmap(newStackTop.second.first), getBitmap(logicalPlan)));
-                    if (stackTopLevel > 0) {
-                        if (index < getTablelist().size()) {
-                            if (stackTopLevel > getLevellist().get(index)) {
-                                stackTopLevel--;
-                            }
-                        } else {
-                            stackTopLevel--;
-                        }
-                    }
-                    if (!stack.isEmpty()) {
-                        newStackTop = stack.peek();
-                    }
-                    logicalPlan = logicalJoin;
-                }
-                stack.push(Pair.of(stackTopLevel, Pair.of(logicalPlan, distributeIndex)));
+                stack.push(joinPlan);
             } else {
-                // push
-                logicalPlan = getLogicalPlanByName(getTablelist().get(index++));
-                if (logicalPlan == null) {
-                    return null;
-                }
+                LogicalPlan logicalPlan = getLogicalPlanByName(item);
                 logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
-                stack.push(Pair.of(currentLevel, Pair.of(logicalPlan, index - 1)));
-                stackTopLevel = currentLevel;
+                stack.push(logicalPlan);
             }
         }
-        if (stack.size() > 1) {
-            this.setStatus(HintStatus.SYNTAX_ERROR);
-            this.setErrorMessage("please check your brace pairs in leading");
-            return null;
-        }
 
-        LogicalJoin finalJoin = (LogicalJoin) stack.pop().second.first;
+        LogicalJoin finalJoin = (LogicalJoin) stack.pop();
         // we want all filters been remove
         assert (filters.isEmpty());
         if (finalJoin != null) {

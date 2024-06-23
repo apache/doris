@@ -32,6 +32,7 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
 import java.io.IOException;
+import java.lang.reflect.Modifier;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -254,23 +255,37 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
 
     /**
      * Registers {@code type} for using when label not found
-     *
-     * @throws IllegalArgumentException if {@code type}
-     *     have already been registered on this type adapter.
      */
     public RuntimeTypeAdapterFactory<T> registerDefaultSubtype(Class<? extends T> type) {
         if (type == null) {
             throw new NullPointerException();
         }
-        if (subtypeToLabel.containsKey(type)) {
-            throw new IllegalArgumentException("types must be unique");
-        }
         defaultType = type;
         return this;
     }
 
+    /**
+     * Specifies the ${@code type} corresponding to the ${@code label}, which is used to be compatible
+     * with old data when the ${@code label} of the ${@code type} changes.
+     *
+     * @throws IllegalArgumentException if {@code label}
+     *     have already been registered on this type adapter.
+     */
+    public RuntimeTypeAdapterFactory<T> registerCompatibleSubtype(Class<? extends T> type, String label) {
+        if (type == null || label == null) {
+            throw new NullPointerException();
+        }
+        if (labelToSubtype.containsKey(label)) {
+            throw new IllegalArgumentException("labels must be unique");
+        }
+        labelToSubtype.put(label, type);
+        return this;
+    }
+
     public <R> TypeAdapter<R> create(Gson gson, TypeToken<R> type) {
-        if (type.getRawType() != baseType && !subtypeToLabel.containsKey(type.getRawType())) {
+        if (baseType != type.getRawType() && !subtypeToLabel.containsKey(type.getRawType())
+                && !(Modifier.isAbstract(type.getRawType().getModifiers())
+                     && baseType.isAssignableFrom(type.getRawType()))) {
             return null;
         }
 

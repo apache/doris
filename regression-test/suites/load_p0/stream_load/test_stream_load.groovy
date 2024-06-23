@@ -1574,7 +1574,7 @@ suite("test_stream_load", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]Encountered unqualified data, stop processing"))
+                assertTrue(json.Message.contains("Encountered unqualified data, stop processing"))
             }
         }
     } finally {

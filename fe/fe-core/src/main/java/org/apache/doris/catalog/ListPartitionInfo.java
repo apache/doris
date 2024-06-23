@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ListUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -249,7 +250,7 @@ public class ListPartitionInfo extends PartitionInfo {
 
             Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
                 if (!p.equals("")) {
-                    sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
+                    sb.append(" (\"" + PropertyAnalyzer.PROPERTIES_STORAGE_POLICY + "\" = \"");
                     sb.append(p).append("\")");
                 }
             });

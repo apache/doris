@@ -257,6 +257,17 @@ private:
                 ParquetInt96 datetime96_max =
                         *reinterpret_cast<const ParquetInt96*>(encoded_max.data());
                 int64_t micros_max = datetime96_max.to_timestamp_micros();
+
+                // From Trino: Parquet INT96 timestamp values were compared incorrectly
+                // for the purposes of producing statistics by older parquet writers,
+                // so PARQUET-1065 deprecated them. The result is that any writer that produced stats
+                // was producing unusable incorrect values, except the special case where min == max
+                // and an incorrect ordering would not be material to the result.
+                // PARQUET-1026 made binary stats available and valid in that special case.
+                if (micros_min != micros_max) {
+                    return false;
+                }
+
                 if constexpr (std::is_same_v<CppType, VecDateTimeValue> ||
                               std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
                     min_value.from_unixtime(micros_min / 1000000, ctz);

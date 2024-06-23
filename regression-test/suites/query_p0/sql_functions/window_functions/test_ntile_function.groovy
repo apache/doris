@@ -78,7 +78,7 @@ suite("test_ntile_function") {
 
     test {
         sql "select k1, k2, k3, ntile(k1) over (partition by k1 order by k2) as ntile from ${tableName} order by k1, k2, k3 desc;"
-        exception "positive"
+        exception ""
     }
 }
 

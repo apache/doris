@@ -114,6 +114,13 @@ public:
 
     Status on_partitions_created(TCreatePartitionResult* result);
 
+#ifndef BE_TEST
+private:
+#endif
+    static Status _create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
+                                      std::shared_ptr<LoadStreamMap> load_stream_map,
+                                      int num_replicas);
+
 private:
     Status _init_row_distribution();
 
@@ -133,12 +140,14 @@ private:
                                    RowsForTablet& rows_for_tablet);
 
     Status _write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
-                           const Rows& rows, const Streams& streams);
+                           const Rows& rows);
 
     Status _select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                            Streams& streams);
 
     void _calc_tablets_to_commit();
+
+    Status _close_wait(bool incremental);
 
     Status _cancel(Status status);
 

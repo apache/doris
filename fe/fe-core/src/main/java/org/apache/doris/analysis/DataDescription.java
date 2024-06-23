@@ -155,6 +155,8 @@ public class DataDescription implements InsertStmt.DataDesc {
     private boolean trimDoubleQuotes = false;
     private boolean isMysqlLoad = false;
     private int skipLines = 0;
+    // use for copy into
+    private boolean ignoreCsvRedundantCol = false;
 
     private boolean isAnalyzed = false;
 
@@ -597,6 +599,10 @@ public class DataDescription implements InsertStmt.DataDesc {
         return fileFormat;
     }
 
+    public void setCompressType(TFileCompressType compressType) {
+        this.compressType = compressType;
+    }
+
     public TFileCompressType getCompressType() {
         return compressType;
     }
@@ -757,6 +763,14 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     public int getSkipLines() {
         return skipLines;
+    }
+
+    public boolean getIgnoreCsvRedundantCol() {
+        return ignoreCsvRedundantCol;
+    }
+
+    public void setIgnoreCsvRedundantCol(boolean ignoreCsvRedundantCol) {
+        this.ignoreCsvRedundantCol = ignoreCsvRedundantCol;
     }
 
     /*

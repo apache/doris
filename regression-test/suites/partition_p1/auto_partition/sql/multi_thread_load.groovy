@@ -18,10 +18,8 @@
 import groovy.io.FileType
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.net.URL
-import java.io.File
 
-suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resource fully
+suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resource fully```
     // get doris-db from s3
     def dirPath = context.file.parent
     def fatherPath = context.file.parentFile.parentFile.getPath()
@@ -35,6 +33,21 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
         def file = new File(dirPath + "/" + fileName)
         file.setExecutable(true)
     }
+
+    def dir_file_exist = { String cur_dir ->
+        assertTrue(new File(cur_dir).exists())
+        def subFolders = Files.list(Paths.get(cur_dir)).filter {Files.isDirectory(it)}.toList()
+        for (def folder_it : subFolders) {
+            logger.info("folder_if: " + folder_it)
+            def folder = new File(folder_it.toString())
+            def files = folder.listFiles()
+            assertTrue(files.length==1)
+            files.each {file ->
+                logger.info("file.name: " + folder_it.toString() + "/" + file.name)
+            }
+        }
+    }
+
 
     def data_count = 20 // number of load tasks and threads
     def rows = 100  // total rows to load
@@ -76,6 +89,11 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
             proc.waitForOrKill(7200000)
             logger.info("std out: " + sout + ", std err: " + serr)
         }
+
+        def table_exist = sql """select * from information_schema.tables where  TABLE_SCHEMA = "${realDb}" and TABLE_NAME = "${tableName}";"""
+        assertTrue(table_exist.size == 1)
+        dir_file_exist("""${dirPath}/${part_type}""")
+
         for (int i = 0; i < data_count; i++) {
             def dir_name = """${dirPath}/${part_type}/${part_type}_${i}"""
             def directory = new File(dir_name)

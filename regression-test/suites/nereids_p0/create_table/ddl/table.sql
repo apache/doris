@@ -238,7 +238,7 @@ create table test_rollup (
 duplicate key(id, kbool, ktint)
 distributed by random buckets auto
 rollup (
-    r1 (id, ktint, kbool, ktint, kbint) duplicate key(id)
+    r1 (id, ktint, kbool, kbint) duplicate key(id)
 )
 properties (
    "replication_num"="1"

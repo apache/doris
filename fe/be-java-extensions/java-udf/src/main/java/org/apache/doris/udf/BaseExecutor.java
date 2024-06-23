@@ -17,6 +17,7 @@
 
 package org.apache.doris.udf;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
@@ -36,6 +37,9 @@ import java.io.IOException;
 import java.net.URLClassLoader;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map.Entry;
 
 public abstract class BaseExecutor {
     private static final Logger LOG = Logger.getLogger(BaseExecutor.class);
@@ -88,6 +92,9 @@ public abstract class BaseExecutor {
         fn = request.fn;
         String jarFile = request.location;
         Type funcRetType = Type.fromThrift(request.fn.ret_type);
+        if (request.fn.is_udtf_function) {
+            funcRetType = ArrayType.create(funcRetType, true);
+        }
         init(request, jarFile, funcRetType, parameterTypes);
     }
 
@@ -214,14 +221,30 @@ public abstract class BaseExecutor {
                 }
                 break;
             }
+            case STRUCT: {
+                return (Object[] columnData) -> {
+                    Object[] result = new ArrayList[columnData.length];
+                    for (int i = 0; i < columnData.length; ++i) {
+                        if (columnData[i] != null) {
+                            HashMap<String, Object> value = (HashMap<String, Object>) columnData[i];
+                            ArrayList<Object> elements = new ArrayList<>();
+                            for (Entry<String, Object> entry : value.entrySet()) {
+                                elements.add(entry.getValue());
+                            }
+                            result[i] = elements;
+                        }
+                    }
+                    return result;
+                };
+            }
             default:
                 break;
         }
         return null;
     }
 
-    protected ColumnValueConverter getOutputConverter(TPrimitiveType primitiveType, Class clz) {
-        switch (primitiveType) {
+    protected ColumnValueConverter getOutputConverter(JavaUdfDataType returnType, Class clz) {
+        switch (returnType.getPrimitiveType()) {
             case DATE:
             case DATEV2: {
                 if (java.util.Date.class.equals(clz)) {
@@ -283,6 +306,23 @@ public abstract class BaseExecutor {
                     throw new RuntimeException("Unsupported date type: " + clz.getCanonicalName());
                 }
                 break;
+            }
+            case STRUCT: {
+                return (Object[] columnData) -> {
+                    Object[] result = (HashMap<String, Object>[]) new HashMap<?, ?>[columnData.length];
+                    ArrayList<String> names = returnType.getFieldNames();
+                    for (int i = 0; i < columnData.length; ++i) {
+                        HashMap<String, Object> elements = new HashMap<String, Object>();
+                        if (columnData[i] != null) {
+                            ArrayList<Object> v = (ArrayList<Object>) columnData[i];
+                            for (int k = 0; k < v.size(); ++k) {
+                                elements.put(names.get(k), v.get(k));
+                            }
+                            result[i] = elements;
+                        }
+                    }
+                    return result;
+                };
             }
             default:
                 break;

@@ -21,12 +21,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -36,10 +38,16 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -73,6 +81,8 @@ import java.util.Map.Entry;
 //          WITH RESOURCE name
 //          (key3=value3, ...)
 public class LoadStmt extends DdlStmt {
+    private static final Logger LOG = LogManager.getLogger(LoadStmt.class);
+
     public static final String TIMEOUT_PROPERTY = "timeout";
     public static final String MAX_FILTER_RATIO_PROPERTY = "max_filter_ratio";
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
@@ -91,6 +101,10 @@ public class LoadStmt extends DdlStmt {
     public static final String BOS_ENDPOINT = "bos_endpoint";
     public static final String BOS_ACCESSKEY = "bos_accesskey";
     public static final String BOS_SECRET_ACCESSKEY = "bos_secret_accesskey";
+
+    // for S3 load check
+    public static final List<String> PROVIDERS =
+            new ArrayList<>(Arrays.asList("cos", "oss", "s3", "obs", "bos"));
 
     // mini load params
     public static final String KEY_IN_PARAM_COLUMNS = "columns";
@@ -485,6 +499,7 @@ public class LoadStmt extends DdlStmt {
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
+            checkWhiteList();
         } else if (isMysqlLoad) {
             etlJobType = EtlJobType.LOCAL_FILE;
         } else {
@@ -554,6 +569,50 @@ public class LoadStmt extends DdlStmt {
             return RedirectStatus.NO_FORWARD;
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;
+        }
+    }
+
+    private void checkEndpoint(String endpoint) throws UserException {
+        HttpURLConnection connection = null;
+        try {
+            String urlStr = "http://" + endpoint;
+            SecurityChecker.getInstance().startSSRFChecking(urlStr);
+            URL url = new URL(urlStr);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(10000);
+            connection.connect();
+        } catch (Exception e) {
+            LOG.warn("Failed to connect endpoint={}", endpoint, e);
+            throw new UserException("Incorrect object storage info: " + e.getMessage());
+        } finally {
+            if (connection != null) {
+                try {
+                    connection.disconnect();
+                } catch (Exception e) {
+                    LOG.warn("Failed to disconnect connection, endpoint={}", endpoint, e);
+                }
+            }
+            SecurityChecker.getInstance().stopSSRFChecking();
+        }
+    }
+
+    public void checkWhiteList() throws UserException {
+        Map<String, String> brokerDescProperties = brokerDesc.getProperties();
+        if (brokerDescProperties.containsKey(S3Properties.Env.ENDPOINT)
+                && brokerDescProperties.containsKey(S3Properties.Env.ACCESS_KEY)
+                && brokerDescProperties.containsKey(S3Properties.Env.SECRET_KEY)
+                && brokerDescProperties.containsKey(S3Properties.Env.REGION)) {
+            String endpoint = brokerDescProperties.get(S3Properties.Env.ENDPOINT);
+            endpoint = endpoint.replaceFirst("^http://", "");
+            endpoint = endpoint.replaceFirst("^https://", "");
+            List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
+            whiteList.removeIf(String::isEmpty);
+            if (!whiteList.isEmpty() && !whiteList.contains(endpoint)) {
+                throw new UserException("endpoint: " + endpoint
+                    + " is not in s3 load endpoint white list: " + String.join(",", whiteList));
+            }
+            brokerDescProperties.put(S3Properties.Env.ENDPOINT, endpoint);
+            checkEndpoint(endpoint);
         }
     }
 }

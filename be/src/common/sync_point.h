@@ -93,11 +93,45 @@ public:
                                 const std::vector<SyncPointPair>& dependencies,
                                 const std::vector<SyncPointPair>& markers);
 
+  class CallbackGuard {
+  public:
+    CallbackGuard() = default;
+    explicit CallbackGuard(std::string point) : _point(std::move(point)) {}
+    ~CallbackGuard() {
+      if (!_point.empty()) {
+        get_instance()->clear_call_back(_point);
+      }
+    }
+    CallbackGuard(const CallbackGuard&) = delete;
+    CallbackGuard& operator=(const CallbackGuard&) = delete;
+
+    CallbackGuard(CallbackGuard&& other) noexcept {
+      if (!_point.empty() && _point != other._point) {
+        get_instance()->clear_call_back(_point);
+      }
+      _point = std::move(other._point);
+    }
+
+    CallbackGuard& operator=(CallbackGuard&& other) noexcept {
+      if (!_point.empty() && _point != other._point) {
+        get_instance()->clear_call_back(_point);
+      }
+      _point = std::move(other._point);
+      return *this;
+    };
+
+  private:
+    std::string _point;
+  };
+
   // The argument to the callback is passed through from
   // TEST_SYNC_POINT_CALLBACK(); nullptr if TEST_SYNC_POINT or
   // TEST_IDX_SYNC_POINT was used.
+  // If `guard` is not nullptr, method will return a `CallbackGuard` object which will clear the
+  // callback when it is destructed.
   void set_call_back(const std::string& point,
-                     const std::function<void(std::vector<std::any>&&)>& callback);
+                     const std::function<void(std::vector<std::any>&&)>& callback,
+                     CallbackGuard* guard = nullptr);
 
   // Clear callback function by point
   void clear_call_back(const std::string& point);
@@ -228,12 +262,12 @@ auto try_any_cast_ret(std::vector<std::any>& any) {
 namespace doris::config {
 extern bool enable_injection_point;
 }
-# define TEST_INJECTION_POINT(x) if (doris::config::enable_injection_point) { SYNC_POINT(x); }
-# define TEST_IDX_INJECTION_POINT(x, index) if (doris::config::enable_injection_point) { IDX_SYNC_POINT(x, index); }
-# define TEST_INJECTION_POINT_CALLBACK(x, ...) if (doris::config::enable_injection_point) { SYNC_POINT_CALLBACK(x, __VA_ARGS__); }
-# define TEST_INJECTION_POINT_SINGLETON() if (doris::config::enable_injection_point) { SYNC_POINT_SINGLETON(); }
-# define TEST_INJECTION_POINT_RETURN_WITH_VALUE(x, default_ret_val, ...) if (doris::config::enable_injection_point) { SYNC_POINT_RETURN_WITH_VALUE(x, default_ret_val, __VA_ARGS__); }
-# define TEST_INJECTION_POINT_RETURN_WITH_VOID(x, ...) if (doris::config::enable_injection_point) { SYNC_POINT_RETURN_WITH_VOID(x, __VA_ARGS__); }
+# define TEST_INJECTION_POINT(x) if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); SYNC_POINT(x); }
+# define TEST_IDX_INJECTION_POINT(x, index) if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); IDX_SYNC_POINT(x, index); }
+# define TEST_INJECTION_POINT_CALLBACK(x, ...) if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); SYNC_POINT_CALLBACK(x, __VA_ARGS__); }
+# define TEST_INJECTION_POINT_SINGLETON() if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); SYNC_POINT_SINGLETON(); }
+# define TEST_INJECTION_POINT_RETURN_WITH_VALUE(x, default_ret_val, ...) if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); SYNC_POINT_RETURN_WITH_VALUE(x, default_ret_val, __VA_ARGS__); }
+# define TEST_INJECTION_POINT_RETURN_WITH_VOID(x, ...) if (doris::config::enable_injection_point) { LOG_INFO("enter inject point {}", x); SYNC_POINT_RETURN_WITH_VOID(x, __VA_ARGS__); }
 #endif // ENABLE_INJECTION_POINT
 
 // clang-format on

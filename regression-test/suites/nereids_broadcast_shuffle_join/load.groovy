@@ -16,6 +16,8 @@
 // under the License.
 
 suite("broadcastJoin") {
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    sql "set enable_parallel_result_sink=false;"
     String database = context.config.getDbNameByFile(context.file)
     sql "drop database if exists ${database}"
     sql "create database ${database}"

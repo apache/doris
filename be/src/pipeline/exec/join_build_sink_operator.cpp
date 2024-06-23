@@ -19,8 +19,8 @@
 
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
+#include "pipeline/exec/operator.h"
 #include "pipeline/exec/partitioned_hash_join_sink_operator.h"
-#include "pipeline/pipeline_x/operator.h"
 
 namespace doris::pipeline {
 

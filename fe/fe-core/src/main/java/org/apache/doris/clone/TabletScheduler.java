@@ -1110,13 +1110,13 @@ public class TabletScheduler extends MasterDaemon {
             if (replica.isAlive() && !replica.tooSlow()) {
                 normalReplicaCount++;
             }
-            if (replica.getVersionCount() > maxVersionCount) {
-                maxVersionCount = replica.getVersionCount();
+            if (replica.getVisibleVersionCount() > maxVersionCount) {
+                maxVersionCount = replica.getVisibleVersionCount();
                 chosenReplica = replica;
             }
         }
         if (chosenReplica != null && chosenReplica.isAlive() && !chosenReplica.tooSlow()
-                && chosenReplica.getVersionCount() > Config.min_version_count_indicate_replica_compaction_too_slow
+                && chosenReplica.tooBigVersionCount()
                 && normalReplicaCount - 1 >= tabletCtx.getReplicas().size() / 2 + 1) {
             chosenReplica.setState(ReplicaState.COMPACTION_TOO_SLOW);
             LOG.info("set replica id :{} tablet id: {}, backend id: {} to COMPACTION_TOO_SLOW",
@@ -1193,6 +1193,8 @@ public class TabletScheduler extends MasterDaemon {
                     throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_DECOMMISSION,
                             "wait txn before post watermark txn  " + postWatermarkTxnId + " to be finished");
                 }
+            } catch (SchedException e) {
+                throw e;
             } catch (Exception e) {
                 throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
             }
@@ -1569,7 +1571,7 @@ public class TabletScheduler extends MasterDaemon {
         releaseTabletCtx(tabletCtx, state, status == Status.UNRECOVERABLE);
 
         // if check immediately, then no need to wait TabletChecker's 20s
-        if (state == TabletSchedCtx.State.FINISHED) {
+        if (state == TabletSchedCtx.State.FINISHED && !Config.disable_tablet_scheduler) {
             tryAddAfterFinished(tabletCtx);
         }
     }
@@ -1865,19 +1867,29 @@ public class TabletScheduler extends MasterDaemon {
      */
     public void handleRunningTablets() {
         // 1. remove the tablet ctx if timeout
-        List<TabletSchedCtx> timeoutTablets = Lists.newArrayList();
+        List<TabletSchedCtx> cancelTablets = Lists.newArrayList();
         synchronized (this) {
-            runningTablets.values().stream().filter(TabletSchedCtx::isTimeout).forEach(timeoutTablets::add);
+            for (TabletSchedCtx tabletCtx : runningTablets.values()) {
+                if (Config.disable_tablet_scheduler) {
+                    tabletCtx.setErrMsg("tablet scheduler is disabled");
+                    cancelTablets.add(tabletCtx);
+                } else if (Config.disable_balance && tabletCtx.getType() == Type.BALANCE) {
+                    tabletCtx.setErrMsg("balance is disabled");
+                    cancelTablets.add(tabletCtx);
+                } else if (tabletCtx.isTimeout()) {
+                    tabletCtx.setErrMsg("timeout");
+                    cancelTablets.add(tabletCtx);
+                    stat.counterCloneTaskTimeout.incrementAndGet();
+                }
+            }
         }
 
         // 2. release ctx
-        timeoutTablets.forEach(t -> {
+        cancelTablets.forEach(t -> {
             // Set "resetReplicaState" to true because
-            // the timeout task should also be considered as UNRECOVERABLE,
+            // task should also be considered as UNRECOVERABLE,
             // so need to reset replica state.
-            t.setErrMsg("timeout");
-            finalizeTabletCtx(t, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, "timeout");
-            stat.counterCloneTaskTimeout.incrementAndGet();
+            finalizeTabletCtx(t, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, t.getErrMsg());
         });
     }
 

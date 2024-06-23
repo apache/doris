@@ -2,17 +2,16 @@
 -- !ds_shape_59 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject
-------hashAgg[GLOBAL]
---------PhysicalDistribute[DistributionSpecHash]
-----------hashAgg[LOCAL]
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
+--------------PhysicalProject
+----------------PhysicalOlapScan[store_sales] apply RFs: RF0
+--------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[store_sales] apply RFs: RF0
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[date_dim]
+------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
@@ -22,28 +21,30 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((wss.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF4 s_store_sk->[ss_store_sk]
---------------------hashJoin[INNER_JOIN] hashCondition=((d.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF3 d_week_seq->[d_week_seq]
-----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF4
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------filter((d.d_month_seq <= 1207) and (d.d_month_seq >= 1196))
-----------------------------PhysicalOlapScan[date_dim]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((d.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF3 d_week_seq->[d_week_seq]
+------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------------PhysicalProject
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF4
+------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------PhysicalProject
+----------------------------filter((d.d_month_seq <= 1207) and (d.d_month_seq >= 1196))
+------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[store] apply RFs: RF5
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((wss.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
---------------------hashJoin[INNER_JOIN] hashCondition=((d.d_week_seq = d_week_seq2)) otherCondition=() build RFs:RF1 d_week_seq->[d_week_seq]
-----------------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------------PhysicalProject
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF1 RF2
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------filter((d.d_month_seq <= 1219) and (d.d_month_seq >= 1208))
-----------------------------PhysicalOlapScan[date_dim]
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((d.d_week_seq = d_week_seq2)) otherCondition=() build RFs:RF1 d_week_seq->[d_week_seq]
+------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------------PhysicalProject
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF1 RF2
+------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------PhysicalProject
+----------------------------filter((d.d_month_seq <= 1219) and (d.d_month_seq >= 1208))
+------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[store]

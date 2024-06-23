@@ -19,30 +19,17 @@
 
 #include <memory>
 
+#include "exprs/runtime_filter.h"
+#include "pipeline/common/data_gen_functions/vdata_gen_function_inf.h"
+#include "pipeline/common/data_gen_functions/vnumbers_tvf.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
-#include "vec/exec/data_gen_functions/vdata_gen_function_inf.h"
-#include "vec/exec/data_gen_functions/vnumbers_tvf.h"
-#include "vec/exec/vdata_gen_scan_node.h"
 
 namespace doris {
 class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(DataGenOperator, SourceOperator)
-
-Status DataGenOperator::open(RuntimeState* state) {
-    RETURN_IF_ERROR(SourceOperator::open(state));
-    return _node->open(state);
-}
-
-Status DataGenOperator::close(RuntimeState* state) {
-    RETURN_IF_ERROR(SourceOperator::close(state));
-    RETURN_IF_ERROR(_node->close(state));
-    return Status::OK();
-}
 
 DataGenSourceOperatorX::DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                int operator_id, const DescriptorTbl& descs)
@@ -80,6 +67,7 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
     }
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     Status res = local_state._table_func->get_next(state, block, eos);
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                            block->columns()));
@@ -88,9 +76,11 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
 }
 
 Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     auto& p = _parent->cast<DataGenSourceOperatorX>();
-    _table_func = std::make_shared<vectorized::VNumbersTVF>(p._tuple_id, p._tuple_desc);
+    _table_func = std::make_shared<VNumbersTVF>(p._tuple_id, p._tuple_desc);
     _table_func->set_tuple_desc(p._tuple_desc);
     RETURN_IF_ERROR(_table_func->set_scan_ranges(info.scan_ranges));
 
@@ -105,6 +95,8 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 }
 
 Status DataGenLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }

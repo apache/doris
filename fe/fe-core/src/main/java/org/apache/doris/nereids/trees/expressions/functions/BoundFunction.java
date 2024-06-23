@@ -33,7 +33,6 @@ import java.util.stream.Collectors;
 
 /** BoundFunction. */
 public abstract class BoundFunction extends Function implements ComputeSignature {
-    private final String name;
 
     private final Supplier<FunctionSignature> signatureCache = Suppliers.memoize(() -> {
         // first step: find the candidate signature in the signature list
@@ -43,17 +42,11 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     });
 
     public BoundFunction(String name, Expression... arguments) {
-        super(arguments);
-        this.name = Objects.requireNonNull(name, "name can not be null");
+        super(name, arguments);
     }
 
     public BoundFunction(String name, List<Expression> children) {
-        super(children);
-        this.name = Objects.requireNonNull(name, "name can not be null");
-    }
-
-    public String getName() {
-        return name;
+        super(name, children);
     }
 
     @Override
@@ -75,17 +68,17 @@ public abstract class BoundFunction extends Function implements ComputeSignature
 
     @Override
     protected boolean extraEquals(Expression that) {
-        return Objects.equals(name, ((BoundFunction) that).name);
+        return Objects.equals(getName(), ((BoundFunction) that).getName());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, children);
+        return Objects.hash(getName(), children);
     }
 
     @Override
     public String toSql() throws UnboundException {
-        StringBuilder sql = new StringBuilder(name).append("(");
+        StringBuilder sql = new StringBuilder(getName()).append("(");
         int arity = arity();
         for (int i = 0; i < arity; i++) {
             Expression arg = child(i);
@@ -103,6 +96,6 @@ public abstract class BoundFunction extends Function implements ComputeSignature
                 .stream()
                 .map(Expression::toString)
                 .collect(Collectors.joining(", "));
-        return name + "(" + args + ")";
+        return getName() + "(" + args + ")";
     }
 }

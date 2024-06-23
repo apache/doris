@@ -72,22 +72,20 @@ struct GetResultBatchCtx {
 class BufferControlBlock {
 public:
     BufferControlBlock(const TUniqueId& id, int buffer_size);
-    virtual ~BufferControlBlock();
+    ~BufferControlBlock();
 
     Status init();
-    // Only one fragment is written, so can_sink returns true, then the sink must be executed
-    virtual bool can_sink();
-    virtual Status add_batch(std::unique_ptr<TFetchDataResult>& result);
-    virtual Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
+    Status add_batch(std::unique_ptr<TFetchDataResult>& result);
+    Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
 
-    virtual void get_batch(GetResultBatchCtx* ctx);
-    virtual Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
+    void get_batch(GetResultBatchCtx* ctx);
+    Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
 
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
     Status close(Status exec_status);
     // this is called by RPC, called from coordinator
-    virtual void cancel();
+    void cancel();
 
     [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
 
@@ -100,11 +98,10 @@ public:
         }
     }
 
+    void set_dependency(std::shared_ptr<pipeline::Dependency> result_sink_dependency);
+
 protected:
-    virtual bool _get_batch_queue_empty() {
-        return _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
-    }
-    virtual void _update_batch_queue_empty() {}
+    void _update_dependency();
 
     using FeResultQueue = std::list<std::unique_ptr<TFetchDataResult>>;
     using ArrowFlightResultQueue = std::list<std::shared_ptr<arrow::RecordBatch>>;
@@ -133,36 +130,9 @@ protected:
 
     // only used for FE using return rows to check limit
     std::unique_ptr<QueryStatistics> _query_statistics;
-};
-
-class PipBufferControlBlock : public BufferControlBlock {
-public:
-    PipBufferControlBlock(const TUniqueId& id, int buffer_size)
-            : BufferControlBlock(id, buffer_size) {}
-
-    bool can_sink() override {
-        return _get_batch_queue_empty() || _buffer_rows < _buffer_limit || _is_cancelled;
-    }
-
-    Status add_batch(std::unique_ptr<TFetchDataResult>& result) override;
-
-    Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) override;
-
-    void get_batch(GetResultBatchCtx* ctx) override;
-
-    Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) override;
-
-    void cancel() override;
-
-    void set_dependency(std::shared_ptr<pipeline::Dependency> result_sink_dependency);
-
-private:
-    void _update_dependency();
-    bool _get_batch_queue_empty() override { return _batch_queue_empty; }
-    void _update_batch_queue_empty() override;
-
-    std::atomic_bool _batch_queue_empty {false};
-    std::shared_ptr<pipeline::Dependency> _result_sink_dependency;
+    std::atomic_bool _batch_queue_empty = false;
+    std::vector<std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
+    size_t close_cnt = 0;
 };
 
 } // namespace doris

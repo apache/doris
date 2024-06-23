@@ -25,13 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -45,18 +39,6 @@ public class CosineDistance extends ScalarFunction implements ExplicitlyCastable
         ComputePrecisionForArrayItemAgg, UnaryExpression, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE)
-                    .args(ArrayType.of(TinyIntType.INSTANCE), ArrayType.of(TinyIntType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE)
-                    .args(ArrayType.of(SmallIntType.INSTANCE), ArrayType.of(SmallIntType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE)
-                    .args(ArrayType.of(IntegerType.INSTANCE), ArrayType.of(IntegerType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE)
-                    .args(ArrayType.of(BigIntType.INSTANCE), ArrayType.of(BigIntType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE)
-                    .args(ArrayType.of(LargeIntType.INSTANCE), ArrayType.of(LargeIntType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE)
-                    .args(ArrayType.of(FloatType.INSTANCE), ArrayType.of(FloatType.INSTANCE)),
             FunctionSignature.ret(DoubleType.INSTANCE)
                     .args(ArrayType.of(DoubleType.INSTANCE), ArrayType.of(DoubleType.INSTANCE))
     );

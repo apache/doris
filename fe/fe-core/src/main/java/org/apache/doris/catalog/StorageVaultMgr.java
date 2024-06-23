@@ -102,6 +102,23 @@ public class StorageVaultMgr {
         setDefaultStorageVault(Pair.of(stmt.getStorageVaultName(), vaultId));
     }
 
+    public void unsetDefaultStorageVault() throws DdlException {
+        Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
+        builder.setOp(Operation.UNSET_DEFAULT_VAULT);
+        try {
+            Cloud.AlterObjStoreInfoResponse resp =
+                    MetaServiceProxy.getInstance().alterObjStoreInfo(builder.build());
+            if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("failed to unset default storage vault");
+                throw new DdlException(resp.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            LOG.warn("failed to unset default storage vault");
+            throw new DdlException(e.getMessage());
+        }
+        defaultVaultInfo = null;
+    }
+
     public void setDefaultStorageVault(Pair<String, String> vaultInfo) {
         try {
             rwLock.writeLock().lock();
@@ -135,17 +152,23 @@ public class StorageVaultMgr {
                 = Cloud.AlterObjStoreInfoRequest.newBuilder();
         requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_HDFS_INFO);
         requestBuilder.setVault(alterHdfsInfoBuilder.build());
+        requestBuilder.setSetAsDefaultStorageVault(vault.setAsDefault());
         try {
             Cloud.AlterObjStoreInfoResponse response =
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
             if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
                     && hdfsStorageVault.ifNotExists()) {
+                LOG.info("Hdfs vault {} already existed", hdfsStorageVault.getName());
                 return;
             }
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("failed to alter storage vault response: {} ", response);
+                LOG.warn("failed to create hdfs storage vault, vault name {}, response: {} ",
+                        hdfsStorageVault.getName(), response);
                 throw new DdlException(response.getStatus().getMsg());
             }
+            LOG.info("Succeed to create hdfs vault {}, id {}, origin default vault replaced {}",
+                    hdfsStorageVault.getName(), response.getStorageVaultId(),
+                            response.getDefaultStorageVaultReplaced());
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
@@ -173,17 +196,21 @@ public class StorageVaultMgr {
         alterObjVaultBuilder.setName(s3StorageVault.getName());
         alterObjVaultBuilder.setObjInfo(objBuilder.build());
         requestBuilder.setVault(alterObjVaultBuilder.build());
+        requestBuilder.setSetAsDefaultStorageVault(vault.setAsDefault());
         try {
             Cloud.AlterObjStoreInfoResponse response =
                     MetaServiceProxy.getInstance().alterObjStoreInfo(requestBuilder.build());
             if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
                     && s3StorageVault.ifNotExists()) {
+                LOG.info("S3 vault {} already existed", s3StorageVault.getName());
                 return;
             }
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("failed to alter storage vault response: {} ", response);
                 throw new DdlException(response.getStatus().getMsg());
             }
+            LOG.info("Succeed to create s3 vault {}, id {}, origin default vault replaced {}",
+                    s3StorageVault.getName(), response.getStorageVaultId(), response.getDefaultStorageVaultReplaced());
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());

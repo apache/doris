@@ -78,6 +78,12 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
     public static LongCounterMetric COUNTER_QUERY_HIVE_TABLE;
+
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_REQUEST;
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_UPLOAD_ERR;
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_QUERY_REQUEST;
+    public static LongCounterMetric HTTP_COUNTER_COPY_INFO_QUERY_ERR;
+
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ALL;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ERR;
     public static Histogram HISTO_QUERY_LATENCY;
@@ -103,6 +109,8 @@ public final class MetricRepo {
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
     public static Histogram HISTO_JOURNAL_BATCH_SIZE;
     public static Histogram HISTO_JOURNAL_BATCH_DATA_SIZE;
+    public static Histogram HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY;
+    public static Histogram HISTO_HTTP_COPY_INTO_QUERY_LATENCY;
 
     public static LongCounterMetric COUNTER_IMAGE_WRITE_SUCCESS;
     public static LongCounterMetric COUNTER_IMAGE_WRITE_FAILED;
@@ -271,19 +279,15 @@ public final class MetricRepo {
 
         // qps, rps and error rate
         // these metrics should be set an init value, in case that metric calculator is not running
-        GAUGE_QUERY_PER_SECOND = new GaugeMetricImpl<>("qps", MetricUnit.NOUNIT, "query per second");
-        GAUGE_QUERY_PER_SECOND.setValue(0.0);
+        GAUGE_QUERY_PER_SECOND = new GaugeMetricImpl<>("qps", MetricUnit.NOUNIT, "query per second", 0.0);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_QUERY_PER_SECOND);
-        GAUGE_REQUEST_PER_SECOND = new GaugeMetricImpl<>("rps", MetricUnit.NOUNIT, "request per second");
-        GAUGE_REQUEST_PER_SECOND.setValue(0.0);
+        GAUGE_REQUEST_PER_SECOND = new GaugeMetricImpl<>("rps", MetricUnit.NOUNIT, "request per second", 0.0);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_REQUEST_PER_SECOND);
-        GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", MetricUnit.NOUNIT, "query error rate");
+        GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", MetricUnit.NOUNIT, "query error rate", 0.0);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_QUERY_ERR_RATE);
-        GAUGE_QUERY_ERR_RATE.setValue(0.0);
         GAUGE_MAX_TABLET_COMPACTION_SCORE = new GaugeMetricImpl<>("max_tablet_compaction_score", MetricUnit.NOUNIT,
-                "max tablet compaction score of all backends");
+                "max tablet compaction score of all backends", 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_MAX_TABLET_COMPACTION_SCORE);
-        GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(0L);
 
         // query
         COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", MetricUnit.REQUESTS, "total request");
@@ -325,7 +329,7 @@ public final class MetricRepo {
                 "number of query instance begin"));
         USER_GAUGE_QUERY_INSTANCE_NUM = addLabeledMetrics("user", () ->
                 new GaugeMetricImpl<>("query_instance_num", MetricUnit.NOUNIT,
-                "number of running query instances of current user"));
+                "number of running query instances of current user", 0L));
         GaugeMetric<Long> queryInstanceNum = new GaugeMetric<Long>("query_instance_num",
                 MetricUnit.NOUNIT, "number of query instances of all current users") {
             @Override
@@ -463,7 +467,7 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(txnNum);
         DB_GAUGE_TXN_NUM = addLabeledMetrics("db", () ->
-                new GaugeMetricImpl<>("txn_num", MetricUnit.NOUNIT, "number of running transactions"));
+                new GaugeMetricImpl<>("txn_num", MetricUnit.NOUNIT, "number of running transactions", 0L));
         GaugeMetric<Long> publishTxnNum = new GaugeMetric<Long>("publish_txn_num", MetricUnit.NOUNIT,
                 "number of publish transactions") {
             @Override
@@ -473,7 +477,8 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(publishTxnNum);
         DB_GAUGE_PUBLISH_TXN_NUM = addLabeledMetrics("db",
-                () -> new GaugeMetricImpl<>("publish_txn_num", MetricUnit.NOUNIT, "number of publish transactions"));
+                () -> new GaugeMetricImpl<>("publish_txn_num", MetricUnit.NOUNIT,
+                "number of publish transactions", 0L));
         COUNTER_ROUTINE_LOAD_ROWS = new LongCounterMetric("routine_load_rows", MetricUnit.ROWS,
                 "total rows of routine load");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_ROWS);
@@ -492,6 +497,24 @@ public final class MetricRepo {
                 new LongCounterMetric("thrift_rpc_total", MetricUnit.NOUNIT, ""));
         THRIFT_COUNTER_RPC_LATENCY = addLabeledMetrics("method", () ->
                 new LongCounterMetric("thrift_rpc_latency_ms", MetricUnit.MILLISECONDS, ""));
+
+        // copy into
+        HTTP_COUNTER_COPY_INFO_UPLOAD_REQUEST = new LongCounterMetric("http_copy_into_upload_request_total",
+                MetricUnit.REQUESTS, "http copy into upload total request");
+        DORIS_METRIC_REGISTER.addMetrics(HTTP_COUNTER_COPY_INFO_UPLOAD_REQUEST);
+        HTTP_COUNTER_COPY_INFO_UPLOAD_ERR = new LongCounterMetric("http_copy_into_upload_err_total",
+                MetricUnit.REQUESTS, "http copy into upload err request");
+        DORIS_METRIC_REGISTER.addMetrics(HTTP_COUNTER_COPY_INFO_UPLOAD_ERR);
+        HTTP_COUNTER_COPY_INFO_QUERY_REQUEST = new LongCounterMetric("http_copy_into_query_request_total",
+                MetricUnit.REQUESTS, "http copy into total query request");
+        DORIS_METRIC_REGISTER.addMetrics(HTTP_COUNTER_COPY_INFO_QUERY_REQUEST);
+        HTTP_COUNTER_COPY_INFO_QUERY_ERR = new LongCounterMetric("http_copy_into_upload_err_total",
+                MetricUnit.REQUESTS, "http copy into err query request");
+        DORIS_METRIC_REGISTER.addMetrics(HTTP_COUNTER_COPY_INFO_QUERY_ERR);
+        HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY = METRIC_REGISTER.histogram(
+            MetricRegistry.name("http_copy_into_upload", "latency", "ms"));
+        HISTO_HTTP_COPY_INTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
+            MetricRegistry.name("http_copy_into_query", "latency", "ms"));
 
         // init system metrics
         initSystemMetrics();

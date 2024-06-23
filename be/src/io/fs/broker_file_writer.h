@@ -33,7 +33,7 @@ namespace doris {
 class ExecEnv;
 
 namespace io {
-
+struct FileCacheAllocatorBuilder;
 class BrokerFileWriter final : public FileWriter {
 public:
     // Create and open file writer
@@ -43,24 +43,24 @@ public:
 
     BrokerFileWriter(ExecEnv* env, const TNetworkAddress& broker_address, Path path, TBrokerFD fd);
     ~BrokerFileWriter() override;
+    Status close(bool non_block = false) override;
 
-    Status close() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override { return _cur_offset; }
-    bool closed() const override { return _closed; }
+    State state() const override { return _state; }
+    FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
     Status _write(const uint8_t* buf, size_t buf_len, size_t* written_bytes);
+    Status _close_impl();
 
-private:
     ExecEnv* _env = nullptr;
     const TNetworkAddress _address;
     Path _path;
     size_t _cur_offset = 0;
     TBrokerFD _fd;
-    bool _closed = false;
+    State _state {State::OPENED};
 };
 
 } // end namespace io

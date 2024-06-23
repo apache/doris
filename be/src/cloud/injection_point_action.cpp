@@ -45,11 +45,57 @@ void register_suites() {
         sp->set_call_back("new_cumulative_point", [](auto&& args) {
             auto output_rowset = try_any_cast<Rowset*>(args[0]);
             auto last_cumulative_point = try_any_cast<int64_t>(args[1]);
-            auto pair = try_any_cast<std::pair<int64_t, bool>*>(args.back());
-            pair->first = output_rowset->start_version() == last_cumulative_point
-                                  ? output_rowset->end_version() + 1
-                                  : last_cumulative_point;
-            pair->second = true;
+            auto& [ret_vault, should_ret] = *try_any_cast<std::pair<int64_t, bool>*>(args.back());
+            ret_vault = output_rowset->start_version() == last_cumulative_point
+                                ? output_rowset->end_version() + 1
+                                : last_cumulative_point;
+            should_ret = true;
+        });
+    });
+    suite_map.emplace("test_s3_file_writer", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("UploadFileBuffer::upload_to_local_file_cache", [](auto&&) {
+            std::srand(static_cast<unsigned int>(std::time(nullptr)));
+            int random_sleep_time_second = std::rand() % 10 + 1;
+            std::this_thread::sleep_for(std::chrono::seconds(random_sleep_time_second));
+        });
+        sp->set_call_back("UploadFileBuffer::upload_to_local_file_cache_inject", [](auto&& args) {
+            auto& [ret_status, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
+            ret_status =
+                    Status::IOError<false>("failed to write into file cache due to inject error");
+            should_ret = true;
+        });
+    });
+    suite_map.emplace("test_storage_vault", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("HdfsFileWriter::append_hdfs_file_delay", [](auto&&) {
+            std::srand(static_cast<unsigned int>(std::time(nullptr)));
+            int random_sleep_time_second = std::rand() % 10 + 1;
+            std::this_thread::sleep_for(std::chrono::seconds(random_sleep_time_second));
+        });
+        sp->set_call_back("HdfsFileWriter::append_hdfs_file_error", [](auto&& args) {
+            auto& [_, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
+            should_ret = true;
+        });
+        sp->set_call_back("HdfsFileWriter::hdfsFlush", [](auto&& args) {
+            auto& [ret_value, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
+            ret_value = Status::InternalError("failed to flush hdfs file");
+            should_ret = true;
+        });
+        sp->set_call_back("HdfsFileWriter::hdfsCloseFile", [](auto&& args) {
+            auto& [ret_value, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
+            ret_value = Status::InternalError("failed to flush hdfs file");
+            should_ret = true;
+        });
+        sp->set_call_back("HdfsFileWriter::hdfeSync", [](auto&& args) {
+            auto& [ret_value, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
+            ret_value = Status::InternalError("failed to flush hdfs file");
+            should_ret = true;
+        });
+        sp->set_call_back("HdfsFileReader:read_error", [](auto&& args) {
+            auto& [ret_status, should_ret] = *try_any_cast<std::pair<Status, bool>*>(args.back());
+            ret_status = Status::InternalError("read hdfs error");
+            should_ret = true;
         });
     });
 }

@@ -30,7 +30,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Disabled;
 
 import java.util.List;
 
@@ -38,7 +38,8 @@ class PullUpProjectUnderLimitTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
-    @Test
+    // ut framework has a bug that exprIds are not unique. This case needs to be redesigned
+    @Disabled
     void test() {
         List<NamedExpression> exprs = ImmutableList.of(
                 scan1.getOutput().get(0).alias("id"),

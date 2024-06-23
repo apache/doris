@@ -113,7 +113,7 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
         _remote_fs = DORIS_TRY(
                 io::BrokerFileSystem::create(_broker_addr, _prop, io::FileSystem::TMP_FS_ID));
     } else {
-        return Status::InternalError("Unknown storage tpye: {}", type);
+        return Status::InternalError("Unknown storage type: {}", type);
     }
     return Status::OK();
 }
@@ -771,6 +771,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
 
     } else {
         LOG(FATAL) << "only support overwrite now";
+        __builtin_unreachable();
     }
 
     // snapshot loader not need to change tablet uid

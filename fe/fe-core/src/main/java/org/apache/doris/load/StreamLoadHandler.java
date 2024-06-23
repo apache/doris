@@ -39,7 +39,6 @@ import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
@@ -81,6 +80,13 @@ public class StreamLoadHandler {
         this.clientAddr = clientAddr;
     }
 
+    /**
+     * Select a random backend in the given cloud cluster.
+     *
+     * @param clusterName cloud cluster name
+     * @param groupCommit if this selection is for group commit
+     * @throws LoadException if there is no available backend
+     */
     public static Backend selectBackend(String clusterName, boolean groupCommit) throws LoadException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterName(clusterName)
@@ -120,7 +126,7 @@ public class StreamLoadHandler {
 
         ctx.setRemoteIP(request.isSetAuthCode() ? clientAddr : request.getUserIp());
         String userName = ClusterNamespace.getNameFromFullName(request.getUser());
-        if (!Strings.isNullOrEmpty(userName)) {
+        if (!request.isSetToken() && !Strings.isNullOrEmpty(userName)) {
             List<UserIdentity> currentUser = Lists.newArrayList();
             try {
                 Env.getCurrentEnv().getAuth().checkPlainPassword(userName,
@@ -227,20 +233,13 @@ public class StreamLoadHandler {
                 planner = new StreamLoadPlanner(db, table, streamLoadTask);
             }
             int index = multiTableFragmentInstanceIdIndex != null
-                        ? multiTableFragmentInstanceIdIndex.getAndIncrement() : 0;
-            if (Config.enable_pipeline_load) {
-                TPipelineFragmentParams pipeResult = null;
-                pipeResult = planner.planForPipeline(streamLoadTask.getId(), index);
-                pipeResult.setTableName(table.getName());
-                pipeResult.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
-                fragmentParams.add(pipeResult);
-            } else {
-                TExecPlanFragmentParams result = null;
-                result = planner.plan(streamLoadTask.getId(), index);
-                result.setTableName(table.getName());
-                result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
-                fragmentParams.add(result);
-            }
+                    ? multiTableFragmentInstanceIdIndex.getAndIncrement() : 0;
+            TPipelineFragmentParams result = null;
+            result = planner.plan(streamLoadTask.getId(), index);
+            result.setTableName(table.getName());
+            result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
+            result.setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
+            fragmentParams.add(result);
 
             if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {
                 // add table indexes to transaction state

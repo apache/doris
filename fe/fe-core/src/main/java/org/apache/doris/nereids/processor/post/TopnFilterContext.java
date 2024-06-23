@@ -17,77 +17,89 @@
 
 package org.apache.doris.nereids.processor.post;
 
-import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
-import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 
 /**
  * topN runtime filter context
  */
 public class TopnFilterContext {
-    private final Map<TopN, List<OlapScan>> filters = Maps.newHashMap();
-    private final Set<TopN> sources = Sets.newHashSet();
-    private final Set<OlapScan> targets = Sets.newHashSet();
-    private final Map<OlapScan, OlapScanNode> legacyTargetsMap = Maps.newHashMap();
-    private final Map<TopN, SortNode> legacySourceMap = Maps.newHashMap();
+    private final Map<TopN, TopnFilter> filters = Maps.newHashMap();
 
     /**
      * add topN filter
      */
-    public void addTopnFilter(TopN topn, OlapScan scan) {
-        targets.add(scan);
-        sources.add(topn);
-
-        List<OlapScan> targets = filters.get(topn);
-        if (targets == null) {
-            filters.put(topn, Lists.newArrayList(scan));
+    public void addTopnFilter(TopN topn, PhysicalRelation scan, Expression expr) {
+        TopnFilter filter = filters.get(topn);
+        if (filter == null) {
+            filters.put(topn, new TopnFilter(topn, scan, expr));
         } else {
-            targets.add(scan);
+            filter.addTarget(scan, expr);
+        }
+    }
+
+    public boolean isTopnFilterSource(TopN topn) {
+        return filters.containsKey(topn);
+    }
+
+    public List<TopnFilter> getTopnFilters() {
+        return Lists.newArrayList(filters.values());
+    }
+
+    /**
+     * translate topn-filter
+     */
+    public void translateTarget(PhysicalRelation relation, ScanNode legacyScan,
+            PlanTranslatorContext translatorContext) {
+        for (TopnFilter filter : filters.values()) {
+            if (filter.hasTargetRelation(relation)) {
+                Expr expr = ExpressionTranslator.translate(filter.targets.get(relation), translatorContext);
+                filter.legacyTargets.put(legacyScan, expr);
+            }
         }
     }
 
     /**
-     * find the corresponding sortNode for topn filter
+     * translate topn-filter
      */
-    public Optional<OlapScanNode> getLegacyScanNode(OlapScan scan) {
-        return legacyTargetsMap.keySet().contains(scan)
-                ? Optional.of(legacyTargetsMap.get(scan))
-                : Optional.empty();
+    public void translateSource(TopN topn, SortNode sortNode) {
+        TopnFilter filter = filters.get(topn);
+        if (filter == null) {
+            return;
+        }
+        filter.legacySortNode = sortNode;
+        sortNode.setUseTopnOpt(true);
+        Preconditions.checkArgument(!filter.legacyTargets.isEmpty(), "missing targets: " + filter);
+        for (ScanNode scan : filter.legacyTargets.keySet()) {
+            scan.addTopnFilterSortNode(sortNode);
+        }
     }
 
-    public Optional<SortNode> getLegacySortNode(TopN topn) {
-        return legacyTargetsMap.keySet().contains(topn)
-                ? Optional.of(legacySourceMap.get(topn))
-                : Optional.empty();
-    }
-
-    public boolean isTopnFilterSource(TopN topn) {
-        return sources.contains(topn);
-    }
-
-    public boolean isTopnFilterTarget(OlapScan scan) {
-        return targets.contains(scan);
-    }
-
-    public void addLegacySource(TopN topn, SortNode sort) {
-        legacySourceMap.put(topn, sort);
-    }
-
-    public void addLegacyTarget(OlapScan olapScan, OlapScanNode legacy) {
-        legacyTargetsMap.put(olapScan, legacy);
-    }
-
-    public List<OlapScan> getTargets(TopN topn) {
-        return filters.get(topn);
+    /**
+     * toString
+     */
+    public String toString() {
+        StringBuilder builder = new StringBuilder("TopnFilterContext\n");
+        String indent = "   ";
+        String arrow = " -> ";
+        builder.append("filters:\n");
+        for (TopN topn : filters.keySet()) {
+            builder.append(indent).append(arrow).append(filters.get(topn)).append("\n");
+        }
+        return builder.toString();
     }
 }

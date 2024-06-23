@@ -40,7 +40,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -184,13 +183,15 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     boolean enableAutoAnalyze();
 
-    ConcurrentHashMap<Long, DatabaseIf> getIdToDb();
-
     void createDb(CreateDbStmt stmt) throws DdlException;
 
     void dropDb(DropDbStmt stmt) throws DdlException;
 
-    void createTable(CreateTableStmt stmt) throws UserException;
+    /**
+     * @return if org.apache.doris.analysis.CreateTableStmt.ifNotExists is true, return true if table exists,
+     * return false otherwise
+     */
+    boolean createTable(CreateTableStmt stmt) throws UserException;
 
     void dropTable(DropTableStmt stmt) throws DdlException;
 }

@@ -245,7 +245,7 @@ public class Repository implements Writable {
         String repoInfoFilePath = assembleRepoInfoFilePath();
         // check if the repo is already exist in remote
         List<RemoteFile> remoteFiles = Lists.newArrayList();
-        Status st = fileSystem.list(repoInfoFilePath, remoteFiles);
+        Status st = fileSystem.globList(repoInfoFilePath, remoteFiles);
         if (!st.ok()) {
             return st;
         }
@@ -417,7 +417,7 @@ public class Repository implements Writable {
         String listPath = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name), PREFIX_SNAPSHOT_DIR)
                 + "*";
         List<RemoteFile> result = Lists.newArrayList();
-        Status st = fileSystem.list(listPath, result);
+        Status st = fileSystem.globList(listPath, result);
         if (!st.ok()) {
             return st;
         }
@@ -595,7 +595,7 @@ public class Repository implements Writable {
     public Status download(String remoteFilePath, String localFilePath) {
         // 0. list to get to full name(with checksum)
         List<RemoteFile> remoteFiles = Lists.newArrayList();
-        Status status = fileSystem.list(remoteFilePath + "*", remoteFiles);
+        Status status = fileSystem.globList(remoteFilePath + "*", remoteFiles);
         if (!status.ok()) {
             return status;
         }
@@ -743,8 +743,9 @@ public class Repository implements Writable {
         stmtBuilder.append("\"");
 
         stmtBuilder.append("\nPROPERTIES\n(");
-        stmtBuilder.append(new PrintableMap<>(this.getRemoteFileSystem().getProperties(), " = ",
-                true, true, true));
+        Map<String, String> properties = new HashMap();
+        properties.putAll(this.getRemoteFileSystem().getProperties());
+        stmtBuilder.append(new PrintableMap<>(properties, " = ", true, true, true));
         stmtBuilder.append("\n)");
         return stmtBuilder.toString();
     }
@@ -759,7 +760,7 @@ public class Repository implements Writable {
                 LOG.debug("assemble infoFilePath: {}, snapshot: {}", infoFilePath, snapshotName);
             }
             List<RemoteFile> results = Lists.newArrayList();
-            Status st = fileSystem.list(infoFilePath + "*", results);
+            Status st = fileSystem.globList(infoFilePath + "*", results);
             if (!st.ok()) {
                 info.add(snapshotName);
                 info.add(FeConstants.null_string);

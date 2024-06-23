@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_complextype_information_schema") {
-    sql """set enable_nereids_planner=false"""
     // add array/map/struct
     def table_names = ["array_info", "map_info", "struct_info"]
     for (int i = 0; i < table_names.size(); ++i) {

@@ -46,6 +46,13 @@ void IColumn::insert_from(const IColumn& src, size_t n) {
     insert(src[n]);
 }
 
+void IColumn::insert_from_multi_column(const std::vector<const IColumn*>& srcs,
+                                       std::vector<size_t> positions) {
+    for (size_t i = 0; i < srcs.size(); ++i) {
+        insert_from(*srcs[i], positions[i]);
+    }
+}
+
 void IColumn::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                           IColumn::Permutation& perms, EqualRange& range, bool last_column) const {
     sorter->sort_column(static_cast<const IColumn&>(*this), flags, perms, range, last_column);

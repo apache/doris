@@ -53,6 +53,10 @@ public class TestHMSCachedClient implements HMSCachedClient {
     public List<Database> dbs = new ArrayList<>();
 
     @Override
+    public void close() {
+    }
+
+    @Override
     public Database getDatabase(String dbName) {
         for (Database db : this.dbs) {
             if (db.getName().equals(dbName)) {
@@ -160,6 +164,11 @@ public class TestHMSCachedClient implements HMSCachedClient {
     @Override
     public List<FieldSchema> getSchema(String dbName, String tblName) {
         return null;
+    }
+
+    @Override
+    public Map<String, String> getDefaultColumnValues(String dbName, String tblName) {
+        return new HashMap<>();
     }
 
     @Override

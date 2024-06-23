@@ -169,9 +169,10 @@ public class UserPropertyMgr implements Writable {
         Set<Tag> tags = existProperty.getCopiedResourceTags();
         // only root and admin can return empty tag.
         // empty tag means user can access all backends.
-        // for normal user, if tag is empty, use default tag.
+        // for normal user, if tag is empty and not set force_olap_table_replication_allocation, use default tag.
         if (tags.isEmpty() && !(qualifiedUser.equalsIgnoreCase(Auth.ROOT_USER)
-                || qualifiedUser.equalsIgnoreCase(Auth.ADMIN_USER))) {
+                || qualifiedUser.equalsIgnoreCase(Auth.ADMIN_USER))
+                && Config.force_olap_table_replication_allocation.isEmpty()) {
             tags = Sets.newHashSet(Tag.DEFAULT_BACKEND_TAG);
         }
         return tags;

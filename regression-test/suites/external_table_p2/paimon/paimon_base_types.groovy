@@ -39,13 +39,15 @@ suite("paimon_base_types", "p2,external,paimon,external_remote,external_remote_p
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "paimon"
         String user_name = context.config.otherConfigs.get("extHiveHmsUser")
+        String hiveHost = context.config.otherConfigs.get("extHiveHmsHost")
+        String hivePort = context.config.otherConfigs.get("extHdfsPort")
 
         sql """drop catalog if exists ${catalog_name};"""
         sql """
             create catalog if not exists ${catalog_name} properties (
                 "type" = "paimon",
                 "paimon.catalog.type" = "filesystem",
-                "warehouse" = "hdfs:///paimon/paimon1",
+                "warehouse" = "hdfs://${hiveHost}:${hivePort}/paimon/paimon1",
                 "hadoop.username" = "${user_name}"
             );
         """

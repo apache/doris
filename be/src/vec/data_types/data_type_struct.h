@@ -97,6 +97,7 @@ public:
 
     Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for struct";
+        __builtin_unreachable();
     }
 
     void insert_default_into(IColumn& column) const override;

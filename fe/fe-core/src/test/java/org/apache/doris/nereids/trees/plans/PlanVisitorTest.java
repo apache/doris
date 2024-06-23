@@ -19,24 +19,28 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -51,15 +55,17 @@ public class PlanVisitorTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         createDatabase("visitor_test");
         useDatabase("visitor_test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         createTable("CREATE TABLE `table1` (\n"
                 + " `c1` varchar(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` int(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `c4` DATE not NULL,\n"
+                + " `k4` bitmap BITMAP_UNION ,\n"
+                + " `k5` bitmap BITMAP_UNION \n"
                 + ") ENGINE=OLAP\n"
-                + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
+                + "AGGREGATE KEY(`c1`, `c2`, `c3`, `c4`)\n"
                 + "COMMENT 'OLAP'\n"
                 + "DISTRIBUTED BY HASH(`c2`) BUCKETS 1\n"
                 + "PROPERTIES (\n"
@@ -70,10 +76,11 @@ public class PlanVisitorTest extends TestWithFeService {
                 + " `c1` bigint(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` bigint(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `c4` DATE not NULL,\n"
+                + " `k4` bitmap BITMAP_UNION ,\n"
+                + " `k5` bitmap BITMAP_UNION \n"
                 + ") ENGINE=OLAP\n"
-                + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
+                + "AGGREGATE KEY(`c1`, `c2`, `c3`, `c4`)\n"
                 + "COMMENT 'OLAP'\n"
                 + "DISTRIBUTED BY HASH(`c2`) BUCKETS 1\n"
                 + "PROPERTIES (\n"
@@ -84,10 +91,11 @@ public class PlanVisitorTest extends TestWithFeService {
                 + " `c1` bigint(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` bigint(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `c4` DATE not NULL,\n"
+                + " `k4` bitmap BITMAP_UNION ,\n"
+                + " `k5` bitmap BITMAP_UNION \n"
                 + ") ENGINE=OLAP\n"
-                + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
+                + "AGGREGATE KEY(`c1`, `c2`, `c3`, `c4`)\n"
                 + "COMMENT 'OLAP'\n"
                 + "DISTRIBUTED BY HASH(`c2`) BUCKETS 1\n"
                 + "PROPERTIES (\n"
@@ -115,11 +123,11 @@ public class PlanVisitorTest extends TestWithFeService {
                                 + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR table1.c1 < 10",
                         nereidsPlanner -> {
                             PhysicalPlan physicalPlan = nereidsPlanner.getPhysicalPlan();
-                            List<TreeNode<Expression>> collectResult = new ArrayList<>();
                             // Check nondeterministic collect
-                            physicalPlan.accept(NondeterministicFunctionCollector.INSTANCE, collectResult);
-                            Assertions.assertEquals(1, collectResult.size());
-                            Assertions.assertTrue(collectResult.get(0) instanceof Random);
+                            List<Expression> nondeterministicFunctionSet =
+                                    MaterializedViewUtils.extractNondeterministicFunction(physicalPlan);
+                            Assertions.assertEquals(1, nondeterministicFunctionSet.size());
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof Random);
                             // Check get tables
                             TableCollectorContext collectorContext = new TableCollector.TableCollectorContext(
                                     Sets.newHashSet(TableType.OLAP), true);
@@ -143,12 +151,12 @@ public class PlanVisitorTest extends TestWithFeService {
                                 + "WHERE view1.c1 IN (SELECT c1 FROM table2) OR view1.c1 < 10",
                         nereidsPlanner -> {
                             PhysicalPlan physicalPlan = nereidsPlanner.getPhysicalPlan();
-                            List<TreeNode<Expression>> collectResult = new ArrayList<>();
                             // Check nondeterministic collect
-                            physicalPlan.accept(NondeterministicFunctionCollector.INSTANCE, collectResult);
-                            Assertions.assertEquals(2, collectResult.size());
-                            Assertions.assertTrue(collectResult.get(0) instanceof Uuid);
-                            Assertions.assertTrue(collectResult.get(1) instanceof Random);
+                            List<Expression> nondeterministicFunctionSet =
+                                    MaterializedViewUtils.extractNondeterministicFunction(physicalPlan);
+                            Assertions.assertEquals(2, nondeterministicFunctionSet.size());
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof Uuid);
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(1) instanceof Random);
                             // Check get tables
                             TableCollectorContext collectorContext = new TableCollector.TableCollectorContext(
                                     Sets.newHashSet(TableType.OLAP), true);
@@ -166,6 +174,14 @@ public class PlanVisitorTest extends TestWithFeService {
 
     @Test
     public void test3() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        new MockUp<SessionVariable>() {
+            @Mock
+            public BitSet getDisableNereidsRules() {
+                return disableNereidsRules;
+            }
+        };
         PlanChecker.from(connectContext)
                 .checkPlannerResult("SELECT mv1.*, uuid() FROM mv1 "
                                 + "INNER JOIN view1 on mv1.c1 = view1.c2 "
@@ -173,9 +189,11 @@ public class PlanVisitorTest extends TestWithFeService {
                                 + "WHERE mv1.c1 IN (SELECT c1 FROM table2) OR mv1.c1 < 10",
                         nereidsPlanner -> {
                             PhysicalPlan physicalPlan = nereidsPlanner.getPhysicalPlan();
-                            List<TreeNode<Expression>> collectResult = new ArrayList<>();
                             // Check nondeterministic collect
-                            physicalPlan.accept(NondeterministicFunctionCollector.INSTANCE, collectResult);
+                            List<Expression> nondeterministicFunctionSet =
+                                    MaterializedViewUtils.extractNondeterministicFunction(physicalPlan);
+                            Assertions.assertEquals(1, nondeterministicFunctionSet.size());
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof Uuid);
                             // Check get tables
                             TableCollectorContext collectorContext = new TableCollector.TableCollectorContext(
                                     Sets.newHashSet(TableType.OLAP), true);
@@ -234,14 +252,62 @@ public class PlanVisitorTest extends TestWithFeService {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT *, now() FROM table1 "
                                 + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 "
-                                + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR CURDATE() < '2023-01-01'",
+                                + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR current_date() < '2023-01-01' and current_time() = '2023-01-10'",
                         nereidsPlanner -> {
-                            List<TreeNode<Expression>> collectResult = new ArrayList<>();
                             // Check nondeterministic collect
-                            nereidsPlanner.getAnalyzedPlan().accept(NondeterministicFunctionCollector.INSTANCE, collectResult);
-                            Assertions.assertEquals(2, collectResult.size());
-                            Assertions.assertTrue(collectResult.get(0) instanceof Now);
-                            Assertions.assertTrue(collectResult.get(1) instanceof CurrentDate);
+                            List<Expression> nondeterministicFunctionSet =
+                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                            nereidsPlanner.getAnalyzedPlan());
+                            Assertions.assertEquals(3, nondeterministicFunctionSet.size());
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof Now);
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(1) instanceof CurrentDate);
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(2) instanceof CurrentTime);
+                        });
+    }
+
+    @Test
+    public void testCurrentDateFunction() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT * FROM table1 "
+                                + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 "
+                                + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR current_date() < '2023-01-01'",
+                        nereidsPlanner -> {
+                            // Check nondeterministic collect
+                            List<Expression> nondeterministicFunctionSet =
+                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                            nereidsPlanner.getAnalyzedPlan());
+                            Assertions.assertEquals(1, nondeterministicFunctionSet.size());
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof CurrentDate);
+                        });
+    }
+
+    @Test
+    public void testUnixTimestampWithArgsFunction() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT * FROM table1 "
+                                + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 "
+                                + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR unix_timestamp(table1.c4, '%Y-%m-%d %H:%i-%s') < '2023-01-01' and unix_timestamp(table1.c4) = '2023-01-10'",
+                        nereidsPlanner -> {
+                            // Check nondeterministic collect
+                            List<Expression> nondeterministicFunctionSet =
+                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                            nereidsPlanner.getAnalyzedPlan());
+                            Assertions.assertEquals(0, nondeterministicFunctionSet.size());
+                        });
+    }
+
+    @Test
+    public void testUnixTimestampWithoutArgsFunction() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT unix_timestamp(), * FROM table1 "
+                                + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 ",
+                        nereidsPlanner -> {
+                            // Check nondeterministic collect
+                            List<Expression> nondeterministicFunctionSet =
+                                    MaterializedViewUtils.extractNondeterministicFunction(
+                                            nereidsPlanner.getAnalyzedPlan());
+                            Assertions.assertEquals(1, nondeterministicFunctionSet.size());
+                            Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof UnixTimestamp);
                         });
     }
 }

@@ -123,7 +123,7 @@ public:
             counter.value = this->value();
             counter.type = this->type();
             counter.__set_level(this->level());
-            tcounters.push_back(counter);
+            tcounters.push_back(std::move(counter));
         }
 
         TUnit::type type() const { return _type; }
@@ -292,14 +292,6 @@ public:
     /// must not already exist. If 'prepend' is true, prepended before other child profiles,
     /// otherwise appended after other child profiles.
     RuntimeProfile* create_child(const std::string& name, bool indent = true, bool prepend = false);
-
-    // Sorts all children according to a custom comparator. Does not
-    // invalidate pointers to profiles.
-    template <class Compare>
-    void sort_childer(const Compare& cmp) {
-        std::lock_guard<std::mutex> l(_children_lock);
-        std::sort(_children.begin(), _children.end(), cmp);
-    }
 
     // Merges the src profile into this one, combining counters that have an identical
     // path. Info strings from profiles are not merged. 'src' would be a const if it

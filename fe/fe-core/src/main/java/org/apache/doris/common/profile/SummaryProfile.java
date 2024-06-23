@@ -48,13 +48,12 @@ public class SummaryProfile {
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
     public static final String IS_NEREIDS = "Is Nereids";
-    public static final String IS_PIPELINE = "Is Pipeline";
     public static final String TOTAL_INSTANCES_NUM = "Total Instances Num";
     public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
     public static final String TRACE_ID = "Trace ID";
     public static final String WORKLOAD_GROUP = "Workload Group";
-
+    public static final String PHYSICAL_PLAN = "Physical Plan";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String ANALYSIS_TIME = "Analysis Time";
@@ -94,6 +93,8 @@ public class SummaryProfile {
     public static final String FILESYSTEM_OPT_TIME = "FileSystem Operator Time";
     public static final String FILESYSTEM_OPT_RENAME_FILE_CNT = "Rename File Count";
     public static final String FILESYSTEM_OPT_RENAME_DIR_CNT = "Rename Dir Count";
+
+    public static final String FILESYSTEM_OPT_DELETE_FILE_CNT = "Delete File Count";
     public static final String FILESYSTEM_OPT_DELETE_DIR_CNT = "Delete Dir Count";
     public static final String HMS_ADD_PARTITION_TIME = "HMS Add Partition Time";
     public static final String HMS_ADD_PARTITION_CNT = "HMS Add Partition Count";
@@ -103,8 +104,12 @@ public class SummaryProfile {
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
     // add many columns here. Add to ExecutionSummary list.
-    public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
+    public static final ImmutableList<String> SUMMARY_CAPTIONS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
             START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT);
+    public static final ImmutableList<String> SUMMARY_KEYS = new ImmutableList.Builder<String>()
+            .addAll(SUMMARY_CAPTIONS)
+            .add(PHYSICAL_PLAN)
+            .build();
 
     // The display order of execution summary items.
     public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(
@@ -142,8 +147,7 @@ public class SummaryProfile {
             WRITE_RESULT_TIME,
             DORIS_VERSION,
             IS_NEREIDS,
-            IS_PIPELINE,
-            IS_CACHED,
+                    IS_CACHED,
             TOTAL_INSTANCES_NUM,
             INSTANCES_NUM_PER_BE,
             PARALLEL_FRAGMENT_EXEC_INSTANCE,
@@ -178,6 +182,7 @@ public class SummaryProfile {
             .put(FILESYSTEM_OPT_TIME, 1)
             .put(FILESYSTEM_OPT_RENAME_FILE_CNT, 2)
             .put(FILESYSTEM_OPT_RENAME_DIR_CNT, 2)
+            .put(FILESYSTEM_OPT_DELETE_FILE_CNT, 2)
             .put(FILESYSTEM_OPT_DELETE_DIR_CNT, 2)
             .put(HMS_ADD_PARTITION_TIME, 1)
             .put(HMS_ADD_PARTITION_CNT, 2)
@@ -242,6 +247,8 @@ public class SummaryProfile {
     private long hmsUpdatePartitionCnt = 0;
     private long filesystemRenameFileCnt = 0;
     private long filesystemRenameDirCnt = 0;
+
+    private long filesystemDeleteFileCnt = 0;
     private long filesystemDeleteDirCnt = 0;
     private TransactionType transactionType = TransactionType.UNKNOWN;
 
@@ -279,7 +286,7 @@ public class SummaryProfile {
 
     public Map<String, String> getAsInfoStings() {
         Map<String, String> infoStrings = Maps.newHashMap();
-        for (String header : SummaryProfile.SUMMARY_KEYS) {
+        for (String header : SummaryProfile.SUMMARY_CAPTIONS) {
             infoStrings.put(header, summaryProfile.getInfoString(header));
         }
         return infoStrings;
@@ -372,6 +379,8 @@ public class SummaryProfile {
                     getPrettyCount(filesystemRenameFileCnt));
             executionSummaryProfile.addInfoString(FILESYSTEM_OPT_RENAME_DIR_CNT,
                     getPrettyCount(filesystemRenameDirCnt));
+            executionSummaryProfile.addInfoString(FILESYSTEM_OPT_DELETE_FILE_CNT,
+                    getPrettyCount(filesystemDeleteFileCnt));
             executionSummaryProfile.addInfoString(FILESYSTEM_OPT_DELETE_DIR_CNT,
                     getPrettyCount(filesystemDeleteDirCnt));
 
@@ -620,11 +629,6 @@ public class SummaryProfile {
             return this;
         }
 
-        public SummaryBuilder isPipeline(String isPipeline) {
-            map.put(IS_PIPELINE, isPipeline);
-            return this;
-        }
-
         public Map<String, String> build() {
             return map;
         }
@@ -737,5 +741,9 @@ public class SummaryProfile {
 
     public void incDeleteDirRecursiveCnt() {
         this.filesystemDeleteDirCnt += 1;
+    }
+
+    public void incDeleteFileCnt() {
+        this.filesystemDeleteFileCnt += 1;
     }
 }

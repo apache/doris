@@ -140,8 +140,7 @@ suite("test_auto_range_partition") {
     logger.info("${result2}")
     assertEquals(result2.size(), 2)
 
-     // partition expr extraction
-
+    // insert into select have multi sender in load
     sql " drop table if exists isit "
     sql " drop table if exists isit_src "
     sql """
@@ -166,5 +165,9 @@ suite("test_auto_range_partition") {
     sql " insert into isit_src values (20201212); "
     sql " insert into isit select * from isit_src "
     sql " sync "
+    result2 = sql "show partitions from isit"
+    logger.info("${result2}")
+    def tmp_result = sql "select count() from isit"
+    assertEquals(tmp_result[0][0], 1)
     qt_sql " select * from isit order by k "
 }

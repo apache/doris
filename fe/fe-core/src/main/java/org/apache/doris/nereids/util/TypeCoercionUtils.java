@@ -118,7 +118,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -975,8 +977,28 @@ public class TypeCoercionUtils {
             }
             return inPredicate;
         }
+        // process string literal with numeric
+        boolean hitString = false;
+        List<Expression> newOptions = new ArrayList<>(inPredicate.getOptions());
+        if (!(inPredicate.getCompareExpr().getDataType().isStringLikeType())) {
+            ListIterator<Expression> iterator = newOptions.listIterator();
+            while (iterator.hasNext()) {
+                Expression origOption = iterator.next();
+                if (origOption instanceof Literal && ((Literal) origOption).isStringLikeLiteral()) {
+                    Optional<Expression> option = TypeCoercionUtils.characterLiteralTypeCoercion(
+                            ((Literal) origOption).getStringValue(), inPredicate.getCompareExpr().getDataType());
+                    if (option.isPresent()) {
+                        iterator.set(option.get());
+                        hitString = true;
+                    }
+                }
+            }
+        }
+        final InPredicate fmtInPredicate =
+                hitString ? new InPredicate(inPredicate.getCompareExpr(), newOptions) : inPredicate;
+
         Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForComparison(
-                inPredicate.children()
+                fmtInPredicate.children()
                         .stream()
                         .map(Expression::getDataType).collect(Collectors.toList()),
                 true);
@@ -999,18 +1021,18 @@ public class TypeCoercionUtils {
         if (optionalCommonType.isPresent()) {
             optionalCommonType = Optional.of(downgradeDecimalAndDateLikeType(
                     optionalCommonType.get(),
-                    inPredicate.getCompareExpr(),
-                    inPredicate.getOptions().toArray(new Expression[0])));
+                    fmtInPredicate.getCompareExpr(),
+                    fmtInPredicate.getOptions().toArray(new Expression[0])));
         }
 
         return optionalCommonType
                 .map(commonType -> {
-                    List<Expression> newChildren = inPredicate.children().stream()
+                    List<Expression> newChildren = fmtInPredicate.children().stream()
                             .map(e -> TypeCoercionUtils.castIfNotSameType(e, commonType))
                             .collect(Collectors.toList());
-                    return inPredicate.withChildren(newChildren);
+                    return fmtInPredicate.withChildren(newChildren);
                 })
-                .orElse(inPredicate);
+                .orElse(fmtInPredicate);
     }
 
     /**

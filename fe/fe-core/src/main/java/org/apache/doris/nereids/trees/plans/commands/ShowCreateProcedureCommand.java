@@ -65,10 +65,8 @@ public class ShowCreateProcedureCommand extends Command implements NoForward {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<List<String>> results = new ArrayList<>();
         ctx.getPlSqlOperation().getExec().functions.showCreateProcedure(this.procedureName, results);
-        if (!results.isEmpty()) {
-            ShowResultSet commonResultSet = new ShowResultSet(getMetaData(), results);
-            executor.sendResultSet(commonResultSet);
-        }
+        ShowResultSet commonResultSet = new ShowResultSet(getMetaData(), results);
+        executor.sendResultSet(commonResultSet);
     }
 
     @Override

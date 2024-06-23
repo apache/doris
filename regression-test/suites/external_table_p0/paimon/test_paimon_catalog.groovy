@@ -56,10 +56,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
     sql """drop catalog ${hms_ctl_name}""";
 
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
-        if (enabled != null && enabled.equalsIgnoreCase("enable_deprecated_case")) {
-            // The timestamp type of paimon has no logical or converted type,
-            // and is conflict with column type change from bigint to timestamp.
-            // Deprecated currently.
+        if (enabled != null && enabled.equalsIgnoreCase("true")) {
             def qt_all_type = { String table_name ->
                 qt_all """select * from ${table_name} order by c1"""
                 qt_predict_like_1 """select * from ${table_name} where c13 like '%3%' order by c1"""
@@ -174,7 +171,17 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
 
             def c100= """select * from array_nested order by c1;"""
 
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+            def c102= """select * from row_native_test order by id;"""
+            def c103= """select * from row_jni_test order by id;"""
+
+            def c104= """select * from deletion_vector_orc;"""
+            def c105= """select * from deletion_vector_parquet;"""
+            def c106= """ select * from tb_with_upper_case """
+            def c107= """ select id from tb_with_upper_case where id > 1 """
+            def c108= """ select id from tb_with_upper_case where id = 1 """
+            def c109= """ select id from tb_with_upper_case where id < 1 """
+
+            String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
             String catalog_name = "ctl_test_paimon_catalog"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -186,91 +193,106 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             );"""
             sql """use `${catalog_name}`.`db1`"""
 
-            qt_all_type("all_table")
-            qt_all_type("all_table_with_parquet")
+            def test_cases = { String force ->
+                sql """ set force_jni_scanner=${force} """
+                qt_all_type("all_table")
+                qt_all_type("all_table_with_parquet")
 
-            qt_c19 c19
-            qt_c20 c20
-            qt_c21 c21
-            qt_c22 c22
-            qt_c23 c23
-            qt_c24 c24
-            qt_c25 c25
-            qt_c26 c26
-            qt_c27 c27
-            qt_c28 c28
-            qt_c29 c29
-            qt_c30 c30
-            qt_c31 c31
-            qt_c32 c32
-            qt_c33 c33
-            qt_c34 c34
-            qt_c35 c35
-            qt_c36 c36
-            qt_c37 c37
-            qt_c38 c38
-            qt_c39 c39
-            qt_c40 c40
-            qt_c41 c41
-            qt_c42 c42
-            qt_c43 c43
-            qt_c44 c44
-            qt_c45 c45
-            qt_c46 c46
-            qt_c47 c47
-            qt_c48 c48
-            qt_c49 c49
-            qt_c50 c50
-            qt_c51 c51
-            qt_c52 c52
-            qt_c53 c53
-            qt_c54 c54
-            qt_c55 c55
-            qt_c56 c56
-            qt_c57 c57
-            qt_c58 c58
-            qt_c59 c59
-            qt_c60 c60
-            qt_c61 c61
-            qt_c62 c62
-            qt_c63 c63
-            qt_c64 c64
-            qt_c65 c65
-            qt_c66 c66
-            qt_c67 c67
-            qt_c68 c68
-            qt_c69 c69
-            qt_c70 c70
-            qt_c71 c71
-            qt_c72 c72
-            qt_c73 c73
-            qt_c74 c74
-            qt_c75 c75
-            qt_c76 c76
-            qt_c77 c77
-            qt_c78 c78
-            qt_c79 c79
-            qt_c80 c80
-            qt_c80 c81
-            qt_c80 c82
-            qt_c80 c83
-            qt_c80 c84
-            qt_c80 c85
-            qt_c80 c86
-            qt_c80 c87
-            qt_c80 c88
-            qt_c80 c89
-            qt_c90 c90
-            qt_c91 c91
-            qt_c92 c92
-            qt_c93 c93
-            qt_c94 c94
-            qt_c95 c95
-            qt_c96 c96
-            qt_c97 c97
-            qt_c98 c98
-            qt_c99 c99
-            qt_c100 c100
+                qt_c19 c19
+                qt_c20 c20
+                qt_c21 c21
+                qt_c22 c22
+                qt_c23 c23
+                qt_c24 c24
+                qt_c25 c25
+                qt_c26 c26
+                qt_c27 c27
+                qt_c28 c28
+                qt_c29 c29
+                qt_c30 c30
+                qt_c31 c31
+                qt_c32 c32
+                qt_c33 c33
+                qt_c34 c34
+                qt_c35 c35
+                qt_c36 c36
+                qt_c37 c37
+                qt_c38 c38
+                qt_c39 c39
+                qt_c40 c40
+                qt_c41 c41
+                qt_c42 c42
+                qt_c43 c43
+                qt_c44 c44
+                qt_c45 c45
+                qt_c46 c46
+                qt_c47 c47
+                qt_c48 c48
+                qt_c49 c49
+                qt_c50 c50
+                qt_c51 c51
+                qt_c52 c52
+                qt_c53 c53
+                qt_c54 c54
+                qt_c55 c55
+                qt_c56 c56
+                qt_c57 c57
+                qt_c58 c58
+                qt_c59 c59
+                qt_c60 c60
+                qt_c61 c61
+                qt_c62 c62
+                qt_c63 c63
+                qt_c64 c64
+                qt_c65 c65
+                qt_c66 c66
+                qt_c67 c67
+                qt_c68 c68
+                qt_c69 c69
+                qt_c70 c70
+                qt_c71 c71
+                qt_c72 c72
+                qt_c73 c73
+                qt_c74 c74
+                qt_c75 c75
+                qt_c76 c76
+                qt_c77 c77
+                qt_c78 c78
+                qt_c79 c79
+                qt_c80 c80
+                qt_c81 c81
+                qt_c82 c82
+                qt_c83 c83
+                qt_c84 c84
+                qt_c85 c85
+                qt_c85 c86
+                qt_c86 c87
+                qt_c86 c88
+                qt_c89 c89
+                qt_c90 c90
+                qt_c91 c91
+                qt_c92 c92
+                qt_c93 c93
+                qt_c94 c94
+                qt_c95 c95
+                qt_c96 c96
+                qt_c97 c97
+                qt_c98 c98
+                qt_c99 c99
+                qt_c100 c100
+                qt_c102 c102
+                qt_c103 c103
+                qt_c104 c104
+                qt_c105 c105
+                qt_c106 c106
+                qt_c107 c107
+                qt_c108 c108
+                qt_c109 c109
+            }
+
+            test_cases("false")
+            test_cases("true")
+            sql """ set force_jni_scanner=false; """
 
             // test view from jion paimon
             sql """ switch internal """

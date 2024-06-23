@@ -4,26 +4,26 @@ PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF1 s_suppkey->[lo_suppkey]
-------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF0 p_partkey->[lo_partkey]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF1 p_partkey->[lo_partkey]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
-------------------------------filter((part.p_brand <= 'MFGR#2228') and (part.p_brand >= 'MFGR#2221'))
---------------------------------PhysicalOlapScan[part]
-------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------PhysicalProject
-----------------------------filter((supplier.s_region = 'ASIA'))
-------------------------------PhysicalOlapScan[supplier]
---------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[dates]
+------------------------------filter((supplier.s_region = 'ASIA'))
+--------------------------------PhysicalOlapScan[supplier]
+----------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------PhysicalProject
+--------------------------filter((part.p_brand <= 'MFGR#2228') and (part.p_brand >= 'MFGR#2221'))
+----------------------------PhysicalOlapScan[part]
+------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[dates]
 

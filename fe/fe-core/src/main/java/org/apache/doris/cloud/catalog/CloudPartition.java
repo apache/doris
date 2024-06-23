@@ -23,7 +23,9 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.rpc.VersionHelper;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
@@ -101,12 +103,12 @@ public class CloudPartition extends Partition {
     }
 
     @Override
-    public long getCachedVisibleVersion() {
-        return super.getVisibleVersion();
-    }
-
-    @Override
     public long getVisibleVersion() {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("return 1 as the visible version in the compatibility checking mode");
+            return 1;
+        }
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("getVisibleVersion use CloudPartition {}", super.getName());
         }
@@ -339,7 +341,8 @@ public class CloudPartition extends Partition {
 
     private static boolean isEmptyPartitionPruneDisabled() {
         ConnectContext ctx = ConnectContext.get();
-        if (ctx != null && ctx.getSessionVariable().getDisableEmptyPartitionPrune()) {
+        if (ctx != null && (ctx.getSessionVariable().getDisableNereidsRules().get(RuleType.valueOf(
+                "PRUNE_EMPTY_PARTITION").type()) || ctx.getSessionVariable().getDisableEmptyPartitionPrune())) {
             return true;
         }
         return false;

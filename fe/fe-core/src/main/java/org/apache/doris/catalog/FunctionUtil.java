@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Strings;
@@ -238,7 +239,11 @@ public class FunctionUtil {
             if (function instanceof AliasFunction) {
                 AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
             } else if (function instanceof ScalarFunction) {
-                JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+                if (function.isUDTFunction()) {
+                    JavaUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+                } else {
+                    JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+                }
             } else if (function instanceof AggregateFunction) {
                 JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
             }

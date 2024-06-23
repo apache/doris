@@ -25,6 +25,7 @@
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud_txn_delete_bitmap_cache.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "util/threadpool.h"
@@ -33,11 +34,16 @@ namespace doris {
 namespace cloud {
 class CloudMetaMgr;
 }
+namespace io {
+class FileCacheBlockDownloader;
+}
 
 class CloudTabletMgr;
 class CloudCumulativeCompaction;
 class CloudBaseCompaction;
 class CloudFullCompaction;
+class TabletHotspot;
+class CloudWarmUpManager;
 
 class CloudStorageEngine final : public BaseStorageEngine {
 public:
@@ -58,28 +64,34 @@ public:
         return Status::OK();
     }
 
-    cloud::CloudMetaMgr& meta_mgr() { return *_meta_mgr; }
+    cloud::CloudMetaMgr& meta_mgr() const { return *_meta_mgr; }
 
-    CloudTabletMgr& tablet_mgr() { return *_tablet_mgr; }
+    CloudTabletMgr& tablet_mgr() const { return *_tablet_mgr; }
 
-    CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() { return *_txn_delete_bitmap_cache; }
-    std::unique_ptr<ThreadPool>& calc_tablet_delete_bitmap_task_thread_pool() {
-        return _calc_tablet_delete_bitmap_task_thread_pool;
+    CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() const { return *_txn_delete_bitmap_cache; }
+    ThreadPool& calc_tablet_delete_bitmap_task_thread_pool() const {
+        return *_calc_tablet_delete_bitmap_task_thread_pool;
     }
+    void _check_file_cache_ttl_block_valid();
 
-    io::FileSystemSPtr get_fs_by_vault_id(const std::string& vault_id) const {
+    std::optional<StorageResource> get_storage_resource(const std::string& vault_id) const {
         if (vault_id.empty()) {
-            return latest_fs();
+            return StorageResource {latest_fs()};
         }
-        return get_filesystem(vault_id);
+
+        if (auto storage_resource = doris::get_storage_resource(vault_id); storage_resource) {
+            return storage_resource->first;
+        }
+
+        return std::nullopt;
     }
 
-    io::FileSystemSPtr latest_fs() const {
+    io::RemoteFileSystemSPtr latest_fs() const {
         std::lock_guard lock(_latest_fs_mtx);
         return _latest_fs;
     }
 
-    void set_latest_fs(const io::FileSystemSPtr& fs) {
+    void set_latest_fs(const io::RemoteFileSystemSPtr& fs) {
         std::lock_guard lock(_latest_fs_mtx);
         _latest_fs = fs;
     }
@@ -93,23 +105,35 @@ public:
 
     bool has_base_compaction(int64_t tablet_id) const {
         std::lock_guard lock(_compaction_mtx);
-        return _submitted_base_compactions.count(tablet_id);
+        return _submitted_base_compactions.contains(tablet_id);
     }
 
     bool has_cumu_compaction(int64_t tablet_id) const {
         std::lock_guard lock(_compaction_mtx);
-        return _submitted_cumu_compactions.count(tablet_id);
+        return _submitted_cumu_compactions.contains(tablet_id);
     }
 
     bool has_full_compaction(int64_t tablet_id) const {
         std::lock_guard lock(_compaction_mtx);
-        return _submitted_full_compactions.count(tablet_id);
+        return _submitted_full_compactions.contains(tablet_id);
     }
 
     std::shared_ptr<CloudCumulativeCompactionPolicy> cumu_compaction_policy(
             std::string_view compaction_policy);
 
     void sync_storage_vault();
+
+    io::FileCacheBlockDownloader& file_cache_block_downloader() const {
+        return *_file_cache_block_downloader;
+    }
+
+    CloudWarmUpManager& cloud_warm_up_manager() const { return *_cloud_warm_up_manager; }
+
+    TabletHotspot& tablet_hotspot() const { return *_tablet_hotspot; }
+
+    ThreadPool& sync_load_for_tablets_thread_pool() const {
+        return *_sync_load_for_tablets_thread_pool;
+    }
 
 private:
     void _refresh_storage_vault_info_thread_callback();
@@ -131,9 +155,16 @@ private:
     std::unique_ptr<CloudTxnDeleteBitmapCache> _txn_delete_bitmap_cache;
     std::unique_ptr<ThreadPool> _calc_tablet_delete_bitmap_task_thread_pool;
 
+    // Components for cache warmup
+    std::unique_ptr<io::FileCacheBlockDownloader> _file_cache_block_downloader;
+    // Depended by `FileCacheBlockDownloader`
+    std::unique_ptr<CloudWarmUpManager> _cloud_warm_up_manager;
+    std::unique_ptr<TabletHotspot> _tablet_hotspot;
+    std::unique_ptr<ThreadPool> _sync_load_for_tablets_thread_pool;
+
     // FileSystem with latest shared storage info, new data will be written to this fs.
     mutable std::mutex _latest_fs_mtx;
-    io::FileSystemSPtr _latest_fs;
+    io::RemoteFileSystemSPtr _latest_fs;
 
     std::vector<scoped_refptr<Thread>> _bg_threads;
 

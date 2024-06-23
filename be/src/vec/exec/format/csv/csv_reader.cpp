@@ -78,9 +78,11 @@ void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>
                            splitted_values);
         value_start_offset = idx + _value_sep_len;
     }
-    // process the last column
-    process_value_func(data, value_start_offset, line.size - value_start_offset, _trimming_char,
-                       splitted_values);
+    if (line.size >= value_start_offset) {
+        // process the last column
+        process_value_func(data, value_start_offset, line.size - value_start_offset, _trimming_char,
+                           splitted_values);
+    }
 }
 
 void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
@@ -688,7 +690,13 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
         // Only check for load task. For query task, the non exist column will be filled "null".
         // if actual column number in csv file is not equal to _file_slot_descs.size()
         // then filter this line.
-        if (_split_values.size() != _file_slot_descs.size()) {
+        bool ignore_col = false;
+        ignore_col = _params.__isset.file_attributes &&
+                     _params.file_attributes.__isset.ignore_csv_redundant_col &&
+                     _params.file_attributes.ignore_csv_redundant_col;
+
+        if ((!ignore_col && _split_values.size() != _file_slot_descs.size()) ||
+            (ignore_col && _split_values.size() < _file_slot_descs.size())) {
             std::string cmp_str =
                     _split_values.size() > _file_slot_descs.size() ? "more than" : "less than";
             RETURN_IF_ERROR(_state->append_error_msg_to_file(

@@ -46,13 +46,12 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
         //  -> select id, age as max(age) from t;
         String sql = "select id, max(age) from t group by id";
 
-        PlanChecker.from(connectContext)
+        PlanChecker cheker = PlanChecker.from(connectContext)
                 .analyze(sql)
-                .rewrite()
-                .matches(
-                        logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
-                                && p.getProjects().get(1).toSql().equals("age AS `max(age)`"))
-                );
+                .rewrite();
+        cheker.matches(
+                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                                && p.getProjects().get(1).toSql().equals("age AS `max(age)`")));
     }
 
     @Test
@@ -64,7 +63,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
+                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
                                 && p.getProjects().get(1).toSql().equals("age AS `min(age)`"))
                 );
     }
@@ -78,7 +77,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
+                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
                                 && p.getProjects().get(1).toSql().equals("cast(age as BIGINT) AS `sum(age)`"))
                 );
     }
@@ -92,8 +91,9 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalProject().when(p -> p.getProjects().get(0).toSql().equals("id")
-                                && p.getProjects().get(1).toSql().equals("if(age IS NULL, 0, 1) AS `if(age IS NULL, 0, 1)`")
+                        logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
+                                && p.getProjects().get(1).toSql()
+                                .equals("if(age IS NULL, 0, 1) AS `if(age IS NULL, 0, 1)`")
                         )
                 );
     }

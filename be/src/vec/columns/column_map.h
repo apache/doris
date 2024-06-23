@@ -102,6 +102,8 @@ public:
 
     void insert_data(const char* pos, size_t length) override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                           size_t length) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert(const Field& x) override;
     void insert_default() override;
@@ -121,11 +123,6 @@ public:
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not implemented";
-    }
-
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
@@ -140,10 +137,6 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {
@@ -203,6 +196,12 @@ public:
 
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];
+    }
+
+    ColumnPtr convert_column_if_overflow() override {
+        keys_column = keys_column->convert_column_if_overflow();
+        values_column = values_column->convert_column_if_overflow();
+        return IColumn::convert_column_if_overflow();
     }
 
 private:

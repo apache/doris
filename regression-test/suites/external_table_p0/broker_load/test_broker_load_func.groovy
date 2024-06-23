@@ -21,7 +21,7 @@ suite("test_broker_load_func", "p0,external,hive,external_docker,external_docker
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String hdfsPort = context.config.otherConfigs.get("hdfs_port")
+            String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
 
             String database_name = "test_broker_load_func"
             String broker_name = "hdfs"

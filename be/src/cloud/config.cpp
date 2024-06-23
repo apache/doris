@@ -55,4 +55,8 @@ DEFINE_mInt32(schedule_sync_tablets_interval_s, "600");
 
 DEFINE_mInt32(mow_stream_load_commit_retry_times, "10");
 
+DEFINE_mBool(save_load_error_log_to_s3, "false");
+
+DEFINE_mInt32(sync_load_for_tablets_thread, "32");
+
 } // namespace doris::config

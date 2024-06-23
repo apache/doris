@@ -646,7 +646,7 @@ public class BindExpression implements AnalysisRuleFactory {
             boundGroupingSetsBuilder.add(boundGroupingSet);
         }
         List<List<Expression>> boundGroupingSets = boundGroupingSetsBuilder.build();
-        List<NamedExpression> nullableOutput = adjustNullableForRepeat(boundGroupingSets, boundRepeatOutput);
+        List<NamedExpression> nullableOutput = PlanUtils.adjustNullableForRepeat(boundGroupingSets, boundRepeatOutput);
         for (List<Expression> groupingSet : boundGroupingSets) {
             checkIfOutputAliasNameDuplicatedForGroupBy(groupingSet, nullableOutput);
         }
@@ -740,16 +740,25 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private Plan bindSortWithoutSetOperation(MatchingContext<LogicalSort<Plan>> ctx) {
+        CascadesContext cascadesContext = ctx.cascadesContext;
         LogicalSort<Plan> sort = ctx.root;
         Plan input = sort.child();
-
         List<Slot> childOutput = input.getOutput();
 
+        // we should skip distinct project to bind slot in LogicalSort;
+        // check input.child(0) to avoid process SELECT DISTINCT a FROM t ORDER BY b by mistake
+        // NOTICE: SELECT a FROM (SELECT sum(a) AS a FROM t GROUP BY b) v ORDER BY b will not raise error result
+        //   because input.child(0) is LogicalSubqueryAlias
+        if (input instanceof LogicalProject && ((LogicalProject<?>) input).isDistinct()
+                && (input.child(0) instanceof LogicalHaving
+                || input.child(0) instanceof LogicalAggregate
+                || input.child(0) instanceof LogicalRepeat)) {
+            input = input.child(0);
+        }
         // we should skip LogicalHaving to bind slot in LogicalSort;
         if (input instanceof LogicalHaving) {
             input = input.child(0);
         }
-        CascadesContext cascadesContext = ctx.cascadesContext;
 
         // 1. We should deduplicate the slots, otherwise the binding process will fail due to the
         //    ambiguous slots exist.
@@ -777,9 +786,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 (self, unboundSlot) -> {
                     // first, try to bind slot in Scope(input.output)
                     List<Slot> slotsInInput = self.bindExactSlotsByThisScope(unboundSlot, inputScope);
-                    if (slotsInInput.size() == 1) {
+                    if (!slotsInInput.isEmpty()) {
                         // bind succeed
-                        return slotsInInput;
+                        return ImmutableList.of(slotsInInput.get(0));
                     }
                     // second, bind failed:
                     // if the slot not found, or more than one candidate slots found in input.output,
@@ -801,30 +810,6 @@ public class BindExpression implements AnalysisRuleFactory {
             boundOrderKeys.add(orderKey.withExpression(boundKey));
         }
         return new LogicalSort<>(boundOrderKeys.build(), sort.child());
-    }
-
-    /**
-     * For the columns whose output exists in grouping sets, they need to be assigned as nullable.
-     */
-    private List<NamedExpression> adjustNullableForRepeat(
-            List<List<Expression>> groupingSets,
-            List<NamedExpression> outputs) {
-        Set<Slot> groupingSetsUsedSlots = groupingSets.stream()
-                .flatMap(Collection::stream)
-                .map(Expression::getInputSlots)
-                .flatMap(Set::stream)
-                .collect(Collectors.toSet());
-        Builder<NamedExpression> nullableOutputs = ImmutableList.builderWithExpectedSize(outputs.size());
-        for (NamedExpression output : outputs) {
-            Expression nullableOutput = output.rewriteUp(expr -> {
-                if (expr instanceof Slot && groupingSetsUsedSlots.contains(expr)) {
-                    return ((Slot) expr).withNullable(true);
-                }
-                return expr;
-            });
-            nullableOutputs.add((NamedExpression) nullableOutput);
-        }
-        return nullableOutputs.build();
     }
 
     private LogicalTVFRelation bindTableValuedFunction(MatchingContext<UnboundTVFRelation> ctx) {

@@ -82,7 +82,6 @@
 namespace doris::segment_v2 {
 
 const char* const DorisFSDirectory::WRITE_LOCK_FILE = "write.lock";
-const char* const DorisFSDirectory::COMPOUND_FILE_EXTENSION = ".idx";
 
 class DorisFSDirectory::FSIndexOutput : public lucene::store::BufferedIndexOutput {
 private:
@@ -317,15 +316,7 @@ void DorisFSDirectory::FSIndexOutput::close() {
         _CLTHROWA(err.number(), err.what());
     }
     if (_writer) {
-        Status ret = _writer->finalize();
-        DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput._set_writer_finalize_status_error",
-                        { ret = Status::Error<INTERNAL_ERROR>("writer finalize status error"); })
-        if (!ret.ok()) {
-            LOG(WARNING) << "FSIndexOutput close, file writer finalize error: " << ret.to_string();
-            _writer.reset(nullptr);
-            _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
-        }
-        ret = _writer->close();
+        auto ret = _writer->close();
         DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput._set_writer_close_status_error",
                         { ret = Status::Error<INTERNAL_ERROR>("writer close status error"); })
         if (!ret.ok()) {
@@ -349,24 +340,10 @@ DorisFSDirectory::DorisFSDirectory() {
     this->lockFactory = nullptr;
 }
 
-void DorisFSDirectory::init(const io::FileSystemSPtr& _fs, const char* _path,
-                            bool use_compound_file_writer, lucene::store::LockFactory* lock_factory,
-                            const io::FileSystemSPtr& cfs, const char* cfs_path) {
-    fs = _fs;
-    directory = _path;
-    useCompoundFileWriter = use_compound_file_writer;
-
-    if (cfs == nullptr) {
-        compound_fs = fs;
-    } else {
-        compound_fs = cfs;
-    }
-    if (cfs_path != nullptr) {
-        cfs_directory = cfs_path;
-    } else {
-        cfs_directory = _path;
-    }
-
+void DorisFSDirectory::init(const io::FileSystemSPtr& fs, const char* path,
+                            lucene::store::LockFactory* lock_factory) {
+    _fs = fs;
+    directory = path;
     if (lock_factory == nullptr) {
         lock_factory = _CLNEW lucene::store::NoLockFactory();
     }
@@ -374,11 +351,11 @@ void DorisFSDirectory::init(const io::FileSystemSPtr& _fs, const char* _path,
     lucene::store::Directory::setLockFactory(lock_factory);
 
     // It's fail checking directory existence in S3.
-    if (fs->type() == io::FileSystemType::S3) {
+    if (_fs->type() == io::FileSystemType::S3) {
         return;
     }
     bool exists = false;
-    LOG_AND_THROW_IF_ERROR(fs->exists(directory, &exists),
+    LOG_AND_THROW_IF_ERROR(_fs->exists(directory, &exists),
                            "Doris compound directory init IO error");
     if (!exists) {
         auto e = "Doris compound directory init error: " + directory + " is not a directory";
@@ -409,7 +386,7 @@ bool DorisFSDirectory::list(std::vector<std::string>* names) const {
     priv_getFN(fl, "");
     std::vector<io::FileInfo> files;
     bool exists;
-    LOG_AND_THROW_IF_ERROR(fs->list(fl, true, &files, &exists), "List file IO error");
+    LOG_AND_THROW_IF_ERROR(_fs->list(fl, true, &files, &exists), "List file IO error");
     for (auto& file : files) {
         names->push_back(file.file_name);
     }
@@ -421,12 +398,8 @@ bool DorisFSDirectory::fileExists(const char* name) const {
     char fl[CL_MAX_DIR];
     priv_getFN(fl, name);
     bool exists = false;
-    LOG_AND_THROW_IF_ERROR(fs->exists(fl, &exists), "File exists IO error");
+    LOG_AND_THROW_IF_ERROR(_fs->exists(fl, &exists), "File exists IO error");
     return exists;
-}
-
-const char* DorisFSDirectory::getCfsDirName() const {
-    return cfs_directory.c_str();
 }
 
 const std::string& DorisFSDirectory::getDirName() const {
@@ -451,7 +424,7 @@ void DorisFSDirectory::touchFile(const char* name) {
     snprintf(buffer, CL_MAX_DIR, "%s%s%s", directory.c_str(), PATH_DELIMITERA, name);
 
     io::FileWriterPtr tmp_writer;
-    LOG_AND_THROW_IF_ERROR(fs->create_file(buffer, &tmp_writer), "Touch file IO error");
+    LOG_AND_THROW_IF_ERROR(_fs->create_file(buffer, &tmp_writer), "Touch file IO error");
 }
 
 int64_t DorisFSDirectory::fileLength(const char* name) const {
@@ -459,7 +432,7 @@ int64_t DorisFSDirectory::fileLength(const char* name) const {
     char buffer[CL_MAX_DIR];
     priv_getFN(buffer, name);
     int64_t size = -1;
-    LOG_AND_THROW_IF_ERROR(fs->file_size(buffer, &size), "Get file size IO error");
+    LOG_AND_THROW_IF_ERROR(_fs->file_size(buffer, &size), "Get file size IO error");
     return size;
 }
 
@@ -468,7 +441,7 @@ bool DorisFSDirectory::openInput(const char* name, lucene::store::IndexInput*& r
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, name);
-    return FSIndexInput::open(fs, fl, ret, error, bufferSize);
+    return FSIndexInput::open(_fs, fl, ret, error, bufferSize);
 }
 
 void DorisFSDirectory::close() {}
@@ -477,7 +450,7 @@ bool DorisFSDirectory::doDeleteFile(const char* name) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, name);
-    LOG_AND_THROW_IF_ERROR(fs->delete_file(fl), "Delete file IO error");
+    LOG_AND_THROW_IF_ERROR(_fs->delete_file(fl), "Delete file IO error");
     return true;
 }
 
@@ -485,7 +458,7 @@ bool DorisFSDirectory::deleteDirectory() {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
     char fl[CL_MAX_DIR];
     priv_getFN(fl, "");
-    LOG_AND_THROW_IF_ERROR(fs->delete_directory(fl),
+    LOG_AND_THROW_IF_ERROR(_fs->delete_directory(fl),
                            fmt::format("Delete directory {} IO error", fl));
     return true;
 }
@@ -500,11 +473,11 @@ void DorisFSDirectory::renameFile(const char* from, const char* to) {
     priv_getFN(nu, to);
 
     bool exists = false;
-    LOG_AND_THROW_IF_ERROR(fs->exists(nu, &exists), "File exists IO error");
+    LOG_AND_THROW_IF_ERROR(_fs->exists(nu, &exists), "File exists IO error");
     if (exists) {
-        LOG_AND_THROW_IF_ERROR(fs->delete_directory(nu), fmt::format("Delete {} IO error", nu));
+        LOG_AND_THROW_IF_ERROR(_fs->delete_directory(nu), fmt::format("Delete {} IO error", nu));
     }
-    LOG_AND_THROW_IF_ERROR(fs->rename(old, nu), fmt::format("Rename {} to {} IO error", old, nu));
+    LOG_AND_THROW_IF_ERROR(_fs->rename(old, nu), fmt::format("Rename {} to {} IO error", old, nu));
 }
 
 lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
@@ -512,16 +485,16 @@ lucene::store::IndexOutput* DorisFSDirectory::createOutput(const char* name) {
     char fl[CL_MAX_DIR];
     priv_getFN(fl, name);
     bool exists = false;
-    LOG_AND_THROW_IF_ERROR(fs->exists(fl, &exists), "Create output file exists IO error");
+    LOG_AND_THROW_IF_ERROR(_fs->exists(fl, &exists), "Create output file exists IO error");
     if (exists) {
-        LOG_AND_THROW_IF_ERROR(fs->delete_file(fl),
+        LOG_AND_THROW_IF_ERROR(_fs->delete_file(fl),
                                fmt::format("Create output delete file {} IO error", fl));
-        LOG_AND_THROW_IF_ERROR(fs->exists(fl, &exists), "Create output file exists IO error");
+        LOG_AND_THROW_IF_ERROR(_fs->exists(fl, &exists), "Create output file exists IO error");
         assert(!exists);
     }
     auto* ret = _CLNEW FSIndexOutput();
     try {
-        ret->init(fs, fl);
+        ret->init(_fs, fl);
     } catch (CLuceneError& err) {
         ret->close();
         _CLDELETE(ret)
@@ -547,24 +520,10 @@ DorisRAMFSDirectory::~DorisRAMFSDirectory() {
     _CLDELETE(filesMap);
 }
 
-void DorisRAMFSDirectory::init(const io::FileSystemSPtr& _fs, const char* _path,
-                               bool use_compound_file_writer,
-                               lucene::store::LockFactory* lock_factory,
-                               const io::FileSystemSPtr& cfs, const char* cfs_path) {
-    fs = _fs;
-    directory = _path;
-    useCompoundFileWriter = use_compound_file_writer;
-
-    if (cfs == nullptr) {
-        compound_fs = fs;
-    } else {
-        compound_fs = cfs;
-    }
-    if (cfs_path != nullptr) {
-        cfs_directory = cfs_path;
-    } else {
-        cfs_directory = _path;
-    }
+void DorisRAMFSDirectory::init(const io::FileSystemSPtr& fs, const char* path,
+                               lucene::store::LockFactory* lock_factory) {
+    _fs = fs;
+    directory = path;
 
     lucene::store::Directory::setLockFactory(_CLNEW lucene::store::SingleInstanceLockFactory());
 }
@@ -714,14 +673,9 @@ const char* DorisRAMFSDirectory::getObjectName() const {
     return getClassName();
 }
 
-DorisFSDirectory* DorisFSDirectoryFactory::getDirectory(
-        const io::FileSystemSPtr& _fs, const char* _file, bool use_compound_file_writer,
-        bool can_use_ram_dir, lucene::store::LockFactory* lock_factory,
-        const io::FileSystemSPtr& _cfs, const char* _cfs_file) {
-    const char* cfs_file = _cfs_file;
-    if (cfs_file == nullptr) {
-        cfs_file = _file;
-    }
+DorisFSDirectory* DorisFSDirectoryFactory::getDirectory(const io::FileSystemSPtr& _fs,
+                                                        const char* _file, bool can_use_ram_dir,
+                                                        lucene::store::LockFactory* lock_factory) {
     DorisFSDirectory* dir = nullptr;
     if (!_file || !*_file) {
         _CLTHROWA(CL_ERR_IO, "Invalid directory");
@@ -743,7 +697,7 @@ DorisFSDirectory* DorisFSDirectoryFactory::getDirectory(
         }
         dir = _CLNEW DorisFSDirectory();
     }
-    dir->init(_fs, file, use_compound_file_writer, lock_factory, _cfs, cfs_file);
+    dir->init(_fs, file, lock_factory);
 
     return dir;
 }

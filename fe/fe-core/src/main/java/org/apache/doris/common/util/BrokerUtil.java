@@ -88,7 +88,7 @@ public class BrokerUtil {
         try {
             RemoteFileSystem fileSystem = FileSystemFactory.get(
                     brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
-            Status st = fileSystem.list(path, rfiles, false);
+            Status st = fileSystem.globList(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(st.getErrMsg());
             }

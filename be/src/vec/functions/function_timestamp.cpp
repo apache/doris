@@ -371,9 +371,10 @@ private:
     static void _execute_inner_loop(const int& l, const int& r, PaddedPODArray<ReturnType>& res,
                                     NullMap& null_map, size_t index) {
         auto& res_val = *reinterpret_cast<DateValueType*>(&res[index]);
+        // l checked outside
         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
             VecDateTimeValue ts_value = VecDateTimeValue();
-            ts_value.set_time(l, 1, 1, 0, 0, 0);
+            ts_value.unchecked_set_time(l, 1, 1, 0, 0, 0);
 
             TimeInterval interval(DAY, r - 1, false);
             res_val = ts_value;
@@ -383,7 +384,7 @@ private:
             }
             res_val.cast_to_date();
         } else {
-            res_val.set_time(l, 1, 1, 0, 0, 0, 0);
+            res_val.unchecked_set_time(l, 1, 1, 0, 0, 0, 0);
             TimeInterval interval(DAY, r - 1, false);
             if (!res_val.template date_add_interval<DAY>(interval)) {
                 null_map[index] = 1;
@@ -681,136 +682,6 @@ struct UnixTimeStampDatetimeImpl : public UnixTimeStampDateImpl<DateType> {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
 };
 
-template <typename DateType>
-struct UnixTimeStampDateImplOld {
-    static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
-
-    static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
-        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(DataTypeInt32);
-    }
-
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
-                               size_t input_rows_count) {
-        const ColumnPtr& col_source = block.get_by_position(arguments[0]).column;
-        auto col_result = ColumnVector<Int32>::create();
-        auto null_map = ColumnVector<UInt8>::create();
-        auto& col_result_data = col_result->get_data();
-
-        col_result->resize(input_rows_count);
-
-        if constexpr (std::is_same_v<DateType, DataTypeDate>) {
-            null_map->resize(input_rows_count);
-            auto& null_map_data = null_map->get_data();
-
-            for (int i = 0; i < input_rows_count; i++) {
-                if (col_source->is_null_at(i)) {
-                    null_map_data[i] = true;
-                    continue;
-                }
-
-                StringRef source = col_source->get_data_at(i);
-                const VecDateTimeValue& ts_value =
-                        reinterpret_cast<const VecDateTimeValue&>(*source.data);
-                int64_t timestamp {};
-                if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
-                    null_map_data[i] = true;
-                } else {
-                    null_map_data[i] = false;
-                    col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
-                }
-            }
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(col_result), std::move(null_map)));
-        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
-            const auto is_nullable = block.get_by_position(arguments[0]).type->is_nullable();
-            if (is_nullable) {
-                null_map->resize(input_rows_count);
-                auto& null_map_data = null_map->get_data();
-                for (int i = 0; i < input_rows_count; i++) {
-                    if (col_source->is_null_at(i)) {
-                        DCHECK(is_nullable);
-                        null_map_data[i] = true;
-                        continue;
-                    }
-
-                    StringRef source = col_source->get_data_at(i);
-                    const DateV2Value<DateV2ValueType>& ts_value =
-                            reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
-                    int64_t timestamp {};
-                    if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
-                        null_map_data[i] = true;
-                    } else {
-                        null_map_data[i] = false;
-                        col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
-                    }
-                }
-                block.replace_by_position(
-                        result, ColumnNullable::create(std::move(col_result), std::move(null_map)));
-            } else {
-                for (int i = 0; i < input_rows_count; i++) {
-                    DCHECK(!col_source->is_null_at(i));
-                    StringRef source = col_source->get_data_at(i);
-                    const DateV2Value<DateV2ValueType>& ts_value =
-                            reinterpret_cast<const DateV2Value<DateV2ValueType>&>(*source.data);
-                    int64_t timestamp {};
-                    const auto valid =
-                            ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
-                    DCHECK(valid);
-                    col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
-                }
-                block.replace_by_position(result, std::move(col_result));
-            }
-        } else {
-            const auto is_nullable = block.get_by_position(arguments[0]).type->is_nullable();
-            if (is_nullable) {
-                null_map->resize(input_rows_count);
-                auto& null_map_data = null_map->get_data();
-                for (int i = 0; i < input_rows_count; i++) {
-                    if (col_source->is_null_at(i)) {
-                        DCHECK(is_nullable);
-                        null_map_data[i] = true;
-                        continue;
-                    }
-
-                    StringRef source = col_source->get_data_at(i);
-                    const DateV2Value<DateTimeV2ValueType>& ts_value =
-                            reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
-                    int64_t timestamp {};
-                    if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
-                        null_map_data[i] = true;
-                    } else {
-                        null_map_data[i] = false;
-                        col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
-                    }
-                }
-                block.replace_by_position(
-                        result, ColumnNullable::create(std::move(col_result), std::move(null_map)));
-            } else {
-                for (int i = 0; i < input_rows_count; i++) {
-                    DCHECK(!col_source->is_null_at(i));
-                    StringRef source = col_source->get_data_at(i);
-                    const DateV2Value<DateTimeV2ValueType>& ts_value =
-                            reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
-                    int64_t timestamp {};
-                    const auto valid =
-                            ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
-                    DCHECK(valid);
-                    col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
-                }
-                block.replace_by_position(result, std::move(col_result));
-            }
-        }
-
-        return Status::OK();
-    }
-};
-
-template <typename DateType>
-struct UnixTimeStampDatetimeImplOld : public UnixTimeStampDateImplOld<DateType> {
-    static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
-};
-
 // This impl doesn't use default impl to deal null value.
 struct UnixTimeStampStrImpl {
     static DataTypes get_variadic_argument_types() {
@@ -831,7 +702,7 @@ struct UnixTimeStampStrImpl {
         std::tie(col_right, format_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
-        auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, 0);
+        auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, 6);
         auto null_map = ColumnVector<UInt8>::create(input_rows_count);
         auto& col_result_data = col_result->get_data();
         auto& null_map_data = null_map->get_data();
@@ -865,61 +736,6 @@ struct UnixTimeStampStrImpl {
                 }
 
                 col_result_data[i] = Decimal64::from_int_frac(sec, std::stoll(ms_str), 6).value;
-            }
-        }
-
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(col_result), std::move(null_map)));
-
-        return Status::OK();
-    }
-};
-
-struct UnixTimeStampStrImplOld {
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
-    }
-
-    static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
-        return make_nullable(std::make_shared<DataTypeInt32>());
-    }
-
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
-                               size_t input_rows_count) {
-        const ColumnPtr col_source = block.get_by_position(arguments[0]).column;
-        const ColumnPtr col_format = block.get_by_position(arguments[1]).column;
-
-        auto col_result = ColumnVector<Int32>::create();
-        auto null_map = ColumnVector<UInt8>::create();
-
-        col_result->resize(input_rows_count);
-        null_map->resize(input_rows_count);
-
-        auto& col_result_data = col_result->get_data();
-        auto& null_map_data = null_map->get_data();
-
-        for (int i = 0; i < input_rows_count; i++) {
-            if (col_source->is_null_at(i) || col_format->is_null_at(i)) {
-                null_map_data[i] = true;
-                continue;
-            }
-
-            StringRef source = col_source->get_data_at(i);
-            StringRef fmt = col_format->get_data_at(i);
-
-            VecDateTimeValue ts_value;
-            if (!ts_value.from_date_format_str(fmt.data, fmt.size, source.data, source.size)) {
-                null_map_data[i] = true;
-                continue;
-            }
-
-            int64_t timestamp {};
-            if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
-                null_map_data[i] = true;
-            } else {
-                null_map_data[i] = false;
-                col_result_data[i] = UnixTimeStampImpl::trim_timestamp(timestamp);
             }
         }
 
@@ -1119,17 +935,17 @@ struct LastDayImpl {
                 continue;
             }
             int day = get_last_month_day(ts_value.year(), ts_value.month());
-
+            // day is definitely legal
             if constexpr (date_cast::IsV1<DateType>()) {
-                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0);
                 ts_value.set_type(TIME_DATE);
                 res_data[i] = binary_cast<VecDateTimeValue, Int64>(ts_value);
             } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
-                ts_value.template set_time_unit<TimeUnit::DAY>(day);
+                ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else {
-                ts_value.template set_time_unit<TimeUnit::DAY>(day);
-                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
+                ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
@@ -1144,12 +960,12 @@ struct LastDayImpl {
             auto ts_value = binary_cast<NativeType, DateValueType>(cur_data);
             DCHECK(ts_value.is_valid_date());
             int day = get_last_month_day(ts_value.year(), ts_value.month());
-            ts_value.template set_time_unit<TimeUnit::DAY>(day);
+            ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
 
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
-                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
@@ -1233,7 +1049,7 @@ struct MondayImpl {
             }
             if constexpr (date_cast::IsV1<DateType>()) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0);
+                    ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0);
                     ts_value.set_type(TIME_DATE);
                     res_data[i] = binary_cast<VecDateTimeValue, Int64>(ts_value);
                     continue;
@@ -1249,7 +1065,7 @@ struct MondayImpl {
 
             } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.template set_time_unit<TimeUnit::DAY>(1);
+                    ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(1);
                     res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
                     continue;
                 }
@@ -1262,7 +1078,7 @@ struct MondayImpl {
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
+                    ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
                     UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                     DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
                     continue;
@@ -1272,7 +1088,8 @@ struct MondayImpl {
                 int gap_of_monday = day_of_week - 1;
                 TimeInterval interval(DAY, gap_of_monday, true);
                 ts_value.template date_add_interval<DAY>(interval);
-                ts_value.set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0,
+                                            0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
@@ -1289,7 +1106,7 @@ struct MondayImpl {
             DCHECK(ts_value.is_valid_date());
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.template set_time_unit<TimeUnit::DAY>(1);
+                    ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(1);
                     res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
                     continue;
                 }
@@ -1301,7 +1118,7 @@ struct MondayImpl {
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
+                    ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
                     UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                     DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
                     continue;
@@ -1311,7 +1128,8 @@ struct MondayImpl {
                 int gap_of_monday = day_of_week - 1;
                 TimeInterval interval(DAY, gap_of_monday, true);
                 ts_value.template date_add_interval<DAY>(interval);
-                ts_value.set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0,
+                                            0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
@@ -1404,15 +1222,6 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<DateTimeToTimestamp<MicroSec>>();
     factory.register_function<DateTimeToTimestamp<MilliSec>>();
     factory.register_function<DateTimeToTimestamp<Sec>>();
-
-    /// @TEMPORARY: for be_exec_version=3
-    factory.register_alternative_function<
-            FunctionUnixTimestamp<UnixTimeStampDateImplOld<DataTypeDate>>>();
-    factory.register_alternative_function<
-            FunctionUnixTimestamp<UnixTimeStampDateImplOld<DataTypeDateV2>>>();
-    factory.register_alternative_function<
-            FunctionUnixTimestamp<UnixTimeStampDateImplOld<DataTypeDateTimeV2>>>();
-    factory.register_alternative_function<FunctionUnixTimestamp<UnixTimeStampStrImplOld>>();
 }
 
 } // namespace doris::vectorized

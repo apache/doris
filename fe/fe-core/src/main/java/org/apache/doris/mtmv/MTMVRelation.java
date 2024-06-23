@@ -30,9 +30,13 @@ public class MTMVRelation {
     private Set<BaseTableInfo> baseTables;
     @SerializedName("bv")
     private Set<BaseTableInfo> baseViews;
+    @SerializedName("btol")
+    private Set<BaseTableInfo> baseTablesOneLevel;
 
-    public MTMVRelation(Set<BaseTableInfo> baseTables, Set<BaseTableInfo> baseViews) {
+    public MTMVRelation(Set<BaseTableInfo> baseTables, Set<BaseTableInfo> baseTablesOneLevel,
+            Set<BaseTableInfo> baseViews) {
         this.baseTables = baseTables;
+        this.baseTablesOneLevel = baseTablesOneLevel;
         this.baseViews = baseViews;
     }
 
@@ -40,14 +44,20 @@ public class MTMVRelation {
         return baseTables;
     }
 
+    public Set<BaseTableInfo> getBaseTablesOneLevel() {
+        // For compatibility, previously created MTMV may not have baseTablesOneLevel
+        return baseTablesOneLevel == null ? baseTables : baseTablesOneLevel;
+    }
+
     public Set<BaseTableInfo> getBaseViews() {
         return baseViews;
     }
 
-    @Override
-    public String toString() {
+    // toString() is not easy to find where to call the method
+    public String toInfoString() {
         return "MTMVRelation{"
                 + "baseTables=" + baseTables
+                + ", baseTablesOneLevel=" + baseTablesOneLevel
                 + ", baseViews=" + baseViews
                 + '}';
     }

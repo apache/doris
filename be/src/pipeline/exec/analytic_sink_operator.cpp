@@ -21,10 +21,9 @@
 #include <string>
 
 #include "pipeline/exec/operator.h"
+#include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
-
-OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, StreamingOperator)
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
@@ -72,8 +71,7 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-bool AnalyticSinkLocalState::_whether_need_next_partition(
-        vectorized::BlockRowPos& found_partition_end) {
+bool AnalyticSinkLocalState::_whether_need_next_partition(BlockRowPos& found_partition_end) {
     auto& shared_state = *_shared_state;
     if (shared_state.input_eos ||
         (shared_state.current_row_position <
@@ -93,9 +91,9 @@ bool AnalyticSinkLocalState::_whether_need_next_partition(
 }
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-vectorized::BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(
-        int idx, vectorized::BlockRowPos start, vectorized::BlockRowPos end,
-        bool need_check_first) {
+BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
+                                                             BlockRowPos end,
+                                                             bool need_check_first) {
     auto& shared_state = *_shared_state;
     int64_t start_init_row_num = start.row_num;
     vectorized::ColumnPtr start_column =
@@ -170,7 +168,7 @@ vectorized::BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(
     return start;
 }
 
-vectorized::BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
+BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
     auto& shared_state = *_shared_state;
     if (shared_state.current_row_position <
         shared_state.partition_by_end.pos) { //still have data, return partition_by_end directly
@@ -182,7 +180,7 @@ vectorized::BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
         return shared_state.all_block_end;
     }
 
-    vectorized::BlockRowPos cal_end = shared_state.all_block_end;
+    BlockRowPos cal_end = shared_state.all_block_end;
     for (size_t i = 0; i < shared_state.partition_by_eq_expr_ctxs.size();
          ++i) { //have partition_by, binary search the partiton end
         cal_end = _compare_row_to_find_end(shared_state.partition_by_column_idxs[i],
@@ -193,14 +191,17 @@ vectorized::BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
 }
 
 AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id,
-                                             const TPlanNode& tnode, const DescriptorTbl& descs)
+                                             const TPlanNode& tnode, const DescriptorTbl& descs,
+                                             bool require_bucket_distribution)
         : DataSinkOperatorX(operator_id, tnode.node_id),
           _buffered_tuple_id(tnode.analytic_node.__isset.buffered_tuple_id
                                      ? tnode.analytic_node.buffered_tuple_id
                                      : 0),
           _is_colocate(tnode.analytic_node.__isset.is_colocate && tnode.analytic_node.is_colocate),
-          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
-                                                               : std::vector<TExpr> {}) {}
+          _require_bucket_distribution(require_bucket_distribution),
+          _partition_exprs(tnode.__isset.distribute_expr_lists && require_bucket_distribution
+                                   ? tnode.distribute_expr_lists[0]
+                                   : tnode.analytic_node.partition_exprs) {}
 
 Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));

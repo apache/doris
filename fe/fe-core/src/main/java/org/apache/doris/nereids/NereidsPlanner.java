@@ -22,11 +22,12 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -53,11 +54,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
+import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
@@ -66,8 +70,10 @@ import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.ResultSetMetaData;
+import org.apache.doris.qe.cache.CacheAnalyzer;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -88,6 +94,7 @@ public class NereidsPlanner extends Planner {
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
     private final List<ScanNode> scanNodeList = Lists.newArrayList();
+    private final List<PhysicalRelation> physicalRelations = Lists.newArrayList();
     private DescriptorTable descTable;
 
     private Plan parsedPlan;
@@ -106,6 +113,7 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
+        this.queryOptions = queryOptions;
         if (statementContext.getConnectContext().getSessionVariable().isEnableNereidsTrace()) {
             NereidsTracer.init();
         } else {
@@ -168,8 +176,9 @@ public class NereidsPlanner extends Planner {
                 LogicalSqlCache logicalSqlCache = (LogicalSqlCache) plan;
                 physicalPlan = new PhysicalSqlCache(
                         logicalSqlCache.getQueryId(), logicalSqlCache.getColumnLabels(),
-                        logicalSqlCache.getResultExprs(), logicalSqlCache.getCacheValues(),
-                        logicalSqlCache.getBackendAddress(), logicalSqlCache.getPlanBody()
+                        logicalSqlCache.getResultExprs(), logicalSqlCache.getResultSetInFe(),
+                        logicalSqlCache.getCacheValues(), logicalSqlCache.getBackendAddress(),
+                        logicalSqlCache.getPlanBody()
                 );
                 return physicalPlan;
             }
@@ -326,6 +335,7 @@ public class NereidsPlanner extends Planner {
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
 
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
+        physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
         descTable = planTranslatorContext.getDescTable();
         fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
         for (int seq = 0; seq < fragments.size(); seq++) {
@@ -359,6 +369,10 @@ public class NereidsPlanner extends Planner {
         return scanNodeList;
     }
 
+    public List<PhysicalRelation> getPhysicalRelations() {
+        return physicalRelations;
+    }
+
     public Group getRoot() {
         return cascadesContext.getMemo().getRoot();
     }
@@ -383,6 +397,13 @@ public class NereidsPlanner extends Planner {
             GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties("
                             + physicalProperties + ") doesn't exist in root group")).second;
+            if (rootGroup.getEnforcers().contains(groupExpression)) {
+                rootGroup.addChosenEnforcerId(groupExpression.getId().asInt());
+                rootGroup.addChosenEnforcerProperties(physicalProperties);
+            } else {
+                rootGroup.setChosenProperties(physicalProperties);
+                rootGroup.setChosenGroupExpressionId(groupExpression.getId().asInt());
+            }
             List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
             List<Plan> planChildren = Lists.newArrayList();
             for (int i = 0; i < groupExpression.arity(); i++) {
@@ -466,11 +487,16 @@ public class NereidsPlanner extends Planner {
                 plan = optimizedPlan.shape("");
                 break;
             case MEMO_PLAN:
+                StringBuilder materializationStringBuilder = new StringBuilder();
+                materializationStringBuilder.append("materializationContexts:").append("\n");
+                for (MaterializationContext ctx : cascadesContext.getMaterializationContexts()) {
+                    materializationStringBuilder.append("\n").append(ctx).append("\n");
+                }
                 plan = cascadesContext.getMemo().toString()
                         + "\n\n========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString()
                         + "\n\n========== MATERIALIZATIONS ==========\n"
-                        + MaterializationContext.toDetailString(cascadesContext.getMaterializationContexts());
+                        + materializationStringBuilder;
                 break;
             case ALL_PLAN:
                 plan = "========== PARSED PLAN "
@@ -487,18 +513,20 @@ public class NereidsPlanner extends Planner {
                         + optimizedPlan.treeString();
                 break;
             default:
-                List<MTMV> materializationListChosenByCbo = this.getPhysicalPlan()
-                        .collectToList(node -> node instanceof PhysicalCatalogRelation
-                                && ((PhysicalCatalogRelation) node).getTable() instanceof MTMV).stream()
-                        .map(node -> (MTMV) ((PhysicalCatalogRelation) node).getTable())
-                        .collect(Collectors.toList());
                 plan = super.getExplainString(explainOptions)
                         + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
-                        materializationListChosenByCbo);
+                        this.getPhysicalPlan());
+                if (statementContext != null) {
+                    if (statementContext.isHasUnknownColStats()) {
+                        plan += "\n\nStatistics\n planed with unknown column statistics\n";
+                    }
+                }
         }
-        if (statementContext != null && !statementContext.getHints().isEmpty()) {
-            String hint = getHintExplainString(statementContext.getHints());
-            return plan + hint;
+        if (statementContext != null) {
+            if (!statementContext.getHints().isEmpty()) {
+                String hint = getHintExplainString(statementContext.getHints());
+                return plan + hint;
+            }
         }
         return plan;
     }
@@ -528,31 +556,78 @@ public class NereidsPlanner extends Planner {
         if (!(parsedStmt instanceof LogicalPlanAdapter)) {
             return Optional.empty();
         }
+        if (physicalPlan instanceof PhysicalSqlCache
+                && ((PhysicalSqlCache) physicalPlan).getResultSet().isPresent()) {
+            return Optional.of(((PhysicalSqlCache) physicalPlan).getResultSet().get());
+        }
         if (!(physicalPlan instanceof PhysicalResultSink)) {
             return Optional.empty();
         }
-        if (!(((PhysicalResultSink<?>) physicalPlan).child() instanceof PhysicalOneRowRelation)) {
+
+        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+        boolean enableSqlCache
+                = CacheAnalyzer.canUseSqlCache(statementContext.getConnectContext().getSessionVariable());
+        Plan child = physicalPlan.child(0);
+        if (child instanceof PhysicalOneRowRelation) {
+            PhysicalOneRowRelation physicalOneRowRelation = (PhysicalOneRowRelation) physicalPlan.child(0);
+            List<Column> columns = Lists.newArrayList();
+            List<String> data = Lists.newArrayList();
+            for (int i = 0; i < physicalOneRowRelation.getProjects().size(); i++) {
+                NamedExpression item = physicalOneRowRelation.getProjects().get(i);
+                NamedExpression output = physicalPlan.getOutput().get(i);
+                Expression expr = item.child(0);
+                if (expr instanceof Literal) {
+                    LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
+                    columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
+                    data.add(legacyExpr.getStringValueInFe());
+                } else {
+                    return Optional.empty();
+                }
+            }
+
+            ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+            ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
+            if (sqlCacheContext.isPresent() && enableSqlCache) {
+                sqlCacheContext.get().setResultSetInFe(resultSet);
+                Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
+                        statementContext.getConnectContext(),
+                        statementContext.getOriginStatement().originStmt
+                );
+            }
+            return Optional.of(resultSet);
+        } else if (child instanceof PhysicalEmptyRelation) {
+            List<Column> columns = Lists.newArrayList();
+            for (int i = 0; i < physicalPlan.getOutput().size(); i++) {
+                NamedExpression output = physicalPlan.getOutput().get(i);
+                columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
+            }
+
+            ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+            ResultSet resultSet = new CommonResultSet(metadata, ImmutableList.of());
+            if (sqlCacheContext.isPresent() && enableSqlCache) {
+                sqlCacheContext.get().setResultSetInFe(resultSet);
+                Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
+                        statementContext.getConnectContext(),
+                        statementContext.getOriginStatement().originStmt
+                );
+            }
+            return Optional.of(resultSet);
+        } else if (child instanceof PhysicalHashAggregate && getScanNodes().size() > 0
+                && getScanNodes().get(0) instanceof IcebergScanNode) {
+            List<Column> columns = Lists.newArrayList();
+            NamedExpression output = physicalPlan.getOutput().get(0);
+            columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
+            if (((IcebergScanNode) getScanNodes().get(0)).rowCount > 0) {
+                ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+                ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(
+                        Lists.newArrayList(String.valueOf(((IcebergScanNode) getScanNodes().get(0)).rowCount))));
+                // only support one iceberg scan node and one count, e.g. select count(*) from icetbl;
+                return Optional.of(resultSet);
+            }
+            return Optional.empty();
+        } else {
             return Optional.empty();
         }
-        PhysicalOneRowRelation physicalOneRowRelation
-                = (PhysicalOneRowRelation) ((PhysicalResultSink<?>) physicalPlan).child();
-        List<Column> columns = Lists.newArrayList();
-        List<String> data = Lists.newArrayList();
-        for (int i = 0; i < physicalOneRowRelation.getProjects().size(); i++) {
-            NamedExpression item = physicalOneRowRelation.getProjects().get(i);
-            NamedExpression output = physicalPlan.getOutput().get(i);
-            Expression expr = item.child(0);
-            if (expr instanceof Literal) {
-                LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
-                columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-                data.add(legacyExpr.getStringValueInFe());
-            } else {
-                return Optional.empty();
-            }
-        }
-        ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
-        ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
-        return Optional.of(resultSet);
     }
 
     @VisibleForTesting
@@ -656,5 +731,10 @@ public class NereidsPlanner extends Planner {
         } else {
             task.run();
         }
+    }
+
+    @Override
+    public List<TopnFilter> getTopnFilters() {
+        return cascadesContext.getTopnFilterContext().getTopnFilters();
     }
 }

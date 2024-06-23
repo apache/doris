@@ -18,16 +18,12 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -69,32 +65,6 @@ public interface Project {
     }
 
     /**
-     * Check if it is a project that is pull up from scan in analyze rule
-     * e.g. BindSlotWithPaths
-     * And check if contains PushDownToProjectionFunction that can pushed down to project
-     */
-    default boolean hasPushedDownToProjectionFunctions() {
-        if ((ConnectContext.get() == null
-                || ConnectContext.get().getSessionVariable() == null
-                || !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot())) {
-            return false;
-        }
-
-        boolean hasValidAlias = false;
-        for (NamedExpression namedExpr : getProjects()) {
-            if (namedExpr instanceof Alias) {
-                if (!PushDownToProjectionFunction.validToPushDown(((Alias) namedExpr).child())) {
-                    return false;
-                }
-                hasValidAlias = true;
-            } else if (!(namedExpr instanceof SlotReference)) {
-                return false;
-            }
-        }
-        return hasValidAlias;
-    }
-
-    /**
      * find projects, if not found the slot, then throw AnalysisException
      */
     static List<? extends Expression> findProject(
@@ -116,5 +86,15 @@ public interface Project {
                     }
                     return expr;
                 });
+    }
+
+    /** isAllSlots */
+    default boolean isAllSlots() {
+        for (NamedExpression project : getProjects()) {
+            if (!project.isSlot()) {
+                return false;
+            }
+        }
+        return true;
     }
 }

@@ -83,6 +83,12 @@ public:
                        RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output);
+
+    static io::UInt128Wrapper file_cache_key(std::string_view rowset_id, uint32_t seg_id);
+    io::UInt128Wrapper file_cache_key() const {
+        return file_cache_key(_rowset_id.to_string(), _segment_id);
+    }
+
     ~Segment();
 
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
@@ -185,6 +191,8 @@ public:
         return safe;
     }
 
+    const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);
@@ -204,6 +212,8 @@ private:
     Status _load_index_impl();
     Status _open_inverted_index();
 
+    Status _create_column_readers_once();
+
 private:
     friend class SegmentIterator;
     io::FileSystemSPtr _fs;
@@ -211,11 +221,11 @@ private:
     uint32_t _segment_id;
     uint32_t _num_rows;
 
-    // only for tracking memory use by segment meta data such as footer or index page.
+    // 1. Tracking memory use by segment meta data such as footer or index page.
+    // 2. Tracking memory use by segment column reader
     // The memory consumed by querying is tracked in segment iterator.
     // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
     // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
-    // maybe have to use ColumnReader count as segment meta size.
     int64_t _meta_mem_usage;
 
     RowsetId _rowset_id;
@@ -245,9 +255,15 @@ private:
     DorisCallOnce<Status> _load_index_once;
     // used to guarantee that primary key bloom filter will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_pk_bf_once;
+
+    DorisCallOnce<Status> _create_column_readers_once_call;
+
+    std::unique_ptr<SegmentFooterPB> _footer_pb;
+
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;
     // short key index decoder
+    // all content is in memory
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
     // primary key index reader
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;

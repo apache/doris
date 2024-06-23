@@ -16,11 +16,23 @@
 // under the License.
 
 suite("test_cast_date_decimal") {
-    sql """
-        set enable_nereids_planner=false;
+    qt_sql1 """
+        select cast('2020-02-02' as date ) between cast('2020-02-02' as date ) and cast('2020-02-02' as date ) + 1.0;
     """
 
-    qt_sql """
-        select cast('2020-02-02' as date ) between cast('2020-02-02' as date ) and cast('2020-02-02' as date ) + 1.0;
+    qt_sql2 """
+        select cast('2024-12-12' as date);
+    """
+
+    qt_sql3 """
+        select cast('2024.12.12' as date);
+    """
+
+    qt_sql4 """
+        select cast('24.12.12' as date);
+    """
+
+    qt_sql5 """
+        select cast('123.123' as date);
     """
 }

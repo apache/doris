@@ -99,6 +99,7 @@ public:
     ColumnPtr permute(const Permutation& perm, size_t limit) const override {
         if (s != perm.size()) {
             LOG(FATAL) << "Size of permutation doesn't match size of column.";
+            __builtin_unreachable();
         }
 
         return clone_dummy(limit ? std::min(s, limit) : s);
@@ -148,21 +149,7 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column dummy";
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "should not call the method in column dummy";
-    }
-
-    void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
-        LOG(FATAL) << "should not call the method in column dummy";
-    }
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
-        if (indexes.size() < limit) {
-            LOG(FATAL) << "Size of indexes is less than required.";
-        }
-        return clone_dummy(limit ? limit : s);
+        __builtin_unreachable();
     }
 
 protected:

@@ -62,15 +62,17 @@ void ColumnWithTypeAndName::dump_structure(std::ostream& out) const {
         out << name;
     }
 
-    if (type)
+    if (type) {
         out << " " << type->get_name();
-    else
+    } else {
         out << " nullptr";
+    }
 
-    if (column)
-        out << ' ' << column->dump_structure();
-    else
+    if (column) {
+        out << ' ' << column->dump_structure() << "(use_count=" << column->use_count() << ')';
+    } else {
         out << " nullptr";
+    }
 }
 
 String ColumnWithTypeAndName::dump_structure() const {

@@ -100,7 +100,8 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
 
 Result<io::FileWriterPtr> FileFactory::create_file_writer(
         TFileType::type type, ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
-        const std::map<std::string, std::string>& properties, const std::string& path) {
+        const std::map<std::string, std::string>& properties, const std::string& path,
+        const io::FileWriterOptions& options) {
     io::FileWriterPtr file_writer;
     switch (type) {
     case TFileType::FILE_LOCAL: {
@@ -116,21 +117,17 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         S3Conf s3_conf;
         RETURN_IF_ERROR_RESULT(
                 S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
-        auto client = S3ClientFactory::instance().create(s3_conf.client_conf);
-        // TODO(plat1ko): Set opts
+        auto client = std::make_shared<io::ObjClientHolder>(std::move(s3_conf.client_conf));
+        RETURN_IF_ERROR_RESULT(client->init());
         return std::make_unique<io::S3FileWriter>(std::move(client), std::move(s3_conf.bucket),
-                                                  s3_uri.get_key(), nullptr);
+                                                  s3_uri.get_key(), &options);
     }
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
-        io::HdfsHandler* handler;
+        std::shared_ptr<io::HdfsHandler> handler;
         RETURN_IF_ERROR_RESULT(io::HdfsHandlerCache::instance()->get_connection(
                 hdfs_params, hdfs_params.fs_name, &handler));
-        auto res = io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name);
-        if (!res.has_value()) {
-            handler->dec_ref();
-        }
-        return res;
+        return io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name, &options);
     }
     default:
         return ResultError(
@@ -156,7 +153,7 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
         S3Conf s3_conf;
         RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
                 system_properties.properties, s3_uri, &s3_conf));
-        auto client_holder = std::make_shared<io::S3ClientHolder>(s3_conf.client_conf);
+        auto client_holder = std::make_shared<io::ObjClientHolder>(s3_conf.client_conf);
         RETURN_IF_ERROR_RESULT(client_holder->init());
         return io::S3FileReader::create(std::move(client_holder), s3_conf.bucket, s3_uri.get_key(),
                                         file_description.file_size)
@@ -165,7 +162,7 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
                 });
     }
     case TFileType::FILE_HDFS: {
-        io::HdfsHandler* handler;
+        std::shared_ptr<io::HdfsHandler> handler;
         // FIXME(plat1ko): Explain the difference between `system_properties.hdfs_params.fs_name`
         // and `file_description.fs_name`, it's so confused.
         const auto* fs_name = &file_description.fs_name;
@@ -216,26 +213,6 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     } else {
         *file_reader = stream_load_ctx->pipe;
     }
-
-    if (file_reader->get() == nullptr) {
-        return Status::OK();
-    }
-
-    auto multi_table_pipe = std::dynamic_pointer_cast<io::MultiTablePipe>(*file_reader);
-    if (multi_table_pipe == nullptr || runtime_state == nullptr) {
-        return Status::OK();
-    }
-
-    TUniqueId pipe_id;
-    if (runtime_state->enable_pipeline_exec()) {
-        pipe_id = io::StreamLoadPipe::calculate_pipe_id(runtime_state->query_id(),
-                                                        runtime_state->fragment_id());
-    } else {
-        pipe_id = runtime_state->fragment_instance_id();
-    }
-    *file_reader = multi_table_pipe->get_pipe(pipe_id);
-    LOG(INFO) << "create pipe reader for fragment instance: " << pipe_id
-              << " pipe: " << (*file_reader).get();
 
     return Status::OK();
 }

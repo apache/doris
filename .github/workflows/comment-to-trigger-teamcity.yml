@@ -148,12 +148,24 @@ jobs:
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
-        trigger_or_skip_build \
-          "${{ steps.changes.outputs.changed_fe_ut }}" \
-          "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "feut" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.0'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.1'" ]]; then
+          trigger_or_skip_build \
+            "${{ steps.changes.outputs.changed_fe_ut }}" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "feut" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        else
+          echo "PR target branch is not in (master, branch-2.0, branch-2.1), skip run feut"
+          trigger_or_skip_build \
+            "false" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "feut" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        fi
 
 
     - name: "Trigger or Skip beut"
@@ -161,24 +173,40 @@ jobs:
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
-        trigger_or_skip_build \
-          "${{ steps.changes.outputs.changed_be_ut }}" \
-          "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "beut" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.0'" ||
+              "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.1'" ]]; then
+          trigger_or_skip_build \
+            "${{ steps.changes.outputs.changed_be_ut }}" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "beut" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        else
+          echo "PR target branch is not in (master, branch-2.0, branch-2.1), skip run beut"
+          trigger_or_skip_build \
+            "false" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "beut" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        fi
 
     - name: "Trigger or Skip cloudut"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["cloudut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
-        trigger_or_skip_build \
-          "${{ steps.changes.outputs.changed_cloud_ut }}" \
-          "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "cloudut" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ]]; then
+          trigger_or_skip_build \
+            "${{ steps.changes.outputs.changed_cloud_ut }}" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "cloudut" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        else
+          echo "PR target branch is not master, skip run cloudut"
+        fi
 
     - name: "Trigger or Skip compile"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["compile", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}

@@ -36,6 +36,7 @@ suite("test_unique_table_update","nonConcurrent") {
     sql "insert into ${tableName} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3);"
     qt_select_1 "select * from ${tableName} order by k;"
 
+    // test nereids planner
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
 
@@ -60,6 +61,7 @@ suite("test_unique_table_update","nonConcurrent") {
         qt_select_3 "select * from ${tableName} order by k;"
     }
 
+    // test legacy planner
     sql "set enable_nereids_planner=false"
     // update key is not allowed
     try {

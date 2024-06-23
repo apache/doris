@@ -66,7 +66,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_bitmap_filter," +
     "test_dump_image," +
     "test_index_failure_injection," +
-    "test_information_schema_external," +
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
@@ -80,7 +79,8 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0," +
     "nereids_rules_p0/subquery," +
     "workload_manager_p1," +
-    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+    "zzz_the_end_sentinel_do_not_touch," +
+    "dialect_compatible"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
@@ -105,9 +105,19 @@ mariadb_10_port=3326
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
-hms_port=7141
-hiveServerPort=10000
-hive_pg_port=5432
+enablePaimonTest=false
+
+// port of hive2 docker
+hive2HmsPort=9083
+hive2HdfsPort=8020
+hive2ServerPort=10000
+hive2PgPort=5432
+
+// port of hive3 docker
+hive3HmsPort=9383
+hive3HdfsPort=8320
+hive3ServerPort=13000
+hive3PgPort=5732
 
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container
@@ -129,7 +139,11 @@ cacheDataPath = "/data/regression/"
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
+s3Provider = "COS"
 
 max_failure_num=50
 
 externalEnvIp="127.0.0.1"
+
+// trino-connector catalog test config
+enableTrinoConnectorTest = false
