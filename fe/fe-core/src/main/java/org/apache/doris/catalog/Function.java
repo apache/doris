@@ -665,7 +665,7 @@ public class Function implements Writable {
             if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
                 return fromCode(input.readInt());
             } else {
-                throw new IOException("FunctionType should not be serialized af");
+                GsonUtils.GSON.fromJson(Text.readString(input), FunctionType.class);
             }
         }
     }
