@@ -665,7 +665,7 @@ public class Function implements Writable {
             if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
                 return fromCode(input.readInt());
             } else {
-                GsonUtils.GSON.fromJson(Text.readString(input), FunctionType.class);
+                return GsonUtils.GSON.fromJson(Text.readString(input), FunctionType.class);
             }
         }
     }
