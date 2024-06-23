@@ -93,9 +93,8 @@ public final class FeMetaVersion {
     // For mate gson
     public static final int VERSION_135 = 135;
 
-    public static final int VERSION_136 = 136;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_136;
+    public static final int VERSION_CURRENT = VERSION_135;
 
 
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
