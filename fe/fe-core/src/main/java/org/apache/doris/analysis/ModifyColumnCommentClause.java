@@ -65,6 +65,11 @@ public class ModifyColumnCommentClause extends AlterTableClause {
     }
 
     @Override
+    public boolean needChangeMTMVState() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY COLUMN COMMENT ").append(colName);

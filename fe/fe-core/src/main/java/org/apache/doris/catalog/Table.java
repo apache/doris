@@ -408,7 +408,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public Column getColumn(String name) {
-        return nameToColumn.get(name);
+        return nameToColumn.getOrDefault(name, null);
     }
 
     public List<Column> getColumns() {

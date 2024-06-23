@@ -107,6 +107,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.InvalidateStatsTarget;
 import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.UpdatePartitionStatsTarget;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -240,6 +241,7 @@ import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
+import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
@@ -986,6 +988,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Exception e) {
             throw new TException("Failed to get split source " + request.getSplitSourceId(), e);
         }
+    }
+
+    @Override
+    public TStatus updatePartitionStatsCache(TUpdateFollowerPartitionStatsCacheRequest request) {
+        UpdatePartitionStatsTarget target = GsonUtils.GSON.fromJson(request.key, UpdatePartitionStatsTarget.class);
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        analysisManager.updateLocalPartitionStatsCache(target.catalogId, target.dbId, target.tableId,
+                target.indexId, target.partitions, target.columnName);
+        return new TStatus(TStatusCode.OK);
     }
 
     @Override
@@ -1958,18 +1969,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return result;
             } else {
                 streamLoadHandler.generatePlan();
-                if (Config.enable_pipeline_load) {
-                    result.setPipelineParams((TPipelineFragmentParams) streamLoadHandler.getFragmentParams().get(0));
-                } else {
-                    throw new UserException("Pipeline load should be enabled");
-                }
+                result.setPipelineParams((TPipelineFragmentParams) streamLoadHandler.getFragmentParams().get(0));
             }
             if (tWorkloadGroupList != null && tWorkloadGroupList.size() > 0) {
-                if (Config.enable_pipeline_load) {
-                    result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
-                } else {
-                    result.params.setWorkloadGroups(tWorkloadGroupList);
-                }
+                result.pipeline_params.setWorkloadGroups(tWorkloadGroupList);
             }
         } catch (MetaNotFoundException e) {
             LOG.warn("failed to rollback txn, id: {}, label: {}", request.getTxnId(), request.getLabel(), e);
@@ -2037,14 +2040,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } finally {
             ConnectContext.remove();
         }
-        if (Config.enable_pipeline_load) {
-            result.setPipelineParams(planFragmentParamsList);
-            LOG.info("receive stream load multi table put request result: {}", result);
-            return result;
+        result.setPipelineParams(planFragmentParamsList);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive stream load multi table put request result: {}", result);
         }
-        result.setParams(planFragmentParamsList);
-        LOG.info("receive stream load multi table put request result: {}", result);
-
         return result;
     }
 

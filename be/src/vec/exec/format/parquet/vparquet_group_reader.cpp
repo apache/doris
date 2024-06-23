@@ -174,6 +174,10 @@ Status RowGroupReader::init(
             }
         }
     }
+    //For check missing column :   missing column == xx, missing column is null,missing column is not null.
+    _filter_conjuncts.insert(_filter_conjuncts.end(),
+                             _lazy_read_ctx.missing_columns_conjuncts.begin(),
+                             _lazy_read_ctx.missing_columns_conjuncts.end());
     RETURN_IF_ERROR(_rewrite_dict_predicates());
     return Status::OK();
 }

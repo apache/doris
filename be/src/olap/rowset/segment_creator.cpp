@@ -100,7 +100,7 @@ Status SegmentFlusher::_parse_variant_columns(vectorized::Block& block) {
     }
 
     vectorized::schema_util::ParseContext ctx;
-    ctx.record_raw_json_column = _context.tablet_schema->store_row_column();
+    ctx.record_raw_json_column = _context.tablet_schema->has_row_store_for_all_columns();
     RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_column_pos, ctx));
     return Status::OK();
 }
@@ -315,14 +315,15 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
-
     if (_segment_flusher.need_buffering()) {
+        RETURN_IF_ERROR(_buffer_block.merge(*block));
         if (_buffer_block.allocated_bytes() > config::write_buffer_size) {
+            LOG(INFO) << "directly flush a single block " << _buffer_block.rows() << " rows"
+                      << ", block size " << _buffer_block.bytes() << " block allocated_size "
+                      << _buffer_block.allocated_bytes();
             vectorized::Block block = _buffer_block.to_block();
             RETURN_IF_ERROR(flush_single_block(&block));
             _buffer_block.clear();
-        } else {
-            RETURN_IF_ERROR(_buffer_block.merge(*block));
         }
         return Status::OK();
     }
@@ -351,6 +352,9 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
 Status SegmentCreator::flush() {
     if (_buffer_block.rows() > 0) {
         vectorized::Block block = _buffer_block.to_block();
+        LOG(INFO) << "directly flush a single block " << block.rows() << " rows"
+                  << ", block size " << block.bytes() << " block allocated_size "
+                  << block.allocated_bytes();
         RETURN_IF_ERROR(flush_single_block(&block));
         _buffer_block.clear();
     }

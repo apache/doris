@@ -45,7 +45,6 @@
 #include <vector>
 
 #include "cloud/config.h"
-#include "olap/inverted_index_parser.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -63,6 +62,7 @@
 #include "exec/tablet_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/memory_arbitrator.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
@@ -80,10 +80,7 @@
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_block_convertor.h"
@@ -398,6 +395,7 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_allocated_id(&_parent->_load_id);
     request->set_index_id(_index_channel->_index_id);
     request->set_txn_id(_parent->_txn_id);
+    request->set_sender_id(_parent->_sender_id);
     request->set_allocated_schema(_parent->_schema->to_protobuf());
     if (_parent->_t_sink.olap_table_sink.__isset.storage_vault_id) {
         request->set_storage_vault_id(_parent->_t_sink.olap_table_sink.storage_vault_id);
@@ -436,6 +434,8 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     if (config::tablet_writer_ignore_eovercrowded) {
         open_callback->cntl_->ignore_eovercrowded();
     }
+    VLOG_DEBUG << fmt::format("txn {}: open NodeChannel to {}, incremental: {}, senders: {}",
+                              _parent->_txn_id, _node_id, is_incremental, _parent->_num_senders);
     // the real transmission here. the corresponding BE's load mgr will open load channel for it.
     _stub->tablet_writer_open(open_closure->cntl_.get(), open_closure->request_.get(),
                               open_closure->response_.get(), open_closure.get());
@@ -557,7 +557,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
     DBUG_EXECUTE_IF("VNodeChannel.try_send_and_fetch_status_full_gc",
-                    { MemInfo::process_full_gc(); });
+                    { MemoryArbitrator::process_full_gc(); });
 
     if (_cancelled || _send_finished) { // not run
         return 0;
@@ -878,7 +878,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 }
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
-    DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", { MemInfo::process_full_gc(); });
+    DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", { MemoryArbitrator::process_full_gc(); });
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     // set _is_closed to true finally
     Defer set_closed {[&]() {
@@ -1405,12 +1405,14 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                 if (!status.ok()) {
                     break;
                 }
-                VLOG_TRACE << _sender_id << " first stage close start";
+                VLOG_TRACE << _sender_id << " first stage close start " << _txn_id;
                 index_channel->for_init_node_channel(
-                        [&index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
+                        [&index_channel, &status, this](const std::shared_ptr<VNodeChannel>& ch) {
                             if (!status.ok() || ch->is_closed()) {
                                 return;
                             }
+                            VLOG_DEBUG << index_channel->_parent->_sender_id << "'s " << ch->host()
+                                       << "mark close1 for inits " << _txn_id;
                             ch->mark_close(true);
                             if (ch->is_cancelled()) {
                                 status = cancel_channel_and_check_intolerable_failure(
@@ -1426,6 +1428,8 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                                 return;
                             }
                             auto s = ch->close_wait(_state);
+                            VLOG_DEBUG << index_channel->_parent->_sender_id << "'s " << ch->host()
+                                       << "close1 wait finished!";
                             if (!s.ok()) {
                                 status = cancel_channel_and_check_intolerable_failure(
                                         status, s.to_string(), index_channel, ch);
@@ -1434,12 +1438,15 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                 if (!status.ok()) {
                     break;
                 }
+                VLOG_DEBUG << _sender_id << " first stage finished. closeing inc nodes " << _txn_id;
                 index_channel->for_inc_node_channel(
-                        [&index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
+                        [&index_channel, &status, this](const std::shared_ptr<VNodeChannel>& ch) {
                             if (!status.ok() || ch->is_closed()) {
                                 return;
                             }
                             // only first try close, all node channels will mark_close()
+                            VLOG_DEBUG << index_channel->_parent->_sender_id << "'s " << ch->host()
+                                       << "mark close2 for inc " << _txn_id;
                             ch->mark_close();
                             if (ch->is_cancelled()) {
                                 status = cancel_channel_and_check_intolerable_failure(
@@ -1447,6 +1454,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                             }
                         });
             } else { // not has_incremental_node_channel
+                VLOG_TRACE << _sender_id << " has no incremental channels " << _txn_id;
                 index_channel->for_each_node_channel(
                         [&index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
                             if (!status.ok() || ch->is_closed()) {

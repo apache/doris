@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -215,7 +216,6 @@ public class StatisticsUtil {
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(true);
-        sessionVariable.setEnablePipelineEngine(true);
         sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
@@ -868,13 +868,11 @@ public class StatisticsUtil {
     }
 
     public static long getHugePartitionLowerBoundRows() {
-        try {
-            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_PARTITION_LOWER_BOUND_ROWS)
-                .hugePartitionLowerBoundRows;
-        } catch (Exception e) {
-            LOG.warn("Failed to get value of huge_partition_lower_bound_rows, return default", e);
-        }
-        return StatisticConstants.HUGE_PARTITION_LOWER_BOUND_ROWS;
+        return GlobalVariable.hugePartitionLowerBoundRows;
+    }
+
+    public static int getPartitionAnalyzeBatchSize() {
+        return GlobalVariable.partitionAnalyzeBatchSize;
     }
 
     public static long getHugeTableAutoAnalyzeIntervalInMillis() {
@@ -1070,10 +1068,19 @@ public class StatisticsUtil {
             return true;
         }
         int changedPartitions = 0;
+        long hugePartitionLowerBoundRows = getHugePartitionLowerBoundRows();
         for (Partition p : partitions) {
             long id = p.getId();
+            // Skip partition that is too large.
+            if (p.getBaseIndex().getRowCount() > hugePartitionLowerBoundRows) {
+                continue;
+            }
             // New partition added.
             if (!partitionUpdateRows.containsKey(id)) {
+                return true;
+            }
+            // Former skipped large partition is not large anymore. Need to analyze it.
+            if (partitionUpdateRows.get(id) == -1) {
                 return true;
             }
             long currentUpdateRows = tableStatsStatus.partitionUpdateRows.getOrDefault(id, 0L);

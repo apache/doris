@@ -184,7 +184,6 @@ public class SlotBinder extends SubExprAnalyzer<CascadesContext> {
                 .stream()
                 .filter(slot -> !(slot instanceof SlotReference)
                         || (((SlotReference) slot).isVisible()) || showHidden)
-                .filter(slot -> !(((SlotReference) slot).hasSubColPath()))
                 .collect(Collectors.toList());
         switch (qualifier.size()) {
             case 0: // select *
@@ -268,11 +267,6 @@ public class SlotBinder extends SubExprAnalyzer<CascadesContext> {
 
     private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
         return boundSlots.stream().distinct().filter(boundSlot -> {
-            if (boundSlot instanceof SlotReference
-                    && ((SlotReference) boundSlot).hasSubColPath()) {
-                // already bounded
-                return false;
-            }
             List<String> nameParts = unboundSlot.getNameParts();
             int qualifierSize = boundSlot.getQualifier().size();
             int namePartsSize = nameParts.size();
