@@ -124,7 +124,7 @@ suite("test_export_orc", "p0") {
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",
                                     "region" = "${region}",
-                                    "provider" = "${getS3Provider()}")
+                                    "provider" = "${getS3Provider()}"
                                 ) ORDER BY user_id;
                             """
     
