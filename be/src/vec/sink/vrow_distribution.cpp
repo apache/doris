@@ -411,6 +411,7 @@ void VRowDistribution::_reset_row_part_tablet_ids(
     }
 }
 
+template <bool need_validate_block>
 Status VRowDistribution::generate_rows_distribution(
         vectorized::Block& input_block, std::shared_ptr<vectorized::Block>& block,
         int64_t& filtered_rows, bool& has_filtered_rows,
@@ -420,9 +421,16 @@ Status VRowDistribution::generate_rows_distribution(
 
     int64_t prev_filtered_rows =
             _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows();
-    RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
-            _state, &input_block, block, *_vec_output_expr_ctxs, input_rows, has_filtered_rows));
-
+    if (need_validate_block) {
+        // The function validate_and_convert_block will check the input block
+        // and convert it into a block that can be inserted into the table.
+        RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
+                _state, &input_block, block, *_vec_output_expr_ctxs, input_rows,
+                has_filtered_rows));
+    } else {
+        block = vectorized::Block::create_shared(input_block.get_columns_with_type_and_name());
+        *block = input_block;
+    }
     // batching block rows which need new partitions. deal together at finish.
     if (!_batching_block) [[unlikely]] {
         std::unique_ptr<Block> tmp_block = block->create_same_struct_block(0);
@@ -478,5 +486,14 @@ void VRowDistribution::_reset_find_tablets(int64_t rows) {
     _skip.assign(rows, false);
     _tablet_indexes.assign(rows, 0);
 }
+
+template Status VRowDistribution::generate_rows_distribution<true>(Block&, std::shared_ptr<Block>&,
+                                                                   int64_t&, bool&,
+                                                                   std::vector<RowPartTabletIds>&,
+                                                                   int64_t&);
+template Status VRowDistribution::generate_rows_distribution<false>(Block&, std::shared_ptr<Block>&,
+                                                                    int64_t&, bool&,
+                                                                    std::vector<RowPartTabletIds>&,
+                                                                    int64_t&);
 
 } // namespace doris::vectorized
