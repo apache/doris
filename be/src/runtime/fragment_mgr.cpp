@@ -885,7 +885,8 @@ void FragmentMgr::cancel_worker() {
             // 3. If fe has zero process uuid, do not cancel
             if (running_fes.empty() && !_query_ctx_map.empty()) {
                 LOG_EVERY_N(WARNING, 10)
-                        << "Could not find any running frontends, maybe we are upgrading or starting? "
+                        << "Could not find any running frontends, maybe we are upgrading or "
+                           "starting? "
                         << "We will not cancel any outdated queries in this situation.";
             } else {
                 for (const auto& it : _query_ctx_map) {
