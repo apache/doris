@@ -21,10 +21,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.security.SecurityChecker;
+import org.apache.doris.cloud.storage.RemoteBase;
+import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
@@ -501,6 +505,7 @@ public class LoadStmt extends DdlStmt {
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
             checkWhiteList();
+            checkAkSk();
         } else if (isMysqlLoad) {
             etlJobType = EtlJobType.LOCAL_FILE;
         } else {
@@ -516,6 +521,25 @@ public class LoadStmt extends DdlStmt {
         }
 
         user = ConnectContext.get().getQualifiedUser();
+    }
+
+
+    private String getProviderFromEndpoint(String endpoint) {
+        for (String provider : PROVIDERS) {
+            if (endpoint.toLowerCase().contains(provider.toLowerCase())) {
+                return provider;
+            }
+        }
+        return "s3";
+    }
+
+    private String getBucketFromFilePath(String filePath) throws Exception {
+        String[] parts = filePath.split("\\/\\/");
+        if (parts.length < 2) {
+            throw new Exception("filePath is not valid");
+        }
+        String buckt = parts[1].split("\\/")[0];
+        return buckt;
     }
 
     public String getComment() {
@@ -619,4 +643,45 @@ public class LoadStmt extends DdlStmt {
             checkEndpoint(endpoint);
         }
     }
+
+    private void checkAkSk() throws UserException {
+        RemoteBase remote = null;
+        ObjectInfo objectInfo = null;
+        try {
+            Map<String, String> brokerDescProperties = brokerDesc.getProperties();
+            String provider = getProviderFromEndpoint(brokerDescProperties.get(S3Properties.Env.ENDPOINT));
+            for (DataDescription dataDescription : dataDescriptions) {
+                for (String filePath : dataDescription.getFilePaths()) {
+                    String bucket = getBucketFromFilePath(filePath);
+                    objectInfo = new ObjectInfo(ObjectStoreInfoPB.Provider.valueOf(provider.toUpperCase()),
+                            brokerDescProperties.get(S3Properties.Env.ACCESS_KEY),
+                            brokerDescProperties.get(S3Properties.Env.SECRET_KEY),
+                            bucket, brokerDescProperties.get(S3Properties.Env.ENDPOINT),
+                            brokerDescProperties.get(S3Properties.Env.REGION), "");
+                    remote = RemoteBase.newInstance(objectInfo);
+                    // RemoteBase#headObject does not throw exception if key does not exist.
+                    remote.headObject("1");
+                    remote.listObjects(null);
+                    remote.close();
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed check object info={}", objectInfo, e);
+            String message = e.getMessage();
+            if (message != null) {
+                int index = message.indexOf("Error message=");
+                if (index != -1) {
+                    message = message.substring(index);
+                }
+            }
+            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Incorrect object storage info, " + message);
+        } finally {
+            if (remote != null) {
+                remote.close();
+            }
+        }
+
+    }
+
 }
