@@ -55,7 +55,7 @@ public class ReplacePartitionOperationLog implements Writable {
     @SerializedName(value = "versionTime")
     private long versionTime = 0L;
     @SerializedName(value = "force")
-    private boolean force = FeConstants.DEFAULT_DROP_NORMAL_PARTITION_WHEN_REPLACE_PARTITION;
+    private boolean force = false;
 
     public ReplacePartitionOperationLog(long dbId, String dbName, long tblId, String tblName,
                                         List<String> partitionNames,
