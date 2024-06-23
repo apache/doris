@@ -60,11 +60,12 @@ public class ReplacePartitionClause extends AlterTableClause {
     private boolean forceDropNormalPartition;
 
     public ReplacePartitionClause(PartitionNames partitionNames, PartitionNames tempPartitionNames,
-            Map<String, String> properties) {
+            boolean isForce, Map<String, String> properties) {
         super(AlterOpType.REPLACE_PARTITION);
         this.partitionNames = partitionNames;
         this.tempPartitionNames = tempPartitionNames;
         this.needTableStable = false;
+        this.forceDropNormalPartition = isForce;
         this.properties = properties;
     }
 
@@ -106,9 +107,6 @@ public class ReplacePartitionClause extends AlterTableClause {
                 properties, PropertyAnalyzer.PROPERTIES_STRICT_RANGE, true);
         this.useTempPartitionName = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, false);
-        this.forceDropNormalPartition = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_FORE_DROP_NORMAL_PARTITION,
-                FeConstants.DEFAULT_DROP_NORMAL_PARTITION_WHEN_REPLACE_PARTITION);
 
         if (properties != null && !properties.isEmpty()) {
             throw new AnalysisException("Unknown properties: " + properties.keySet());
