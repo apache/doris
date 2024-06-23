@@ -711,6 +711,9 @@ public class Function implements Writable {
     }
 
     public static Function read(DataInput input) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
+            return GsonUtils.GSON.fromJson(Text.readString(input), Function.class);
+        }
         Function function;
         FunctionType functionType = FunctionType.read(input);
         switch (functionType) {
