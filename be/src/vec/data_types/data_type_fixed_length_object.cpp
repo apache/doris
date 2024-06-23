@@ -72,4 +72,8 @@ MutableColumnPtr DataTypeFixedLengthObject::create_column() const {
     return ColumnType::create(0);
 }
 
+Status DataTypeFixedLengthObject::check_column_type(const IColumn* column) const {
+    return check_single_type<ColumnType>(column);
+}
+
 } // namespace doris::vectorized

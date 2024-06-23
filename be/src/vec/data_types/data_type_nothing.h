@@ -61,6 +61,7 @@ public:
     }
 
     MutableColumnPtr create_column() const override;
+    Status check_column_type(const IColumn* column) const override;
 
     bool equals(const IDataType& rhs) const override;
 

@@ -266,6 +266,11 @@ MutableColumnPtr DataTypeNumberBase<T>::create_column() const {
 }
 
 template <typename T>
+Status DataTypeNumberBase<T>::check_column_type(const IColumn* column) const {
+    return check_single_type<ColumnVector<T>>(column);
+}
+
+template <typename T>
 bool DataTypeNumberBase<T>::is_value_represented_by_integer() const {
     return std::is_integral_v<T>;
 }

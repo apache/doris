@@ -19,6 +19,7 @@
 
 #include <utility>
 
+#include "common/status.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -92,6 +93,10 @@ const char* DataTypeBitMap::deserialize(const char* buf, IColumn* column,
 
 MutableColumnPtr DataTypeBitMap::create_column() const {
     return ColumnBitmap::create();
+}
+
+Status DataTypeBitMap::check_column_type(const IColumn* column) const {
+    return check_single_type<ColumnBitmap>(column);
 }
 
 void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritable& buf) {

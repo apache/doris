@@ -218,7 +218,15 @@ MutableColumnPtr DataTypeDecimal<T>::create_column() const {
         return ColumnType::create(0, scale);
     }
 }
-
+template <typename T>
+Status DataTypeDecimal<T>::check_column_type(const IColumn* column) const {
+    if constexpr (IsDecimalV2<T>) {
+        return check_single_type<ColumnDecimal128V2>(column);
+    } else {
+        return check_single_type<ColumnType>(column);
+    }
+    return Status::OK();
+}
 template <typename T>
 bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const {
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;

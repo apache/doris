@@ -66,6 +66,7 @@ public:
     const char* deserialize(const char* buf, IColumn* column, int data_version) const override;
 
     MutableColumnPtr create_column() const override;
+    Status check_column_type(const IColumn* column) const override;
 
     virtual Field get_default() const override {
         std::string default_json = "{}";

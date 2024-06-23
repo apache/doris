@@ -53,6 +53,13 @@ MutableColumnPtr DataTypeArray::create_column() const {
     return ColumnArray::create(nested->create_column(), ColumnArray::ColumnOffsets::create());
 }
 
+Status DataTypeArray::check_column_type(const IColumn* column) const {
+    const auto* col = check_and_get_column<ColumnArray>(column);
+    RETURN_IF_ERROR(_check_column_is_null(col));
+    RETURN_IF_ERROR(nested->check_column_type(&col->get_data()));
+    return Status::OK();
+}
+
 Field DataTypeArray::get_default() const {
     Array a;
     a.push_back(nested->get_default());
