@@ -601,7 +601,7 @@ void NewOlapScanner::_update_counters_before_close() {
                    stats.inverted_index_searcher_search_timer);
     COUNTER_UPDATE(olap_parent->_inverted_index_searcher_cache_hit_counter,
                    stats.inverted_index_searcher_cache_hit);
-    COUNTER_UPDATE(olap_parent->_inverted_index_query_cache_miss_counter,
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_cache_miss_counter,
                    stats.inverted_index_searcher_cache_miss);
 
     if (config::enable_file_cache) {
