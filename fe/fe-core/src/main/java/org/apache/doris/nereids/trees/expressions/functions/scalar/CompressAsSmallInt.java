@@ -31,7 +31,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'CompressAsTinyInt'.
+ * ScalarFunction 'CompressAsSmallInt'.
  */
 public class CompressAsSmallInt extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
