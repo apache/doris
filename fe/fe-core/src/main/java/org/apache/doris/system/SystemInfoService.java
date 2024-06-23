@@ -420,11 +420,11 @@ public class SystemInfoService {
     }
 
     // return num of backends that from different hosts
-    public int getBackendNumFromDiffHosts(boolean aliveOnly) {
+    public int getStorageBackendNumFromDiffHosts(boolean aliveOnly) {
         Set<String> hosts = Sets.newHashSet();
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (aliveOnly && !backend.isAlive()) {
+            if ((aliveOnly && !backend.isAlive()) || backend.isComputeNode()) {
                 continue;
             }
             hosts.add(backend.getHost());
