@@ -307,6 +307,10 @@ public class SelectStmt extends QueryStmt {
         return valueList;
     }
 
+    public FromClause getFromClause() {
+        return fromClause;
+    }
+
     /**
      * @return the HAVING clause post-analysis and with aliases resolved
      */

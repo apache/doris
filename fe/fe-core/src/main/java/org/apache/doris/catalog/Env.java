@@ -132,6 +132,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
+import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.es.EsExternalCatalog;
@@ -5397,7 +5398,7 @@ public class Env {
                 ConnectContext.get().getSessionVariable().getSqlMode());
         // init here in case the stmt string from view.toSql() has some syntax error.
         try {
-            newView.init();
+            newView.init(InitCatalogLog.Type.UNKNOWN);
         } catch (UserException e) {
             throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
         }

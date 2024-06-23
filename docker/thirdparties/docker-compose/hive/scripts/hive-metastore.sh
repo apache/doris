@@ -69,6 +69,10 @@ hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/
 echo "hive -f /mnt/scripts/create_tpch1_orc.hql"
 hive -f /mnt/scripts/create_tpch1_orc.hql
 
+# create view
+echo "hive -f /mnt/scripts/create_hive_view.hql"
+hive -f /mnt/scripts/create_hive_view.hql
+
 echo "hive -f /mnt/scripts/create_tpch1_parquet.hql"
 hive -f /mnt/scripts/create_tpch1_parquet.hql
 

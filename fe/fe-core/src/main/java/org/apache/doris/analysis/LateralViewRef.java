@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.InlineView;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
@@ -105,7 +106,7 @@ public class LateralViewRef extends TableRef {
         List<Column> columnList = Lists.newArrayList();
         columnList.add(new Column(columnName, fnExpr.getFn().getReturnType(), false, null,
                 fnExpr.getFn().getNullableMode() == NullableMode.ALWAYS_NULLABLE, null, ""));
-        view = new InlineView(viewName, columnList);
+        view = new InlineView(viewName, columnList, Type.UNKNOWN);
 
         // Create the non-materialized tuple and set the fake table in it.
         TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();
