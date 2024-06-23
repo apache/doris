@@ -245,7 +245,7 @@ public class ConsistencyChecker extends MasterDaemon {
         if (dbIds.isEmpty()) {
             return chosenTablets;
         }
-        Queue<MetaObject> dbQueue = new PriorityQueue<>(Math.max(dbIds.size(), 1), COMPARATOR);
+        Queue<MetaObject> dbQueue = new PriorityQueue<>(dbIds.size(), COMPARATOR);
         for (Long dbId : dbIds) {
             if (dbId == 0L) {
                 // skip 'information_schema' database
