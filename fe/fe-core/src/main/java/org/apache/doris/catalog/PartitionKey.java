@@ -375,32 +375,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return builder.toString();
     }
 
+    // only used by ut
     @Override
     public void write(DataOutput out) throws IOException {
-        int count = keys.size();
-        if (count != types.size()) {
-            throw new IOException("Size of keys and types are not equal");
-        }
-
-        out.writeInt(count);
-        for (int i = 0; i < count; i++) {
-            PrimitiveType type = types.get(i);
-            if (keys.get(i).isNullLiteral()) {
-                Text.writeString(out, Type.NULL.toString());
-            } else {
-                Text.writeString(out, type.toString());
-            }
-
-            if (keys.get(i) == MaxLiteral.MAX_VALUE) {
-                out.writeBoolean(true);
-            } else if (keys.get(i).isNullLiteral()) {
-                out.writeBoolean(false);
-                Text.writeString(out, type.toString());
-            } else {
-                out.writeBoolean(false);
-                Text.writeString(out, GsonUtils.GSON.toJson(keys.get(i)));
-            }
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -470,9 +448,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     }
 
     public static PartitionKey read(DataInput in) throws IOException {
-        PartitionKey key = new PartitionKey();
-        key.readFields(in);
-        return key;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            PartitionKey key = new PartitionKey();
+            key.readFields(in);
+            return key;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), PartitionKey.class);
+        }
     }
 
     @Override

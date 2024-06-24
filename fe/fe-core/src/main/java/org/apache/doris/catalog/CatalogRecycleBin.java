@@ -1300,6 +1300,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
         return bin;
     }
 
+    @Override
     public void gsonPostProcess() throws IOException {
         updateDbInfoForLowerVersion();
     }
