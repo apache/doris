@@ -250,46 +250,48 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
 Status GroupCommitTable::get_first_block_load_queue(
         int64_t table_id, int64_t base_schema_version, const UniqueId& load_id,
         std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
-        std::shared_ptr<MemTrackerLimiter> mem_tracker) {
+        std::shared_ptr<MemTrackerLimiter> mem_tracker, std::shared_ptr<pipeline::Dependency> dep) {
     DCHECK(table_id == _table_id);
-    {
-        std::unique_lock l(_lock);
-        for (int i = 0; i < 3; i++) {
-            bool is_schema_version_match = true;
-            for (const auto& [_, inner_block_queue] : _load_block_queues) {
-                if (!inner_block_queue->need_commit()) {
-                    if (base_schema_version == inner_block_queue->schema_version) {
-                        if (inner_block_queue->add_load_id(load_id).ok()) {
-                            load_block_queue = inner_block_queue;
-                            return Status::OK();
-                        }
-                    } else if (base_schema_version < inner_block_queue->schema_version) {
-                        is_schema_version_match = false;
+    std::unique_lock l(_lock);
+    auto try_to_get_matched_queue = [&]() -> Status {
+        for (const auto& [_, inner_block_queue] : _load_block_queues) {
+            if (!inner_block_queue->need_commit()) {
+                if (base_schema_version == inner_block_queue->schema_version) {
+                    if (inner_block_queue->add_load_id(load_id).ok()) {
+                        load_block_queue = inner_block_queue;
+                        return Status::OK();
                     }
+                } else {
+                    return Status::DataQualityError<false>(
+                            "schema version not match, maybe a schema change is in process. "
+                            "Please "
+                            "retry this load manually.");
                 }
             }
-            if (!is_schema_version_match) {
-                return Status::DataQualityError<false>(
-                        "schema version not match, maybe a schema change is in process. Please "
-                        "retry this load manually.");
-            }
-            if (!_is_creating_plan_fragment) {
-                _is_creating_plan_fragment = true;
-                RETURN_IF_ERROR(_thread_pool->submit_func([this, be_exe_version, mem_tracker] {
-                    auto st = _create_group_commit_load(be_exe_version, mem_tracker);
-                    if (!st.ok()) {
-                        LOG(WARNING) << "create group commit load error, st=" << st.to_string();
-                        std::unique_lock l(_lock);
-                        _is_creating_plan_fragment = false;
-                        _cv.notify_all();
-                    }
-                }));
-            }
-            _cv.wait_for(l, std::chrono::seconds(4));
         }
+        return Status::InternalError<false>("can not get a block queue for table_id: " +
+                                            std::to_string(_table_id));
+    };
+
+    if (try_to_get_matched_queue().ok()) {
+        return Status::OK();
     }
-    return Status::InternalError<false>("can not get a block queue for table_id: " +
-                                        std::to_string(_table_id));
+    if (!_is_creating_plan_fragment) {
+        _is_creating_plan_fragment = true;
+        dep->block();
+        RETURN_IF_ERROR(_thread_pool->submit_func([&, be_exe_version, mem_tracker, dep = dep] {
+            Defer defer {[&, dep = dep]() {
+                dep->set_ready();
+                std::unique_lock l(_lock);
+                _is_creating_plan_fragment = false;
+            }};
+            auto st = _create_group_commit_load(be_exe_version, mem_tracker);
+            if (!st.ok()) {
+                LOG(WARNING) << "create group commit load error, st=" << st.to_string();
+            }
+        }));
+    }
+    return try_to_get_matched_queue();
 }
 
 Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
@@ -378,8 +380,6 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
                         be_exe_version));
             }
             _load_block_queues.emplace(instance_id, load_block_queue);
-            _is_creating_plan_fragment = false;
-            _cv.notify_all();
         }
     }
     st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, result.params,
@@ -565,12 +565,10 @@ void GroupCommitMgr::stop() {
     LOG(INFO) << "GroupCommitMgr is stopped";
 }
 
-Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_id,
-                                                  int64_t base_schema_version,
-                                                  const UniqueId& load_id,
-                                                  std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                                  int be_exe_version,
-                                                  std::shared_ptr<MemTrackerLimiter> mem_tracker) {
+Status GroupCommitMgr::get_first_block_load_queue(
+        int64_t db_id, int64_t table_id, int64_t base_schema_version, const UniqueId& load_id,
+        std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
+        std::shared_ptr<MemTrackerLimiter> mem_tracker, std::shared_ptr<pipeline::Dependency> dep) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard wlock(_lock);
@@ -582,7 +580,8 @@ Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_i
         group_commit_table = _table_map[table_id];
     }
     RETURN_IF_ERROR(group_commit_table->get_first_block_load_queue(
-            table_id, base_schema_version, load_id, load_block_queue, be_exe_version, mem_tracker));
+            table_id, base_schema_version, load_id, load_block_queue, be_exe_version, mem_tracker,
+            dep));
     return Status::OK();
 }
 
