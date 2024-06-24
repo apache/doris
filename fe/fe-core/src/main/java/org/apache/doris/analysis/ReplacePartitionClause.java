@@ -56,7 +56,7 @@ public class ReplacePartitionClause extends AlterTableClause {
 
     // The replaced partitions will be moved to recycle bin when "forceDropNormalPartition" is false,
     // and instead, these partitions will be deleted directly.
-    private boolean forceDropNormalPartition;
+    private boolean forceDropOldPartition;
 
     public ReplacePartitionClause(PartitionNames partitionNames, PartitionNames tempPartitionNames,
             boolean isForce, Map<String, String> properties) {
@@ -64,7 +64,7 @@ public class ReplacePartitionClause extends AlterTableClause {
         this.partitionNames = partitionNames;
         this.tempPartitionNames = tempPartitionNames;
         this.needTableStable = false;
-        this.forceDropNormalPartition = isForce;
+        this.forceDropOldPartition = isForce;
         this.properties = properties;
     }
 
@@ -84,8 +84,8 @@ public class ReplacePartitionClause extends AlterTableClause {
         return useTempPartitionName;
     }
 
-    public boolean isForceDropNormalPartition() {
-        return forceDropNormalPartition;
+    public boolean isForceDropOldPartition() {
+        return forceDropOldPartition;
     }
 
     @SuppressWarnings("checkstyle:LineLength")
