@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
@@ -37,13 +38,12 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-public class BackupMeta implements Writable {
+public class BackupMeta implements Writable, GsonPostProcessable {
 
     // tbl name -> tbl
     @SerializedName(value = "tblNameMap")
     private Map<String, Table> tblNameMap = Maps.newHashMap();
     // tbl id -> tbl
-    @SerializedName(value = "tblIdMap")
     private Map<Long, Table> tblIdMap = Maps.newHashMap();
     // resource name -> resource
     @SerializedName(value = "resourceNameMap")
@@ -139,6 +139,13 @@ public class BackupMeta implements Writable {
         for (int i = 0; i < size; i++) {
             Resource resource = Resource.read(in);
             resourceNameMap.put(resource.getName(), resource);
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        for (Table table : tblNameMap.values()) {
+            tblIdMap.put(table.getId(), table);
         }
     }
 

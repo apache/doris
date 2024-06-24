@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -43,12 +44,14 @@ public abstract class AbstractJob implements Writable {
         BACKUP, RESTORE
     }
 
+    @SerializedName("t")
     protected JobType type;
 
     // must be set right before job's running
     protected Env env;
     // repo will be set at first run()
     protected Repository repo;
+    @SerializedName("rid")
     protected long repoId;
 
     /*
@@ -57,16 +60,23 @@ public abstract class AbstractJob implements Writable {
      * And each time this method is called, the snapshot tasks will be sent with (maybe) different
      * version and version hash. So we have to use different job id to identify the tasks in different batches.
      */
+    @SerializedName("jid")
     protected long jobId = -1;
 
+    @SerializedName("l")
     protected String label;
+    @SerializedName("dbid")
     protected long dbId;
+    @SerializedName("dbn")
     protected String dbName;
 
     protected Status status = Status.OK;
 
+    @SerializedName("ct")
     protected long createTime = -1;
+    @SerializedName("ft")
     protected long finishedTime = -1;
+    @SerializedName("to")
     protected long timeoutMs;
 
     // task signature -> <finished num / total num>
@@ -75,6 +85,7 @@ public abstract class AbstractJob implements Writable {
     protected boolean isTypeRead = false;
 
     // save err msg of tasks
+    @SerializedName("msg")
     protected Map<Long, String> taskErrMsg = Maps.newHashMap();
 
     protected AbstractJob(JobType type) {
@@ -207,6 +218,7 @@ public abstract class AbstractJob implements Writable {
         }
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             type = JobType.valueOf(Text.readString(in));

@@ -17,6 +17,9 @@
 
 #include "io/fs/azure_obj_storage_client.h"
 
+#include <aws/core/utils/Array.h>
+#include <aws/core/utils/HashingUtils.h>
+
 #include <algorithm>
 #include <azure/core/http/http.hpp>
 #include <azure/core/io/body_stream.hpp>
@@ -37,6 +40,11 @@ namespace {
 std::string wrap_object_storage_path_msg(const doris::io::ObjectStoragePathOptions& opts) {
     return fmt::format("bucket {}, key {}, prefix {}, path {}", opts.bucket, opts.key, opts.prefix,
                        opts.path.native());
+}
+
+auto base64_encode_part_num(int part_num) {
+    return Aws::Utils::HashingUtils::Base64Encode(
+            {reinterpret_cast<unsigned char*>(&part_num), sizeof(part_num)});
 }
 } // namespace
 
@@ -90,7 +98,8 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
     try {
         Azure::Core::IO::MemoryBodyStream memory_body(
                 reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
-        client.StageBlock(std::to_string(part_num), memory_body);
+        // The blockId must be base64 encoded
+        auto resp = client.StageBlock(base64_encode_part_num(part_num), memory_body);
     } catch (Azure::Core::RequestFailedException& e) {
         auto msg = fmt::format("Azure request failed because {}, error msg {}, path msg {}",
                                e.what(), e.Message, wrap_object_storage_path_msg(opts));
@@ -110,12 +119,13 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
 }
 
 ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
-        const ObjectStoragePathOptions& opts, const ObjectCompleteMultiParts& completed_parts) {
+        const ObjectStoragePathOptions& opts,
+        const std::vector<ObjectCompleteMultiPart>& completed_parts) {
     auto client = _client->GetBlockBlobClient(opts.key);
-    const auto& block_ids = static_cast<const AzureCompleteMultiParts&>(completed_parts).block_ids;
     std::vector<std::string> string_block_ids;
-    std::ranges::transform(block_ids, std::back_inserter(string_block_ids),
-                           [](int i) { return std::to_string(i); });
+    std::ranges::transform(
+            completed_parts, std::back_inserter(string_block_ids),
+            [](const ObjectCompleteMultiPart& i) { return base64_encode_part_num(i.part_num); });
     return do_azure_client_call([&]() { client.CommitBlockList(string_block_ids); }, opts);
 }
 
