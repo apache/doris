@@ -98,6 +98,9 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
             // cannot be directly converted to LargeIntLiteral, so it is converted to decimal first.
             if (childExpr.getType().getPrimitiveType().isCharFamily() || childExpr.getType().isFloatingPointType()) {
                 try {
+                    if (childExpr instanceof PlaceHolderExpr) {
+                        childExpr = ((PlaceHolderExpr) childExpr).getLiteral();
+                    }
                     childExpr = (LiteralExpr) childExpr.castTo(Type.DECIMALV2);
                 } catch (AnalysisException e) {
                     if (ConnectContext.get() != null) {
@@ -115,11 +118,10 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
                 //   For example, 2.1 is converted to 2;
                 // 3. childExpr is precisely converted to column type. For example, 2.0 is converted to 2.
                 // In cases 1 and 2 above, childExpr should be discarded.
-                Expr tmpExpr = childExpr.castTo(columnType);
-                if (tmpExpr instanceof CastExpr && tmpExpr.getChild(0) instanceof PlaceHolderExpr) {
-                    tmpExpr = ((PlaceHolderExpr) tmpExpr.getChild(0)).getLiteral().castTo(columnType);
+                if (childExpr instanceof PlaceHolderExpr) {
+                    childExpr = ((PlaceHolderExpr) childExpr).getLiteral();
                 }
-                LiteralExpr newExpr = (LiteralExpr) tmpExpr;
+                LiteralExpr newExpr = (LiteralExpr) childExpr.castTo(columnType);
                 if (childExpr.compareLiteral(newExpr) == 0) {
                     isCast = true;
                     newInList.add(newExpr);
