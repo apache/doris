@@ -41,13 +41,13 @@ class VHiveTableWriter final : public AsyncResultWriter {
 public:
     VHiveTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    ~VHiveTableWriter() = default;
+    ~VHiveTableWriter() override = default;
 
     Status init_properties(ObjectPool* pool);
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status write(vectorized::Block& block) override;
+    Status write(RuntimeState* state, vectorized::Block& block) override;
 
     Status close(Status) override;
 
