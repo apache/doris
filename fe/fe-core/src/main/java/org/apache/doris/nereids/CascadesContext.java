@@ -170,7 +170,7 @@ public class CascadesContext implements ScheduleContext {
             this.isEnableExprTrace = false;
         }
         if (parent.isPresent()) {
-            this.tables = Objects.requireNonNull(parent.get().tables, "parent should not null");
+            this.tables = parent.get().tables;
         }
     }
 

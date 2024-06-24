@@ -442,6 +442,10 @@ public class ConnectContext {
 
     /** get table by table name, try to get from information from dumpfile first */
     public TableIf getTableInMinidumpCache(List<String> tableQualifier) {
+        if (getSessionVariable().isPlayNereidsDump()
+                || !getSessionVariable().isEnableMinidump()) {
+            return null;
+        }
         Preconditions.checkState(tables != null, "tables should not be null");
         TableIf table = tables.getOrDefault(tableQualifier, null);
         if (getSessionVariable().isPlayNereidsDump() && table == null) {
