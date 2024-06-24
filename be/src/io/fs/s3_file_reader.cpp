@@ -56,8 +56,8 @@ bvar::PerSecond<bvar::Adder<uint64_t>> s3_get_request_qps("s3_file_reader", "s3_
                                                           &s3_file_reader_read_counter);
 
 Result<FileReaderSPtr> S3FileReader::create(std::shared_ptr<const ObjClientHolder> client,
-                                            std::string bucket, std::string key,
-                                            int64_t file_size, RuntimeProfile* profile) {
+                                            std::string bucket, std::string key, int64_t file_size,
+                                            RuntimeProfile* profile) {
     if (file_size < 0) {
         auto res = client->object_file_size(bucket, key);
         if (!res.has_value()) {
@@ -141,11 +141,14 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     int total_sleep_time = 0;
     while (retry_count <= max_retries) {
         s3_file_reader_read_counter << 1;
-        auto outcome = client->GetObject(request);
+        // clang-format off
+        auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
+                to, offset, bytes_req, bytes_read);
+        // clang-format on
         _s3_stats.total_get_request_counter++;
-        if (!outcome.IsSuccess()) {
-            auto error = outcome.GetError();
-            if (error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS) {
+        if (resp.status.code != ErrorCode::OK) {
+            if (resp.http_code ==
+                static_cast<int>(Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS)) {
                 s3_file_reader_too_many_request_counter << 1;
                 retry_count++;
                 int wait_time = std::min(base_wait_time * (1 << retry_count),
@@ -157,10 +160,10 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                 continue;
             } else {
                 // Handle other errors
-                return s3fs_error(outcome.GetError(), "failed to read");
+                return std::move(Status(resp.status.code, std::move(resp.status.msg))
+                                         .append("failed to read"));
             }
         }
-        *bytes_read = outcome.GetResult().GetContentLength();
         if (*bytes_read != bytes_req) {
             return Status::InternalError("failed to read (bytes read: {}, bytes req: {})",
                                          *bytes_read, bytes_req);

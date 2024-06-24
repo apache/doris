@@ -36,10 +36,9 @@ struct IOContext;
 
 class S3FileReader final : public FileReader {
 public:
-<<<<<<< HEAD
     static Result<FileReaderSPtr> create(std::shared_ptr<const ObjClientHolder> client,
                                          std::string bucket, std::string key, int64_t file_size,
-                                        RuntimeProfile* profile);
+                                         RuntimeProfile* profile);
 
     S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::string bucket, std::string key,
                  size_t file_size, RuntimeProfile* profile);
