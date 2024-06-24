@@ -30,7 +30,16 @@ static bvar::Adder<size_t> g_total_rowset_num("doris_total_rowset_num");
 
 Rowset::Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta)
         : _rowset_meta(rowset_meta), _refs_by_reader(0) {
-    _is_pending = !_rowset_meta->has_version();
+    _is_pending = true;
+
+    // Generally speaking, as long as a rowset has a version, it can be considered not to be in a pending state.
+    // However, if the rowset was created through ingesting binlogs, it will have a version but should still be
+    // considered in a pending state because the ingesting txn has not yet been committed.
+    if (_rowset_meta->has_version() && _rowset_meta->start_version() > 0 &&
+        _rowset_meta->rowset_state() != COMMITTED) {
+        _is_pending = false;
+    }
+
     if (_is_pending) {
         _is_cumulative = false;
     } else {
