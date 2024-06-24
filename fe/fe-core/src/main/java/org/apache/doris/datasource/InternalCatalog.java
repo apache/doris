@@ -166,7 +166,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TCompressionType;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -2055,7 +2055,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             objectPool);
 
                     task.setStorageFormat(tbl.getStorageFormat());
-                    task.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
+                    task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
                     task.setClusterKeyIndexes(clusterKeyIndexes);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -2410,13 +2410,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setStorageFormat(storageFormat);
 
-        TInvertedIndexStorageFormat invertedIndexStorageFormat;
+        TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
         try {
-            invertedIndexStorageFormat = PropertyAnalyzer.analyzeInvertedIndexStorageFormat(properties);
+            invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        olapTable.setInvertedIndexStorageFormat(invertedIndexStorageFormat);
+        olapTable.setInvertedIndexFileStorageFormat(invertedIndexFileStorageFormat);
 
         // get compression type
         TCompressionType compressionType = TCompressionType.LZ4;
