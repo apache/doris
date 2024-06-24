@@ -36,10 +36,16 @@ public:
     GroupCommitLocalState(RuntimeState* state, OperatorXBase* parent)
             : ScanLocalState(state, parent) {}
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     std::shared_ptr<LoadBlockQueue> load_block_queue;
+    std::vector<Dependency*> dependencies() const override {
+        return {_scan_dependency.get(), _get_block_dependency.get()};
+    }
 
 private:
     Status _process_conjuncts(RuntimeState* state) override;
+
+    std::shared_ptr<Dependency> _get_block_dependency = nullptr;
 };
 
 class GroupCommitOperatorX final : public ScanOperatorX<GroupCommitLocalState> {
