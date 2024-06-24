@@ -354,7 +354,7 @@ public class DatabaseTransactionMgrTest {
         TransactionState transactionState6 = masterDbTransMgr.getTransactionState(
                 LabelToTxnId.get(CatalogTestUtil.testTxnLabel6));
         long transactionId6 = transactionState6.getTransactionId();
-        long subTransactionId3 = transactionState6.getSubTransactionStates().get(2).getSubTransactionId();
+        long subTransactionId3 = transactionState6.getSubTxnIds().get(2);
         TransactionState subTransactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1,
                 subTransactionId3);
         Assert.assertEquals(transactionState6, subTransactionState);

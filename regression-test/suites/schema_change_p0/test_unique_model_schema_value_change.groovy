@@ -16,8 +16,10 @@
 // under the License.
 
 suite("test_unique_model_schema_value_change","p0") {
-     def tbName = "test_unique_model_schema_value_change"
-     def tbName2 = "test_unique_model_schema_value_change_1"
+     def tbName = "test_unique_model_value_change0"
+     def tbName2 = "test_unique_model_value_change_0"
+     def on_write = getRandomBoolean()
+     println String.format("current enable_unique_key_merge_on_write is : %s ",on_write)
      //Test the unique model by adding a value column
      sql """ DROP TABLE IF EXISTS ${tbName} """
      def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1  "
@@ -44,7 +46,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
              "          );"
 
      def initTableData = "insert into ${tbName} values(123456789, 'Alice', 0, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
@@ -219,7 +221,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
              "          );"
 
      initTableData = "insert into ${tbName} values(123456789, 'Alice', 1, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
@@ -273,7 +275,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
              "          );"
 
      initTableData2 = "insert into ${tbName2} values(123456789, 'Alice', 1, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
@@ -414,7 +416,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
              "          );"
 
      initTableData = "insert into ${tbName} values(123456789, 'Alice', 13243, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
@@ -576,7 +578,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
              "          );"
 
      initTableData = "insert into ${tbName} values(123456789, 'Alice', 2147483641, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
@@ -751,7 +753,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
              "          );"
 
      initTableData = "insert into ${tbName} values(123456789, 'Alice', 21474832641, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
@@ -930,7 +932,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
              "          );"
 
      initTableData = "insert into ${tbName} values(123456789, 'Alice', 21474832641, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
@@ -1116,7 +1118,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
              "          );"
 
      initTableData = "insert into ${tbName} values(123456789, 'Alice', 1.8, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -1390,7 +1392,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
              "          );"
 
      initTableData = "insert into ${tbName} values(123456789, 'Alice', 1.8, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -1663,7 +1665,7 @@ suite("test_unique_model_schema_value_change","p0") {
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
              "          );"
 
      initTableData = "insert into ${tbName} values(123456789, 'Alice', 1.83, 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +

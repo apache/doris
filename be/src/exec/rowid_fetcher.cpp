@@ -168,7 +168,7 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
                 vectorized::JsonbSerializeUtil::jsonb_to_block(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
-                        col_uid_to_idx, *output_block, default_values);
+                        col_uid_to_idx, *output_block, default_values, {});
             }
             return Status::OK();
         }
@@ -405,7 +405,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                         row_loc.segment_id(), row_loc.ordinal_id());
         // fetch by row store, more effcient way
         if (request.fetch_row_store()) {
-            CHECK(tablet->tablet_schema()->store_row_column());
+            CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
             RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
             string* value = response->add_binary_row_data();
             RETURN_IF_ERROR(scope_timer_run(

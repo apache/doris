@@ -49,7 +49,6 @@ public class TableNameComparedLowercaseTest {
     @BeforeClass
     public static void setUp() throws Exception {
         Config.lower_case_table_names = 2;
-        Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
         UtFrameUtils.createDorisCluster(runningDir);
         String table1 = "CREATE TABLE db1.TABLE1 (\n"
