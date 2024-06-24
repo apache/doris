@@ -33,7 +33,7 @@ bool DataTypeIPv4::equals(const IDataType& rhs) const {
 }
 
 size_t DataTypeIPv4::number_length() const {
-    //255.255.255.256
+    //255.255.255.255
     return 16;
 }
 void DataTypeIPv4::push_bumber(ColumnString::Chars& chars, const IPv4& num) const {
