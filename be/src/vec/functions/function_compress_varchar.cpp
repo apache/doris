@@ -53,17 +53,16 @@ struct CompressAsLargeInt {
 template <typename Name, typename ReturnType>
 class FunctionCompressVarchar : public IFunction {
 private:
-    static inline void reverse_bytes(uint8_t* __restrict s, size_t length) {
-        if (length == 0) {
+    static inline void reverse_copy_bytes(UInt8* __restrict desc, size_t desc_len, const void* src,
+                                          size_t str_len) {
+        if (str_len == 0) {
             return;
         }
 
-        int c, i, j;
+        auto _src = static_cast<const UInt8*>(src);
 
-        for (i = 0, j = length - 1; i < j; i++, j--) {
-            c = s[i];
-            s[i] = s[j];
-            s[j] = c;
+        for (int i = desc_len - 1, j = 0; j < str_len; --i, ++j) {
+            desc[i] = _src[j];
         }
     }
 
@@ -103,9 +102,8 @@ public:
             ReturnType* res = &col_res_data[i];
             UInt8* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
 
-            memcpy(ui8_ptr, str_ptr, str_size);
             // "reverse" the order of string on little endian machine.
-            reverse_bytes(ui8_ptr, sizeof(ReturnType));
+            reverse_copy_bytes(ui8_ptr, sizeof(ReturnType), str_ptr, str_size);
             // Lowest byte of Integer stores the size of the string, bit left shiflted by 1 so that we can get
             // correct size after right shifting by 1
             memset(ui8_ptr, str_size << 1, 1);

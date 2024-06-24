@@ -38,17 +38,16 @@ namespace doris::vectorized {
 
 template <typename IntegerType>
 class FunctionDecompressVarchar : public IFunction {
-    static inline void reverse_bytes(uint8_t* __restrict s, size_t length) {
-        if (length == 0) {
+    static inline void reverse_copy_bytes(UInt8* __restrict desc, size_t desc_len, const void* src,
+                                          size_t src_len) {
+        if (src_len == 0) {
             return;
         }
 
-        int c, i, j;
+        auto _src = static_cast<const UInt8*>(src);
 
-        for (i = 0, j = length - 1; i < j; i++, j--) {
-            c = s[i];
-            s[i] = s[j];
-            s[j] = c;
+        for (int i = desc_len - 1, j = 0; j < src_len; --i, ++j) {
+            desc[i] = _src[j];
         }
     }
 
@@ -104,7 +103,7 @@ public:
             UInt32 str_size = static_cast<UInt32>(*ui8_ptr) & 0x7F;
 
             if (str_size >= sizeof(IntegerType)) {
-                auto type_ptr = block.get_by_position(arguments[0]).type;
+                const auto& type_ptr = block.get_by_position(arguments[0]).type;
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        "Invalid input of function {}, input type {} value {}, "
                                        "string size {}, should not be larger than {}",
@@ -116,10 +115,8 @@ public:
             col_res_offset[i] = col_res_offset[i - 1] + str_size;
             value <<= 1;
 
-            memcpy(col_res_data.data() + col_res_offset[i - 1],
-                   ui8_ptr + sizeof(IntegerType) - str_size, str_size);
-
-            reverse_bytes(col_res_data.data() + col_res_offset[i - 1], str_size);
+            reverse_copy_bytes(col_res_data.data() + col_res_offset[i - 1], str_size,
+                               ui8_ptr + sizeof(IntegerType) - str_size, str_size);
         }
 
         block.get_by_position(result).column = std::move(col_res);

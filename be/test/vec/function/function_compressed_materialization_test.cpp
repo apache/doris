@@ -36,6 +36,8 @@
 
 namespace doris::vectorized {
 
+static const size_t TEST_COUNT = 50;
+
 static std::string print_hex(const StringRef& str) {
     std::string hex_str;
     for (unsigned char c : str) {
@@ -101,8 +103,16 @@ void compress_and_decompress(size_t len_of_varchar, std::string function_name) {
         auto col_source_str_mutate = ColumnString::create();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            std::string random_bytes = generate_random_len_and_random_bytes(m);
-            col_source_str_mutate->insert(Field(random_bytes.c_str(), random_bytes.size()));
+            if (i % 100 == 0) {
+                col_source_str_mutate->insert(Field(""));
+                continue;
+            } else if (i % 101 == 0) {
+                col_source_str_mutate->insert(Field("\0"));
+                continue;
+            } else {
+                std::string random_bytes = generate_random_len_and_random_bytes(m);
+                col_source_str_mutate->insert(Field(random_bytes.c_str(), random_bytes.size()));
+            }
         }
 
         auto col_source_str = std::move(col_source_str_mutate);
@@ -147,18 +157,26 @@ void compress_and_decompress(size_t len_of_varchar, std::string function_name) {
 }
 
 TEST(CompressedMaterializationTest, test_compress_as_smallint) {
-    compress_and_decompress(1, "compress_as_smallint");
+    for (size_t i = 0; i < TEST_COUNT; ++i) {
+        compress_and_decompress(1, "compress_as_smallint");
+    }
 }
 
 TEST(CompressedMaterializationTest, test_compress_as_int) {
-    compress_and_decompress(3, "compress_as_int");
+    for (size_t i = 0; i < TEST_COUNT; ++i) {
+        compress_and_decompress(3, "compress_as_int");
+    }
 }
 TEST(CompressedMaterializationTest, test_compress_as_bigint) {
-    compress_and_decompress(7, "compress_as_bigint");
+    for (size_t i = 0; i < TEST_COUNT; ++i) {
+        compress_and_decompress(7, "compress_as_bigint");
+    }
 }
 
 TEST(CompressedMaterializationTest, test_compress_as_largeint) {
-    compress_and_decompress(15, "compress_as_largeint");
+    for (size_t i = 0; i < TEST_COUNT; ++i) {
+        compress_and_decompress(15, "compress_as_largeint");
+    }
 }
 
 TEST(CompressedMaterializationTest, abnormal_test) {
