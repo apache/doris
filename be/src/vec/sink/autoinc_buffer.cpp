@@ -97,7 +97,6 @@ void AutoIncIDBuffer::_get_autoinc_ranges_from_buffers(
         result->emplace_back(autoinc_range.start, min_length);
         autoinc_range.consume(min_length);
         request_length -= min_length;
-        _current_volume -= min_length;
         if (autoinc_range.empty()) {
             _buffers.pop_front();
         }
@@ -107,47 +106,19 @@ void AutoIncIDBuffer::_get_autoinc_ranges_from_buffers(
 Status AutoIncIDBuffer::sync_request_ids(size_t request_length,
                                          std::vector<std::pair<int64_t, size_t>>* result) {
     std::unique_lock<std::mutex> lock(_mutex);
-    int current = current_volume();
-    if (current < request_length) {
-        // ids from _buffers is NOT sufficient for current request,
-        // first, we wait for any potential asynchronous fetch task
-        if (_is_fetching) {
-            _rpc_token->wait();
-        }
-        if (!_rpc_status.ok()) {
-            return _rpc_status;
-        }
-        // then try to feed the request_length
+    while (request_length > 0) {
         _get_autoinc_ranges_from_buffers(request_length, result);
-        // If ids from buffers is still not enough for request, we should fetch ids from fe synchronously.
-        // After that, if current_volume <= low_water_level_mark, we should launch an asynchronous fetch task.
-        // However, in order to reduce latency, we combine these two RPCs into one
-
-        // it's guarenteed that there's no background task here, so no need to lock _latch
-        if (request_length > 0 || _current_volume <= _low_water_level_mark()) {
-            int64_t remained_length = _prefetch_size();
-            int64_t start = DORIS_TRY(_fetch_ids_from_fe(request_length + remained_length));
-            if (request_length > 0) {
-                result->emplace_back(start, request_length);
-            }
-            start += request_length;
-            _buffers.emplace_back(start, remained_length);
-            _current_volume += remained_length;
+        if (request_length == 0) {
+            break;
         }
-
-    } else if (current <= _low_water_level_mark()) {
-        // ids from _buffers is sufficient for current request,
-        // but current_volume <= low_water_level_mark, need to launch an asynchronous fetch task if no such task exists
-        _get_autoinc_ranges_from_buffers(request_length, result);
-        CHECK_EQ(request_length, 0);
         if (!_is_fetching) {
-            RETURN_IF_ERROR(_launch_async_fetch_task(_prefetch_size()));
+            RETURN_IF_ERROR(_launch_async_fetch_task(request_length));
         }
-    } else {
-        // ids from _buffers is sufficient for current request,
-        // and current_volume > low_water_level_mark, no need to launch asynchronous fetch task
-        _get_autoinc_ranges_from_buffers(request_length, result);
-        CHECK_EQ(request_length, 0);
+        _rpc_token->wait();
+    }
+    CHECK_EQ(request_length, 0);
+    if (!_is_fetching) {
+        RETURN_IF_ERROR(_launch_async_fetch_task(_prefetch_size()));
     }
     return Status::OK();
 }
@@ -162,7 +133,6 @@ Status AutoIncIDBuffer::_launch_async_fetch_task(size_t length) {
         {
             std::lock_guard<std::mutex> lock {_latch};
             _buffers.emplace_back(start, length);
-            _current_volume += length;
         }
         _is_fetching = false;
     }));

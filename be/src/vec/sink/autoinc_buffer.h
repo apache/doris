@@ -84,10 +84,6 @@ private:
         return _batch_size * config::auto_inc_low_water_level_mark_size_ratio;
     };
 
-    size_t current_volume() const {
-        std::lock_guard<std::mutex> lock {_latch};
-        return _current_volume;
-    }
     void _get_autoinc_ranges_from_buffers(size_t& request_length,
                                           std::vector<std::pair<int64_t, size_t>>* result);
 
@@ -109,7 +105,6 @@ private:
     std::mutex _mutex;
 
     mutable std::mutex _latch;
-    size_t _current_volume {0};
     std::list<AutoIncRange> _buffers;
 };
 
