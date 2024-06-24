@@ -3358,7 +3358,7 @@ std::vector<RowsetSharedPtr> Tablet::get_rowset_by_ids(
     return rowsets;
 }
 
-Status BaseTablet::generate_new_block_for_partial_update(
+Status Tablet::generate_new_block_for_partial_update(
         TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
         const PartialUpdateReadPlan& read_plan_ori, const PartialUpdateReadPlan& read_plan_update,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,

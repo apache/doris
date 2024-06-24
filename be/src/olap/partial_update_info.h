@@ -18,6 +18,7 @@
 #pragma once
 
 #include "olap/tablet_schema.h"
+#include "util/string_util.h"
 
 namespace doris {
 
