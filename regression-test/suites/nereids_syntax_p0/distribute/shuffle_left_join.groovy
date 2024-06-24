@@ -1,3 +1,5 @@
+import java.util.stream.Collectors
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -82,6 +84,12 @@ suite("shuffle_left_join") {
         set disable_join_reorder=true;
         """
 
+    def variables = sql "show variables"
+    def variableString = variables.stream()
+        .map { it.toString() }
+        .collect(Collectors.joining("\n"))
+    logger.info("Variables:\n${variableString}")
+
     extractFragment(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
         assertTrue(exchangeNum == 1)
     }
@@ -92,6 +100,13 @@ suite("shuffle_left_join") {
             log.info("explain plan:\n${explainStr}")
         }
     }
+
+    def rows = sql sqlStr
+    def rowsString = rows.stream()
+            .map { it.toString() }
+            .collect(Collectors.joining("\n"))
+    logger.info("Rows:\n${rowsString}")
+
 
     order_qt_shuffle_left sqlStr
 }
