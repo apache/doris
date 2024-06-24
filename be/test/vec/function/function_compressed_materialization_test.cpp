@@ -83,17 +83,17 @@ static std::string generate_random_len_and_random_bytes(size_t max_length) {
     return str;
 }
 
-void compress_and_decompress(size_t len_of_varchar, std::string function_name) {
+void encode_and_decode(size_t len_of_varchar, std::string function_name) {
     const size_t input_rows_count = 4096;
     std::shared_ptr<IDataType> return_type_of_compress = nullptr;
 
-    if (function_name == "compress_as_smallint") {
+    if (function_name == "encode_as_smallint") {
         return_type_of_compress = std::make_shared<DataTypeInt16>();
-    } else if (function_name == "compress_as_int") {
+    } else if (function_name == "encode_as_int") {
         return_type_of_compress = std::make_shared<DataTypeInt32>();
-    } else if (function_name == "compress_as_bigint") {
+    } else if (function_name == "encode_as_bigint") {
         return_type_of_compress = std::make_shared<DataTypeInt64>();
-    } else if (function_name == "compress_as_largeint") {
+    } else if (function_name == "encode_as_largeint") {
         return_type_of_compress = std::make_shared<DataTypeInt128>();
     } else {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Invalid function name");
@@ -130,20 +130,20 @@ void compress_and_decompress(size_t len_of_varchar, std::string function_name) {
         Status st = compress_func->execute(context, input_block_compress, {0}, 1, input_rows_count);
         ASSERT_TRUE(st.ok());
 
-        ColumnWithTypeAndName augument_compressed = input_block_compress.get_by_position(1);
+        ColumnWithTypeAndName augument_encoded = input_block_compress.get_by_position(1);
         auto return_type_for_decompress = std::make_shared<DataTypeString>();
-        auto decompress_func = SimpleFunctionFactory::instance().get_function(
-                "decompress_varchar", {augument_compressed}, return_type_for_decompress);
-        Block input_block_decompress({augument_compressed});
-        input_block_decompress.insert(
+        auto decode_func = SimpleFunctionFactory::instance().get_function(
+                "decode_as_varchar", {augument_encoded}, return_type_for_decompress);
+        Block input_block_for_decode({augument_encoded});
+        input_block_for_decode.insert(
                 ColumnWithTypeAndName {nullptr, return_type_for_decompress, ""});
-        st = decompress_func->execute(context, input_block_decompress, {0}, 1, input_rows_count);
+        st = decode_func->execute(context, input_block_for_decode, {0}, 1, input_rows_count);
 
         ASSERT_TRUE(st.ok());
 
         // Compare the original and decompressed columns
         auto col_result_str = std::move(assert_cast<const ColumnString*>(
-                input_block_decompress.get_by_position(1).column.get()));
+                input_block_for_decode.get_by_position(1).column.get()));
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             EXPECT_EQ(col_source_str->get_data_at(i), col_result_str->get_data_at(i))
@@ -156,26 +156,26 @@ void compress_and_decompress(size_t len_of_varchar, std::string function_name) {
     }
 }
 
-TEST(CompressedMaterializationTest, test_compress_as_smallint) {
+TEST(CompressedMaterializationTest, test_encode_as_smallint) {
     for (size_t i = 0; i < TEST_COUNT; ++i) {
-        compress_and_decompress(1, "compress_as_smallint");
+        encode_and_decode(1, "encode_as_smallint");
     }
 }
 
-TEST(CompressedMaterializationTest, test_compress_as_int) {
+TEST(CompressedMaterializationTest, test_encode_as_int) {
     for (size_t i = 0; i < TEST_COUNT; ++i) {
-        compress_and_decompress(3, "compress_as_int");
+        encode_and_decode(3, "encode_as_int");
     }
 }
-TEST(CompressedMaterializationTest, test_compress_as_bigint) {
+TEST(CompressedMaterializationTest, test_encode_as_bigint) {
     for (size_t i = 0; i < TEST_COUNT; ++i) {
-        compress_and_decompress(7, "compress_as_bigint");
+        encode_and_decode(7, "encode_as_bigint");
     }
 }
 
-TEST(CompressedMaterializationTest, test_compress_as_largeint) {
+TEST(CompressedMaterializationTest, test_encode_as_largeint) {
     for (size_t i = 0; i < TEST_COUNT; ++i) {
-        compress_and_decompress(15, "compress_as_largeint");
+        encode_and_decode(15, "encode_as_largeint");
     }
 }
 
@@ -191,16 +191,16 @@ TEST(CompressedMaterializationTest, abnormal_test) {
     auto col_source_str = std::move(col_source_str_mutate);
     std::cerr << fmt::format("max bytes {}\n", col_source_str->get_max_row_byte_size());
 
-    std::vector<std::string> function_names = {"compress_as_smallint", "compress_as_int",
-                                               "compress_as_bigint", "compress_as_largeint"};
+    std::vector<std::string> function_names = {"encode_as_smallint", "encode_as_int",
+                                               "encode_as_bigint", "encode_as_largeint"};
     auto get_return_type = [](std::string function_name) -> std::shared_ptr<IDataType> {
-        if (function_name == "compress_as_smallint") {
+        if (function_name == "encode_as_smallint") {
             return std::make_shared<DataTypeInt16>();
-        } else if (function_name == "compress_as_int") {
+        } else if (function_name == "encode_as_int") {
             return std::make_shared<DataTypeInt32>();
-        } else if (function_name == "compress_as_bigint") {
+        } else if (function_name == "encode_as_bigint") {
             return std::make_shared<DataTypeInt64>();
-        } else if (function_name == "compress_as_largeint") {
+        } else if (function_name == "encode_as_largeint") {
             return std::make_shared<DataTypeInt128>();
         } else {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Invalid function name");

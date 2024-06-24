@@ -115,10 +115,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsBigInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsLargeInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CompressAsSmallInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -152,7 +148,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.DecompressVarchar;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
@@ -167,6 +163,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Dsqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.E;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Elt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsBigInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsLargeInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsSmallInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
@@ -561,10 +561,10 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Char.class, "char"),
             scalar(CharacterLength.class, "char_length", "character_length"),
             scalar(Coalesce.class, "coalesce"),
-            scalar(CompressAsSmallInt.class, "compress_as_smallint"),
-            scalar(CompressAsInt.class, "compress_as_int"),
-            scalar(CompressAsBigInt.class, "compress_as_bigint"),
-            scalar(CompressAsLargeInt.class, "compress_as_largeint"),
+            scalar(EncodeAsSmallInt.class, "encode_as_smallint"),
+            scalar(EncodeAsInt.class, "encode_as_int"),
+            scalar(EncodeAsBigInt.class, "encode_as_bigint"),
+            scalar(EncodeAsLargeInt.class, "encode_as_largeint"),
             scalar(Concat.class, "concat"),
             scalar(ConcatWs.class, "concat_ws"),
             scalar(ConnectionId.class, "connection_id"),
@@ -598,7 +598,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(DaysDiff.class, "days_diff"),
             scalar(DaysSub.class, "days_sub", "date_sub", "subdate"),
             scalar(Dceil.class, "dceil"),
-            scalar(DecompressVarchar.class, "decompress_varchar"),
+            scalar(DecodeAsVarchar.class, "decode_as_varchar"),
             scalar(Degrees.class, "degrees"),
             scalar(Dexp.class, "dexp"),
             scalar(Dfloor.class, "dfloor"),

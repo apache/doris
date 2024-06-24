@@ -22,7 +22,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -31,29 +34,33 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'CompressAsLargeInt'.
+ * ScalarFunction 'DecodeAsVarchar'.
  */
-public class CompressAsLargeInt extends ScalarFunction
+public class DecodeAsVarchar extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(LargeIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(LargeIntType.INSTANCE)
     );
 
     /**
-     * constructor with 1 arguments.
+     * constructor with 1 argument.
      */
-    public CompressAsLargeInt(Expression arg0) {
-        super("compress_as_largeint", arg0);
+    public DecodeAsVarchar(Expression arg0) {
+        super("decode_as_varchar", arg0);
     }
 
     /**
      * withChildren.
      */
     @Override
-    public CompressAsLargeInt withChildren(List<Expression> children) {
+    public DecodeAsVarchar withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new CompressAsLargeInt(children.get(0));
+        return new DecodeAsVarchar(children.get(0));
+
     }
 
     @Override
@@ -63,6 +70,6 @@ public class CompressAsLargeInt extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitCompressAsLargeInt(this, context);
+        return visitor.visitDecodeAsVarchar(this, context);
     }
 }

@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -31,29 +31,29 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'CompressAsSmallInt'.
+ * ScalarFunction 'EncodeAsBigInt'.
  */
-public class CompressAsSmallInt extends ScalarFunction
+public class EncodeAsBigInt extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(SmallIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
     );
 
     /**
      * constructor with 1 arguments.
      */
-    public CompressAsSmallInt(Expression arg0) {
-        super("compress_as_smallint", arg0);
+    public EncodeAsBigInt(Expression arg0) {
+        super("encode_as_bigint", arg0);
     }
 
     /**
      * withChildren.
      */
     @Override
-    public CompressAsSmallInt withChildren(List<Expression> children) {
+    public EncodeAsBigInt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new CompressAsSmallInt(children.get(0));
+        return new EncodeAsBigInt(children.get(0));
 
     }
 
@@ -64,6 +64,6 @@ public class CompressAsSmallInt extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitCompressAsSmallInt(this, context);
+        return visitor.visitEncodeAsBigInt(this, context);
     }
 }

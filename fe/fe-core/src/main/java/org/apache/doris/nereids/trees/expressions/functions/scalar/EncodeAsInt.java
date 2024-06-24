@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -31,29 +31,29 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'CompressAsBigInt'.
+ * ScalarFunction 'EncodeAsInt'.
  */
-public class CompressAsBigInt extends ScalarFunction
+public class EncodeAsInt extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(IntegerType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
     );
 
     /**
-     * constructor with 1 arguments.
+     * constructor with 1 argument.
      */
-    public CompressAsBigInt(Expression arg0) {
-        super("compress_as_bigint", arg0);
+    public EncodeAsInt(Expression arg0) {
+        super("encode_as_int", arg0);
     }
 
     /**
      * withChildren.
      */
     @Override
-    public CompressAsBigInt withChildren(List<Expression> children) {
+    public EncodeAsInt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new CompressAsBigInt(children.get(0));
+        return new EncodeAsInt(children.get(0));
 
     }
 
@@ -64,6 +64,6 @@ public class CompressAsBigInt extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitCompressAsBigInt(this, context);
+        return visitor.visitEncodeAsInt(this, context);
     }
 }

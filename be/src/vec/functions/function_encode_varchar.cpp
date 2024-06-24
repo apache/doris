@@ -34,24 +34,24 @@
 
 namespace doris::vectorized {
 
-struct CompressAsSmallInt {
-    static constexpr auto name = "compress_as_smallint";
+struct EncodeAsSmallInt {
+    static constexpr auto name = "encode_as_smallint";
 };
 
-struct CompressAsInt {
-    static constexpr auto name = "compress_as_int";
+struct EncodeAsInt {
+    static constexpr auto name = "encode_as_int";
 };
 
-struct CompressAsBigInt {
-    static constexpr auto name = "compress_as_bigint";
+struct EncodeAsBigInt {
+    static constexpr auto name = "encode_as_bigint";
 };
 
-struct CompressAsLargeInt {
-    static constexpr auto name = "compress_as_largeint";
+struct EncodeAsLargeInt {
+    static constexpr auto name = "encode_as_largeint";
 };
 
 template <typename Name, typename ReturnType>
-class FunctionCompressVarchar : public IFunction {
+class FunctionEncodeVarchar : public IFunction {
 private:
     static inline void reverse_copy_bytes(UInt8* __restrict desc, size_t desc_len, const void* src,
                                           size_t str_len) {
@@ -68,7 +68,7 @@ private:
 
 public:
     static constexpr auto name = Name::name;
-    static FunctionPtr create() { return std::make_shared<FunctionCompressVarchar>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionEncodeVarchar>(); }
 
     String get_name() const override { return name; }
 
@@ -88,7 +88,7 @@ public:
 
         if (max_str_size > sizeof(ReturnType) - 1) {
             return Status::InternalError(
-                    "String is too long to compress, input string size {}, max valid string "
+                    "String is too long to encode, input string size {}, max valid string "
                     "size for {} is {}",
                     max_str_size, name, sizeof(ReturnType) - 1);
         }
@@ -118,11 +118,11 @@ public:
     }
 };
 
-void register_function_compress_varchar(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionCompressVarchar<CompressAsSmallInt, Int16>>();
-    factory.register_function<FunctionCompressVarchar<CompressAsInt, Int32>>();
-    factory.register_function<FunctionCompressVarchar<CompressAsBigInt, Int64>>();
-    factory.register_function<FunctionCompressVarchar<CompressAsLargeInt, Int128>>();
+void register_function_encode_varchar(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionEncodeVarchar<EncodeAsSmallInt, Int16>>();
+    factory.register_function<FunctionEncodeVarchar<EncodeAsInt, Int32>>();
+    factory.register_function<FunctionEncodeVarchar<EncodeAsBigInt, Int64>>();
+    factory.register_function<FunctionEncodeVarchar<EncodeAsLargeInt, Int128>>();
 }
 
 } // namespace doris::vectorized
