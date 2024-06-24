@@ -191,7 +191,11 @@ private:
             if (iter->klen()) {
                 string_to_json(iter->getKeyStr(), iter->klen());
             } else {
-                os_.write(iter->getKeyId());
+                if (iter->getKeyId() == 0) {
+                    string_to_json(nullptr, 0);
+                } else {
+                    os_.write(iter->getKeyId());
+                }
             }
             os_.put(':');
 
