@@ -174,6 +174,7 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     }
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
+    meta->set_be_exec_version(column.get_be_exec_version());
 }
 
 Status SegmentWriter::init() {
