@@ -54,7 +54,8 @@ suite("test_schema_change") {
             'AWS_REGION' = '${getS3Region()}',
             'AWS_ENDPOINT' = '${getS3Endpoint()}',
             'AWS_ACCESS_KEY' = '${getS3AK()}',
-            'AWS_SECRET_KEY' = '${getS3SK()}'
+            'AWS_SECRET_KEY' = '${getS3SK()}',
+            "provider" = "${getS3Provider()}"
         )
         PROPERTIES
         (

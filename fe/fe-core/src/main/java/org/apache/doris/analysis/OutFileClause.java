@@ -585,6 +585,12 @@ public class OutFileClause {
             processedPropKeys.add(PROP_SUCCESS_FILE_NAME);
         }
 
+        // For Azure compatibility, this is temporarily added to the map without further processing.
+        // The validity of each provider's value will be checked later in S3Properties' check.
+        if (properties.containsKey(S3Properties.PROVIDER)) {
+            processedPropKeys.add(S3Properties.PROVIDER);
+        }
+
         if (this.fileFormatType == TFileFormatType.FORMAT_PARQUET) {
             getParquetProperties(processedPropKeys);
         }

@@ -21,6 +21,7 @@ import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 
 import com.google.common.collect.Lists;
@@ -102,7 +103,8 @@ public class RepositoryMgr extends Daemon implements Writable {
         try {
             Repository repo = repoNameMap.get(newRepo.getName());
             if (repo != null) {
-                if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
+                if (repo.getRemoteFileSystem() instanceof S3FileSystem
+                        || repo.getRemoteFileSystem() instanceof AzureFileSystem) {
                     repoNameMap.put(repo.getName(), newRepo);
                     repoIdMap.put(repo.getId(), newRepo);
 
