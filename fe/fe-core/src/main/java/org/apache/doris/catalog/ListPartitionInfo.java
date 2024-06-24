@@ -27,8 +27,11 @@ import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -65,6 +68,10 @@ public class ListPartitionInfo extends PartitionInfo {
     }
 
     public static PartitionInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), ListPartitionInfo.class);
+        }
+
         PartitionInfo partitionInfo = new ListPartitionInfo();
         partitionInfo.readFields(in);
         return partitionInfo;

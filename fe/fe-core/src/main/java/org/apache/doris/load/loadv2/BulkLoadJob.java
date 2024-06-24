@@ -45,7 +45,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.plugin.audit.LoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
@@ -65,7 +65,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
@@ -79,7 +78,7 @@ import java.util.stream.Collectors;
 /**
  * parent class of BrokerLoadJob and SparkLoadJob from load stmt
  */
-public abstract class BulkLoadJob extends LoadJob {
+public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(BulkLoadJob.class);
 
     // input params
@@ -318,9 +317,11 @@ public abstract class BulkLoadJob extends LoadJob {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_117) {
+            userInfo.setIsAnalyzed();
+        }
     }
 
     public void readFields(DataInput in) throws IOException {

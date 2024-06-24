@@ -27,7 +27,6 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +39,7 @@ public class ListPartitionItem extends PartitionItem {
 
     @SerializedName(value = "partitionKeys")
     private final List<PartitionKey> partitionKeys;
+    @SerializedName(value = "idp")
     private boolean isDefaultPartition = false;
 
     public ListPartitionItem(List<PartitionKey> partitionKeys) {
@@ -120,14 +120,6 @@ public class ListPartitionItem extends PartitionItem {
             }
         }
         return false;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(partitionKeys.size());
-        for (PartitionKey partitionKey : partitionKeys) {
-            partitionKey.write(out);
-        }
     }
 
     @Override

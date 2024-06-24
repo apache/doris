@@ -50,6 +50,7 @@ import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
@@ -82,7 +83,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public abstract class LoadJob extends AbstractTxnStateChangeCallback implements LoadTaskCallback, Writable {
+public abstract class LoadJob extends AbstractTxnStateChangeCallback
+                implements LoadTaskCallback, Writable, GsonPostProcessable {
 
     private static final Logger LOG = LogManager.getLogger(LoadJob.class);
 
@@ -99,6 +101,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected String label;
     @SerializedName("st")
     protected JobState state = JobState.PENDING;
+    @SerializedName("jt")
     protected EtlJobType jobType;
     // the auth info could be null when load job is created before commit named 'Persist auth info in load job'
     @SerializedName("ai")
@@ -117,11 +120,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected FailMsg failMsg;
     protected Map<Long, LoadTask> idToTasks = Maps.newConcurrentMap();
     protected Set<Long> finishedTaskIds = Sets.newHashSet();
+    @SerializedName("lsts")
     protected EtlStatus loadingStatus = new EtlStatus();
     // 0: the job status is pending
     // n/100: n is the number of task which has been finished
     // 99: all of tasks have been finished
     // 100: txn status is visible and load has been finished
+    @SerializedName("pgs")
     protected int progress;
 
     // non-persistence
@@ -1086,6 +1091,22 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             comment = Text.readString(in);
         } else {
             comment = "";
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        Map<String, String> tmpProperties = Maps.newHashMap();
+        for (Map.Entry<String, Object> entry : jobProperties.entrySet()) {
+            tmpProperties.put(entry.getKey(), String.valueOf(entry.getValue()));
+        }
+        jobProperties = Maps.newHashMap();
+        // init jobProperties
+        try {
+            setJobProperties(tmpProperties);
+        } catch (Exception e) {
+            // should not happen
+            throw new IOException("failed to replay job property", e);
         }
     }
 

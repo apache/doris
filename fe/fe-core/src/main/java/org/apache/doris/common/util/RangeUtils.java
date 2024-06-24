@@ -36,7 +36,6 @@ import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.Collections;
@@ -135,29 +134,6 @@ public class RangeUtils {
         if (idx1 < list1.size() || idx2 < list2.size()) {
             throw new DdlException("2 range lists are not stricly matched. "
                     + list1 + " vs. " + list2);
-        }
-    }
-
-    public static void writeRange(DataOutput out, Range<PartitionKey> range) throws IOException {
-        boolean hasLowerBound = false;
-        boolean hasUpperBound = false;
-
-        // write lower bound if lower bound exists
-        hasLowerBound = range.hasLowerBound();
-        out.writeBoolean(hasLowerBound);
-        if (hasLowerBound) {
-            PartitionKey lowerBound = range.lowerEndpoint();
-            out.writeBoolean(range.lowerBoundType() == BoundType.CLOSED);
-            lowerBound.write(out);
-        }
-
-        // write upper bound if upper bound exists
-        hasUpperBound = range.hasUpperBound();
-        out.writeBoolean(hasUpperBound);
-        if (hasUpperBound) {
-            PartitionKey upperBound = range.upperEndpoint();
-            out.writeBoolean(range.upperBoundType() == BoundType.CLOSED);
-            upperBound.write(out);
         }
     }
 

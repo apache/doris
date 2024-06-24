@@ -2208,7 +2208,7 @@ public class Env {
     }
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
-        recycleBin.readFields(dis);
+        recycleBin = CatalogRecycleBin.read(dis);
         // add tablet in Recycle bin to TabletInvertedIndex
         recycleBin.addTabletToInvertedIndex();
         // create DatabaseTransactionMgr for db in recycle bin.

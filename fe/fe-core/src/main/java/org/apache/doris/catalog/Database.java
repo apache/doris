@@ -627,7 +627,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         for (ImmutableList<Function> functions : name2Function.values()) {
             for (Function function : functions) {
                 try {
-                    FunctionUtil.translateToNereids(null, function);
+                    FunctionUtil.translateToNereids(this.getFullName(), function);
                 } catch (Exception e) {
                     LOG.warn("Nereids add function failed", e);
                 }
