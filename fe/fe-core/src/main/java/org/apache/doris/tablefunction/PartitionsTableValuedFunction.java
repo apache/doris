@@ -68,7 +68,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(CATALOG, DB, TABLE);
 
-    private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
+    private static final ImmutableList<Column> SCHEMA_FOR_OLAP_TABLE = ImmutableList.of(
             new Column("PartitionId", ScalarType.createType(PrimitiveType.BIGINT)),
             new Column("PartitionName", ScalarType.createStringType()),
             new Column("VisibleVersion", ScalarType.createType(PrimitiveType.BIGINT)),
@@ -90,24 +90,24 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("SyncWithBaseTables", ScalarType.createType(PrimitiveType.BOOLEAN)),
             new Column("UnsyncTables", ScalarType.createStringType()));
 
-    private static final ImmutableList<Column> OTHER_SCHEMA = ImmutableList.of(
+    private static final ImmutableList<Column> SCHEMA_FOR_EXTERNAL_TABLE = ImmutableList.of(
             new Column("Partition", ScalarType.createStringType()));
 
-    private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
-    private static final ImmutableMap<String, Integer> OTHER_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> OLAP_TABLE_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> EXTERNAL_TABLE_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
-        for (int i = 0; i < SCHEMA.size(); i++) {
-            builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
+        for (int i = 0; i < SCHEMA_FOR_OLAP_TABLE.size(); i++) {
+            builder.put(SCHEMA_FOR_OLAP_TABLE.get(i).getName().toLowerCase(), i);
         }
-        COLUMN_TO_INDEX = builder.build();
+        OLAP_TABLE_COLUMN_TO_INDEX = builder.build();
 
         ImmutableMap.Builder<String, Integer> otherBuilder = new ImmutableMap.Builder();
-        for (int i = 0; i < OTHER_SCHEMA.size(); i++) {
-            otherBuilder.put(OTHER_SCHEMA.get(i).getName().toLowerCase(), i);
+        for (int i = 0; i < SCHEMA_FOR_EXTERNAL_TABLE.size(); i++) {
+            otherBuilder.put(SCHEMA_FOR_EXTERNAL_TABLE.get(i).getName().toLowerCase(), i);
         }
-        OTHER_COLUMN_TO_INDEX = otherBuilder.build();
+        EXTERNAL_TABLE_COLUMN_TO_INDEX = otherBuilder.build();
     }
 
     public static Integer getColumnIndexFromColumnName(String columnName, TMetadataTableRequestParams params)
@@ -118,9 +118,9 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         TPartitionsMetadataParams partitionsMetadataParams = params.getPartitionsMetadataParams();
         String catalogName = partitionsMetadataParams.getCatalog();
         if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
-            return COLUMN_TO_INDEX.get(columnName.toLowerCase());
+            return OLAP_TABLE_COLUMN_TO_INDEX.get(columnName.toLowerCase());
         } else {
-            return OTHER_COLUMN_TO_INDEX.get(columnName.toLowerCase());
+            return EXTERNAL_TABLE_COLUMN_TO_INDEX.get(columnName.toLowerCase());
         }
     }
 
@@ -235,9 +235,9 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
         if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
-            return SCHEMA;
+            return SCHEMA_FOR_OLAP_TABLE;
         } else {
-            return OTHER_SCHEMA;
+            return SCHEMA_FOR_EXTERNAL_TABLE;
         }
     }
 }
