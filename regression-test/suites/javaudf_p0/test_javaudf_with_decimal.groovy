@@ -23,7 +23,8 @@ import java.nio.file.Paths
 
 suite("test_javaudf_with_decimal") {
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
-    log.info("Jar path: ${jarPath}".toString())
+    scp_udf_file_to_all_be(jarPath)
+    log.info("Jar path: ${jarPath}")
     try {
         try_sql("drop function IF EXISTS getarrscale(Array<Decimal(15,3)>);")
         try_sql("drop function IF EXISTS getmapscale(Map<Decimal(15,3),Decimal(15,6)>);")
