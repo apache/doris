@@ -313,7 +313,7 @@ int main(int argc, char** argv) {
         try {
             if (FLAGS_idx_file_name == "") {
                 //try to search from directory's all files
-                std::vector<FileInfo> files;
+                std::vector<doris::io::FileInfo> files;
                 bool exists = false;
                 std::filesystem::path root_dir(FLAGS_directory);
                 doris::Status status = fs->list(root_dir, true, &files, &exists);
@@ -539,7 +539,7 @@ int main(int argc, char** argv) {
         auto fs = doris::io::global_local_filesystem();
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 fs,
-                std::string {InvertedIndexDescriptor::get_index_path_prefix(
+                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                         doris::local_segment_path(file_dir, rowset_id, seg_id))},
                 rowset_id, seg_id, doris::InvertedIndexStorageFormatPB::V2);
         auto st = index_file_writer->open(&index_meta);
