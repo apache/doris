@@ -5814,7 +5814,7 @@ public class Env {
         List<String> tempPartitionNames = clause.getTempPartitionNames();
         boolean isStrictRange = clause.isStrictRange();
         boolean useTempPartitionName = clause.useTempPartitionName();
-        boolean isForceDropNormal = clause.isForceDropNormalPartition();
+        boolean isForceDropOld = clause.isForceDropOldPartition();
         // check partition exist
         for (String partName : partitionNames) {
             if (!olapTable.checkPartitionNameExist(partName, false)) {
@@ -5827,7 +5827,7 @@ public class Env {
             }
         }
         olapTable.replaceTempPartitions(db.getId(), partitionNames, tempPartitionNames, isStrictRange,
-                useTempPartitionName, isForceDropNormal);
+                useTempPartitionName, isForceDropOld);
         long version;
         long versionTime = System.currentTimeMillis();
         if (Config.isNotCloudMode()) {
