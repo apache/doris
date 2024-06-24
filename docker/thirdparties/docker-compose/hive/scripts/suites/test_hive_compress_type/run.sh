@@ -1,3 +1,5 @@
+#!/bin/bash
+
 set -x
 
 if [[ ! -d "/mnt/scripts/suites/test_hive_compress_type/data" ]]; then

@@ -1,3 +1,5 @@
+#!/bin/bash
+
 set -x
 
 ## mkdir and put data to hdfs
