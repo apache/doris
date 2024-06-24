@@ -532,7 +532,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
-        std::shared_lock rlock(tablet->get_header_lock());
+        std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _mow_context->rowset_ptrs;
         if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
             // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
