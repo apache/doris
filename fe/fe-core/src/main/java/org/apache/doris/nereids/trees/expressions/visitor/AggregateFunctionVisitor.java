@@ -91,7 +91,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitAnyValue(AnyValue anyValue, C context) {
-        return visitAggregateFunction(anyValue, context);
+        return visitNullableAggregateFunction(anyValue, context);
     }
 
     default R visitArrayAgg(ArrayAgg arrayAgg, C context) {
@@ -103,7 +103,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitAvgWeighted(AvgWeighted avgWeighted, C context) {
-        return visitAggregateFunction(avgWeighted, context);
+        return visitNullableAggregateFunction(avgWeighted, context);
     }
 
     default R visitBitmapAgg(BitmapAgg bitmapAgg, C context) {
@@ -295,15 +295,15 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitTopN(TopN topN, C context) {
-        return visitAggregateFunction(topN, context);
+        return visitNullableAggregateFunction(topN, context);
     }
 
     default R visitTopNArray(TopNArray topnArray, C context) {
-        return visitAggregateFunction(topnArray, context);
+        return visitNullableAggregateFunction(topnArray, context);
     }
 
     default R visitTopNWeighted(TopNWeighted topnWeighted, C context) {
-        return visitAggregateFunction(topnWeighted, context);
+        return visitNullableAggregateFunction(topnWeighted, context);
     }
 
     default R visitVariance(Variance variance, C context) {
