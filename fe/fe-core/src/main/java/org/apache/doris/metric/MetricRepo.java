@@ -748,22 +748,28 @@ public final class MetricRepo {
 
         LongCounterMetric requestAllCounter = CloudMetrics.CLUSTER_REQUEST_ALL_COUNTER.getOrAdd(clusterId);
         requestAllCounter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(requestAllCounter);
 
         LongCounterMetric queryAllCounter = CloudMetrics.CLUSTER_QUERY_ALL_COUNTER.getOrAdd(clusterId);
         queryAllCounter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(queryAllCounter);
 
         LongCounterMetric queryErrCounter = CloudMetrics.CLUSTER_QUERY_ERR_COUNTER.getOrAdd(clusterId);
         queryErrCounter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(queryErrCounter);
 
         GaugeMetricImpl<Double> requestPerSecondGauge = CloudMetrics.CLUSTER_REQUEST_PER_SECOND_GAUGE
                 .getOrAdd(clusterId);
         requestPerSecondGauge.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(requestPerSecondGauge);
 
         GaugeMetricImpl<Double> queryPerSecondGauge = CloudMetrics.CLUSTER_QUERY_PER_SECOND_GAUGE.getOrAdd(clusterId);
         queryPerSecondGauge.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(queryPerSecondGauge);
 
         GaugeMetricImpl<Double> queryErrRateGauge = CloudMetrics.CLUSTER_QUERY_ERR_RATE_GAUGE.getOrAdd(clusterId);
         queryErrRateGauge.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(queryErrRateGauge);
 
         String key = clusterId + CloudMetrics.CLOUD_CLUSTER_DELIMITER + clusterName;
         CloudMetrics.CLUSTER_QUERY_LATENCY_HISTO.getOrAdd(key);
@@ -784,6 +790,7 @@ public final class MetricRepo {
         labels.add(new MetricLabel("cluster_id", clusterId));
         labels.add(new MetricLabel("cluster_name", clusterName));
         counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
     }
 
     public static void increaseClusterQueryAll(String clusterName) {
@@ -801,6 +808,7 @@ public final class MetricRepo {
         labels.add(new MetricLabel("cluster_id", clusterId));
         labels.add(new MetricLabel("cluster_name", clusterName));
         counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
     }
 
     public static void increaseClusterQueryErr(String clusterName) {
@@ -818,6 +826,7 @@ public final class MetricRepo {
         labels.add(new MetricLabel("cluster_id", clusterId));
         labels.add(new MetricLabel("cluster_name", clusterName));
         counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
     }
 
     public static void updateClusterRequestPerSecond(String clusterId, double value, List<MetricLabel> labels) {
@@ -827,6 +836,7 @@ public final class MetricRepo {
         GaugeMetricImpl<Double> gauge = CloudMetrics.CLUSTER_REQUEST_PER_SECOND_GAUGE.getOrAdd(clusterId);
         gauge.setValue(value);
         gauge.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
     }
 
     public static void updateClusterQueryPerSecond(String clusterId, double value, List<MetricLabel> labels) {
@@ -836,6 +846,7 @@ public final class MetricRepo {
         GaugeMetricImpl<Double> gauge = CloudMetrics.CLUSTER_QUERY_PER_SECOND_GAUGE.getOrAdd(clusterId);
         gauge.setValue(value);
         gauge.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
     }
 
     public static void updateClusterQueryErrRate(String clusterId, double value, List<MetricLabel> labels) {
@@ -845,6 +856,7 @@ public final class MetricRepo {
         GaugeMetricImpl<Double> gauge = CloudMetrics.CLUSTER_QUERY_ERR_RATE_GAUGE.getOrAdd(clusterId);
         gauge.setValue(value);
         gauge.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
     }
 
     public static void updateClusterBackendAlive(String clusterName, String clusterId, String ipAddress,
@@ -861,6 +873,7 @@ public final class MetricRepo {
         labels.add(new MetricLabel("cluster_name", clusterName));
         labels.add(new MetricLabel("address", ipAddress));
         metric.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
     }
 
     public static void updateClusterBackendAliveTotal(String clusterName, String clusterId, int aliveNum) {
@@ -874,6 +887,7 @@ public final class MetricRepo {
         labels.add(new MetricLabel("cluster_id", clusterId));
         labels.add(new MetricLabel("cluster_name", clusterName));
         gauge.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
     }
 
     public static void updateClusterQueryLatency(String clusterName, long elapseMs) {
