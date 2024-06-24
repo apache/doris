@@ -43,16 +43,10 @@ Status GroupCommitLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(ScanLocalState<GroupCommitLocalState>::init(state, info));
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<GroupCommitOperatorX>();
-    return state->exec_env()->group_commit_mgr()->get_load_block_queue(
-            p._table_id, state->fragment_instance_id(), load_block_queue, _get_block_dependency);
-}
-
-Status GroupCommitLocalState::open(RuntimeState* state) {
-    RETURN_IF_ERROR(ScanLocalState<GroupCommitLocalState>::open(state));
-    SCOPED_TIMER(_open_timer);
     _get_block_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "GroupCommitGetBlockDependency", true);
-    return Status::OK();
+    return state->exec_env()->group_commit_mgr()->get_load_block_queue(
+            p._table_id, state->fragment_instance_id(), load_block_queue, _get_block_dependency);
 }
 
 Status GroupCommitLocalState::_process_conjuncts(RuntimeState* state) {
