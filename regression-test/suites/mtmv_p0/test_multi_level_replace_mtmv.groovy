@@ -64,6 +64,16 @@ suite("test_multi_level_replace_mtmv","mtmv") {
         SELECT * from ${tableName1};
         """
     sql """
+        CREATE MATERIALIZED VIEW ${mvName1_replace}
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1'
+        )
+        AS
+        SELECT * from ${tableName1};
+        """
+    sql """
         CREATE MATERIALIZED VIEW ${mvName2}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
