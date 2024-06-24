@@ -219,6 +219,9 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         }
         RETURN_IF_ERROR(execute_without_low_cardinality_columns(context, block, new_args, result,
                                                                 block.rows(), dry_run));
+        DCHECK(block.get_by_position(result).column->size() == input_rows_count) << fmt::format(
+                "Function {} breaks block. Input rows count {}, result rows count {}",
+                this->get_name(), input_rows_count, block.get_by_position(result).column->size());
         // after run with nested, wrap them in null.
         block.get_by_position(result).column = wrap_in_nullable(
                 block.get_by_position(result).column, block, args, result, input_rows_count);
