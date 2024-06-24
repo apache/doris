@@ -130,7 +130,8 @@ PROPERTIES (
             "AWS_SECRET_KEY" = "$sk",
             "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
             "AWS_REGION" = "ap-beijing",
-            "use_path_style" = "$loadAttribute.usePathStyle"
+            "use_path_style" = "$loadAttribute.usePathStyle",
+            "provider" = "${getS3Provider()}"
         )
         ${prop}
         """

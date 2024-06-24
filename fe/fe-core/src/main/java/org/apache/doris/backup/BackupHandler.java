@@ -49,6 +49,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.task.DirMoveTask;
@@ -232,14 +233,22 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
             }
 
-            if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
+            if (repo.getRemoteFileSystem() instanceof S3FileSystem
+                    || repo.getRemoteFileSystem() instanceof AzureFileSystem) {
                 Map<String, String> oldProperties = new HashMap<>(stmt.getProperties());
                 Status status = repo.alterRepositoryS3Properties(oldProperties);
                 if (!status.ok()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, status.getErrMsg());
                 }
-                RemoteFileSystem fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
-                        StorageBackend.StorageType.S3, oldProperties);
+                RemoteFileSystem fileSystem = null;
+                if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
+                    fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
+                            StorageBackend.StorageType.S3, oldProperties);
+                } else if (repo.getRemoteFileSystem() instanceof AzureFileSystem) {
+                    fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
+                            StorageBackend.StorageType.AZURE, oldProperties);
+                }
+
                 Repository newRepo = new Repository(repo.getId(), repo.getName(), repo.isReadOnly(),
                         repo.getLocation(), fileSystem);
                 if (!newRepo.ping()) {
@@ -260,7 +269,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 }
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                                "Only support alter s3 repository");
+                        "Only support alter s3 or azure repository");
             }
         } finally {
             seqlock.unlock();
