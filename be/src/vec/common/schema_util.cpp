@@ -241,8 +241,8 @@ TabletColumn get_least_type_column(const TabletColumn& original, const DataTypeP
     TabletColumn result_column;
     vectorized::DataTypePtr original_type = original.get_vec_type();
     vectorized::DataTypePtr common_type;
-    vectorized::get_least_supertype<vectorized::LeastSupertypeOnError::Jsonb>(
-            vectorized::DataTypes {original_type, new_type}, &common_type);
+    vectorized::get_least_supertype_jsonb(
+            TypeIndexSet {original_type->get_type_id(), new_type->get_type_id()}, &common_type);
     if (!original_type->equals(*common_type)) {
         // update to common type
         *changed = true;
@@ -285,8 +285,12 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
         if (tuple_paths.size() == tuple_types.size()) {
             continue;
         }
+        TypeIndexSet set;
+        for (auto t : subtypes) {
+            set.insert(t->get_type_id());
+        }
         DataTypePtr common_type;
-        get_least_supertype<LeastSupertypeOnError::Jsonb>(subtypes, &common_type);
+        get_least_supertype_jsonb(set, &common_type);
         if (!common_type->is_nullable()) {
             common_type = make_nullable(common_type);
         }
