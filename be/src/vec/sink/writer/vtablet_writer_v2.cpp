@@ -548,7 +548,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            auto st = _delta_writer_for_tablet->close(_profile);
+            auto st = _delta_writer_for_tablet->close(_segments_for_tablet, _profile);
             _delta_writer_for_tablet.reset();
             if (!st.ok()) {
                 RETURN_IF_ERROR(_cancel(st));
@@ -662,7 +662,9 @@ void VTabletWriterV2::_calc_tablets_to_commit() {
                 if (VLOG_DEBUG_IS_ON) {
                     partition_ids.push_back(tablet.partition_id());
                 }
-                tablets_to_commit.push_back(tablet);
+                PTabletID t(tablet);
+                t.set_num_segments(_segments_for_tablet[tablet_id]);
+                tablets_to_commit.push_back(t);
             }
         }
         if (VLOG_DEBUG_IS_ON) {

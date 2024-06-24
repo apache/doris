@@ -104,11 +104,17 @@ bool LoadStreamMap::release() {
 Status LoadStreamMap::close_load(bool incremental) {
     return for_each_st([this, incremental](int64_t dst_id, const Streams& streams) -> Status {
         const auto& tablets = _tablets_to_commit[dst_id];
+        bool first = true;
         for (auto& stream : streams) {
             if (stream->is_incremental() != incremental) {
                 continue;
             }
-            RETURN_IF_ERROR(stream->close_load(tablets));
+            if (first) {
+                RETURN_IF_ERROR(stream->close_load(tablets));
+                first = false;
+            } else {
+                RETURN_IF_ERROR(stream->close_load({}));
+            }
         }
         return Status::OK();
     });

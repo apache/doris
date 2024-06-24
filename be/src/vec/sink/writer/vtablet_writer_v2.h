@@ -228,6 +228,7 @@ private:
 
     size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;
+    std::unordered_map<int64_t, int32_t> _segments_for_tablet;
 
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
