@@ -1064,7 +1064,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
     private boolean enableParallelResultSink = true;
 
-    @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL)
+    @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
+            description = {"在读取csv文件时是否读取csv的空行为null",
+                    "Determine whether to read empty rows in CSV files as NULL when reading CSV files."})
     public boolean readCsvEmptyLineAsNull = false;
 
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
