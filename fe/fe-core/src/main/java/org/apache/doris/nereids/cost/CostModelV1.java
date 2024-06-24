@@ -196,13 +196,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
-        ExpressionCostEvaluator expressionCostEvaluator = new ExpressionCostEvaluator();
-        double exprCost = 0.0;
-        for (Expression expr : physicalProject.getProjects()) {
-            if (!(expr instanceof SlotReference)) {
-                exprCost += expr.accept(expressionCostEvaluator, null);
-            }
-        }
+        double exprCost = expressionTreeCost(physicalProject.getProjects());
         return CostV1.ofCpu(context.getSessionVariable(), exprCost + 1);
     }
 
@@ -318,16 +312,29 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                         * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumber);
     }
 
+    private double expressionTreeCost(List<? extends Expression> expressions) {
+        double exprCost = 0.0;
+        ExpressionCostEvaluator expressionCostEvaluator = new ExpressionCostEvaluator();
+        for (Expression expr : expressions) {
+            if (!(expr instanceof SlotReference)) {
+                exprCost += expr.accept(expressionCostEvaluator, null);
+            }
+        }
+        return exprCost;
+    }
+
     @Override
     public Cost visitPhysicalHashAggregate(
             PhysicalHashAggregate<? extends Plan> aggregate, PlanContext context) {
         Statistics inputStatistics = context.getChildStatistics(0);
+        double exprCost = expressionTreeCost(aggregate.getExpressions());
         if (aggregate.getAggPhase().isLocal()) {
-            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount() / beNumber,
+            return CostV1.of(context.getSessionVariable(),
+                    exprCost / 100 + inputStatistics.getRowCount() / beNumber,
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
             // global
-            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount(),
+            return CostV1.of(context.getSessionVariable(), exprCost / 100 + inputStatistics.getRowCount(),
                     inputStatistics.getRowCount(), 0);
         }
     }
