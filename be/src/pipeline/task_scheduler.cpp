@@ -72,6 +72,10 @@ Status TaskScheduler::schedule_task(PipelineTask* task) {
 
 // after _close_task, task maybe destructed.
 void _close_task(PipelineTask* task, Status exec_status) {
+    if (task->is_finalized()) {
+        task->set_running(false);
+        return;
+    }
     // Has to attach memory tracker here, because the close task will also release some memory.
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
