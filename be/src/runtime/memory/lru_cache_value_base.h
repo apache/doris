@@ -25,20 +25,16 @@ namespace doris {
 // Base of the lru cache value.
 class LRUCacheValueBase {
 public:
-    LRUCacheValueBase() = default;
-    LRUCacheValueBase(CachePolicy::CacheType type) {
-        _mem_tracker = CacheManager::instance()->get_cache(type)->mem_tracker();
-    }
-
     virtual ~LRUCacheValueBase() {
         if (_tracking_bytes > 0) {
             _mem_tracker->consume(-_tracking_bytes);
         }
     }
 
-    void set_tracking_bytes(size_t tracking_bytes) { this->_tracking_bytes = tracking_bytes; }
-
-    MemTracker* mem_tracker() const { return _mem_tracker; }
+    void set_tracking_bytes(size_t tracking_bytes, MemTracker* mem_tracker) {
+        this->_tracking_bytes = tracking_bytes;
+        this->_mem_tracker = mem_tracker;
+    }
 
 protected:
     size_t _tracking_bytes = 0;

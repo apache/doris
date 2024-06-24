@@ -304,6 +304,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.skip_write_index_on_load) {
         schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
     }
+    if (tablet_schema.__isset.row_store_col_cids) {
+        schema->mutable_row_store_column_unique_ids()->Add(tablet_schema.row_store_col_cids.begin(),
+                                                           tablet_schema.row_store_col_cids.end());
+    }
     if (binlog_config.has_value()) {
         BinlogConfig tmp_binlog_config;
         tmp_binlog_config = binlog_config.value();
@@ -365,6 +369,10 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
 
     if (tcolumn.__isset.result_is_nullable) {
         column->set_result_is_nullable(tcolumn.result_is_nullable);
+    }
+
+    if (tcolumn.__isset.be_exec_version) {
+        column->set_be_exec_version(tcolumn.be_exec_version);
     }
 
     if (tcolumn.column_type.type == TPrimitiveType::VARCHAR ||

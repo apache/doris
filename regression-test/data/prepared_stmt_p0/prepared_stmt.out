@@ -59,6 +59,12 @@
 -- !select7 --
 2	1	user1	\N	1111111	1111111
 
+-- !select6_1 --
+2	1	user1	\N	1234.1111	xxxlalala
+
+-- !select7_1 --
+2	1	user1	\N	1111111	1111111
+
 -- !select8 --
 1
 1

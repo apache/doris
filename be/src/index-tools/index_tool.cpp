@@ -101,6 +101,9 @@ std::string get_usage(const std::string& progname) {
           "--trans_vec_file=path/to/file\n";
     ss << "./index_tool --operation=write_index_v2 --idx_file_path=path/to/index "
           "--data_file_path=data/to/index\n";
+    ss << "./index_tool --operation=show_nested_files_v2 --idx_file_path=path/to/file\n";
+    ss << "./index_tool --operation=check_terms_stats_v2 --idx_file_path=path/to/file "
+          "--idx_id=index_id\n";
     return ss.str();
 }
 
@@ -205,7 +208,10 @@ void check_terms_stats(lucene::store::Directory* dir) {
         /* empty */
         std::string token =
                 lucene_wcstoutf8string(te->term(false)->text(), te->term(false)->textLength());
+        std::string field = lucene_wcstoutf8string(te->term(false)->field(),
+                                                   lenOfString(te->term(false)->field()));
 
+        printf("Field: %s ", field.c_str());
         printf("Term: %s ", token.c_str());
         printf("Freq: %d\n", te->docFreq());
         if (FLAGS_print_doc_id) {
@@ -307,7 +313,7 @@ int main(int argc, char** argv) {
         try {
             if (FLAGS_idx_file_name == "") {
                 //try to search from directory's all files
-                std::vector<FileInfo> files;
+                std::vector<doris::io::FileInfo> files;
                 bool exists = false;
                 std::filesystem::path root_dir(FLAGS_directory);
                 doris::Status status = fs->list(root_dir, true, &files, &exists);
@@ -533,7 +539,7 @@ int main(int argc, char** argv) {
         auto fs = doris::io::global_local_filesystem();
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 fs,
-                std::string {InvertedIndexDescriptor::get_index_path_prefix(
+                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                         doris::local_segment_path(file_dir, rowset_id, seg_id))},
                 rowset_id, seg_id, doris::InvertedIndexStorageFormatPB::V2);
         auto st = index_file_writer->open(&index_meta);
@@ -557,7 +563,7 @@ int main(int argc, char** argv) {
         auto field_config = (int32_t)(lucene::document::Field::STORE_NO);
         field_config |= (int32_t)(lucene::document::Field::INDEX_NONORMS);
         field_config |= lucene::document::Field::INDEX_TOKENIZED;
-        auto field_name = std::wstring(name.begin(), name.end());
+        auto field_name = StringUtil::string_to_wstring(name);
         auto field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
         field->setOmitTermFreqAndPositions(false);
         doc->add(*field);
@@ -632,7 +638,7 @@ int main(int argc, char** argv) {
             std::cerr << "error occurred when show files: " << err.what() << std::endl;
         }
     } else if (FLAGS_operation == "check_terms_stats_v2") {
-        if (FLAGS_idx_file_path == "") {
+        if (FLAGS_idx_file_path == "" || FLAGS_idx_id <= 0) {
             std::cout << "no file flag for check " << std::endl;
             return -1;
         }
@@ -647,7 +653,7 @@ int main(int argc, char** argv) {
                 return -1;
             }
             std::vector<std::string> files;
-            int64_t index_id = 1;
+            int64_t index_id = FLAGS_idx_id;
             std::string index_suffix = "";
             doris::TabletIndexPB index_pb;
             index_pb.set_index_id(index_id);

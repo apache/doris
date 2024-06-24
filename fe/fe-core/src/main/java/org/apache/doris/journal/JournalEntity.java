@@ -739,7 +739,8 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_INIT_CATALOG: {
+            case OperationType.OP_INIT_CATALOG:
+            case OperationType.OP_INIT_CATALOG_COMP: {
                 data = InitCatalogLog.read(in);
                 isRead = true;
                 break;
@@ -861,6 +862,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DELETE_ANALYSIS_TASK: {
                 data = AnalyzeDeletionLog.read(in);
+                isRead = true;
                 break;
             }
             case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {

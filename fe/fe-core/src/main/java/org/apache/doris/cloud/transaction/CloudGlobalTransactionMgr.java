@@ -81,6 +81,7 @@ import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
@@ -195,6 +196,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
+
+        MTMVUtil.checkModifyMTMVData(db, tableIdList, ConnectContext.get());
 
         switch (sourceType) {
             case BACKEND_STREAMING:

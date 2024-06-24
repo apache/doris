@@ -301,7 +301,7 @@ class Suite implements GroovyInterceptable {
             // wait be report
             Thread.sleep(5000)
             def url = String.format(
-                    "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
+                    "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
             def conn = DriverManager.getConnection(url, user, password)
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
@@ -630,9 +630,15 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null) {
-        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${fieldName}"
-        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${fieldName}"
+    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null, String orderByFieldName = null) {
+        String orderByName = ""
+        if (ObjectUtils.isEmpty(orderByFieldName)){
+            orderByName = fieldName;
+        }else {
+            orderByName = orderByFieldName;
+        }
+        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${orderByName}"
+        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${orderByName}"
         List<Object> tbData1 = new ArrayList<Object>();
         for (List<Object> items:tb1Result){
             tbData1.add(items.get(0))
@@ -646,6 +652,12 @@ class Suite implements GroovyInterceptable {
                 throw new RuntimeException("tbData should be same")
             }
         }
+    }
+
+    String getRandomBoolean() {
+        Random random = new Random()
+        boolean randomBoolean = random.nextBoolean()
+        return randomBoolean ? "true" : "false"
     }
 
     void expectExceptionLike(Closure userFunction, String errorMessage = null) {
@@ -759,6 +771,11 @@ class Suite implements GroovyInterceptable {
 
     String getS3Url() {
         String s3BucketName = context.config.otherConfigs.get("s3BucketName");
+        if (context.config.otherConfigs.get("s3Provider") == "AZURE") {
+            String accountName = context.config.otherConfigs.get("ak");
+            String s3Url = "http://${accountName}.blob.core.windows.net/${s3BucketName}"
+            return s3Url
+        }
         String s3Endpoint = context.config.otherConfigs.get("s3Endpoint");
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
@@ -1762,6 +1779,21 @@ class Suite implements GroovyInterceptable {
                 last_start_version = start_version
                 last_end_version = end_version
             }
+        }
+    }
+
+    def scp_udf_file_to_all_be = { udf_file_path ->
+        if (!new File(udf_file_path).isAbsolute()) {
+            udf_file_path = new File(udf_file_path).getAbsolutePath()
+        }
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+
+        def udf_file_dir = new File(udf_file_path).parent
+        backendId_to_backendIP.values().each { be_ip ->
+            sshExec ("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"")
+            scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }
 }

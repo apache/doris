@@ -28,6 +28,7 @@
 
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
+#include "common/consts.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
@@ -152,13 +153,12 @@ public:
 
             for (int i = 0; i < rows; i++) {
                 auto row_ref = row_refs[i];
-
                 for (int j = key_number; j < columns; j++) {
                     const auto* column_ptr = row_ref.get_column(j).get();
                     agg_functions[j - key_number]->add(
                             agg_places[j - key_number],
                             const_cast<const vectorized::IColumn**>(&column_ptr), row_ref.position,
-                            nullptr);
+                            &_arena);
                 }
 
                 if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
@@ -244,6 +244,7 @@ private:
 
     BaseTabletSPtr _tablet;
     RowRefComparator _cmp;
+    vectorized::Arena _arena;
 };
 
 BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
@@ -1313,6 +1314,16 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         // there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
         return Status::OK();
+    }
+
+    // if new tablet enable row store, or new tablet has different row store columns
+    if ((!base_tablet_schema->have_column(BeConsts::ROW_STORE_COL) &&
+         new_tablet_schema->have_column(BeConsts::ROW_STORE_COL)) ||
+        !std::equal(new_tablet_schema->row_columns_uids().begin(),
+                    new_tablet_schema->row_columns_uids().end(),
+                    base_tablet_schema->row_columns_uids().begin(),
+                    base_tablet_schema->row_columns_uids().end())) {
+        *sc_directly = true;
     }
 
     for (size_t i = 0; i < new_tablet_schema->num_columns(); ++i) {

@@ -168,7 +168,7 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
                 vectorized::JsonbSerializeUtil::jsonb_to_block(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
-                        col_uid_to_idx, *output_block, default_values);
+                        col_uid_to_idx, *output_block, default_values, {});
             }
             return Status::OK();
         }
@@ -240,10 +240,6 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     std::vector<PRowLocation> rows_locs;
     rows_locs.reserve(rows_locs.size());
     RETURN_IF_ERROR(_merge_rpc_results(mget_req, resps, cntls, res_block, &rows_locs));
-    if (rows_locs.size() != res_block->rows() || rows_locs.size() != column_row_ids->size()) {
-        return Status::InternalError("Miss matched return row loc count {}, expected {}, input {}",
-                                     rows_locs.size(), res_block->rows(), column_row_ids->size());
-    }
     // Final sort by row_ids sequence, since row_ids is already sorted if need
     std::map<GlobalRowLoacation, size_t> positions;
     for (size_t i = 0; i < rows_locs.size(); ++i) {
@@ -264,12 +260,12 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
                 reinterpret_cast<const GlobalRowLoacation*>(column_row_ids->get_data_at(i).data);
         permutation.push_back(positions[*location]);
     }
-    // Check row consistency
-    RETURN_IF_CATCH_EXCEPTION(res_block->check_number_of_rows());
     for (size_t i = 0; i < res_block->columns(); ++i) {
         res_block->get_by_position(i).column =
                 res_block->get_by_position(i).column->permute(permutation, permutation.size());
     }
+    // Check row consistency
+    RETURN_IF_CATCH_EXCEPTION(res_block->check_number_of_rows());
     // shrink for char type
     std::vector<size_t> char_type_idx;
     for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {
@@ -405,7 +401,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                         row_loc.segment_id(), row_loc.ordinal_id());
         // fetch by row store, more effcient way
         if (request.fetch_row_store()) {
-            CHECK(tablet->tablet_schema()->store_row_column());
+            CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
             RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
             string* value = response->add_binary_row_data();
             RETURN_IF_ERROR(scope_timer_run(

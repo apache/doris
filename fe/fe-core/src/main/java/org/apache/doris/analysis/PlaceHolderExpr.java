@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -57,9 +58,23 @@ public class PlaceHolderExpr extends LiteralExpr {
         this.type = literal.getType();
     }
 
+    public LiteralExpr getLiteral() {
+        return lExpr;
+    }
+
+    @Override
+    protected void analysisDone() {
+        if (lExpr != null && !lExpr.isAnalyzed) {
+            lExpr.analysisDone();
+        }
+        if (!isAnalyzed) {
+            super.analysisDone();
+        }
+    }
+
     public LiteralExpr createLiteralFromType() throws AnalysisException {
         Preconditions.checkState(mysqlTypeCode > 0);
-        return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode);
+        return LiteralExpr.getLiteralByMysqlType(mysqlTypeCode, isUnsigned());
     }
 
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
@@ -84,6 +99,10 @@ public class PlaceHolderExpr extends LiteralExpr {
     @Override
     public boolean isMinValue() {
         return lExpr.isMinValue();
+    }
+
+    public boolean isUnsigned() {
+        return MysqlColType.isUnsigned(mysqlTypeCode);
     }
 
     @Override
@@ -175,7 +194,7 @@ public class PlaceHolderExpr extends LiteralExpr {
         return "\"" + getStringValue() + "\"";
     }
 
-    public void setupParamFromBinary(ByteBuffer data) {
-        lExpr.setupParamFromBinary(data);
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
+        lExpr.setupParamFromBinary(data, isUnsigned);
     }
 }

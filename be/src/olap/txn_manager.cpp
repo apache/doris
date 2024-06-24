@@ -605,13 +605,14 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
         auto& load_info = load_itr->second;
         auto& rowset = load_info->rowset;
         if (rowset != nullptr && meta != nullptr) {
-            if (rowset->version().first > 0) {
+            if (!rowset->is_pending()) {
                 return Status::Error<TRANSACTION_ALREADY_COMMITTED>(
                         "could not delete transaction from engine, just remove it from memory not "
                         "delete from disk, because related rowset already published. partition_id: "
-                        "{}, transaction_id: {}, tablet: {}, rowset id: {}, version:{}",
+                        "{}, transaction_id: {}, tablet: {}, rowset id: {}, version: {}, state: {}",
                         key.first, key.second, tablet_info.to_string(),
-                        rowset->rowset_id().to_string(), rowset->version().to_string());
+                        rowset->rowset_id().to_string(), rowset->version().to_string(),
+                        RowsetStatePB_Name(rowset->rowset_meta_state()));
             } else {
                 static_cast<void>(RowsetMetaManager::remove(meta, tablet_uid, rowset->rowset_id()));
 #ifndef BE_TEST

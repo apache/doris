@@ -205,6 +205,7 @@ public class CopyStmt extends DdlStmt {
         }
         brokerProperties.put(S3_BUCKET, objInfo.getBucket());
         brokerProperties.put(S3_PREFIX, objInfo.getPrefix());
+        brokerProperties.put(S3Properties.PROVIDER, objInfo.getProvider().toString());
         StageProperties stageProperties = new StageProperties(stagePB.getPropertiesMap());
         this.copyIntoProperties.mergeProperties(stageProperties);
         this.copyIntoProperties.analyze();
