@@ -42,7 +42,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -605,7 +604,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public void gsonPostProcess() throws IOException {
         Preconditions.checkState(nameToTable.getClass() == ConcurrentHashMap.class,
                                  "nameToTable should be ConcurrentMap");
-        fullQualifiedName = ClusterNamespace.getNameFromFullName(fullQualifiedName);
         nameToTable.forEach((tn, tb) -> {
             tb.setQualifiedDbName(fullQualifiedName);
             if (tb instanceof MTMV) {
@@ -651,12 +649,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     @Override
     public void write(DataOutput out) throws IOException {
         discardHudiTable();
-        String json = GsonUtils.GSON.toJson(this);
-        JsonObject jsonObject = GsonUtils.GSON.fromJson(json, JsonObject.class);
-        String fqn = ClusterNamespace.getNameFromFullName(jsonObject.get("fullQualifiedName").getAsString());
-        jsonObject.remove("fullQualifiedName");
-        jsonObject.addProperty("fullQualifiedName", fqn);
-        Text.writeString(out, GsonUtils.GSON.toJson(jsonObject));
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
 
