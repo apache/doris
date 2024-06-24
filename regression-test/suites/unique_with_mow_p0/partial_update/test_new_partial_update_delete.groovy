@@ -53,7 +53,7 @@ suite('test_new_partial_update_delete') {
             qt_sql2 "select * from ${tableName1} order by k1;"
             sql "set show_hidden_columns = true;"
             // 1,1,1,1,1,1
-            qt_sql3 "select * from ${tableName1} order by k1;"
+            qt_sql3 "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName1} order by k1;"
             sql "set show_hidden_columns = false;"
             sql "set enable_unique_key_partial_update=true;"
             sql "set enable_insert_strict=false;"
@@ -121,7 +121,7 @@ suite('test_new_partial_update_delete') {
             qt_sql22 "select * from ${tableName2} order by k1;"
             sql "set show_hidden_columns = true;"
             // 1,1,1,1,1,1
-            qt_sql23 "select * from ${tableName2} order by k1;"
+            qt_sql23 "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName2} order by k1;"
             sql "set show_hidden_columns = false;"
             sql "set enable_unique_key_partial_update=true;"
             sql "set enable_insert_strict=false;"
