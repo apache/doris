@@ -505,10 +505,6 @@ public class TypeCoercionUtils {
         if (!(left instanceof Literal) && !(right instanceof Literal)) {
             return (T) op.withChildren(left, right);
         }
-        if (left instanceof Literal && right instanceof Literal) {
-            // process by constant folding
-            return (T) op.withChildren(left, right);
-        }
         if (left instanceof Literal && ((Literal) left).isStringLikeLiteral()
                 && !right.getDataType().isStringLikeType()) {
             left = TypeCoercionUtils.characterLiteralTypeCoercion(
