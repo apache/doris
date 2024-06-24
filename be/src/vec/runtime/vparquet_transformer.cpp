@@ -166,14 +166,15 @@ void ParquetBuildHelper::build_compression_type(
         builder.compression(arrow::Compression::LZ4);
         break;
     }
-    case TParquetCompressionType::LZO: {
-        builder.compression(arrow::Compression::LZO);
-        break;
-    }
-    case TParquetCompressionType::BZ2: {
-        builder.compression(arrow::Compression::BZ2);
-        break;
-    }
+    // arrow do not support lzo and bz2 compression type.
+    // case TParquetCompressionType::LZO: {
+    //     builder.compression(arrow::Compression::LZO);
+    //     break;
+    // }
+    // case TParquetCompressionType::BZ2: {
+    //     builder.compression(arrow::Compression::BZ2);
+    //     break;
+    // }
     case TParquetCompressionType::UNCOMPRESSED: {
         builder.compression(arrow::Compression::UNCOMPRESSED);
         break;

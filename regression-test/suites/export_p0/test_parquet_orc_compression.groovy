@@ -77,7 +77,7 @@ suite("test_parquet_orc_compression", "p0") {
     }
 
     // export compression 
-    def export_compression = { file_format, compression_type ->
+    def export_compression = { file_format, compression_type, tvf_read ->
         def uuid = UUID.randomUUID().toString()
         def outFilePath = """${outfile_path_prefix}_${uuid}"""
         def label = "label_${uuid}"
@@ -97,23 +97,25 @@ suite("test_parquet_orc_compression", "p0") {
                     "s3.access_key" = "${ak}"
                 );
             """
-            def outfile_url = waiting_export.call(label)
-            
-            order_qt_select_load1 """ select * from s3(
-                                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_format}",
-                                        "s3.access_key"= "${ak}",
-                                        "s3.secret_key" = "${sk}",
-                                        "format" = "${file_format}",
-                                        "region" = "${region}"
-                                    ) ORDER BY user_id;
-                                    """
 
+            if (tvf_read) {
+                def outfile_url = waiting_export.call(label)
+            
+                order_qt_select_load1 """ select * from s3(
+                                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_format}",
+                                            "s3.access_key"= "${ak}",
+                                            "s3.secret_key" = "${sk}",
+                                            "format" = "${file_format}",
+                                            "region" = "${region}"
+                                        ) ORDER BY user_id;
+                                        """
+            }
         } finally {
         }
     }
 
     // outfile compression
-    def outfile_compression = { file_format, compression_type ->
+    def outfile_compression = { file_format, compression_type, tvf_read ->
         def uuid = UUID.randomUUID().toString()
         def outFilePath = """${outfile_path_prefix}_${uuid}"""
 
@@ -129,48 +131,47 @@ suite("test_parquet_orc_compression", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        def outfile_url = res[0][3]
 
-
-        order_qt_select_load1 """ SELECT * FROM S3 (
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_format}",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
-                "format" = "${file_format}",
-                "region" = "${region}"
-            );
-            """
+        if (tvf_read) {
+            def outfile_url = res[0][3]
+            order_qt_select_load1 """ SELECT * FROM S3 (
+                    "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_format}",
+                    "ACCESS_KEY"= "${ak}",
+                    "SECRET_KEY" = "${sk}",
+                    "format" = "${file_format}",
+                    "region" = "${region}"
+                );
+                """
+        }
     }
 
     // 1. export
     // 1.1 parquet
-    export_compression("parquet", "snappy")
-    export_compression("parquet", "GZIP")
-    export_compression("parquet", "BROTLI")
-    export_compression("parquet", "ZSTD")
-    export_compression("parquet", "LZ4")
-    export_compression("parquet", "LZO")
-    export_compression("parquet", "BZ2")
-    export_compression("parquet", "plain")
+    export_compression("parquet", "snappy", true)
+    export_compression("parquet", "GZIP", true)
+    // parquet-read do not support read BROTLI compression type now
+    export_compression("parquet", "BROTLI", false)
+    export_compression("parquet", "ZSTD", true)
+    export_compression("parquet", "LZ4", true)
+    export_compression("parquet", "plain", true)
     // 1.2 orc
-    export_compression("orc", "PLAIN")
-    export_compression("orc", "SNAPPY")
-    export_compression("orc", "ZLIB")
-    export_compression("orc", "ZSTD")
+    export_compression("orc", "PLAIN", true)
+    export_compression("orc", "SNAPPY", true)
+    export_compression("orc", "ZLIB", true)
+    export_compression("orc", "ZSTD", true)
 
     // 2. outfile 
-    // 2.1 parquet
-    outfile_compression("parquet", "snappy")
-    outfile_compression("parquet", "GZIP")
-    outfile_compression("parquet", "BROTLI")
-    outfile_compression("parquet", "ZSTD")
-    outfile_compression("parquet", "LZ4")
-    outfile_compression("parquet", "LZO")
-    outfile_compression("parquet", "BZ2")
-    outfile_compression("parquet", "plain")
-    // 2.1 orc
-    outfile_compression("orc", "PLAIN")
-    outfile_compression("orc", "SNAPPY")
-    outfile_compression("orc", "ZLIB")
-    outfile_compression("orc", "ZSTD")
+    // parquet
+    outfile_compression("parquet", "snappy", true)
+    outfile_compression("parquet", "GZIP", true)
+    // parquet-read do not support read BROTLI compression type now
+    outfile_compression("parquet", "BROTLI", false)
+    outfile_compression("parquet", "ZSTD", true)
+    outfile_compression("parquet", "LZ4", true)
+    outfile_compression("parquet", "plain", true)
+    // orc
+    outfile_compression("orc", "PLAIN", true)
+    outfile_compression("orc", "SNAPPY", true)
+    outfile_compression("orc", "ZLIB", true)
+    outfile_compression("orc", "ZSTD", true)
 }
