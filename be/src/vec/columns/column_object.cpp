@@ -450,8 +450,7 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
             Status st = schema_util::cast_column({column, column_type, ""}, least_common_type.get(),
                                                  &casted_column);
             if (!st.ok()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       st.to_string() + ", real_code:{}", st.code());
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
             }
             data.back()->insert_range_from(*casted_column, from, n);
             return;
@@ -460,8 +459,7 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
         Status st = schema_util::cast_column({casted_column, column_type, ""},
                                              least_common_type.get(), &casted_column);
         if (!st.ok()) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string() + ", real_code:{}",
-                                   st.code());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
         }
         data.back()->insert_range_from(*casted_column, 0, n);
     };
@@ -554,8 +552,7 @@ void ColumnObject::Subcolumn::finalize() {
             ColumnPtr ptr;
             Status st = schema_util::cast_column({part, from_type, ""}, to_type, &ptr);
             if (!st.ok()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       st.to_string() + ", real_code:{}", st.code());
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
             }
             part = ptr->convert_to_full_column_if_const();
         }
