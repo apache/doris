@@ -26,6 +26,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -63,14 +64,17 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class HiveScanNode extends FileQueryScanNode {
@@ -98,9 +102,10 @@ public class HiveScanNode extends FileQueryScanNode {
     private SelectedPartitions selectedPartitions = null;
 
     private boolean partitionInit = false;
+    private final AtomicReference<UserException> batchException = new AtomicReference<>(null);
     private List<HivePartition> prunedPartitions;
-    private Iterator<HivePartition> prunedPartitionsIter;
-    private int numSplitsPerPartition = NUM_SPLITS_PER_PARTITION;
+    private final Semaphore splittersOnFlight = new Semaphore(NUM_SPLITTERS_ON_FLIGHT);
+    private final AtomicInteger numSplitsPerPartition = new AtomicInteger(NUM_SPLITS_PER_PARTITION);
 
     /**
      * * External file scan node for Query Hive table
@@ -140,7 +145,7 @@ public class HiveScanNode extends FileQueryScanNode {
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
         if (!partitionColumnTypes.isEmpty()) {
             // partitioned table
-            boolean isPartitionPruned = selectedPartitions == null ? false : selectedPartitions.isPruned;
+            boolean isPartitionPruned = selectedPartitions != null && selectedPartitions.isPruned;
             Collection<PartitionItem> partitionItems;
             if (!isPartitionPruned) {
                 // partitionItems is null means that the partition is not pruned by Nereids,
@@ -232,36 +237,52 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<Split> getNextBatch(int maxBatchSize) throws UserException {
-        try {
-            HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
-            String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
-            List<Split> allFiles = Lists.newArrayList();
-            int numPartitions = 0;
-            while (allFiles.size() < maxBatchSize && prunedPartitionsIter.hasNext()) {
-                List<HivePartition> partitions = new ArrayList<>(NUM_PARTITIONS_PER_LOOP);
-                for (int i = 0; i < NUM_PARTITIONS_PER_LOOP && prunedPartitionsIter.hasNext(); ++i) {
-                    partitions.add(prunedPartitionsIter.next());
-                    numPartitions++;
-                }
-                getFileSplitByPartitions(cache, partitions, allFiles, bindBrokerName);
-            }
-            if (allFiles.size() / numPartitions > numSplitsPerPartition) {
-                numSplitsPerPartition = allFiles.size() / numPartitions;
-            }
-            return allFiles;
-        } catch (Throwable t) {
-            LOG.warn("get file split failed for table: {}", hmsTable.getName(), t);
-            throw new UserException(
-                    "get file split failed for table: " + hmsTable.getName() + ", err: " + Util.getRootCauseMessage(t),
-                    t);
+    public void startSplit() {
+        if (prunedPartitions.isEmpty()) {
+            splitAssignment.finishSchedule();
+            return;
         }
-    }
-
-    @Override
-    public boolean hasNext() {
-        return prunedPartitionsIter.hasNext();
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
+        Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
+        AtomicInteger numFinishedPartitions = new AtomicInteger(0);
+        CompletableFuture.runAsync(() -> {
+            for (HivePartition partition : prunedPartitions) {
+                if (batchException.get() != null || splitAssignment.isStop()) {
+                    break;
+                }
+                try {
+                    splittersOnFlight.acquire();
+                } catch (InterruptedException e) {
+                    batchException.set(new UserException(e.getMessage(), e));
+                    break;
+                }
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        List<Split> allFiles = Lists.newArrayList();
+                        getFileSplitByPartitions(cache, Collections.singletonList(partition), allFiles, bindBrokerName);
+                        if (allFiles.size() > numSplitsPerPartition.get()) {
+                            numSplitsPerPartition.set(allFiles.size());
+                        }
+                        splitAssignment.addToQueue(allFiles);
+                    } catch (IOException e) {
+                        batchException.set(new UserException(e.getMessage(), e));
+                    } finally {
+                        splittersOnFlight.release();
+                        if (batchException.get() != null) {
+                            splitAssignment.setException(batchException.get());
+                        }
+                        if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
+                            splitAssignment.finishSchedule();
+                        }
+                    }
+                }, scheduleExecutor);
+            }
+            if (batchException.get() != null) {
+                splitAssignment.setException(batchException.get());
+            }
+        });
     }
 
     @Override
@@ -272,7 +293,6 @@ public class HiveScanNode extends FileQueryScanNode {
             } catch (Exception e) {
                 return false;
             }
-            prunedPartitionsIter = prunedPartitions.iterator();
             partitionInit = true;
         }
         int numPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();
@@ -281,7 +301,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public int numApproximateSplits() {
-        return numSplitsPerPartition * prunedPartitions.size();
+        return numSplitsPerPartition.get() * prunedPartitions.size();
     }
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
@@ -290,7 +310,8 @@ public class HiveScanNode extends FileQueryScanNode {
         if (hiveTransaction != null) {
             fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
         } else {
-            fileCaches = cache.getFilesByPartitionsWithCache(partitions, bindBrokerName);
+            boolean withCache = Config.max_external_file_cache_num > 0;
+            fileCaches = cache.getFilesByPartitions(partitions, withCache, withCache, bindBrokerName);
         }
         if (tableSample != null) {
             List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
@@ -463,10 +484,7 @@ public class HiveScanNode extends FileQueryScanNode {
     public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
 
         String aggFunctionName = aggExpr.getFnName().getFunction();
-        if (aggFunctionName.equalsIgnoreCase("COUNT")) {
-            return true;
-        }
-        return false;
+        return aggFunctionName.equalsIgnoreCase("COUNT");
     }
 
     @Override

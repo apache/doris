@@ -37,6 +37,7 @@ public class ShowReplicaDistributionStmt extends ShowStmt {
             .add("BackendId").add("ReplicaNum").add("ReplicaSize")
             .add("NumGraph").add("NumPercent")
             .add("SizeGraph").add("SizePercent")
+            .add("CloudClusterName").add("CloudClusterId")
             .build();
 
     private TableRef tblRef;

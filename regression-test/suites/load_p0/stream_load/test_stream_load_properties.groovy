@@ -31,7 +31,7 @@ import org.apache.http.client.RedirectStrategy;
 import org.apache.http.impl.client.LaxRedirectStrategy;
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_stream_load_properties", "p0") {
+suite("test_stream_load_properties", "p0,nonConcurrent") {
 
     def tables = [
                   "dup_tbl_basic",

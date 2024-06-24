@@ -146,7 +146,7 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
 
 Status VectorizedFnCall::eval_inverted_index(
         VExprContext* context,
-        const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
+        const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
                                                      segment_v2::InvertedIndexIterator*>>&
                 colid_to_inverted_index_iter,
         uint32_t num_rows, roaring::Roaring* bitmap) const {

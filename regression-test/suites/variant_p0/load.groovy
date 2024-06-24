@@ -255,23 +255,6 @@ suite("regression_test_variant", "nonConcurrent"){
         // b? 7.111  [123,{"xx":1}]  {"b":{"c":456,"e":7.111}}       456
         qt_sql_30 "select v['b']['e'], v['a'], v['b'], v['b']['c'] from jsonb_values where cast(v['b']['e'] as double) > 1;"
 
-        test {
-            sql "select v['a'] from ${table_name} group by v['a']"
-            exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by")
-        }
-
-        test {
-            sql """
-            create table var(
-                `content` variant
-            )distributed by hash(`content`) buckets 8
-            properties(
-              "replication_allocation" = "tag.location.default: 1"
-            );
-            """
-            exception("errCode = 2, detailMessage = Hash distribution info should not contain variant columns")
-        }
-
         // 13. sparse columns
         table_name = "sparse_columns"
         create_table table_name
@@ -440,6 +423,56 @@ suite("regression_test_variant", "nonConcurrent"){
         qt_sql_records3 """SELECT value FROM records WHERE   value['text99'] MATCH_ALL '来 广州 但是嗯嗯 还 不能 在'  OR (  value['text47'] MATCH_ALL '你 觉得 超 好看 的 动' ) OR (  value['text43'] MATCH_ALL ' 楼主 拒绝 了 一个 女生 我 傻逼 吗手' )  LIMIT 0, 100"""
         qt_sql_records4 """SELECT value FROM records WHERE  value['id16'] = '39960' AND (  value['text59'] = '非 明显 是 一 付 很 嫌') AND (  value['text99'] = '来 广州 但是嗯嗯 还 不能 在 ')  """
         qt_sql_records5 """SELECT value FROM records WHERE  value['text3'] MATCH_ALL '伊心 是 来 搞笑 的'  LIMIT 0, 100"""
+
+        test {
+            sql "select v['a'] from ${table_name} group by v['a']"
+            exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by")
+        }
+
+        test {
+            sql """
+            create table var(
+                `key` int,
+                `content` variant
+            )
+            DUPLICATE KEY(`key`)
+            distributed by hash(`content`) buckets 8
+            properties(
+              "replication_allocation" = "tag.location.default: 1"
+            );
+            """
+            exception("errCode = 2, detailMessage = Hash distribution info should not contain variant columns")
+        }
+
+         test {
+            sql """
+            CREATE TABLE `var_as_key` (
+              `key` int NULL,
+              `var` variant NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`key`, `var`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+            """ 
+            exception("errCode = 2, detailMessage = Variant type should not be used in key")
+        }
+        sql """
+            CREATE TABLE `var_as_key` (
+                `k` int NULL,
+                `var` variant NULL
+            ) ENGINE=OLAP
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+        sql """insert into var_as_key values(1, '{"a" : 10}')"""
+        sql """insert into var_as_key values(2, '{"b" : 11}')"""
+        qt_sql "select * from var_as_key order by k"
+
     } finally {
         // reset flags
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")

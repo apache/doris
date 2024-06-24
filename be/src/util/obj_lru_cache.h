@@ -25,8 +25,10 @@ namespace doris {
 // A common object cache depends on an Sharded LRU Cache.
 // It has a certain capacity, which determin how many objects it can cache.
 // Caller must hold a CacheHandle instance when visiting the cached object.
-class ObjLRUCache : public LRUCachePolicy {
+class ObjLRUCache : public LRUCachePolicyTrackingManual {
 public:
+    using LRUCachePolicyTrackingManual::insert;
+
     struct ObjKey {
         ObjKey(const std::string& key_) : key(key_) {}
 
@@ -36,8 +38,7 @@ public:
     template <typename T>
     class ObjValue : public LRUCacheValueBase {
     public:
-        ObjValue(const T* value)
-                : LRUCacheValueBase(CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE), value(value) {}
+        ObjValue(const T* value) : value(value) {}
         ~ObjValue() override {
             T* v = (T*)value;
             delete v;
@@ -93,8 +94,8 @@ public:
         if (_enabled) {
             const std::string& encoded_key = key.key;
             auto* obj_value = new ObjValue<T>(value);
-            auto* handle = LRUCachePolicy::insert(encoded_key, obj_value, 1, sizeof(T),
-                                                  CachePriority::NORMAL);
+            auto* handle = LRUCachePolicyTrackingManual::insert(encoded_key, obj_value, 1,
+                                                                sizeof(T), CachePriority::NORMAL);
             *cache_handle = CacheHandle {this, handle};
         } else {
             cache_handle = nullptr;

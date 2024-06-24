@@ -922,6 +922,7 @@ visible_functions = {
         [['utc_timestamp'], 'DATETIME', [], 'ALWAYS_NOT_NULLABLE'],
         [['timestamp'], 'DATETIME', ['DATETIME'], 'ALWAYS_NULLABLE'],
 
+        [['from_days'], 'DATEV2', ['INT'], 'ALWAYS_NULLABLE'],
         [['from_days'], 'DATE', ['INT'], 'ALWAYS_NULLABLE'],
         [['last_day'], 'DATE', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['last_day'], 'DATE', ['DATE'], 'ALWAYS_NULLABLE'],
@@ -1660,6 +1661,8 @@ visible_functions = {
         [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
         [['strcmp'], 'INT', ['VARCHAR', 'VARCHAR'], 'DEPEND_ON_ARGUMENT'],
 
+        [['overlay'], 'VARCHAR', ['VARCHAR', 'INT', 'INT', 'VARCHAR'], ''],
+
         [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['strleft', 'left'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
@@ -1711,6 +1714,8 @@ visible_functions = {
         [['substring_index'], 'STRING', ['STRING', 'STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['url_decode'], 'STRING', ['STRING'], ''],
         [['random_bytes'], 'STRING', ['INT'], ''],
+
+        [['overlay'], 'STRING', ['STRING', 'INT', 'INT', 'STRING'], ''],
         [['strcmp'], 'INT', ['STRING', 'STRING'], 'DEPEND_ON_ARGUMENT']
     ],
 
@@ -2288,7 +2293,8 @@ null_result_with_one_null_param_functions = [
     'fmod',
     'substr',
     'substring',
-    'strcmp'
+    'overlay',
+    'strcmp',
     'append_trailing_char_if_absent',
     'ST_X',
     'ST_Y',

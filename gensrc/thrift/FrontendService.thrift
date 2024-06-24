@@ -517,11 +517,25 @@ struct TFeResult {
     1001: optional bool noAuth
 }
 
+enum TSubTxnType {
+    INSERT = 0,
+    DELETE = 1
+}
+
+struct TSubTxnInfo {
+    1: optional i64 sub_txn_id
+    2: optional i64 table_id
+    3: optional list<Types.TTabletCommitInfo> tablet_commit_infos
+    4: optional TSubTxnType sub_txn_type
+}
+
 struct TTxnLoadInfo {
     1: optional string label
     2: optional i64 dbId
     3: optional i64 txnId
     4: optional i64 timeoutTimestamp
+    5: optional i64 allSubTxnNum
+    6: optional list<TSubTxnInfo> subTxnInfos
 }
 
 struct TMasterOpRequest {
@@ -1292,6 +1306,10 @@ struct TInvalidateFollowerStatsCacheRequest {
     1: optional string key;
 }
 
+struct TUpdateFollowerPartitionStatsCacheRequest {
+    1: optional string key;
+}
+
 struct TAutoIncrementRangeRequest {
     1: optional i64 db_id;
     2: optional i64 table_id;
@@ -1600,4 +1618,5 @@ service FrontendService {
     Status.TStatus syncQueryColumns(1: TSyncQueryColumns request)
 
     TFetchSplitBatchResult fetchSplitBatch(1: TFetchSplitBatchRequest request)
+    Status.TStatus updatePartitionStatsCache(1: TUpdateFollowerPartitionStatsCacheRequest request)
 }
