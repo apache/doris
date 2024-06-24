@@ -34,7 +34,7 @@ Status GroupCommitOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     bool find_node = false;
     while (!find_node && !*eos) {
         RETURN_IF_ERROR(local_state.load_block_queue->get_block(state, block, &find_node, eos,
-                                                                _get_block_dependency));
+                                                                local_state._get_block_dependency));
     }
     return Status::OK();
 }

@@ -43,6 +43,7 @@ public:
     }
 
 private:
+    friend class GroupCommitOperatorX;
     Status _process_conjuncts(RuntimeState* state) override;
 
     std::shared_ptr<Dependency> _get_block_dependency = nullptr;
