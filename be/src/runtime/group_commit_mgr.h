@@ -87,13 +87,14 @@ public:
 
     std::string debug_string() const {
         fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer,
-                       "load_instance_id={}, label={}, txn_id={}, "
-                       "wait_internal_group_commit_finish={}, data_size_condition={}, "
-                       "group_commit_load_count={}, process_finish={}",
-                       load_instance_id.to_string(), label, txn_id,
-                       wait_internal_group_commit_finish, data_size_condition,
-                       group_commit_load_count, process_finish.load());
+        fmt::format_to(
+                debug_string_buffer,
+                "load_instance_id={}, label={}, txn_id={}, "
+                "wait_internal_group_commit_finish={}, data_size_condition={}, "
+                "group_commit_load_count={}, process_finish={}, _need_commit={}, schema_version={}",
+                load_instance_id.to_string(), label, txn_id, wait_internal_group_commit_finish,
+                data_size_condition, group_commit_load_count, process_finish.load(), _need_commit,
+                schema_version);
         return fmt::to_string(debug_string_buffer);
     }
 
@@ -154,7 +155,8 @@ public:
                                       const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version,
-                                      std::shared_ptr<MemTrackerLimiter> mem_tracker);
+                                      std::shared_ptr<MemTrackerLimiter> mem_tracker,
+                                      std::shared_ptr<pipeline::Dependency> dep);
     Status get_load_block_queue(const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
@@ -178,7 +180,6 @@ private:
     int64_t _table_id;
 
     std::mutex _lock;
-    std::condition_variable _cv;
     // fragment_instance_id to load_block_queue
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
     bool _is_creating_plan_fragment = false;
@@ -198,7 +199,8 @@ public:
                                       const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version,
-                                      std::shared_ptr<MemTrackerLimiter> mem_tracker);
+                                      std::shared_ptr<MemTrackerLimiter> mem_tracker,
+                                      std::shared_ptr<pipeline::Dependency> dep);
     std::promise<Status> debug_promise;
     std::future<Status> debug_future = debug_promise.get_future();
 
