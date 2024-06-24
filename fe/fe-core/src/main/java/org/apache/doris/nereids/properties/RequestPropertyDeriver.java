@@ -253,7 +253,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                     .map(childOutputs -> childOutputs.stream()
                             .map(SlotReference::getExprId)
                             .collect(ImmutableList.toImmutableList()))
-                    .map(l -> PhysicalProperties.createHash(l, ShuffleType.EXECUTION_BUCKETED))
+                    .map(l -> PhysicalProperties.createHash(l, ShuffleType.REQUIRE))
                     .collect(Collectors.toList()));
         }
         return null;
