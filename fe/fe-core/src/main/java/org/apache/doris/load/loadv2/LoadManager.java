@@ -1079,7 +1079,8 @@ public class LoadManager implements Writable {
         return loadJob.getId();
     }
 
-    public long createBucketLoadJob(String dbName, String label, List<String> tableNames, Map<String, String> properties,
+    public long createBucketLoadJob(String dbName, String label, List<String> tableNames,
+                                    Map<String, String> properties,
                                     UserIdentity userInfo)
             throws DdlException, LoadException {
         Database db = checkDb(dbName);
