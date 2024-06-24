@@ -126,11 +126,13 @@ suite("test_replace_mtmv","mtmv") {
 
     def mvResult = sql """select Name from mv_infos("database"="${dbName}");"""
     logger.info("mvResult: " + mvResult.toString())
-    assertFalse(mvResult.toString().contains("${mvName1}"))
+    assertFalse(mvResult.toString().contains("${mvName2}"))
 
     def jobResult = sql """select MvName from jobs("type"="mv");"""
     logger.info("jobResult: " + jobResult.toString())
-    assertFalse(jobResult.toString().contains("${mvName1}"))
+    assertFalse(jobResult.toString().contains("${mvName2}"))
+
+    order_qt_mv1_replace_not_swap "SELECT * FROM ${mvName1}"
 
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""
