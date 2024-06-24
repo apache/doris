@@ -447,6 +447,10 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
+        if (arguments.size() != 1 || arguments.size() != 2) {
+            // here has argument param error
+            return Status::InvalidArgument("json_keys should have 1 or 2 arguments");
+        }
 
         ColumnPtr jsonb_data_column = nullptr;
         const NullMap* data_null_map = nullptr;
@@ -474,9 +478,6 @@ public:
                 path_null_map = &nullable->get_null_map_data();
             }
             jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column);
-        } else if (arguments.size() > 2) {
-            // here has argument param error
-            return Status::InvalidArgument("json_keys should have 1 or 2 arguments");
         }
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
