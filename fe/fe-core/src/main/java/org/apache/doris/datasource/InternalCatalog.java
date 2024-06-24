@@ -1866,6 +1866,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         TStorageMedium realStorageMedium = null;
+        Map<Object, Object> objectPool = new HashMap<Object, Object>();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
             long indexId = entry.getKey();
             MaterializedIndex index = entry.getValue();
@@ -1909,7 +1910,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             compactionPolicy, timeSeriesCompactionGoalSizeMbytes,
                             timeSeriesCompactionFileCountThreshold, timeSeriesCompactionTimeThresholdSeconds,
                             timeSeriesCompactionEmptyRowsetsThreshold, timeSeriesCompactionLevelThreshold,
-                            storeRowColumn, isDynamicSchema, binlogConfig);
+                            storeRowColumn, isDynamicSchema, binlogConfig, objectPool);
 
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);

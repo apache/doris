@@ -81,12 +81,14 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -247,6 +249,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         try {
             BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
+            Map<Object, Object> objectPool = new HashMap<Object, Object>();
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
                 Partition partition = tbl.getPartition(partitionId);
@@ -291,7 +294,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.getTimeSeriesCompactionLevelThreshold(),
                                 tbl.storeRowColumn(),
                                 tbl.isDynamicSchema(),
-                                binlogConfig);
+                                binlogConfig, objectPool);
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -401,6 +404,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         tbl.readLock();
+        Map<Object, Object> objectPool = new ConcurrentHashMap<Object, Object>();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
@@ -479,7 +483,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
                                 JobType.ROLLUP, defineExprs, descTable, tbl.getSchemaByIndexId(baseIndexId, true),
-                                whereClause);
+                                whereClause, objectPool);
                         rollupBatchTask.addTask(rollupTask);
                     }
                 }

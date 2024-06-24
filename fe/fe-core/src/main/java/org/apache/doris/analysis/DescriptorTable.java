@@ -54,6 +54,8 @@ public class DescriptorTable {
 
     private final HashMap<SlotDescriptor, SlotDescriptor> outToIntermediateSlots = new HashMap<>();
 
+    private TDescriptorTable thriftDescTable = null; // serialized version of this
+
     public DescriptorTable() {
     }
 
@@ -182,6 +184,9 @@ public class DescriptorTable {
     }
 
     public TDescriptorTable toThrift() {
+        if (thriftDescTable != null) {
+            return thriftDescTable;
+        }
         TDescriptorTable result = new TDescriptorTable();
         Map<Long, TableIf> referencedTbls = Maps.newHashMap();
         for (TupleDescriptor tupleD : tupleDescs.values()) {
@@ -208,6 +213,7 @@ public class DescriptorTable {
         for (TableIf tbl : referencedTbls.values()) {
             result.addToTableDescriptors(tbl.toThrift());
         }
+        thriftDescTable = result;
         return result;
     }
 
