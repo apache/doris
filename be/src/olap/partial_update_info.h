@@ -59,7 +59,7 @@ private:
                              to_lower(tablet_schema.column(cur_cid).default_value())
                                              .find(to_lower("CURRENT_TIMESTAMP")) !=
                                      std::string::npos)) {
-                    DateV2Value<DateTimeV2ValueType> dtv;
+                    vectorized::DateV2Value<vectorized::DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, timezone);
                     default_value = dtv.debug_string();
                 } else {
