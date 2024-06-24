@@ -61,7 +61,7 @@ public class BatchInsertJobInfo {
         splitColumnInfo.analyze(ctx);
         //todo Inspect the split column in the source table.
         //check insert into table command
-        insertIntoTableCommand.initPlan(ctx, stmtExecutor);
+        insertIntoTableCommand.initPlan(ctx, stmtExecutor, false);
     }
 
     public Integer getBatchSize() {

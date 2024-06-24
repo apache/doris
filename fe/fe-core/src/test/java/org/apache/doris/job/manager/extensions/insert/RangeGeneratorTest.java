@@ -47,6 +47,10 @@ public class RangeGeneratorTest {
                 Arrays.asList(Range.between(1L, 5L), Range.between(6L, 11L)),
                 SQLRangeGenerator.generateRanges(2, 1L, 11L)
         );
+        Assertions.assertIterableEquals(
+                Arrays.asList(Range.between(1L, 50L), Range.between(51L, 100L)),
+                SQLRangeGenerator.generateRanges(2, 1L, 100L)
+        );
     }
 }
 

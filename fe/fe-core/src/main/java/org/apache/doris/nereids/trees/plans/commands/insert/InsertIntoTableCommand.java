@@ -56,8 +56,11 @@ import org.apache.commons.lang3.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * insert into select command implementation
@@ -80,9 +83,20 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private Optional<InsertCommandContext> insertCtx;
     private final Optional<LogicalPlan> cte;
 
-    private Range<Integer> splitRange;
+    /**
+     * The range to split the data. it's used for dynamic split.
+     */
+    private Range splitRange;
 
+    /**
+     * The column info to split the data. it's used for dynamic split.
+     */
     private SplitColumnInfo splitColumnInfo;
+
+    /**
+     * The set of atomic booleans to indicate whether the dynamic split has been replaced.
+     */
+    private Set<AtomicBoolean> dynamicSplitReplacedSet;
 
     /**
      * constructor
@@ -130,9 +144,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     private void rewriteLogicalPlanIfNecessary(LogicalPlan logicalQuery) {
         if (this.splitRange != null && this.splitColumnInfo != null) {
+            dynamicSplitReplacedSet = new HashSet<>();
             this.logicalQuery = (LogicalPlan) logicalQuery.rewriteUp(child -> {
                 if (child instanceof UnboundRelation) {
-                    return new LogicalDynamicSplit<>(this.splitColumnInfo, this.splitRange, child);
+                    AtomicBoolean replaced = new AtomicBoolean(false);
+                    dynamicSplitReplacedSet.add(replaced);
+                    return new LogicalDynamicSplit<>(this.splitColumnInfo, this.splitRange, replaced, child);
                 } else {
                     return child;
                 }
@@ -140,12 +157,17 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
     }
 
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        return initPlan(ctx, executor, true);
+    }
+
     /**
      * This function is used to generate the plan for Nereids.
      * There are some load functions that only need to the plan, such as stream_load.
      * Therefore, this section will be presented separately.
      */
-    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor, boolean needBeginTransaction)
+            throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
@@ -231,7 +253,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support [olap, hive, iceberg] table");
             }
-
+            if (null != dynamicSplitReplacedSet && dynamicSplitReplacedSet.stream().anyMatch(AtomicBoolean::get)) {
+                throw new AnalysisException("dynamic split not replaced, please check the query plan. Sql");
+            }
+            if (!needBeginTransaction) {
+                targetTableIf.readUnlock();
+                return insertExecutor;
+            }
+            //check
             insertExecutor.beginTransaction();
             insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
             targetTableIf.readUnlock();
@@ -243,7 +272,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             }
             throw e;
         }
-
         executor.setProfileType(ProfileType.LOAD);
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
         // so we need to set this here

@@ -178,7 +178,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     @Override
     public Plan visitLogicalDynamicSplit(LogicalDynamicSplit<? extends Plan> filter, DeepCopierContext context) {
         Plan child = filter.child().accept(this, context);
-        return new LogicalDynamicSplit<>(filter.getSplitColumnInfo(), filter.getRange(), child);
+        return new LogicalDynamicSplit<>(filter.getSplitColumnInfo(), filter.getRange(), filter.isReplaced(), child);
     }
 
     @Override

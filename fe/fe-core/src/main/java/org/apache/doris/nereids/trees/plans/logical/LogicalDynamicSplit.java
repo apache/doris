@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Represents a logical dynamic split node within a query plan.
@@ -58,11 +59,14 @@ public class LogicalDynamicSplit<CHILD_TYPE extends Plan> extends LogicalUnary<C
 
     private SplitColumnInfo splitColumnInfo;
 
-    public LogicalDynamicSplit(SplitColumnInfo splitColumnInfo, Range range, CHILD_TYPE child) {
+    private AtomicBoolean replaced;
+
+    public LogicalDynamicSplit(SplitColumnInfo splitColumnInfo, Range range, AtomicBoolean replaced, CHILD_TYPE child) {
 
         super(PlanType.LOGICAL_BATCH_FILTER, child);
         this.splitColumnInfo = splitColumnInfo;
         this.range = range;
+        this.replaced = replaced;
     }
 
     @Override
@@ -103,19 +107,19 @@ public class LogicalDynamicSplit<CHILD_TYPE extends Plan> extends LogicalUnary<C
     @Override
     public LogicalDynamicSplit<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalDynamicSplit<>(splitColumnInfo, range, children.get(0));
+        return new LogicalDynamicSplit<>(splitColumnInfo, range, replaced, children.get(0));
     }
 
     @Override
     public LogicalDynamicSplit<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalDynamicSplit<>(splitColumnInfo, range, child());
+        return new LogicalDynamicSplit<>(splitColumnInfo, range, replaced, child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalDynamicSplit<>(splitColumnInfo, range, children.get(0));
+        return new LogicalDynamicSplit<>(splitColumnInfo, range, replaced, children.get(0));
     }
 
     @Override
@@ -174,6 +178,14 @@ public class LogicalDynamicSplit<CHILD_TYPE extends Plan> extends LogicalUnary<C
 
     public SplitColumnInfo getSplitColumnInfo() {
         return splitColumnInfo;
+    }
+
+    public AtomicBoolean isReplaced() {
+        return replaced;
+    }
+
+    public void setReplaced(Boolean replaced) {
+        this.replaced.set(replaced);
     }
 
 }

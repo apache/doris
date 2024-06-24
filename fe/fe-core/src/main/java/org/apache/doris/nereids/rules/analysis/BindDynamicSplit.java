@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -69,14 +70,19 @@ public class BindDynamicSplit implements AnalysisRuleFactory {
                     }
                     SlotReference slotReference = null;
                     for (Slot slot : catalogRelation.getOutputSet()) {
-                        if (slot.getName().equals(splitColumnName)) {
+                        if (slot.getName().equalsIgnoreCase(splitColumnName)) {
                             slotReference = (SlotReference) slot;
                         }
                     }
-
+                    if (null == slotReference) {
+                        throw new AnalysisException(
+                                String.format("Column %s not found in table %s, binding expr fail!",
+                                        splitColumnName, table.getName()));
+                    }
                     GreaterThanEqual greaterThanEqual = new GreaterThanEqual(slotReference,
                             Literal.of(range.getMinimum()));
                     LessThanEqual lessThanEqual = new LessThanEqual(slotReference, Literal.of(range.getMaximum()));
+                    logicalDynamicSplit.setReplaced(Boolean.TRUE);
                     return new LogicalFilter<>(ImmutableSet.of(greaterThanEqual, lessThanEqual), catalogRelation);
                 })));
     }
