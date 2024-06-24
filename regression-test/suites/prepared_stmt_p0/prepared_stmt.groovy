@@ -163,6 +163,29 @@ suite("test_prepared_stmt", "nonConcurrent") {
      stmt_read = prepareStatement "SELECT 1"
      assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
      qe_select5 stmt_read
+
+     sql """insert into mytable1 values(2,1,'user1',null);"""
+
+     sql "set experimental_enable_nereids_planner = false"
+
+     stmt_read = prepareStatement "SELECT *, ? FROM (select *, ? from mytable1 where pv is null) AS `SpotfireCustomQuery1` WHERE 1 = 1"
+     assertEquals(stmt_read.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+     stmt_read.setString(1, "xxxlalala")
+     stmt_read.setDouble(2, 1234.1111)
+     qe_select6 stmt_read
+     stmt_read.setString(1, "1111111")
+     stmt_read.setString(2, "1111111")
+     qe_select7 stmt_read
+
+     sql "set experimental_enable_nereids_planner = true"
+
+     stmt_read.setString(1, "xxxlalala")
+     stmt_read.setDouble(2, 1234.1111)
+     qe_select6_1 stmt_read
+     stmt_read.setString(1, "1111111")
+     stmt_read.setString(2, "1111111")
+     qe_select7_1 stmt_read
+
     sql "set global enable_server_side_prepared_statement = false"
     }
 }
