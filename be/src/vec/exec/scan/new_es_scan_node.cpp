@@ -165,8 +165,8 @@ Status NewEsScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 properties, _column_names, _docvalue_context, &doc_value_mode);
 
         std::shared_ptr<NewEsScanner> scanner = NewEsScanner::create_shared(
-                _state, this, _limit_per_scanner, _tuple_id, properties, _docvalue_context,
-                doc_value_mode, _state->runtime_profile());
+                _state, this, _limit, _tuple_id, properties, _docvalue_context, doc_value_mode,
+                _state->runtime_profile());
 
         RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
         scanners->push_back(scanner);
