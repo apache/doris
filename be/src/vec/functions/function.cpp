@@ -43,7 +43,7 @@ namespace doris::vectorized {
 
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
                            size_t result, size_t input_rows_count) {
-    DCHECH(src->size() == input_rows_count);
+    DCHECK(src->size() == input_rows_count);
     ColumnPtr result_null_map_column;
     /// If result is already nullable.
     ColumnPtr src_not_nullable = src;
