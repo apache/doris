@@ -92,6 +92,20 @@ suite("test_replace_mtmv","mtmv") {
 
     order_qt_mv2 "SELECT * FROM ${mvName2}"
 
+    test {
+          sql """
+              alter MATERIALIZED VIEW ${mvName1} replace with  MATERIALIZED VIEW ${tableName1};
+          """
+          exception "MATERIALIZED_VIEW"
+    }
+
+    test {
+          sql """
+              alter MATERIALIZED VIEW ${tableName1} replace with  MATERIALIZED VIEW ${mvName1};
+          """
+          exception "MATERIALIZED_VIEW"
+    }
+
     sql """
         alter MATERIALIZED VIEW ${mvName1} replace with  MATERIALIZED VIEW ${mvName2};
         """
