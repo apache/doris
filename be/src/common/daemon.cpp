@@ -54,7 +54,7 @@
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/memory/memory_arbitrator.h"
+#include "runtime/memory/memory_reclamation.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/cpu_info.h"
@@ -252,7 +252,7 @@ void Daemon::memory_gc_thread() {
         auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
 
         // GC excess memory for resource groups that not enable overcommit
-        auto tg_free_mem = doris::MemoryArbitrator::tg_disable_overcommit_group_gc();
+        auto tg_free_mem = doris::MemoryReclamation::tg_disable_overcommit_group_gc();
         sys_mem_available += tg_free_mem;
         process_memory_usage -= tg_free_mem;
 
@@ -266,7 +266,7 @@ void Daemon::memory_gc_thread() {
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             LOG(INFO) << fmt::format("[MemoryGC] start full GC, {}.", mem_info);
             doris::MemTrackerLimiter::print_log_process_usage();
-            if (doris::MemoryArbitrator::process_full_gc(std::move(mem_info))) {
+            if (doris::MemoryReclamation::process_full_gc(std::move(mem_info))) {
                 // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
                 doris::MemTrackerLimiter::enable_print_log_process_usage();
             }
@@ -279,7 +279,7 @@ void Daemon::memory_gc_thread() {
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             LOG(INFO) << fmt::format("[MemoryGC] start minor GC, {}.", mem_info);
             doris::MemTrackerLimiter::print_log_process_usage();
-            if (doris::MemoryArbitrator::process_minor_gc(std::move(mem_info))) {
+            if (doris::MemoryReclamation::process_minor_gc(std::move(mem_info))) {
                 doris::MemTrackerLimiter::enable_print_log_process_usage();
             }
         } else {
