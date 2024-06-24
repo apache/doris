@@ -269,13 +269,25 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE).equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer
+                    .PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                        "Property "
+                                + PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
+                                + " should be set to true or false");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("true")
                     && !properties.get(PropertyAnalyzer
-                                            .PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("false")) {
+                    .PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("false")) {
                 throw new AnalysisException(
-                    "Property "
-                        + PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION + " should be set to true or false");
+                        "Property "
+                                + PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION
+                                + " should be set to true or false");
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
