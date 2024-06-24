@@ -17,8 +17,10 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -3430,6 +3432,11 @@ public class SessionVariable implements Serializable, Writable {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
                 VarAttr attr = field.getAnnotation(VarAttr.class);
                 if (attr == null) {
+                    continue;
+                }
+                String defaultValue = VariableMgr.getDefaultValue(attr.name());
+                String currentValue = VariableMgr.getValue(this, new VariableExpr(attr.name(), SetType.SESSION));
+                if (defaultValue != null && defaultValue.equals(currentValue)) {
                     continue;
                 }
                 switch (field.getType().getSimpleName()) {
