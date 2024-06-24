@@ -437,7 +437,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                             olapScan.getSelectedIndexIdForMV());
                     rowCount = Math.max(rowCount, cache.count);
                 }
-                builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
+                builder.putColumnStatistics(slot,
+                        new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN).setCount(rowCount).build());
             }
             setHasUnknownColStatsInStatementContext();
             return builder.setRowCount(rowCount).build();
