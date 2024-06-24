@@ -200,7 +200,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             if (queryToViewSlotMapping == null) {
                 materializationContext.recordFailReason(queryStructInfo,
-                        "Query to view slot mapping is null", () -> "");
+                        "Query to view slot mapping is null", () ->
+                                String.format("queryToViewTableMapping relation mapping is %s",
+                                        queryToViewTableMapping));
                 continue;
             }
             SlotMapping viewToQuerySlotMapping = queryToViewSlotMapping.inverse();
