@@ -3585,6 +3585,13 @@ public class Env {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
         sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
 
+        // enable delete on delete predicate
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE)
+                    .append("\" = \"");
+            sb.append(olapTable.getEnableDeleteOnDeletePredicate()).append("\"");
+        }
+
         // enable duplicate without keys by default
         if (olapTable.isDuplicateWithoutKey()) {
             sb.append(",\n\"")

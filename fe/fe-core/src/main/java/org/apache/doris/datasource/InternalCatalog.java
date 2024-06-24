@@ -2452,7 +2452,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException(e.getMessage());
             }
         }
-        olapTable.setEnableUniqueKeyMergeOnWrite(enableDeleteOnDeletePredicate);
+        olapTable.setEnableDeleteOnDeletePredicate(enableDeleteOnDeletePredicate);
 
         boolean enableSingleReplicaCompaction = false;
         try {
