@@ -124,6 +124,16 @@ public class PartitionPersistInfo implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    public static PartitionPersistInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), PartitionPersistInfo.class);
+        } else {
+            PartitionPersistInfo info = new PartitionPersistInfo();
+            info.readFields(in);
+            return info;
+        }
+    }
+
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
