@@ -140,6 +140,10 @@ public class InitMaterializationContextHook implements PlannerHook {
         int indexNumber = olapTable.getIndexNumber();
         List<SyncMaterializationContext> contexts = new ArrayList<>(indexNumber);
         long baseIndexId = olapTable.getBaseIndexId();
+        int keyCount = 0;
+        for (Column column : olapTable.getFullSchema()) {
+            keyCount += column.isKey() ? 1 : 0;
+        }
         for (Map.Entry<String, Long> entry : olapTable.getIndexNameToId().entrySet()) {
             if (entry.getValue() != baseIndexId) {
                 MaterializedIndexMeta meta = olapTable.getIndexMetaByIndexId(entry.getValue());
@@ -151,7 +155,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                     // it's rollup, need assemble create mv sql manually
                     if (olapTable.getKeysType() == KeysType.AGG_KEYS) {
                         createMvSql = assembleCreateMvSqlForAggTable(olapTable.getQualifiedName(),
-                                entry.getKey(), meta.getSchema(false));
+                                entry.getKey(), meta.getSchema(false), keyCount);
                     } else {
                         createMvSql =
                                 assembleCreateMvSqlForDupOrUniqueTable(olapTable.getQualifiedName(),
@@ -190,59 +194,73 @@ public class InitMaterializationContextHook implements PlannerHook {
     }
 
     private String assembleCreateMvSqlForAggTable(String baseTableName, String mvName,
-            List<Column> columns) {
+            List<Column> columns, int keyCount) {
         StringBuilder createMvSqlBuilder = new StringBuilder();
         createMvSqlBuilder.append(String.format("create materialized view %s as select ", mvName));
-        StringBuilder keyColumnsStringBuilder = new StringBuilder();
-        StringBuilder aggColumnsStringBuilder = new StringBuilder();
-        for (Column col : columns) {
-            AggregateType aggregateType = col.getAggregationType();
-            if (aggregateType != null) {
-                switch (aggregateType) {
-                    case SUM:
-                    case MAX:
-                    case MIN:
-                    case HLL_UNION:
-                    case BITMAP_UNION:
-                    case QUANTILE_UNION: {
-                        aggColumnsStringBuilder
-                                .append(String.format("%s(%s), ", aggregateType, col.getName()));
-                        break;
+        int mvKeyCount = 0;
+        for (Column column : columns) {
+            mvKeyCount += column.isKey() ? 1 : 0;
+        }
+        if (mvKeyCount < keyCount) {
+            StringBuilder keyColumnsStringBuilder = new StringBuilder();
+            StringBuilder aggColumnsStringBuilder = new StringBuilder();
+            for (Column col : columns) {
+                AggregateType aggregateType = col.getAggregationType();
+                if (aggregateType != null) {
+                    switch (aggregateType) {
+                        case SUM:
+                        case MAX:
+                        case MIN:
+                        case HLL_UNION:
+                        case BITMAP_UNION:
+                        case QUANTILE_UNION: {
+                            aggColumnsStringBuilder
+                                    .append(String.format("%s(%s), ", aggregateType, col.getName()));
+                            break;
+                        }
+                        case GENERIC: {
+                            AggStateType aggStateType = (AggStateType) col.getType();
+                            aggColumnsStringBuilder.append(String.format("%s_union(%s), ",
+                                    aggStateType.getFunctionName(), col.getName()));
+                            break;
+                        }
+                        default: {
+                            // mv agg columns mustn't be NONE, REPLACE, REPLACE_IF_NOT_NULL agg type
+                            LOG.warn(String.format("mv agg column %s mustn't be %s type",
+                                    col.getName(), aggregateType));
+                            return null;
+                        }
                     }
-                    case GENERIC: {
-                        AggStateType aggStateType = (AggStateType) col.getType();
-                        aggColumnsStringBuilder.append(String.format("%s_union(%s), ",
-                                aggStateType.getFunctionName(), col.getName()));
-                        break;
-                    }
-                    default: {
-                        // mv agg columns mustn't be NONE, REPLACE, REPLACE_IF_NOT_NULL agg type
-                        LOG.warn(String.format("mv agg column %s mustn't be %s type", col.getName(), aggregateType));
-                        return null;
-                    }
+                } else {
+                    // use column name for key
+                    Preconditions.checkState(col.isKey(),
+                            String.format("%s must be key", col.getName()));
+                    keyColumnsStringBuilder.append(String.format("%s, ", col.getName()));
                 }
-            } else {
-                // use column name for key
-                Preconditions.checkState(col.isKey(),
-                        String.format("%s must be key", col.getName()));
-                keyColumnsStringBuilder.append(String.format("%s, ", col.getName()));
             }
-        }
-        Preconditions.checkState(keyColumnsStringBuilder.length() > 0,
-                "must contain at least one key column in rollup");
-        if (aggColumnsStringBuilder.length() > 0) {
-            removeLastTwoChars(aggColumnsStringBuilder);
+            Preconditions.checkState(keyColumnsStringBuilder.length() > 0,
+                    "must contain at least one key column in rollup");
+            if (aggColumnsStringBuilder.length() > 0) {
+                removeLastTwoChars(aggColumnsStringBuilder);
+            } else {
+                removeLastTwoChars(keyColumnsStringBuilder);
+            }
+            createMvSqlBuilder.append(keyColumnsStringBuilder);
+            createMvSqlBuilder.append(aggColumnsStringBuilder);
+            if (aggColumnsStringBuilder.length() > 0) {
+                // all key columns should be group by keys, so remove the last ", " characters
+                removeLastTwoChars(keyColumnsStringBuilder);
+            }
+            createMvSqlBuilder.append(
+                    String.format(" from %s group by %s", baseTableName, keyColumnsStringBuilder));
         } else {
-            removeLastTwoChars(keyColumnsStringBuilder);
+            for (Column col : columns) {
+                createMvSqlBuilder.append(String.format("%s, ", col.getName()));
+            }
+            removeLastTwoChars(createMvSqlBuilder);
+            createMvSqlBuilder.append(String.format(" from %s", baseTableName));
         }
-        createMvSqlBuilder.append(keyColumnsStringBuilder);
-        createMvSqlBuilder.append(aggColumnsStringBuilder);
-        if (aggColumnsStringBuilder.length() > 0) {
-            // all key columns should be group by keys, so remove the last ", " characters
-            removeLastTwoChars(keyColumnsStringBuilder);
-        }
-        createMvSqlBuilder.append(
-                String.format(" from %s group by %s", baseTableName, keyColumnsStringBuilder));
+
         return createMvSqlBuilder.toString();
     }
 

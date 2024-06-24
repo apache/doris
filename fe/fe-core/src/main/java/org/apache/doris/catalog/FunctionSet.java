@@ -617,6 +617,8 @@ public class FunctionSet<T> {
 
     public static final String ARRAY_AGG = "array_agg";
 
+    public static final String SUM0 = "sum0";
+
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
