@@ -26,7 +26,7 @@ import java.util.Set;
 public class StatisticsBuilder {
 
     private double rowCount;
-    private int widthInJoinCluster;
+    private int widthInJoinCluster = 1;
     private final Map<Expression, ColumnStatistic> expressionToColumnStats;
 
     public StatisticsBuilder() {
