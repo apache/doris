@@ -217,3 +217,56 @@ NNereids	9998
 3	test1	test2
 4	test3	test4
 
+-- !sql --
+1	A
+2	B
+3	C
+
+-- !sql --
+1	A
+2	B
+3	C
+4	b
+5	c
+6	a
+
+-- !sql --
+1	A
+2	B
+3	C
+4	b
+5	c
+6	a
+7	Jack
+8	Jack
+9	Jack
+10	Jack
+11	Jack
+12	Jack
+
+-- !ql --
+\N	Alice
+\N	Mick
+\N	Steve
+100	John
+300	Bob
+
+-- !sql --
+1	A
+2	B
+3	C
+4	b
+5	c
+6	a
+7	Jack
+8	Jack
+9	Jack
+10	Jack
+11	Jack
+12	Jack
+13	Steve
+14	Alice
+15	Mick
+100	John
+300	Bob
+

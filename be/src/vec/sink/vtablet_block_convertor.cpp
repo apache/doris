@@ -183,8 +183,9 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
 }
 
 Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
-                                                 bool is_nullable, vectorized::ColumnPtr column,
-                                                 size_t slot_index, bool* stop_processing,
+                                                 bool is_nullable, bool is_auto_inc,
+                                                 vectorized::ColumnPtr column, size_t slot_index,
+                                                 bool* stop_processing,
                                                  fmt::memory_buffer& error_prefix,
                                                  const uint32_t row_count,
                                                  vectorized::IColumn::Permutation* rows) {
@@ -379,7 +380,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
             }
         }
         fmt::format_to(error_prefix, "ARRAY type failed: ");
-        RETURN_IF_ERROR(_validate_column(state, nested_type, type.contains_nulls[0],
+        RETURN_IF_ERROR(_validate_column(state, nested_type, type.contains_nulls[0], false,
                                          column_array->get_data_ptr(), slot_index, stop_processing,
                                          error_prefix, permutation.size(), &permutation));
         break;
@@ -397,10 +398,10 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
             }
         }
         fmt::format_to(error_prefix, "MAP type failed: ");
-        RETURN_IF_ERROR(_validate_column(state, key_type, type.contains_nulls[0],
+        RETURN_IF_ERROR(_validate_column(state, key_type, type.contains_nulls[0], false,
                                          column_map->get_keys_ptr(), slot_index, stop_processing,
                                          error_prefix, permutation.size(), &permutation));
-        RETURN_IF_ERROR(_validate_column(state, val_type, type.contains_nulls[1],
+        RETURN_IF_ERROR(_validate_column(state, val_type, type.contains_nulls[1], false,
                                          column_map->get_values_ptr(), slot_index, stop_processing,
                                          error_prefix, permutation.size(), &permutation));
         break;
@@ -412,7 +413,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         fmt::format_to(error_prefix, "STRUCT type failed: ");
         for (size_t sc = 0; sc < column_struct->tuple_size(); ++sc) {
             RETURN_IF_ERROR(_validate_column(state, type.children[sc], type.contains_nulls[sc],
-                                             column_struct->get_column_ptr(sc), slot_index,
+                                             false, column_struct->get_column_ptr(sc), slot_index,
                                              stop_processing, error_prefix,
                                              column_struct->get_column_ptr(sc)->size()));
         }
@@ -424,9 +425,9 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
 
     // Dispose the column should do not contain the NULL value
     // Only two case:
-    // 1. column is nullable but the desc is not nullable
+    // 1. column is nullable but the desc is not nullable (column is not auto-increment column)
     // 2. desc->type is BITMAP
-    if ((!is_nullable || type == TYPE_OBJECT) && column_ptr) {
+    if ((!is_nullable || type == TYPE_OBJECT) && column_ptr && !is_auto_inc) {
         for (int j = 0; j < row_count; ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (null_map[j] && !_filter_map[row]) {
@@ -451,8 +452,9 @@ Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::
 
         fmt::memory_buffer error_prefix;
         fmt::format_to(error_prefix, "column_name[{}], ", desc->col_name());
-        RETURN_IF_ERROR(_validate_column(state, desc->type(), desc->is_nullable(), column, i,
-                                         stop_processing, error_prefix, rows));
+        RETURN_IF_ERROR(_validate_column(state, desc->type(), desc->is_nullable(),
+                                         desc->is_auto_increment(), column, i, stop_processing,
+                                         error_prefix, rows));
     }
 
     filtered_rows = 0;
@@ -465,6 +467,9 @@ Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::
 void OlapTableBlockConvertor::_convert_to_dest_desc_block(doris::vectorized::Block* block) {
     for (int i = 0; i < _output_tuple_desc->slots().size() && i < block->columns(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
+        if (desc->is_auto_increment()) {
+            continue;
+        }
         if (desc->is_nullable() != block->get_by_position(i).type->is_nullable()) {
             if (desc->is_nullable()) {
                 block->get_by_position(i).type =
@@ -494,8 +499,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
 
     vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    if (const vectorized::ColumnConst* const_column =
-                check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
+    if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
         // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
         // will be `ColumnConst`
@@ -518,7 +522,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
             int64_t value = const_column->get_int(0);
             dst_values.resize_fill(rows, value);
         }
-    } else if (const vectorized::ColumnNullable* src_nullable_column =
+    } else if (const auto* src_nullable_column =
                        check_and_get_column<vectorized::ColumnNullable>(src_column_ptr)) {
         auto src_nested_column_ptr = src_nullable_column->get_nested_column_ptr();
         const auto& null_map_data = src_nullable_column->get_null_map_data();
