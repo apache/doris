@@ -61,6 +61,8 @@ public:
     void update_build_profile(RuntimeProfile* child_profile);
     void update_probe_profile(RuntimeProfile* child_profile);
 
+    std::string debug_string(int indentation_level = 0) const override;
+
     friend class PartitionedHashJoinProbeOperatorX;
 
 private:
@@ -154,8 +156,6 @@ public:
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
                 bool* eos) const override;
-
-    std::string debug_string(RuntimeState* state, int indentation_level = 0) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
     DataDistribution required_data_distribution() const override {

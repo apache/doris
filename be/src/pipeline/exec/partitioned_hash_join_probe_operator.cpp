@@ -437,13 +437,12 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
     return st;
 }
 
-std::string PartitionedHashJoinProbeOperatorX::debug_string(RuntimeState* state,
-                                                            int indentation_level) const {
+std::string PartitionedHashJoinProbeLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, in mem join probe: {}",
-                   JoinProbeOperatorX<PartitionedHashJoinProbeLocalState>::debug_string(
-                           state, indentation_level),
-                   _inner_probe_operator ? _inner_probe_operator->debug_string(state, 0) : "NULL");
+    fmt::format_to(debug_string_buffer, "{}, short_circuit_for_probe: {}",
+                   PipelineXSpillLocalState<PartitionedHashJoinSharedState>::debug_string(
+                           indentation_level),
+                   _shared_state ? std::to_string(_shared_state->short_circuit_for_probe) : "NULL");
     return fmt::to_string(debug_string_buffer);
 }
 
