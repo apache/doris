@@ -87,13 +87,15 @@ Status BaseCompaction::execute_compact() {
 
 void BaseCompaction::_filter_input_rowset() {
     auto rs_iter = _input_rowsets.begin();
+    int score = 0;
     while (rs_iter != _input_rowsets.end()) {
-        if (_input_rowsets.size() > config::base_compaction_max_rowset_num) {
-            rs_iter = _input_rowsets.erase(rs_iter);
-        } else {
+        score += (*rs_iter)->rowset_meta()->get_compaction_score();
+        if (score > config::base_compaction_max_compaction_score) {
             break;
         }
+        rs_iter++;
     }
+    _input_rowsets.erase(rs_iter, _input_rowsets.end());
 
     // if dup_key and no delete predicate
     // we skip big files to save resources

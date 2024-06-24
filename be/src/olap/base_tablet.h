@@ -303,6 +303,7 @@ public:
 
     std::mutex sample_info_lock;
     std::vector<CompactionSampleInfo> sample_infos;
+    Status last_compaction_status = Status::OK();
 };
 
 } /* namespace doris */

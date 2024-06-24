@@ -34,6 +34,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/base_tablet.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
@@ -399,6 +400,10 @@ int64_t estimate_batch_size(int group_index, BaseTabletSPtr tablet, int64_t way_
         return 4096 - 32;
     }
     int64_t block_mem_limit = config::compaction_memory_bytes_limit / way_cnt;
+    if (tablet->last_compaction_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+        block_mem_limit /= 4;
+    }
+
     int64_t group_data_size = 0;
     if (info.group_data_size > 0 && info.bytes > 0 && info.rows > 0) {
         float smoothing_factor = 0.5;
@@ -414,12 +419,12 @@ int64_t estimate_batch_size(int group_index, BaseTabletSPtr tablet, int64_t way_
         LOG(INFO) << "estimate batch size for vertical compaction, tablet id: "
                   << tablet->tablet_id() << " group data size: " << info.group_data_size
                   << " row num: " << info.rows << " consume bytes: " << info.bytes;
-        return 4096 - 32;
+        return 1024 - 32;
     }
 
     if (group_data_size <= 0) {
-        LOG(INFO) << "estimate batch size for vertical compaction, tablet id: "
-                  << tablet->tablet_id() << " unexpected group data size: " << group_data_size;
+        LOG(WARNING) << "estimate batch size for vertical compaction, tablet id: "
+                     << tablet->tablet_id() << " unexpected group data size: " << group_data_size;
         return 4096 - 32;
     }
 
@@ -444,7 +449,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                                       const TabletSchema& tablet_schema,
                                       const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                                       RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment,
-                                      int64_t merge_way, Statistics* stats_output) {
+                                      int64_t merge_way_num, Statistics* stats_output) {
     LOG(INFO) << "Start to do vertical compaction, tablet_id: " << tablet->tablet_id();
     std::vector<std::vector<uint32_t>> column_groups;
     vertical_split_columns(tablet_schema, &column_groups);
@@ -462,7 +467,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
         bool is_key = (i == 0);
         int64_t batch_size = config::compaction_batch_size != -1
                                      ? config::compaction_batch_size
-                                     : estimate_batch_size(i, tablet, merge_way);
+                                     : estimate_batch_size(i, tablet, merge_way_num);
         RETURN_IF_ERROR(vertical_compact_one_group(
                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
                 src_rowset_readers, dst_rowset_writer, max_rows_per_segment, stats_output,

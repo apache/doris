@@ -60,7 +60,7 @@ public:
     static Status vertical_merge_rowsets(
             BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& tablet_schema,
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-            RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment, int64_t merge_way,
+            RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment, int64_t merge_way_num,
             Statistics* stats_output);
 
     // for vertical compaction
