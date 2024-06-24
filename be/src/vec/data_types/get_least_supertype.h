@@ -33,6 +33,7 @@ namespace doris::vectorized {
 
 using TypeIndexSet = phmap::flat_hash_set<TypeIndex>;
 
+void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type);
 void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type);
 
 } // namespace doris::vectorized

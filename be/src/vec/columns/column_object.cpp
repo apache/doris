@@ -421,9 +421,9 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
         add_new_column_part(src.get_least_common_type());
     } else if (!least_common_type.get()->equals(*src.get_least_common_type())) {
         DataTypePtr new_least_common_type;
-        get_least_supertype_jsonb(TypeIndexSet {least_common_type.get_type_id(),
-                                                src.get_least_common_type()->get_type_id()},
-                                  &new_least_common_type);
+        get_least_supertype_jsonb(
+                DataTypes {least_common_type.get(), src.get_least_common_type()},
+                &new_least_common_type);
         if (!new_least_common_type->equals(*least_common_type.get())) {
             add_new_column_part(std::move(new_least_common_type));
         }
