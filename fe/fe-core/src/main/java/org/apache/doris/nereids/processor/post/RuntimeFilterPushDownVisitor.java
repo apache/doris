@@ -204,7 +204,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         TRuntimeFilterType type = ctx.type;
         if (type == TRuntimeFilterType.IN_OR_BLOOM
-                && ctx.rfContext.getSessionVariable().getEnablePipelineEngine()
                 && RuntimeFilterGenerator.hasRemoteTarget(ctx.builderNode, scan)
                 && !ctx.builderNode.isBroadCastJoin()) {
             type = TRuntimeFilterType.BLOOM;

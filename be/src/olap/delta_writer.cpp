@@ -278,12 +278,29 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                 local_segment_path(tablet_path, cur_rowset->rowset_id().to_string(), segment_id);
         int64_t segment_size = std::filesystem::file_size(seg_path);
         request->mutable_segments_size()->insert({segment_id, segment_size});
-        auto index_path_prefix = InvertedIndexDescriptor::get_index_path_prefix(seg_path);
+        auto index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
         if (!indices_ids.empty()) {
-            if (tablet_schema->get_inverted_index_storage_format() !=
+            if (tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
+                for (auto index_meta : indices_ids) {
+                    std::string inverted_index_file =
+                            InvertedIndexDescriptor::get_index_file_path_v1(
+                                    index_path_prefix, index_meta.first, index_meta.second);
+                    int64_t size = std::filesystem::file_size(inverted_index_file);
+                    PTabletWriteSlaveRequest::IndexSize index_size;
+                    index_size.set_indexid(index_meta.first);
+                    index_size.set_size(size);
+                    index_size.set_suffix_path(index_meta.second);
+                    // Fetch the map value for the current segment_id.
+                    // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
+                    auto& index_size_map_value =
+                            (*(request->mutable_inverted_indices_size()))[segment_id];
+                    // Add the new index size to the map value.
+                    *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
+                }
+            } else {
                 std::string inverted_index_file =
-                        InvertedIndexDescriptor::get_index_path_v2(index_path_prefix);
+                        InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
                 int64_t size = std::filesystem::file_size(inverted_index_file);
                 PTabletWriteSlaveRequest::IndexSize index_size;
                 // special id for non-V1 format
@@ -296,22 +313,6 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
                         (*(request->mutable_inverted_indices_size()))[segment_id];
                 // Add the new index size to the map value.
                 *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
-            } else {
-                for (auto index_id : indices_ids) {
-                    std::string inverted_index_file = InvertedIndexDescriptor::get_index_path_v1(
-                            seg_path, index_id.first, index_id.second);
-                    int64_t size = std::filesystem::file_size(inverted_index_file);
-                    PTabletWriteSlaveRequest::IndexSize index_size;
-                    index_size.set_indexid(index_id.first);
-                    index_size.set_size(size);
-                    index_size.set_suffix_path(index_id.second);
-                    // Fetch the map value for the current segment_id.
-                    // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
-                    auto& index_size_map_value =
-                            (*(request->mutable_inverted_indices_size()))[segment_id];
-                    // Add the new index size to the map value.
-                    *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
-                }
             }
         }
     }

@@ -389,7 +389,8 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
         // add index meta
         TabletIndex index_info = *source_index_meta;
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        const auto* target_index_meta = target_schema->get_inverted_index(target);
+        // get_inverted_index: No need to check, just inherit directly
+        const auto* target_index_meta = target_schema->get_inverted_index(target, false);
         if (target_index_meta != nullptr) {
             // already exist
             target_schema->update_index(target, index_info);
@@ -682,7 +683,7 @@ void rebuild_schema_and_block(const TabletSchemaSPtr& original,
                 {}, root->data.get_finalized_column_ptr()->assume_mutable(),
                 root->data.get_least_common_type());
         // // set for rowstore
-        if (original->store_row_column()) {
+        if (original->has_row_store_for_all_columns()) {
             static_cast<vectorized::ColumnObject*>(obj.get())->set_rowstore_column(
                     object_column.get_rowstore_column());
         }

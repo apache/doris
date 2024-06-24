@@ -109,6 +109,7 @@ public class Diagnoser {
         StringBuilder versionErr = new StringBuilder();
         StringBuilder statusErr = new StringBuilder();
         StringBuilder compactionErr = new StringBuilder();
+        long visibleVersion = partition.getVisibleVersion();
         for (Replica replica : replicas) {
             // backend
             do {
@@ -139,10 +140,10 @@ public class Diagnoser {
                 }
             } while (false);
             // version
-            if (replica.getVersion() != partition.getVisibleVersion()) {
+            if (replica.getVersion() != visibleVersion) {
                 versionErr.append("Replica on backend " + replica.getBackendId() + "'s version ("
                         + replica.getVersion() + ") does not equal"
-                        + " to partition visible version (" + partition.getVisibleVersion() + ")");
+                        + " to partition visible version (" + visibleVersion + ")");
             } else if (replica.getLastFailedVersion() != -1) {
                 versionErr.append("Replica on backend " + replica.getBackendId() + "'s last failed version is "
                         + replica.getLastFailedVersion());

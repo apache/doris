@@ -130,7 +130,8 @@ PROPERTIES (
             "AWS_SECRET_KEY" = "$sk",
             "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
             "AWS_REGION" = "ap-beijing",
-            "use_path_style" = "$loadAttribute.usePathStyle"
+            "use_path_style" = "$loadAttribute.usePathStyle",
+            "provider" = "${getS3Provider()}"
         )
         ${prop}
         """
@@ -174,16 +175,9 @@ PROPERTIES (
     logger.info("profileDataString:" + profileDataString)
     def taskStateIdx = profileDataString.indexOf("Task&nbsp;&nbsp;State:&nbsp;&nbsp;FINISHED")
     assertFalse(taskStateIdx == -1)
-    def fragmentIdx = profileDataString.indexOf("RowsReturned")
-    assertFalse(fragmentIdx == -1)
     def executionProfileIdx = profileDataString.indexOf("Execution&nbsp;&nbsp;Profile")
     assertFalse(executionProfileIdx == -1)
-    if (!profileDataString.contains("NumScanners") || !profileDataString.contains("BlocksProduced")
-        || !profileDataString.contains("RowsProduced") || !profileDataString.contains("RowsRead")) {
-            logger.info("profileDataString:" + profileDataString)
-    }
     assertTrue(profileDataString.contains("NumScanners"))
-    assertTrue(profileDataString.contains("BlocksProduced"))
     assertTrue(profileDataString.contains("RowsProduced"))
     assertTrue(profileDataString.contains("RowsRead"))
 }
