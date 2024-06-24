@@ -168,7 +168,7 @@ public class CascadesContext implements ScheduleContext {
             this.isEnableExprTrace = false;
         }
         if (parent.isPresent()) {
-            this.tables = Objects.requireNonNull(parent.get().tables, "parent should not null");
+            this.tables = parent.get().tables;
         }
     }
 
@@ -566,7 +566,8 @@ public class CascadesContext implements ScheduleContext {
         public Lock(LogicalPlan plan, CascadesContext cascadesContext) {
             this.cascadesContext = cascadesContext;
             // tables can also be load from dump file
-            if (cascadesContext.tables == null) {
+            if (cascadesContext.tables == null
+                    || (cascadesContext.tables != null && cascadesContext.tables.isEmpty())) {
                 cascadesContext.extractTables(plan);
             }
             for (TableIf table : cascadesContext.tables.values()) {

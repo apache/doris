@@ -435,12 +435,25 @@ public class ConnectContext {
 
     /** get table by table name, try to get from information from dumpfile first */
     public TableIf getTableInMinidumpCache(List<String> tableQualifier) {
+        if (getSessionVariable().isPlayNereidsDump()
+                || !getSessionVariable().isEnableMinidump()) {
+            return null;
+        }
         Preconditions.checkState(tables != null, "tables should not be null");
         TableIf table = tables.getOrDefault(tableQualifier, null);
         if (getSessionVariable().isPlayNereidsDump() && table == null) {
             throw new AnalysisException("Minidump cache can not find table:" + tableQualifier);
         }
         return table;
+    }
+
+    /** save table by table name */
+    public void setTableToCascadecontext(List<String> tableQualifier, TableIf table) {
+        if (getSessionVariable().isPlayNereidsDump()
+                || !getSessionVariable().isEnableMinidump()) {
+            return;
+        }
+        ConnectContext.get().getTables().put(tableQualifier, table);
     }
 
     public void closeTxn() {

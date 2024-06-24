@@ -584,7 +584,8 @@ public class GsonUtils {
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
             .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
             .addSerializationExclusionStrategy(
-                    new HiddenAnnotationExclusionStrategy()).serializeSpecialFloatingPointValues().enableComplexMapKeySerialization()
+                    new HiddenAnnotationExclusionStrategy()).serializeSpecialFloatingPointValues()
+            .enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
