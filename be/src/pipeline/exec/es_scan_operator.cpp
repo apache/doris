@@ -95,8 +95,8 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
                 properties, p._column_names, p._docvalue_context, &doc_value_mode);
 
         std::shared_ptr<vectorized::NewEsScanner> scanner = vectorized::NewEsScanner::create_shared(
-                vectorized::RuntimeFilterConsumer::_state, this, p._limit_per_scanner, p._tuple_id,
-                properties, p._docvalue_context, doc_value_mode,
+                vectorized::RuntimeFilterConsumer::_state, this, p._limit, p._tuple_id, properties,
+                p._docvalue_context, doc_value_mode,
                 vectorized::RuntimeFilterConsumer::_state->runtime_profile());
 
         RETURN_IF_ERROR(
