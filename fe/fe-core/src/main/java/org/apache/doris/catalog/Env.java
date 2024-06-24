@@ -5852,7 +5852,7 @@ public class Env {
         ReplacePartitionOperationLog info =
                 new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
                         partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName, version, versionTime,
-                        isForceDropNormal);
+                        isForceDropOld);
         editLog.logReplaceTempPartition(info);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
                 clause.getTempPartitionNames(), olapTable.getName());
