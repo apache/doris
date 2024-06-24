@@ -144,7 +144,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
 LOCATION
-  '/user/doris/suites/test_compress_type/test_compress_partitioned'
+  '/user/doris/suites/test_hive_compress_type/test_compress_partitioned'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1692589095');
 
@@ -169,7 +169,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
-  '/user/doris/suites/test_compress_type/parquet_lz4_compression'
+  '/user/doris/suites/test_hive_compress_type/parquet_lz4_compression'
 TBLPROPERTIES (
   'parquet.compression'='LZ4',
   'transient_lastDdlTime'='1700723950');
@@ -195,7 +195,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
-  '/user/doris/suites/test_compress_type/parquet_lzo_compression'
+  '/user/doris/suites/test_hive_compress_type/parquet_lzo_compression'
 TBLPROPERTIES (
   'parquet.compression'='LZO',
   'transient_lastDdlTime'='1701173147');
