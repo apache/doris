@@ -38,7 +38,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -56,7 +56,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -79,7 +79,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -102,7 +102,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -125,7 +125,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -148,7 +148,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -172,7 +172,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -195,7 +195,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -218,7 +218,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -241,7 +241,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -269,7 +269,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -297,7 +297,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -325,7 +325,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -353,7 +353,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -382,7 +382,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -401,7 +401,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [shuffle]_2
+UnUsed: [shuffle]_1
 SyntaxError:
 
 -- !select5_2 --
@@ -419,7 +419,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select6_1 --
@@ -443,7 +443,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t3 { t1 t2 } )
-UnUsed: [shuffle]_2 
+UnUsed: [shuffle]_1 
 SyntaxError:
 
 -- !select6_2 --
@@ -484,7 +484,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -507,7 +507,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -533,7 +533,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -559,7 +559,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -585,7 +585,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -611,7 +611,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -677,8 +677,8 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
-UnUsed: [broadcast]_3
+Used: [shuffle]_1
+UnUsed: [broadcast]_2
 SyntaxError:
 
 -- !select11_2 --
@@ -701,7 +701,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -724,7 +724,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -747,7 +747,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -773,7 +773,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -799,7 +799,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -825,7 +825,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -851,7 +851,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -877,7 +877,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -903,7 +903,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -926,7 +926,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -949,7 +949,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -992,7 +992,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1017,7 +1017,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select17_4 --
@@ -1040,7 +1040,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1064,7 +1064,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1088,7 +1088,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1112,7 +1112,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1136,8 +1136,8 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
-UnUsed: [broadcast]_3
+Used: [shuffle]_1
+UnUsed: [broadcast]_2
 SyntaxError:
 
 -- !select17_9 --
@@ -1160,7 +1160,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -1201,7 +1201,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1224,7 +1224,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1247,7 +1247,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1270,7 +1270,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1293,7 +1293,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1316,7 +1316,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1339,7 +1339,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -1363,7 +1363,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -1404,7 +1404,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1429,7 +1429,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select19_4 --
@@ -1452,7 +1452,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1475,7 +1475,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1499,7 +1499,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1523,7 +1523,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1547,8 +1547,8 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
-UnUsed: [broadcast]_3
+Used: [shuffle]_1
+UnUsed: [broadcast]_2
 SyntaxError:
 
 -- !select19_9 --
@@ -1571,7 +1571,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -1610,7 +1610,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1632,7 +1632,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1654,7 +1654,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1676,7 +1676,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1698,7 +1698,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1720,7 +1720,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1742,7 +1742,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -1765,7 +1765,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -1804,7 +1804,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1826,7 +1826,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1848,7 +1848,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -1870,7 +1870,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1892,7 +1892,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1914,7 +1914,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -1936,7 +1936,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -1959,7 +1959,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -2000,7 +2000,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2023,7 +2023,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2046,7 +2046,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2069,7 +2069,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2093,7 +2093,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2117,7 +2117,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2140,7 +2140,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -2164,7 +2164,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -2205,7 +2205,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2230,7 +2230,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select23_4 --
@@ -2253,7 +2253,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2276,7 +2276,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[t2]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2300,7 +2300,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2324,7 +2324,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2348,8 +2348,8 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
-UnUsed: [broadcast]_3
+Used: [shuffle]_1
+UnUsed: [broadcast]_2
 SyntaxError:
 
 -- !select23_9 --
@@ -2372,7 +2372,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -2411,7 +2411,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2433,7 +2433,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2455,7 +2455,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2477,7 +2477,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2499,7 +2499,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2521,7 +2521,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2543,7 +2543,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -2566,7 +2566,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -2605,7 +2605,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2627,7 +2627,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2649,7 +2649,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2671,7 +2671,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2694,7 +2694,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2717,7 +2717,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2739,7 +2739,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -2762,7 +2762,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -2803,7 +2803,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select26_3 --
@@ -2824,7 +2824,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -2848,7 +2848,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select26_5 --
@@ -2870,7 +2870,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2892,7 +2892,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2915,7 +2915,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -2938,7 +2938,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -2961,8 +2961,8 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_3
-UnUsed: [broadcast]_2
+Used: [shuffle]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select27_1 --
@@ -3002,7 +3002,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select27_3 --
@@ -3023,7 +3023,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -3047,7 +3047,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select27_5 --
@@ -3069,7 +3069,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3091,7 +3091,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3114,7 +3114,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3137,7 +3137,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -3160,8 +3160,8 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_3
-UnUsed: [broadcast]_2
+Used: [shuffle]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select28_1 --
@@ -3197,7 +3197,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -3218,7 +3218,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -3239,7 +3239,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -3260,7 +3260,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3281,7 +3281,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3302,7 +3302,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3323,7 +3323,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -3344,7 +3344,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t3]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -3372,7 +3372,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3400,7 +3400,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3428,7 +3428,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3456,7 +3456,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3484,7 +3484,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3513,7 +3513,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -3541,7 +3541,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -3569,7 +3569,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -3597,7 +3597,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -3625,7 +3625,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -3653,7 +3653,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -3681,7 +3681,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -3709,7 +3709,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -3737,7 +3737,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3766,7 +3766,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3794,7 +3794,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3823,7 +3823,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3851,7 +3851,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -3880,7 +3880,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -3910,7 +3910,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select33_8 --
@@ -3937,7 +3937,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -3965,7 +3965,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -3994,7 +3994,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -4023,8 +4023,8 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
-UnUsed: [broadcast]_3
+Used: [shuffle]_1
+UnUsed: [broadcast]_2
 SyntaxError:
 
 -- !select33_12 --
@@ -4052,8 +4052,8 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
-UnUsed: [broadcast]_3
+Used: [shuffle]_1
+UnUsed: [broadcast]_2
 SyntaxError:
 
 -- !select33_13 --
@@ -4080,7 +4080,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -4107,7 +4107,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4134,7 +4134,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4161,7 +4161,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4188,7 +4188,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4215,7 +4215,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4244,7 +4244,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -4271,7 +4271,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -4298,7 +4298,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -4325,7 +4325,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -4352,7 +4352,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -4379,7 +4379,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -4406,7 +4406,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -4433,7 +4433,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -4460,7 +4460,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4488,7 +4488,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4515,7 +4515,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4543,7 +4543,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4570,7 +4570,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4599,7 +4599,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -4626,7 +4626,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -4653,7 +4653,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -4680,7 +4680,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -4707,7 +4707,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -4734,7 +4734,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -4761,7 +4761,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -4788,7 +4788,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -4815,7 +4815,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4842,7 +4842,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4869,7 +4869,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4896,7 +4896,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4923,7 +4923,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -4952,7 +4952,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -4979,7 +4979,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5006,7 +5006,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5033,7 +5033,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5060,7 +5060,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5087,7 +5087,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -5114,7 +5114,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -5141,7 +5141,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -5168,7 +5168,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -5195,7 +5195,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -5222,7 +5222,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -5249,7 +5249,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -5276,7 +5276,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -5305,7 +5305,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -5332,7 +5332,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5359,7 +5359,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5386,7 +5386,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5413,7 +5413,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5440,7 +5440,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -5467,7 +5467,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -5494,7 +5494,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -5520,7 +5520,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -5546,7 +5546,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -5572,7 +5572,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -5598,7 +5598,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -5624,7 +5624,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -5650,7 +5650,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2 [shuffle]_3
+Used: [broadcast]_1 [shuffle]_2
 UnUsed:
 SyntaxError:
 
@@ -5676,7 +5676,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5702,7 +5702,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5728,7 +5728,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5754,7 +5754,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5780,7 +5780,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -5806,7 +5806,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -5832,7 +5832,7 @@ PhysicalResultSink
 ----------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2 [broadcast]_3
+Used: [shuffle]_1 [broadcast]_2
 UnUsed:
 SyntaxError:
 
@@ -5897,7 +5897,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5932,7 +5932,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -5967,7 +5967,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6002,7 +6002,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6037,7 +6037,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6072,7 +6072,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6107,7 +6107,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6142,7 +6142,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6177,7 +6177,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6212,7 +6212,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6247,7 +6247,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6282,7 +6282,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6347,7 +6347,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6382,7 +6382,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6417,7 +6417,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6452,7 +6452,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6487,7 +6487,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6522,7 +6522,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6557,7 +6557,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6593,7 +6593,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6628,7 +6628,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6664,7 +6664,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6699,7 +6699,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6735,7 +6735,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -6802,7 +6802,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6839,7 +6839,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select43_4 --
@@ -6874,7 +6874,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6910,7 +6910,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -6947,7 +6947,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select43_7 --
@@ -6982,7 +6982,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7018,7 +7018,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7054,7 +7054,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7090,7 +7090,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7126,7 +7126,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7162,7 +7162,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7198,7 +7198,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7263,7 +7263,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7298,7 +7298,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7333,7 +7333,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7368,7 +7368,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7403,7 +7403,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7438,7 +7438,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7473,7 +7473,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7508,7 +7508,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7543,7 +7543,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7578,7 +7578,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7613,7 +7613,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7648,7 +7648,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7713,7 +7713,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7748,7 +7748,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7783,7 +7783,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7818,7 +7818,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7853,7 +7853,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7888,7 +7888,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -7923,7 +7923,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7959,7 +7959,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -7994,7 +7994,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8030,7 +8030,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8065,7 +8065,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8101,7 +8101,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8168,7 +8168,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select46_3 --
@@ -8202,7 +8202,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -8237,7 +8237,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -8274,7 +8274,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select46_6 --
@@ -8308,7 +8308,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -8345,7 +8345,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select46_8 --
@@ -8380,7 +8380,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8415,7 +8415,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8450,7 +8450,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8486,7 +8486,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8522,7 +8522,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8558,7 +8558,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8625,7 +8625,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select47_3 --
@@ -8659,7 +8659,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -8694,7 +8694,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -8731,7 +8731,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select47_6 --
@@ -8765,7 +8765,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -8802,7 +8802,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !select47_8 --
@@ -8837,7 +8837,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8873,7 +8873,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8908,7 +8908,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8945,7 +8945,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -8981,7 +8981,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -9018,7 +9018,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -9081,7 +9081,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -9115,7 +9115,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -9149,7 +9149,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -9183,7 +9183,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -9217,7 +9217,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -9251,7 +9251,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -9285,7 +9285,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -9319,7 +9319,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -9353,7 +9353,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -9387,7 +9387,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -9421,7 +9421,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 
@@ -9455,7 +9455,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: [shuffle]_2
+Used: [shuffle]_1
 UnUsed:
 SyntaxError:
 

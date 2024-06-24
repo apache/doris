@@ -179,7 +179,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (customTableResolver.isPresent()) {
             table = customTableResolver.get().apply(qualifiedTablName);
         }
-        table = ConnectContext.get().getTableInMinidumpCache(tableQualifier);
+        table = ConnectContext.get().getTableInMinidumpCache(qualifiedTablName);
         // In some cases even if we have already called the "cascadesContext.getTableByName",
         // it also gets the null. So, we just check it in the catalog again for safety.
         if (table == null) {
