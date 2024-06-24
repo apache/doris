@@ -21,7 +21,7 @@
 
 namespace doris {
 
-class MemoryArbitrator {
+class MemoryReclamation {
 public:
     static bool process_minor_gc(
             std::string mem_info =
