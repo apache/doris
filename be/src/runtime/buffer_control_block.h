@@ -95,7 +95,7 @@ public:
         // or some other failure.
         // and the number of written rows is only needed when all things go well.
         if (_query_statistics != nullptr) {
-            _query_statistics->set_returned_rows(num_rows);
+            _query_statistics->add_returned_rows(num_rows);
         }
     }
 
