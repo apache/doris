@@ -233,7 +233,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
     _fragment_exec_timer = ADD_TIMER(profile(), "FragmentExecTime");
     _fragment_get_status_lock_timer = ADD_TIMER(profile(), "FragmentStatusLockTime");
-    _fragment_sink_close_timer = ADD_TIMER(profile(), "FragmentSinkCloseTIme");
+    _fragment_sink_close_timer = ADD_TIMER(profile(), "FragmentSinkCloseTime");
+    _fragment_sink_release_timer = ADD_TIMER(profile(), "FragmentSinkReleaseTime");
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
     return Status::OK();
@@ -348,8 +349,11 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             RETURN_IF_ERROR(status);
         }
     }
-    // Setting to NULL ensures that the d'tor won't double-close the sink.
-    _sink.reset(nullptr);
+    {
+        SCOPED_TIMER(_fragment_sink_release_timer);
+        // Setting to NULL ensures that the d'tor won't double-close the sink.
+        _sink.reset(nullptr);
+    }
     _done = true;
     return Status::OK();
 }
