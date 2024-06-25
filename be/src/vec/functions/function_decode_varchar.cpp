@@ -24,6 +24,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/primitive_type.h"
+#include "util/simd/reverse_copy_bytes.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
@@ -102,8 +103,8 @@ public:
             col_res_offset[i] = col_res_offset[i - 1] + str_size;
             value <<= 1;
 
-            reverse_copy_bytes(col_res_data.data() + col_res_offset[i - 1], str_size,
-                               ui8_ptr + sizeof(IntegerType) - str_size, str_size);
+            simd::reverse_copy_bytes(col_res_data.data() + col_res_offset[i - 1], str_size,
+                                     ui8_ptr + sizeof(IntegerType) - str_size, str_size);
         }
 
         block.get_by_position(result).column = std::move(col_res);
