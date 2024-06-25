@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -587,6 +588,7 @@ public class Column implements Writable, GsonPostProcessable {
             for (Column column : children) {
                 tColumn.addToChildrenColumn(column.toThrift());
             }
+            tColumn.setBeExecVersion(Config.be_exec_version);
         }
         tColumn.setClusterKeyId(this.clusterKeyId);
         // ATTN:

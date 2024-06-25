@@ -138,6 +138,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
@@ -214,8 +215,8 @@ public class InternalCatalog implements CatalogIf<Database> {
     private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
 
     private QueryableReentrantLock lock = new QueryableReentrantLock(true);
-    private ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
-    private ConcurrentHashMap<String, Database> fullNameToDb = new ConcurrentHashMap<>();
+    private transient ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
+    private transient ConcurrentHashMap<String, Database> fullNameToDb = new ConcurrentHashMap<>();
 
     // Add transient to fix gson issue.
     @Getter
@@ -3248,6 +3249,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         Database db = (Database) getDbOrDdlException(dbTbl.getDb());
         OlapTable olapTable = db.getOlapTableOrDdlException(dbTbl.getTbl());
 
+        if (olapTable instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ConnectContext.get())) {
+            throw new DdlException("Not allowed to perform current operation on async materialized view");
+        }
+
         HashMap<Long, Long> updateRecords = new HashMap<>();
 
         BinlogConfig binlogConfig;
@@ -3283,7 +3288,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             // if table currently has no partitions, this sql like empty command and do nothing, should return directly.
             // but if truncate whole table, the temporary partitions also need drop
-            if (origPartitions.isEmpty() && (!truncateEntireTable || olapTable.getTempPartitions().isEmpty())) {
+            if (origPartitions.isEmpty() && (!truncateEntireTable || olapTable.getAllTempPartitions().isEmpty())) {
                 LOG.info("finished to truncate table {}, no partition contains data, do nothing",
                         tblRef.getName().toSql());
                 return;
@@ -3460,7 +3465,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         if (isEntireTable) {
             Set<Long> oldPartitionsIds = oldPartitions.stream().map(Partition::getId).collect(Collectors.toSet());
-            for (Partition partition : olapTable.getTempPartitions()) {
+            for (Partition partition : olapTable.getAllTempPartitions()) {
                 if (!oldPartitionsIds.contains(partition.getId())) {
                     oldPartitions.add(partition);
                 }
@@ -3576,8 +3581,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         int dbCount = dis.readInt();
         long newChecksum = checksum ^ dbCount;
         for (long i = 0; i < dbCount; ++i) {
-            Database db = new Database();
-            db.readFields(dis);
+            Database db = Database.read(dis);
             newChecksum ^= db.getId();
 
             Database dbPrev = fullNameToDb.get(db.getFullName());

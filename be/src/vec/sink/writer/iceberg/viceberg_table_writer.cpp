@@ -329,8 +329,8 @@ std::vector<std::string> VIcebergTableWriter::_partition_values(
         TypeDescriptor result_type =
                 iceberg_partition_column.partition_column_transform().get_result_type();
         partition_values.emplace_back(
-                iceberg_partition_column.partition_column_transform().to_human_string(result_type,
-                                                                                      data.get(i)));
+                iceberg_partition_column.partition_column_transform().get_partition_value(
+                        result_type, data.get(i)));
     }
 
     return partition_values;
@@ -407,21 +407,25 @@ std::optional<PartitionData> VIcebergTableWriter::_get_partition_data(
 std::any VIcebergTableWriter::_get_iceberg_partition_value(
         const TypeDescriptor& type_desc, const ColumnWithTypeAndName& partition_column,
         int position) {
-    ColumnPtr column;
-    if (auto* nullable_column = check_and_get_column<ColumnNullable>(*partition_column.column)) {
+    //1) get the partition column ptr
+    ColumnPtr col_ptr = partition_column.column->convert_to_full_column_if_const();
+    CHECK(col_ptr != nullptr);
+    if (col_ptr->is_nullable()) {
+        const ColumnNullable* nullable_column =
+                reinterpret_cast<const vectorized::ColumnNullable*>(col_ptr.get());
         auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
         if (null_map_data[position]) {
             return std::any();
         }
-        column = nullable_column->get_nested_column_ptr();
-    } else {
-        column = partition_column.column;
+        col_ptr = nullable_column->get_nested_column_ptr();
     }
-    auto [item, size] = column->get_data_at(position);
+
+    //2) get parition field data from paritionblock
+    auto [item, size] = col_ptr->get_data_at(position);
     switch (type_desc.type) {
     case TYPE_BOOLEAN: {
         vectorized::Field field =
-                vectorized::check_and_get_column<const ColumnUInt8>(*column)->operator[](position);
+                vectorized::check_and_get_column<const ColumnUInt8>(*col_ptr)->operator[](position);
         return field.get<bool>();
     }
     case TYPE_TINYINT: {

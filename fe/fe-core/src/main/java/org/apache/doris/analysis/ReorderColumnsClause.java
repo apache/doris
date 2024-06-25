@@ -73,6 +73,11 @@ public class ReorderColumnsClause extends AlterTableClause {
     }
 
     @Override
+    public boolean needChangeMTMVState() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ORDER BY ");

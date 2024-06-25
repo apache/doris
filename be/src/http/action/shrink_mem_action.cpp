@@ -22,7 +22,7 @@
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/memory_arbitrator.h"
+#include "runtime/memory/memory_reclamation.h"
 #include "util/brpc_client_cache.h"
 #include "util/mem_info.h"
 #include "util/string_util.h"
@@ -33,7 +33,7 @@ void ShrinkMemAction::handle(HttpRequest* req) {
     /* this interface might be ready for cloud in the near future
      * int freed_mem = 0;
      * doris::MemInfo::process_cache_gc(&freed_mem); */
-    MemoryArbitrator::process_minor_gc();
+    MemoryReclamation::process_minor_gc();
     LOG(INFO) << "shrink memory triggered, using Process Minor GC Free Memory";
     HttpChannel::send_reply(req, HttpStatus::OK, "shrinking");
 }

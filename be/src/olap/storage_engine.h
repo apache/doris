@@ -506,7 +506,7 @@ private:
 // lru cache for create tabelt round robin in disks
 // key: partitionId_medium
 // value: index
-class CreateTabletIdxCache : public LRUCachePolicy {
+class CreateTabletIdxCache : public LRUCachePolicyTrackingManual {
 public:
     // get key, delimiter with DELIMITER '-'
     static std::string get_key(int64_t partition_id, TStorageMedium::type medium) {
@@ -520,15 +520,13 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE) {}
-
         int idx = 0;
     };
 
     CreateTabletIdxCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
-                             LRUCacheType::NUMBER,
-                             /*stale_sweep_time_s*/ 30 * 60) {}
+            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE,
+                                           capacity, LRUCacheType::NUMBER,
+                                           /*stale_sweep_time_s*/ 30 * 60) {}
 };
 
 struct DirInfo {

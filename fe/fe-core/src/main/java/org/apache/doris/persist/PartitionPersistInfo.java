@@ -125,12 +125,12 @@ public class PartitionPersistInfo implements Writable {
     }
 
     public static PartitionPersistInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            PartitionPersistInfo partitionPersistInfo = new PartitionPersistInfo();
-            partitionPersistInfo.readFields(in);
-            return partitionPersistInfo;
-        } else {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
             return GsonUtils.GSON.fromJson(Text.readString(in), PartitionPersistInfo.class);
+        } else {
+            PartitionPersistInfo info = new PartitionPersistInfo();
+            info.readFields(in);
+            return info;
         }
     }
 

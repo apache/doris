@@ -338,7 +338,7 @@ public class DateLiteral extends Literal {
 
     protected boolean checkDate() {
         if (month != 0 && day > DAYS_IN_MONTH[((int) month)]) {
-            if (month == 2 && day == 29 && Year.isLeap(year)) {
+            if (month == 2 && day == 29 && (Year.isLeap(year) && year > 0)) {
                 return false;
             }
             return true;

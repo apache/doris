@@ -174,6 +174,7 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     }
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
+    meta->set_be_exec_version(column.get_be_exec_version());
 }
 
 Status SegmentWriter::init() {
@@ -216,9 +217,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     }
     // indexes for this column
     opts.indexes = schema->get_indexes_for_column(column);
-    if (!InvertedIndexColumnWriter::check_column_valid(column)) {
-        // skip inverted index if invalid
-        opts.indexes.clear();
+    if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
         opts.need_zone_map = false;
         opts.need_bloom_filter = false;
         opts.need_bitmap_index = false;

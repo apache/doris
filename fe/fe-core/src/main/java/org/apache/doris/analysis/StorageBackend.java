@@ -61,13 +61,17 @@ public class StorageBackend implements ParseNode {
                     && !schema.equalsIgnoreCase("cosn")
                     && !schema.equalsIgnoreCase("gfs")
                     && !schema.equalsIgnoreCase("jfs")
+                    && !schema.equalsIgnoreCase("azure")
                     && !schema.equalsIgnoreCase("gs")) {
-                throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'viewfs://', 'afs://',"
-                        + " 'bos://', 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://', 'gfs://', 'gs://'"
-                        + " or 'jfs://' path.");
+                throw new AnalysisException(
+                        "Invalid broker path " + uri.toString() + ". please use valid 'hdfs://', 'viewfs://', 'afs://',"
+                                + " 'bos://', 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://', 'gfs://', 'gs://'"
+                                + " or 'jfs://' path.");
             }
         } else if (type == StorageBackend.StorageType.S3 && !schema.equalsIgnoreCase("s3")) {
-            throw new AnalysisException("Invalid export path. please use valid 's3://' path.");
+            throw new AnalysisException("Invalid export path " + uri.toString() + ". please use valid 's3://' path.");
+        } else if (type == StorageBackend.StorageType.AZURE && !schema.equalsIgnoreCase("azure")) {
+            throw new AnalysisException("Invalid export path. please use valid 'azure://' path.");
         } else if (type == StorageBackend.StorageType.HDFS && !schema.equalsIgnoreCase("hdfs")
                 && !schema.equalsIgnoreCase("viewfs")) {
             throw new AnalysisException("Invalid export path. please use valid 'HDFS://' or 'viewfs://' path.");
@@ -146,7 +150,8 @@ public class StorageBackend implements ParseNode {
         OFS("Tencent CHDFS"),
         GFS("Tencent Goose File System"),
         JFS("Juicefs"),
-        STREAM("Stream load pipe");
+        STREAM("Stream load pipe"),
+        AZURE("MicroSoft Azure Blob");
 
         private final String description;
 
@@ -171,6 +176,8 @@ public class StorageBackend implements ParseNode {
                     return TStorageBackendType.JFS;
                 case LOCAL:
                     return TStorageBackendType.LOCAL;
+                case AZURE:
+                    return TStorageBackendType.AZURE;
                 default:
                     return TStorageBackendType.BROKER;
             }

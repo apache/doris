@@ -68,8 +68,6 @@ suite("test_update_rows_mv", "p0") {
 
     sql """SET enable_fallback_to_original_planner=false;"""
 
-    sql """SET GLOBAL enable_auto_analyze=true;"""
-
     sql """analyze table ${tbl} with sync;"""
 
     Thread.sleep(1000 * 3)

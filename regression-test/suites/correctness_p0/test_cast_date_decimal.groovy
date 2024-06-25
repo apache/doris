@@ -35,4 +35,8 @@ suite("test_cast_date_decimal") {
     qt_sql5 """
         select cast('123.123' as date);
     """
+
+    qt_sql6 """
+        select cast('0000-02-29' as date);
+    """
 }

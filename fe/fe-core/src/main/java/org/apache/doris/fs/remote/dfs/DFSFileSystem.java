@@ -30,7 +30,6 @@ import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -73,25 +72,25 @@ public class DFSFileSystem extends RemoteFileSystem {
     @VisibleForTesting
     @Override
     public FileSystem nativeFileSystem(String remotePath) throws UserException {
-        if (dfsFileSystem != null) {
-            return dfsFileSystem;
-        }
+        if (dfsFileSystem == null) {
+            synchronized (this) {
+                if (dfsFileSystem == null) {
+                    Configuration conf = new HdfsConfiguration();
+                    for (Map.Entry<String, String> propEntry : properties.entrySet()) {
+                        conf.set(propEntry.getKey(), propEntry.getValue());
+                    }
 
-        Configuration conf = new HdfsConfiguration();
-        for (Map.Entry<String, String> propEntry : properties.entrySet()) {
-            conf.set(propEntry.getKey(), propEntry.getValue());
-        }
-
-        dfsFileSystem = HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf), () -> {
-            try {
-                return FileSystem.get(new Path(remotePath).toUri(), conf);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+                    dfsFileSystem = HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf), () -> {
+                        try {
+                            return FileSystem.get(new Path(remotePath).toUri(), conf);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                    operations = new HDFSFileOperations(dfsFileSystem);
+                }
             }
-        });
-
-        Preconditions.checkNotNull(dfsFileSystem);
-        operations = new HDFSFileOperations(dfsFileSystem);
+        }
         return dfsFileSystem;
     }
 
