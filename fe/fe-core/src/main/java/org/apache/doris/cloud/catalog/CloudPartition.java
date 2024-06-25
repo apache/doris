@@ -91,15 +91,20 @@ public class CloudPartition extends Partition {
         return;
     }
 
-    public void setCachedVisibleVersion(long version) {
+    public void setCachedVisibleVersion(long version, Long versionUpdateTimeMs) {
         // we only care the version should increase monotonically and ignore the readers
         LOG.debug("setCachedVisibleVersion use CloudPartition {}, version: {}, old version: {}",
                 super.getId(), version, super.getVisibleVersion());
         lock.lock();
         if (version > super.getVisibleVersion()) {
-            super.setVisibleVersion(version);
+            super.setVisibleVersionAndTime(version, versionUpdateTimeMs);
         }
         lock.unlock();
+    }
+
+    @Override
+    public long getVisibleVersion(Boolean fromCache) {
+        return super.getVisibleVersion();
     }
 
     @Override
@@ -126,7 +131,7 @@ public class CloudPartition extends Partition {
             if (resp.getStatus().getCode() == MetaServiceCode.OK) {
                 version = resp.getVersion();
                 // Cache visible version, see hasData() for details.
-                setCachedVisibleVersion(version);
+                setCachedVisibleVersion(version, resp.getVersionUpdateTimeMs());
             } else {
                 assert resp.getStatus().getCode() == MetaServiceCode.VERSION_NOT_FOUND;
                 version = Partition.PARTITION_INIT_VERSION;
@@ -186,20 +191,21 @@ public class CloudPartition extends Partition {
         List<Long> dbIds = new ArrayList<>();
         List<Long> tableIds = new ArrayList<>();
         List<Long> partitionIds = new ArrayList<>();
+        List<Long> versionUpdateTimesMs = new ArrayList<>();
         for (CloudPartition partition : partitions) {
             dbIds.add(partition.getDbId());
             tableIds.add(partition.getTableId());
             partitionIds.add(partition.getId());
         }
 
-        List<Long> versions = getSnapshotVisibleVersion(dbIds, tableIds, partitionIds);
+        List<Long> versions = getSnapshotVisibleVersion(dbIds, tableIds, partitionIds, versionUpdateTimesMs);
 
         // Cache visible version, see hasData() for details.
         int size = versions.size();
         for (int i = 0; i < size; ++i) {
             Long version = versions.get(i);
             if (version > Partition.PARTITION_INIT_VERSION) {
-                partitions.get(i).setCachedVisibleVersion(versions.get(i));
+                partitions.get(i).setCachedVisibleVersion(versions.get(i), versionUpdateTimesMs.get(i));
             }
         }
 
@@ -209,7 +215,8 @@ public class CloudPartition extends Partition {
     // Get visible versions for the specified partitions.
     //
     // Return the visible version in order of the specified partition ids, -1 means version NOT FOUND.
-    public static List<Long> getSnapshotVisibleVersion(List<Long> dbIds, List<Long> tableIds, List<Long> partitionIds)
+    public static List<Long> getSnapshotVisibleVersion(List<Long> dbIds, List<Long> tableIds, List<Long> partitionIds,
+            List<Long> versionUpdateTimesMs)
             throws RpcException {
         assert dbIds.size() == partitionIds.size() :
                 "partition ids size: " + partitionIds.size() + " should equals to db ids size: " + dbIds.size();
@@ -250,6 +257,10 @@ public class CloudPartition extends Partition {
                 news.add(v == -1 ? 1 : v);
             }
             return news;
+        }
+
+        if (versionUpdateTimesMs != null) {
+            versionUpdateTimesMs.addAll(resp.getVersionUpdateTimesMsList());
         }
 
         return versions;
