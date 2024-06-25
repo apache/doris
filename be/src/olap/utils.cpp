@@ -561,7 +561,7 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
         fractional_len = number_length - point_pos - 1;
     }
 
-    if (integer_len <= (precision - frac) && fractional_len <= frac) {
+    if ((integer_len + fractional_len) <= precision && fractional_len <= frac) {
         return true;
     } else {
         return false;
