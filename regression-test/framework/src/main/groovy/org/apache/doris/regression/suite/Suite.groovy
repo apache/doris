@@ -607,14 +607,15 @@ class Suite implements GroovyInterceptable {
         runAction(new BenchmarkAction(context), actionSupplier)
     }
 
-    void waitForSchemaChangeDone(Closure actionSupplier, String insertSql = null, boolean cleanOperator = false,String tbName=null) {
+    void waitForSchemaChangeDone(Closure actionSupplier, String insertSql = null, boolean cleanOperator = false,String tbName=null,
+            String orderBy="") {
         runAction(new WaitForAction(context), actionSupplier)
         if (ObjectUtils.isNotEmpty(insertSql)){
             sql insertSql
         }
         if (cleanOperator==true){
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
-            quickTest("", """ SELECT * FROM ${tbName}  """)
+            quickTest("", """ SELECT * FROM ${tbName} ${orderBy}""")
             sql """ DROP TABLE  ${tbName} """
         }
     }

@@ -57,7 +57,7 @@ suite("test_unique_schema_key_change_add","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by adding a key column with BOOLEAN
@@ -68,7 +68,7 @@ suite("test_unique_schema_key_change_add","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -80,7 +80,7 @@ suite("test_unique_schema_key_change_add","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -92,7 +92,7 @@ suite("test_unique_schema_key_change_add","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by adding a key column with INT
@@ -103,7 +103,7 @@ suite("test_unique_schema_key_change_add","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by adding a key column with BIGINT
@@ -114,7 +114,7 @@ suite("test_unique_schema_key_change_add","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -126,7 +126,7 @@ suite("test_unique_schema_key_change_add","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -171,7 +171,7 @@ suite("test_unique_schema_key_change_add","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -183,7 +183,7 @@ suite("test_unique_schema_key_change_add","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -196,7 +196,7 @@ suite("test_unique_schema_key_change_add","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -208,7 +208,7 @@ suite("test_unique_schema_key_change_add","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 

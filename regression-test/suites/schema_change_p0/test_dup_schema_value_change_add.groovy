@@ -785,7 +785,7 @@ suite("test_dup_schema_value_change_add", "p0") {
 
 
     //Test the duplicate model by adding a value column with STRUCT
-    errorMessage = "errCode = 2, detailMessage = can not cast from origin type ARRAY<TINYINT> to target type=STRUCT<StructField ( name=s_id, dataType=INT, nullable=true ),StructField ( name=s_name, dataType=TEXT, nullable=true ),StructField ( name=s_address, dataType=TEXT, nullable=true )>"
+    errorMessage = "errCode = 2, detailMessage = can not cast from origin type ARRAY<TINYINT> to target type=STRUCT<s_id:INT,s_name:TEXT,s_address:TEXT>"
     expectException({
         sql initTable
         sql initTableData

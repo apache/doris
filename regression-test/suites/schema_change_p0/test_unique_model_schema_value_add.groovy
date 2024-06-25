@@ -57,7 +57,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
     //Test the unique model by adding a value column with BOOLEAN
@@ -68,7 +68,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -80,7 +80,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -92,7 +92,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
     //Test the unique model by adding a value column with INT
@@ -103,7 +103,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
     //Test the unique model by adding a value column with BIGINT
@@ -114,7 +114,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -126,7 +126,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -171,7 +171,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -183,7 +183,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -196,7 +196,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -210,7 +210,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -222,7 +222,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
     //TODO Test the unique model by adding a value column with HLL
     errorMessage="errCode = 2, detailMessage = Can not assign aggregation method on column in Unique data model table: comment"
@@ -262,7 +262,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 
@@ -274,7 +274,7 @@ suite("test_unique_model_schema_value_add","p0") {
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
-    }, insertSql, true,"${tbName}")
+    }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
 }

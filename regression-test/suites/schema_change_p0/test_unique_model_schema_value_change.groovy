@@ -256,7 +256,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, false,"${tbName}")
+     }, insertSql, false,"${tbName}", "ORDER BY user_id")
 
      sql """ DROP TABLE IF EXISTS ${tbName2} """
      initTable2 = " CREATE TABLE IF NOT EXISTS ${tbName2}\n" +
@@ -299,7 +299,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by modify a value type from TINYINT  to BIGINT
@@ -310,7 +310,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a value type from TINYINT  to LARGEINT
      sql initTable
@@ -320,7 +320,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by modify a value type from TINYINT  to FLOAT
@@ -331,7 +331,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a value type from TINYINT  to DOUBLE
      sql initTable
@@ -341,7 +341,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //TODO Test the unique model by modify a value type from TINYINT  to DECIMAL32
@@ -393,7 +393,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      /**
@@ -463,7 +463,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by modify a value type from SMALLINT  to BIGINT
@@ -474,7 +474,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a value type from SMALLINT  to LARGEINT
      sql initTable
@@ -484,7 +484,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
      sql initTable
@@ -494,7 +494,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
      sql initTable
@@ -504,7 +504,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
      //TODO Test the unique model by modify a value type from SMALLINT  to DECIMAL
@@ -543,7 +543,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by modify a value type from SMALLINT  to STRING
@@ -554,7 +554,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
 
@@ -638,7 +638,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a value type from INT  to LARGEINT
      sql initTable
@@ -648,7 +648,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a value type from INT  to FLOAT
      sql initTable
@@ -658,7 +658,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a value type from INT  to DOUBLE
      sql initTable
@@ -668,7 +668,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
      //TODO Test the unique model by modify a value type from INT  to DECIMAL
@@ -707,7 +707,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a value type from INT  to VARCHAR
      errorMessage="errCode = 2, detailMessage = Can not change from wider type INT to narrower type VARCHAR(2)"
@@ -730,7 +730,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
           /**
@@ -826,7 +826,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a value type from BIGINT  to FLOAT
      sql initTable
@@ -836,7 +836,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a value type from BIGINT  to DOUBLE
      sql initTable
@@ -846,7 +846,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
      //TODO Test the unique model by modify a value type from BIGINT  to DECIMAL
@@ -885,7 +885,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by modify a value type from BIGINT  to VARCHAR(2)
@@ -910,7 +910,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      /**
       *  Test the unique model by modify a value type from LARGEINT to other type
@@ -1019,7 +1019,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a value type from LARGEINT  to DOUBLE
      sql initTable
@@ -1029,7 +1029,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
      //TODO Test the unique model by modify a value type from LARGEINT  to DECIMAL
@@ -1068,7 +1068,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by modify a value type from LARGEINT  to VARCHAR(2)
@@ -1093,7 +1093,7 @@ suite("test_unique_model_schema_value_change","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
 
      /**

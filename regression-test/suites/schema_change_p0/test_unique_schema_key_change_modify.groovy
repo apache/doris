@@ -236,7 +236,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by modify a key type from TINYINT  to INT
@@ -247,7 +247,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by modify a key type from TINYINT  to BIGINT
@@ -258,7 +258,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a key type from TINYINT  to LARGEINT
      sql initTable
@@ -268,7 +268,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //TODO Test the unique model by modify a key type from TINYINT  to FLOAT
@@ -281,7 +281,7 @@ suite("test_unique_schema_key_change_modify","p0") {
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
-          }, insertSql, true,"${tbName}")
+          }, insertSql, true,"${tbName}", "ORDER BY user_id")
      },errorMessage)
 
 
@@ -295,7 +295,7 @@ suite("test_unique_schema_key_change_modify","p0") {
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
-          }, insertSql, true,"${tbName}")
+          }, insertSql, true,"${tbName}", "ORDER BY user_id")
      },errorMessage)
 
 
@@ -338,7 +338,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by modify a key type from TINYINT  to STRING
@@ -425,7 +425,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by modify a key type from SMALLINT  to BIGINT
@@ -436,7 +436,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a key type from SMALLINT  to LARGEINT
      sql initTable
@@ -446,7 +446,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //TODO Test the unique model by modify a key type from SMALLINT  to FLOAT
@@ -516,7 +516,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true,"${tbName}")
+     }, insertSql, true,"${tbName}", "ORDER BY user_id")
 
 
      //Test the unique model by modify a key type from SMALLINT  to STRING
@@ -612,7 +612,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a key type from INT  to LARGEINT
      sql initTable
@@ -622,7 +622,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a key type from INT  to FLOAT
      errorMessage = "errCode = 2, detailMessage = Float or double can not used as a key, use decimal instead."
@@ -688,7 +688,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a key type from INT  to VARCHAR
      errorMessage = "errCode = 2, detailMessage = Can not change from wider type INT to narrower type VARCHAR(2)"
@@ -813,7 +813,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a key type from INT  to FLOAT
      errorMessage = "errCode = 2, detailMessage = Float or double can not used as a key, use decimal instead."
@@ -879,7 +879,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //Test the unique model by modify a key type from BIGINT  to VARCHAR
      errorMessage = "errCode = 2, detailMessage = Can not change from wider type BIGINT to narrower type VARCHAR(2)"
@@ -1072,7 +1072,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, false, "${tbName}")
+     }, insertSql, false, "${tbName}", "ORDER BY user_id")
 
      sql """ DROP TABLE IF EXISTS ${tbName2} """
      initTable2 = " CREATE TABLE IF NOT EXISTS ${tbName2}\n" +
@@ -1666,7 +1666,7 @@ suite("test_unique_schema_key_change_modify","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, false, "${tbName}")
+     }, insertSql, false, "${tbName}", "ORDER BY user_id")
 
      sql """ DROP TABLE IF EXISTS ${tbName2} """
      initTable2 = " CREATE TABLE IF NOT EXISTS ${tbName2}\n" +

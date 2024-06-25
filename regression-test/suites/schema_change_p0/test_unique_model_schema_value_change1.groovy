@@ -226,7 +226,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //TODO Test the unique model by modify a value type from DATE  to DATETIME
      sql initTable
@@ -236,7 +236,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //TODO Test the unique model by modify a  value type from DATE  to CHAR
      errorMessage = "errCode = 2, detailMessage = Can not change DATEV2 to CHAR"
@@ -478,7 +478,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //TODO Test the unique model by modify a value type from DATEV2  to DATETIME
      sql initTable
@@ -488,7 +488,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //TODO Test the unique model by modify a  value type from DATEV2  to CHAR
      errorMessage = "errCode = 2, detailMessage = Can not change DATEV2 to CHAR"
@@ -731,7 +731,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //TODO Test the unique model by modify a value type from DATETIME  to DATEV2
      sql initTable
@@ -741,7 +741,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //TODO Test the unique model by modify a  value type from DATETIME  to CHAR
      errorMessage = "errCode = 2, detailMessage = Can not change DATETIMEV2 to CHAR"
@@ -982,7 +982,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //TODO Test the unique model by modify a value type from DATETIMEV2  to DATEV2
      sql initTable
@@ -992,7 +992,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
-     }, insertSql, true, "${tbName}")
+     }, insertSql, true, "${tbName}", "ORDER BY user_id")
 
      //TODO Test the unique model by modify a  value type from DATETIMEV2  to CHAR
      errorMessage = "errCode = 2, detailMessage = Can not change DATETIMEV2 to CHAR"
