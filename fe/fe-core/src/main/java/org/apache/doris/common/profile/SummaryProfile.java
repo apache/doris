@@ -54,6 +54,7 @@ public class SummaryProfile {
     public static final String TRACE_ID = "Trace ID";
     public static final String WORKLOAD_GROUP = "Workload Group";
     public static final String PHYSICAL_PLAN = "Physical Plan";
+    public static final String DISTRIBUTED_PLAN = "Distributed Plan";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String ANALYSIS_TIME = "Analysis Time";
@@ -110,6 +111,7 @@ public class SummaryProfile {
     public static final ImmutableList<String> SUMMARY_KEYS = new ImmutableList.Builder<String>()
             .addAll(SUMMARY_CAPTIONS)
             .add(PHYSICAL_PLAN)
+            .add(DISTRIBUTED_PLAN)
             .build();
 
     // The display order of execution summary items.

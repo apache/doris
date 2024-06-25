@@ -23,6 +23,7 @@ import org.apache.doris.nereids.worker.WorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ListMultimap;
 
@@ -45,7 +46,7 @@ public interface UnassignedJob extends TreeNode<UnassignedJob> {
     // generate an instance job
     // e.g. build an instance job by a backends and the replica ids it contains
     default AssignedJob assignWorkerAndDataSources(
-            int instanceIndexInFragment, Worker worker, ScanSource scanSource) {
-        return new StaticAssignedJob(instanceIndexInFragment, this, worker, scanSource);
+            int instanceIndexInFragment, TUniqueId instanceId, Worker worker, ScanSource scanSource) {
+        return new StaticAssignedJob(instanceIndexInFragment, instanceId, this, worker, scanSource);
     }
 }

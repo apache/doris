@@ -26,6 +26,8 @@ import org.apache.doris.nereids.worker.job.ScanSource;
 import org.apache.doris.nereids.worker.job.StaticAssignedJob;
 import org.apache.doris.nereids.worker.job.UnassignedJob;
 import org.apache.doris.nereids.worker.job.WorkerScanSource;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 
@@ -44,10 +46,14 @@ public abstract class NereidsSpecifyInstances<S extends ScanSource> {
     public List<AssignedJob> buildAssignedJobs(UnassignedJob unassignedJob) {
         List<AssignedJob> instances = Lists.newArrayListWithCapacity(workerScanSources.size());
         int instanceNum = 0;
+        ConnectContext context = ConnectContext.get();
         for (WorkerScanSource<S> workerToScanSource : workerScanSources) {
+            TUniqueId instanceId = context.nextInstanceId();
             Worker worker = workerToScanSource.worker;
             ScanSource scanSource = workerToScanSource.scanSource;
-            StaticAssignedJob assignedJob = new StaticAssignedJob(instanceNum++, unassignedJob, worker, scanSource);
+            StaticAssignedJob assignedJob = new StaticAssignedJob(
+                    instanceNum++, instanceId, unassignedJob, worker, scanSource
+            );
             instances.add(assignedJob);
         }
         return instances;

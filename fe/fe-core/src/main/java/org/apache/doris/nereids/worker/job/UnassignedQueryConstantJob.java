@@ -21,6 +21,7 @@ import org.apache.doris.nereids.worker.Worker;
 import org.apache.doris.nereids.worker.WorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -39,9 +40,10 @@ public class UnassignedQueryConstantJob extends AbstractUnassignedJob {
     public List<AssignedJob> computeAssignedJobs(WorkerManager workerManager,
             ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         Worker randomWorker = workerManager.randomAvailableWorker();
+        ConnectContext context = ConnectContext.get();
         return ImmutableList.of(
-                new StaticAssignedJob(0, this, randomWorker,
-                        new DefaultScanSource(ImmutableMap.of())
+                new StaticAssignedJob(0, context.nextInstanceId(), this,
+                        randomWorker, new DefaultScanSource(ImmutableMap.of())
                 )
         );
     }

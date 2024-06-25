@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.worker.job;
 
 import org.apache.doris.nereids.worker.Worker;
+import org.apache.doris.thrift.TUniqueId;
 
 /**
  * AssignedJob.
@@ -25,6 +26,8 @@ import org.apache.doris.nereids.worker.Worker;
  */
 public interface AssignedJob {
     int indexInUnassignedJob();
+
+    TUniqueId instanceId();
 
     UnassignedJob unassignedJob();
 

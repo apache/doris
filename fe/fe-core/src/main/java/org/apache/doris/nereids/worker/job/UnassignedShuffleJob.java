@@ -101,10 +101,11 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
 
     private List<AssignedJob> buildInstances(int instanceNum, Function<Integer, Worker> workerSelector) {
         ImmutableList.Builder<AssignedJob> instances = ImmutableList.builderWithExpectedSize(instanceNum);
+        ConnectContext context = ConnectContext.get();
         for (int i = 0; i < instanceNum; i++) {
             Worker selectedWorker = workerSelector.apply(i);
             AssignedJob assignedJob = assignWorkerAndDataSources(
-                    i, selectedWorker, new DefaultScanSource(ImmutableMap.of())
+                    i, context.nextInstanceId(), selectedWorker, new DefaultScanSource(ImmutableMap.of())
             );
             instances.add(assignedJob);
         }

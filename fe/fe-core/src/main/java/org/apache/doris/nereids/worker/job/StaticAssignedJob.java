@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.worker.job;
 
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.worker.Worker;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -29,13 +31,15 @@ import java.util.Objects;
 public class StaticAssignedJob implements AssignedJob {
     private final int indexInUnassignedJob;
     private final UnassignedJob unassignedJob;
+    private final TUniqueId instanceId;
     private final Worker worker;
     private final ScanSource scanSource;
 
     public StaticAssignedJob(
-            int indexInUnassignedJob, UnassignedJob unassignedJob, Worker worker,
+            int indexInUnassignedJob, TUniqueId instanceId, UnassignedJob unassignedJob, Worker worker,
             ScanSource scanSource) {
         this.indexInUnassignedJob = indexInUnassignedJob;
+        this.instanceId = Objects.requireNonNull(instanceId, "instanceId can not be null");
         this.unassignedJob = Objects.requireNonNull(unassignedJob, "unassignedJob can not be null");
         this.worker = worker;
         this.scanSource = Objects.requireNonNull(scanSource, "scanSource can not be null");
@@ -44,6 +48,11 @@ public class StaticAssignedJob implements AssignedJob {
     @Override
     public int indexInUnassignedJob() {
         return indexInUnassignedJob;
+    }
+
+    @Override
+    public TUniqueId instanceId() {
+        return instanceId;
     }
 
     @Override
@@ -79,6 +88,7 @@ public class StaticAssignedJob implements AssignedJob {
             str.append("\n  unassignedJob: ").append(unassignedJob).append(",");
         }
         str.append("\n  index: " + indexInUnassignedJob)
+                .append(",\n  instanceId: " + DebugUtil.printId(instanceId))
                 .append(",\n  worker: " + worker);
         for (Entry<String, String> kv : extraInfo().entrySet()) {
             str.append(",\n  ").append(kv.getKey()).append(": ").append(kv.getValue());

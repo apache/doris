@@ -1308,10 +1308,16 @@ public class Coordinator implements CoordInterface {
             for (int j = 0; j < params.instanceExecParams.size(); ++j) {
                 // we add instance_num to query_id.lo to create a
                 // globally-unique instance id
+                FInstanceExecParam instanceExecParam = params.instanceExecParams.get(j);
+
+                // already set by nereids coordinator?
+                if (instanceExecParam.instanceId != null) {
+                    continue;
+                }
                 TUniqueId instanceId = new TUniqueId();
                 instanceId.setHi(queryId.hi);
                 instanceId.setLo(queryId.lo + instanceIds.size() + 1);
-                params.instanceExecParams.get(j).instanceId = instanceId;
+                instanceExecParam.instanceId = instanceId;
                 instanceIds.add(instanceId);
             }
         }

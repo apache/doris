@@ -31,6 +31,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -187,6 +188,9 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         if (missingBucketsInLeft.isEmpty()) {
             return leftSideInstances;
         }
+
+        ConnectContext context = ConnectContext.get();
+
         OlapScanNode olapScanNode = (OlapScanNode) scanNodes.get(0);
         MaterializedIndex randomPartition = randomPartition(olapScanNode);
         ListMultimap<Worker, Integer> missingBuckets = selectWorkerForMissingBuckets(
@@ -221,12 +225,13 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
                 }
                 if (!mergedBucketsInSameWorkerInstance) {
                     fillUpInstance = new LocalShuffleAssignedJob(
-                            newInstances.size(), shareScanIdGenerator.getAndIncrement(), this, worker, scanSource
+                            newInstances.size(), shareScanIdGenerator.getAndIncrement(),
+                            context.nextInstanceId(), this, worker, scanSource
                     );
                 }
             } else {
                 fillUpInstance = assignWorkerAndDataSources(
-                        newInstances.size(), worker, scanSource
+                        newInstances.size(), context.nextInstanceId(), worker, scanSource
                 );
             }
             if (fillUpInstance != null) {

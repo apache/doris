@@ -24,6 +24,7 @@ import org.apache.doris.planner.DataGenScanNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 
@@ -62,6 +63,7 @@ public class UnassignedGatherScanMultiRemoteTablesJob extends AbstractUnassigned
     @Override
     public List<AssignedJob> computeAssignedJobs(WorkerManager workerManager,
             ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        ConnectContext context = ConnectContext.get();
         Map<ScanNode, ScanRanges> scanNodeToScanRanges = Maps.newLinkedHashMap();
         for (ScanNode scanNode : scanNodes) {
             List<TScanRangeLocations> scanRangeLocations = scanNode.getScanRangeLocations(0);
@@ -77,8 +79,8 @@ public class UnassignedGatherScanMultiRemoteTablesJob extends AbstractUnassigned
 
         Worker randomWorker = workerManager.randomAvailableWorker();
         return ImmutableList.of(
-                assignWorkerAndDataSources(0, randomWorker,
-                        new DefaultScanSource(scanNodeToScanRanges)
+                assignWorkerAndDataSources(0, context.nextInstanceId(),
+                        randomWorker, new DefaultScanSource(scanNodeToScanRanges)
                 )
         );
     }

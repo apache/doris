@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.worker.job;
 
 import org.apache.doris.nereids.worker.Worker;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -28,10 +29,10 @@ public class LocalShuffleAssignedJob extends StaticAssignedJob {
     public final int shareScanId;
 
     public LocalShuffleAssignedJob(
-            int indexInUnassignedJob, int shareScanId,
+            int indexInUnassignedJob, int shareScanId, TUniqueId instanceId,
             UnassignedJob unassignedJob,
             Worker worker, ScanSource scanSource) {
-        super(indexInUnassignedJob, unassignedJob, worker, scanSource);
+        super(indexInUnassignedJob, instanceId, unassignedJob, worker, scanSource);
         this.shareScanId = shareScanId;
     }
 
