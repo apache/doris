@@ -31,11 +31,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * this is description of kafka routine load progress
@@ -56,7 +56,7 @@ public class KafkaProgress extends RoutineLoadProgress {
     // (partition id, begin offset)
     // the offset saved here is the next offset need to be consumed
     @SerializedName(value = "pito")
-    private Map<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
+    private ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
 
     public KafkaProgress() {
         super(LoadDataSourceType.KAFKA);
@@ -64,10 +64,10 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     public KafkaProgress(TKafkaRLTaskProgress tKafkaRLTaskProgress) {
         super(LoadDataSourceType.KAFKA);
-        this.partitionIdToOffset = tKafkaRLTaskProgress.getPartitionCmtOffset();
+        this.partitionIdToOffset = (ConcurrentMap<Integer, Long>) tKafkaRLTaskProgress.getPartitionCmtOffset();
     }
 
-    public KafkaProgress(Map<Integer, Long> partitionIdToOffset) {
+    public KafkaProgress(ConcurrentMap<Integer, Long> partitionIdToOffset) {
         super(LoadDataSourceType.KAFKA);
         this.partitionIdToOffset = partitionIdToOffset;
     }
@@ -212,7 +212,7 @@ public class KafkaProgress extends RoutineLoadProgress {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int size = in.readInt();
-        partitionIdToOffset = new HashMap<>();
+        partitionIdToOffset = new ConcurrentHashMap<>();
         for (int i = 0; i < size; i++) {
             partitionIdToOffset.put(in.readInt(), in.readLong());
         }

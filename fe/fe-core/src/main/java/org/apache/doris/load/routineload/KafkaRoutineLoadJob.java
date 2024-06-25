@@ -91,7 +91,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @SerializedName("cskp")
     private List<Integer> customKafkaPartitions = Lists.newArrayList();
     // current kafka partitions is the actual partition which will be fetched
-    @SerializedName("crkp")
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
     // optional, user want to set default offset when new partition add or offset not set.
     // kafkaDefaultOffSet has two formats, one is the time format, eg: "2021-10-10 11:00:00",
@@ -99,6 +98,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // We should check it by calling isOffsetForTimes() method before use it.
     private String kafkaDefaultOffSet = "";
     // kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
+    @SerializedName("prop")
     private Map<String, String> customProperties = Maps.newHashMap();
     private Map<String, String> convertedCustomProperties = Maps.newHashMap();
 

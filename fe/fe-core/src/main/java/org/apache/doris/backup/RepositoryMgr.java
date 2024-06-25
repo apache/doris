@@ -29,6 +29,7 @@ import org.apache.doris.fs.remote.S3FileSystem;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -37,19 +38,19 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 /*
  * A manager to manage all backup repositories
  */
-public class RepositoryMgr extends Daemon implements Writable {
+public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RepositoryMgr.class);
 
     // all key should be in lower case
     @SerializedName("rn")
-    private Map<String, Repository> repoNameMap = Maps.newConcurrentMap();
-    private Map<Long, Repository> repoIdMap = Maps.newConcurrentMap();
+    private ConcurrentMap<String, Repository> repoNameMap = Maps.newConcurrentMap();
+    private ConcurrentMap<Long, Repository> repoIdMap = Maps.newConcurrentMap();
 
     private ReentrantLock lock = new ReentrantLock();
 
@@ -171,6 +172,11 @@ public class RepositoryMgr extends Daemon implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    @Override
+    public void gsonPostProcess() {
+        repoNameMap.forEach((n, repo) -> repoIdMap.put(repo.getId(), repo));
     }
 
     @Deprecated
