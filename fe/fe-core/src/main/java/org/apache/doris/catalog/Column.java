@@ -729,6 +729,7 @@ public class Column implements Writable, GsonPostProcessable {
                 AggStateType aggState = (AggStateType) type;
                 builder.setAggregation(aggState.getFunctionName());
                 builder.setResultIsNullable(aggState.getResultIsNullable());
+                builder.setBeExecVersion(Config.be_exec_version);
                 for (Column column : children) {
                     builder.addChildrenColumns(column.toPb(Sets.newHashSet(), Lists.newArrayList()));
                 }
