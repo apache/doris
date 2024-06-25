@@ -1532,7 +1532,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                          &actual_consume_ns, &total_add_batch_exec_time_ns, &add_batch_exec_time,
                          &total_wait_exec_time_ns, &wait_exec_time,
                          &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
-                            if (!status.ok() || ch->is_closed()) {
+                            if (!status.ok() || (ch->is_closed() && !ch->is_cancelled())) {
                                 return;
                             }
                             // in pipeline, all node channels are done or canceled, will not block.
