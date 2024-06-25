@@ -208,16 +208,7 @@ public class KafkaProgress extends RoutineLoadProgress {
         }
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(partitionIdToOffset.size());
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
-            out.writeInt((Integer) entry.getKey());
-            out.writeLong((Long) entry.getValue());
-        }
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int size = in.readInt();

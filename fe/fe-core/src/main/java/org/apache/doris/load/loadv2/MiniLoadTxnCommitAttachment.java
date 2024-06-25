@@ -52,20 +52,7 @@ public class MiniLoadTxnCommitAttachment extends TxnCommitAttachment {
         return errorLogUrl;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(filteredRows);
-        out.writeLong(loadedRows);
-        if (errorLogUrl == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, errorLogUrl);
-        }
-
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         filteredRows = in.readLong();

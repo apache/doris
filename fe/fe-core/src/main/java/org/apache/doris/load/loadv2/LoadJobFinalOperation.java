@@ -56,8 +56,11 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
     @SerializedName(value = "fm")
     private FailMsg failMsg;
     // only used for copy into
+    @SerializedName("cid")
     private String copyId = "";
+    @SerializedName("lfp")
     private String loadFilePaths = "";
+    @SerializedName("prop")
     private Map<String, String> properties = new HashMap<>();
 
     public LoadJobFinalOperation() {
@@ -125,29 +128,7 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
         return properties;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(id);
-        loadingStatus.write(out);
-        out.writeInt(progress);
-        out.writeLong(loadStartTimestamp);
-        out.writeLong(finishTimestamp);
-        Text.writeString(out, jobState.name());
-        if (failMsg == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            failMsg.write(out);
-        }
-        if (Config.isCloudMode()) {
-            Text.writeString(out, copyId);
-            Text.writeString(out, loadFilePaths);
-            Gson gson = new Gson();
-            Text.writeString(out, properties == null ? "" : gson.toJson(properties));
-        }
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         id = in.readLong();

@@ -18,7 +18,6 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
@@ -26,7 +25,6 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Set;

@@ -17,19 +17,14 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
-public abstract class RoutineLoadProgress implements Writable {
+public abstract class RoutineLoadProgress {
     @SerializedName(value = "ldst")
     protected LoadDataSourceType loadDataSourceType;
     protected boolean isTypeRead = false;
@@ -47,26 +42,17 @@ public abstract class RoutineLoadProgress implements Writable {
     abstract String toJsonString();
 
     public static RoutineLoadProgress read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            RoutineLoadProgress progress = null;
-            LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
-            if (type == LoadDataSourceType.KAFKA) {
-                progress = new KafkaProgress();
-            } else {
-                throw new IOException("Unknown load data source type: " + type.name());
-            }
-
-            progress.setTypeRead(true);
-            progress.readFields(in);
-            return progress;
+        RoutineLoadProgress progress = null;
+        LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
+        if (type == LoadDataSourceType.KAFKA) {
+            progress = new KafkaProgress();
         } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), RoutineLoadProgress.class);
+            throw new IOException("Unknown load data source type: " + type.name());
         }
-    }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        progress.setTypeRead(true);
+        progress.readFields(in);
+        return progress;
     }
 
     @Deprecated
