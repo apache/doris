@@ -447,7 +447,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
-        if (arguments.size() != 1 || arguments.size() != 2) {
+        if (arguments.size() != 1 && arguments.size() != 2) {
             // here has argument param error
             return Status::InvalidArgument("json_keys should have 1 or 2 arguments");
         }
