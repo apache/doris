@@ -732,14 +732,13 @@ public class CreateTableStmt extends DdlStmt {
             ColumnDef columnDef = columnDefs.get(i);
             nameToColumnDef.put(columnDef.getName(), Pair.of(columnDef, i));
         }
-        SlotRefRewriteRule.initializeslotRefMap(nameToColumnDef);
         List<GeneratedColumnUtil.ExprAndname> exprAndnames = Lists.newArrayList();
         for (int i = 0; i < columnDefs.size(); i++) {
             ColumnDef columnDef = columnDefs.get(i);
             if (!columnDef.getGeneratedColumnInfo().isPresent()) {
                 continue;
             }
-            SlotRefRewriteRule slotRefRewriteRule = new SlotRefRewriteRule(i);
+            SlotRefRewriteRule slotRefRewriteRule = new SlotRefRewriteRule(i, nameToColumnDef);
             ExprRewriter rewriter = new ExprRewriter(slotRefRewriteRule);
             GeneratedColumnInfo generatedColumnInfo = columnDef.getGeneratedColumnInfo().get();
             Expr expr = rewriter.rewrite(generatedColumnInfo.getExpr(), analyzer);
@@ -830,15 +829,12 @@ public class CreateTableStmt extends DdlStmt {
     }
 
     public static final class SlotRefRewriteRule implements ExprRewriteRule {
-        private static Map<String, Pair<ColumnDef, Integer>> nameToColumnDefMap = new HashMap<>();
+        private final Map<String, Pair<ColumnDef, Integer>> nameToColumnDefMap;
         private final int index;
 
-        public SlotRefRewriteRule(int index) {
+        public SlotRefRewriteRule(int index, Map<String, Pair<ColumnDef, Integer>> nameToColumnDefMap) {
             this.index = index;
-        }
-
-        public static void initializeslotRefMap(Map<String, Pair<ColumnDef, Integer>>  map) {
-            nameToColumnDefMap = map;
+            this.nameToColumnDefMap = nameToColumnDefMap;
         }
 
         @Override
