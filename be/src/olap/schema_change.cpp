@@ -399,7 +399,9 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
 
             if (null_map_column.size() != new_column->size() ||
                 nested_column.size() != new_column->size()) {
-                DCHECK(false);
+                DCHECK(false) << "null_map_column_size=" << null_map_column.size()
+                              << " new_column_size=" << new_column->size()
+                              << " nested_column_size=" << nested_column.size();
                 return Status::InternalError(
                         "null_map_column size is changed, null_map_column_size={}, "
                         "new_column_size={}",
