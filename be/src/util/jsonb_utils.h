@@ -191,7 +191,8 @@ private:
             if (iter->klen()) {
                 string_to_json(iter->getKeyStr(), iter->klen());
             } else {
-                if (iter->getKeyId() == 0) {
+                // NOTE: we use sMaxKeyId to represent an empty key. see jsonb_writer.h
+                if (iter->getKeyId() == JsonbKeyValue::sMaxKeyId) {
                     string_to_json(nullptr, 0);
                 } else {
                     os_.write(iter->getKeyId());
