@@ -304,15 +304,23 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
         } else if (leftHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED
-                && rightHashSpec.getShuffleType() == ShuffleType.NATURAL
-                && !SessionVariable.canUseNereidsDistributePlanner()) {
-            // TODO: we must do shuffle on right because coordinator could not do right be selection in this case,
-            //  since it always to check the left most node whether olap scan node.
+                && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
+            // TODO: we must do shuffle on right because coordinator
             //  after we fix coordinator problem, we could do right to left bucket shuffle
-            updatedForRight = Optional.of(calAnotherSideRequired(
-                    ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
-                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
-                    (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
+            if (SessionVariable.canUseNereidsDistributePlanner()) {
+                // nereids coordinator can exchange left side to right side to do bucket shuffle join
+                updatedForLeft = Optional.of(calAnotherSideRequired(
+                        ShuffleType.STORAGE_BUCKETED, rightHashSpec, leftHashSpec,
+                        (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
+                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec()));
+            } else {
+                // legacy coordinator could not do right be selection in this case,
+                // since it always to check the left most node whether olap scan node.
+                updatedForRight = Optional.of(calAnotherSideRequired(
+                        ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
+                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                        (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
+            }
         } else if (leftHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED
                 && rightHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED) {
             if (bothSideShuffleKeysAreSameOrder(rightHashSpec, leftHashSpec,

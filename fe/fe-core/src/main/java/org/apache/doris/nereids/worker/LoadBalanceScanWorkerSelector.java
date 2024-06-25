@@ -107,7 +107,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
         Function<ScanNode, Map<Integer, Long>> bucketBytesSupplier = bucketBytesSupplier();
         // all are olap scan nodes
         if (!scanNodes.isEmpty() && scanNodes.size() == olapScanNodes.size()) {
-            if (olapScanNodes.size() == 1 && fragment.isBucketShuffleJoinInput()) {
+            if (olapScanNodes.size() == 1 && fragment.hasBucketShuffleJoin()) {
                 return selectForBucket(unassignedJob, scanNodes, bucketScanRangeSupplier, bucketBytesSupplier);
             } else if (fragment.hasColocatePlanNode()) {
                 return selectForBucket(unassignedJob, scanNodes, bucketScanRangeSupplier, bucketBytesSupplier);

@@ -235,7 +235,7 @@ public class UnassignedJobBuilder {
         if (fragment.hasColocatePlanNode()) {
             return true;
         }
-        if (enableBucketShuffleJoin() && fragment.isBucketShuffleJoinInput()) {
+        if (enableBucketShuffleJoin() && fragment.hasBucketShuffleJoin()) {
             return true;
         }
         return false;

@@ -260,14 +260,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.hasColocatePlanNode = hasColocatePlanNode;
     }
 
-    public boolean isBucketShuffleJoinInput() {
-        if (hasBucketShuffleJoin.get()) {
-            return true;
-        }
-        if (destNode != null && destNode.getFragment().hasBucketShuffleJoin.get()) {
-            return true;
-        }
-        return false;
+    public boolean hasBucketShuffleJoin() {
+        return hasBucketShuffleJoin.get();
     }
 
     public void setResultSinkType(TResultSinkType resultSinkType) {

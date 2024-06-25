@@ -126,19 +126,19 @@ suite("local_shuffle") {
         """
 
     multi_sql """
-        drop table if exists test_outer_join_decimal1;
-        CREATE TABLE IF NOT EXISTS test_outer_join_decimal1 (
+        drop table if exists test_local_shuffle3;
+        CREATE TABLE IF NOT EXISTS test_local_shuffle3 (
          c0 int
         )
         DISTRIBUTED BY HASH (c0) BUCKETS 10 PROPERTIES ("replication_num" = "1");
         
-        drop table if exists test_outer_join_decimal2;
-        CREATE TABLE IF NOT EXISTS test_outer_join_decimal2 (
+        drop table if exists test_local_shuffle4;
+        CREATE TABLE IF NOT EXISTS test_local_shuffle4 (
           c0 int
         )
         DISTRIBUTED BY HASH (c0) BUCKETS 10 PROPERTIES ("replication_num" = "1");
-        INSERT INTO test_outer_join_decimal1 (c0) VALUES (1), (3);
-        INSERT INTO test_outer_join_decimal2 (c0) VALUES (2), (3);
+        INSERT INTO test_local_shuffle3 (c0) VALUES (1), (3);
+        INSERT INTO test_local_shuffle4 (c0) VALUES (2), (3);
         
         sync;
         
@@ -151,9 +151,37 @@ suite("local_shuffle") {
 
     order_qt_fillup_bucket """
             SELECT cast(a.c0 as int), cast(b.c0 as int) FROM
-            (select * from test_outer_join_decimal1 where c0 =1)a
+            (select * from test_local_shuffle3 where c0 =1)a
             RIGHT OUTER JOIN
-            (select * from test_outer_join_decimal2)b
+            (select * from test_local_shuffle4)b
             ON a.c0 = b.c0
             """
+
+    multi_sql """
+        drop table if exists test_shuffle_left_with_local_shuffle;
+        CREATE TABLE `test_shuffle_left_with_local_shuffle` (
+          id int,
+          id2 int
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+        
+        insert into test_shuffle_left values (1, 1), (2, 2), (3, 4);
+        """
+
+    order_qt_shuffle_left """
+            select *
+            from
+            (
+              select id2
+              from test_shuffle_left_with_local_shuffle
+              group by id2
+            ) a
+            inner join [shuffle]
+            test_shuffle_left_with_local_shuffle b
+            on a.id2=b.id;
+        """
 }

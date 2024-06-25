@@ -66,7 +66,12 @@ suite("shuffle_left_join") {
 
     def sqlStr = """
             select *
-            from test_shuffle_left a
+            from
+            (
+              select id2
+              from test_shuffle_left
+              group by id2
+            ) a
             inner join [shuffle]
             test_shuffle_left b
             on a.id2=b.id;
@@ -90,7 +95,7 @@ suite("shuffle_left_join") {
         .collect(Collectors.joining("\n"))
     logger.info("Variables:\n${variableString}")
 
-    extractFragment(sqlStr, "INNER JOIN(PARTITIONED)") { exchangeNum ->
+    extractFragment(sqlStr, "INNER JOIN(BUCKET_SHUFFLE)") { exchangeNum ->
         assertTrue(exchangeNum == 1)
     }
 
