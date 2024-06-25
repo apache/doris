@@ -57,7 +57,6 @@
 #include "pipeline/pipeline_tracing.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
-#include "runtime/block_spill_manager.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/client_cache.h"
@@ -68,6 +67,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
+#include "runtime/load_stream_mgr.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -267,7 +267,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
-    _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
+    _runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
     _file_cache_factory = new io::FileCacheFactory();
     init_file_cache_factory();
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
@@ -282,6 +282,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
+    auto num_flush_threads = std::min(
+            _store_paths.size() * config::flush_thread_num_per_store,
+            static_cast<size_t>(CpuInfo::num_cores()) * config::max_flush_thread_num_per_cpu);
+    _load_stream_mgr = std::make_unique<LoadStreamMgr>(num_flush_threads);
     _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
@@ -293,7 +297,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     RETURN_IF_ERROR(_routine_load_task_executor->init());
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
-    _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
@@ -571,8 +574,6 @@ Status ExecEnv::_init_mem_env() {
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
-    RETURN_IF_ERROR(_block_spill_mgr->init());
-
     return Status::OK();
 }
 
@@ -676,7 +677,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_load_channel_mgr);
 
     SAFE_DELETE(_spill_stream_mgr);
-    SAFE_DELETE(_block_spill_mgr);
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
     SAFE_DELETE(_lookup_connection_cache);

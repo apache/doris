@@ -159,6 +159,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 indexes = Lists.newArrayList();
             }
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
+            List<String> rowStoreColumns =
+                                                tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet tablet : index.getTablets()) {
                 OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
@@ -170,7 +172,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                         tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                         tbl.getTimeSeriesCompactionLevelThreshold(),
-                        tbl.disableAutoCompaction());
+                        tbl.disableAutoCompaction(),
+                        tbl.getRowStoreColumnsUniqueIds(rowStoreColumns));
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -216,7 +219,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             boolean storeRowColumn, int schemaVersion, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
-            Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction) throws DdlException {
+            Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
+            List<Integer> rowStoreColumnUniqueIds) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -329,6 +333,9 @@ public class CloudInternalCatalog extends InternalCatalog {
                 schemaBuilder.addIndex(index.toPb(schemaColumns));
             }
         }
+        if (rowStoreColumnUniqueIds != null) {
+            schemaBuilder.addAllRowStoreColumnUniqueIds(rowStoreColumnUniqueIds);
+        }
         schemaBuilder.setDisableAutoCompaction(disableAutoCompaction);
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
@@ -423,7 +430,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.PartitionResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().preparePartition(partitionRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -431,7 +438,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, preparePartition RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -456,7 +463,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.PartitionResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().commitPartition(partitionRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -464,7 +471,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, commitPartition RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -488,7 +495,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.IndexResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().prepareIndex(indexRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -496,7 +503,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, prepareIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -521,7 +528,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.IndexResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().commitIndex(indexRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -529,7 +536,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, commitIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -552,7 +559,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         Cloud.CreateTabletsResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().createTablets(createTabletsReq);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -560,7 +567,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, create tablets RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -686,7 +693,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.PartitionResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().dropPartition(partitionRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -694,7 +701,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, dropPartition RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }
@@ -716,7 +723,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         Cloud.IndexResponse response = null;
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().dropIndex(indexRequest);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
@@ -724,7 +731,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 }
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, dropIndex RpcException", tryTimes, e);
-                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
                     throw new DdlException(e.getMessage());
                 }
             }

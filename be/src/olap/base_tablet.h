@@ -50,7 +50,6 @@ public:
     BaseTablet(const BaseTablet&) = delete;
     BaseTablet& operator=(const BaseTablet&) = delete;
 
-    const std::string& tablet_path() const { return _tablet_path; }
     TabletState tablet_state() const { return _tablet_meta->tablet_state(); }
     Status set_tablet_state(TabletState state);
     int64_t table_id() const { return _tablet_meta->table_id(); }
@@ -186,8 +185,8 @@ public:
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
 
     static Status generate_new_block_for_partial_update(
-            TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
-            const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
+            TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
+            const PartialUpdateReadPlan& read_plan_ori,
             const PartialUpdateReadPlan& read_plan_update,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             vectorized::Block* output_block);
@@ -210,7 +209,7 @@ public:
             const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
             int64_t txn_expiration = 0) = 0;
 
-    static Status update_delete_bitmap(const BaseTabletSPtr& self, const TabletTxnInfo* txn_info,
+    static Status update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                        int64_t txn_id, int64_t txn_expiration = 0);
 
     virtual Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
@@ -284,8 +283,6 @@ protected:
     const TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _max_version_schema;
 
-    std::string _tablet_path;
-
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity;
 
@@ -299,6 +296,9 @@ public:
     IntCounter* flush_bytes = nullptr;
     IntCounter* flush_finish_count = nullptr;
     std::atomic<int64_t> published_count = 0;
+    std::atomic<int64_t> read_block_count = 0;
+    std::atomic<int64_t> write_count = 0;
+    std::atomic<int64_t> compaction_count = 0;
 };
 
 } /* namespace doris */

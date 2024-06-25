@@ -39,7 +39,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/int128.h"
+#include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -72,7 +72,8 @@ public:
     }
 
     Status init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                const TQueryOptions& query_options, size_t block_size = 1);
+                const TQueryOptions& query_options, const TabletSchema& schema,
+                size_t block_size = 1);
 
     std::unique_ptr<vectorized::Block> get_block();
 
@@ -91,6 +92,14 @@ public:
 
     const vectorized::VExprContextSPtrs& output_exprs() { return _output_exprs_ctxs; }
 
+    int32_t rs_column_uid() const { return _row_store_column_ids; }
+
+    const std::unordered_set<int32_t> missing_col_uids() const { return _missing_col_uids; }
+
+    const std::unordered_set<int32_t> include_col_uids() const { return _include_col_uids; }
+
+    RuntimeState* runtime_state() { return _runtime_state.get(); }
+
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -103,11 +112,19 @@ private:
     vectorized::DataTypeSerDeSPtrs _data_type_serdes;
     std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;
     std::vector<std::string> _col_default_values;
+    // picked rowstore(column group) column unique id
+    int32_t _row_store_column_ids = -1;
+    // some column is missing in rowstore(column group), we need to fill them with column store values
+    std::unordered_set<int32_t> _missing_col_uids;
+    // included cids in rowstore(column group)
+    std::unordered_set<int32_t> _include_col_uids;
 };
 
 // RowCache is a LRU cache for row store
-class RowCache : public LRUCachePolicy {
+class RowCache : public LRUCachePolicyTrackingManual {
 public:
+    using LRUCachePolicyTrackingManual::insert;
+
     // The cache key for row lru cache
     struct RowCacheKey {
         RowCacheKey(int64_t tablet_id, const Slice& key) : tablet_id(tablet_id), key(key) {}
@@ -126,7 +143,6 @@ public:
 
     class RowCacheValue : public LRUCacheValueBase {
     public:
-        RowCacheValue() : LRUCacheValueBase(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE) {}
         ~RowCacheValue() override { free(cache_value); }
         char* cache_value;
     };
@@ -199,7 +215,7 @@ private:
 
 // A cache used for prepare stmt.
 // One connection per stmt perf uuid
-class LookupConnectionCache : public LRUCachePolicy {
+class LookupConnectionCache : public LRUCachePolicyTrackingManual {
 public:
     static LookupConnectionCache* instance() {
         return ExecEnv::GetInstance()->get_lookup_connection_cache();
@@ -210,9 +226,9 @@ public:
 private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
-                             LRUCacheType::NUMBER,
-                             config::tablet_lookup_cache_stale_sweep_time_sec) {}
+            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE,
+                                           capacity, LRUCacheType::NUMBER,
+                                           config::tablet_lookup_cache_stale_sweep_time_sec) {}
 
     static std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;
@@ -244,8 +260,6 @@ private:
 
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE) {}
-
         std::shared_ptr<Reusable> item;
     };
 };
@@ -314,6 +328,8 @@ private:
     std::unique_ptr<vectorized::Block> _result_block;
     Metrics _profile_metrics;
     bool _binary_row_format = false;
+    OlapReaderStatistics _read_stats;
+    int32_t _row_hits = 0;
     // snapshot read version
     int64_t _version = -1;
 };

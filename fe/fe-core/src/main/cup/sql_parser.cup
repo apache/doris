@@ -4156,6 +4156,14 @@ show_stmt ::=
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
     :}
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING
+    {:
+        RESULT = new ShowStoragePolicyUsingStmt(null);
+    :}
+    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident:policy
+    {:
+        RESULT = new ShowStoragePolicyUsingStmt(policy);
+    :}
     /* show stage */
     | KW_SHOW KW_STAGES
     {:
@@ -4269,6 +4277,10 @@ show_param ::=
     | KW_CREATE KW_VIEW table_name:table
     {:
         RESULT = new ShowCreateTableStmt(table, true, false);
+    :}
+    | KW_CREATE KW_MATERIALIZED KW_VIEW table_name:table
+    {:
+        RESULT = new ShowCreateMTMVStmt(table);
     :}
     /* Create database */
     | KW_CREATE KW_DATABASE db_name:db
@@ -8469,6 +8481,30 @@ keyword ::=
     | KW_MATCH_REGEXP:id
     {: RESULT = id; :}
     | KW_MATCH_PHRASE_EDGE:id
+    {: RESULT = id; :}
+    | KW_SQL:id
+    {: RESULT = id; :}
+    | KW_CACHE:id
+    {: RESULT = id; :}
+    | KW_COLOCATE:id
+    {: RESULT = id; :}
+    | KW_COMPRESS_TYPE:id
+    {: RESULT = id; :}
+    | KW_DORIS_INTERNAL_TABLE_ID:id
+    {: RESULT = id; :}
+    | KW_HOTSPOT:id
+    {: RESULT = id; :}
+    | KW_PRIVILEGES:id
+    {: RESULT = id; :}
+    | KW_RECENT:id
+    {: RESULT = id; :}
+    | KW_STAGES:id
+    {: RESULT = id; :}
+    | KW_WARM:id
+    {: RESULT = id; :}
+    | KW_UP:id
+    {: RESULT = id; :}
+    | KW_CONVERT_LSC:id
     {: RESULT = id; :}
     ;
 

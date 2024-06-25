@@ -190,7 +190,7 @@ THivePartitionUpdate VHivePartitionWriter::_build_partition_update() {
 
         std::map<int, std::string> etags;
         for (auto& completed_part : s3_mpu_file_writer->completed_parts()) {
-            etags.insert({completed_part->GetPartNumber(), completed_part->GetETag()});
+            etags.insert({completed_part.part_num, completed_part.etag});
         }
         s3_mpu_pending_upload.__set_etags(etags);
         hive_partition_update.__set_s3_mpu_pending_uploads({s3_mpu_pending_upload});

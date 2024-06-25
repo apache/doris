@@ -62,9 +62,7 @@ public:
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();
     }
 
-    const std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>& completed_parts() const {
-        return _completed_parts;
-    }
+    const std::vector<ObjectCompleteMultiPart>& completed_parts() const { return _completed_parts; }
 
     const std::string& key() const { return _obj_storage_path_opts.key; }
     const std::string& bucket() const { return _obj_storage_path_opts.bucket; }
@@ -92,7 +90,7 @@ private:
     // Current Part Num for CompletedPart
     int _cur_part_num = 1;
     std::mutex _completed_lock;
-    std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
+    std::vector<ObjectCompleteMultiPart> _completed_parts;
 
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};

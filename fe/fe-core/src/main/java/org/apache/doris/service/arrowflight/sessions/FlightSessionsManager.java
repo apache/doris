@@ -49,8 +49,6 @@ public interface FlightSessionsManager {
         ConnectContext connectContext = new FlightSqlConnectContext(peerIdentity);
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setStartTime();
-        connectContext.getSessionVariable().setEnablePipelineEngine(false); // TODO
-        connectContext.getSessionVariable().setEnablePipelineXEngine(false); // TODO
         connectContext.setQualifiedUser(userIdentity.getQualifiedUser());
         connectContext.setCurrentUserIdentity(userIdentity);
         connectContext.setRemoteIP(remoteIP);

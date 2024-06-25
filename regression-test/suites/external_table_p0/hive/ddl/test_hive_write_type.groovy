@@ -178,9 +178,9 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                   `col7` DECIMAL(6,4) COMMENT 'col7',
                   `col8` VARCHAR(11) COMMENT 'col8',
                   `col9` STRING COMMENT 'col9',
+                  `pt3` DATE COMMENT 'pt3',
                   `pt1` VARCHAR COMMENT 'pt1',
-                  `pt2` STRING COMMENT 'pt2',
-                  `pt3` DATE COMMENT 'pt3'
+                  `pt2` STRING COMMENT 'pt2'
                 )  ENGINE=hive 
                 PARTITION BY LIST (pt1, pt2) ()
                 PROPERTIES (
@@ -197,7 +197,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
             } catch (Exception e) {
                 log.info(e.getMessage())
                 // BE err msg need use string contains to check
-                assertTrue(e.getMessage().contains("Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
+                assertTrue(e.getMessage().contains("Arithmetic overflow when converting value 123.4567 from type Decimal(7, 4) to type Decimal(6, 4)"))
             }
 
             try {
@@ -208,7 +208,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                 """
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
+                assertTrue(e.getMessage().contains("Arithmetic overflow when converting value 123.4567 from type Decimal(7, 4) to type Decimal(6, 4)"))
             }
 
             test {
@@ -241,25 +241,13 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                 exception "errCode = 2, detailMessage = Unknown column 'pt00' in target table."
             }
 
+            // TODO: support partition spec
             test {
-                sql """ INSERT INTO ex_tbl_${file_format} partition(`pt1`,`pt2`) (`col1`, `col9`) 
+                sql """ INSERT INTO ex_tbl_${file_format} partition(`pt1`,`pt2`) (`col3`, `col6`, `col9`) 
                     VALUES 
-                    ('abcdefghij', 'error', true, 123);
+                    (9876543210, 6.28, 'no_error');
                 """
-                exception "errCode = 2, detailMessage = Column count doesn't match value count"
-            }
-
-            sql """ INSERT INTO ex_tbl_${file_format} partition(`pt1`,`pt2`) (`col3`, `col6`, `col9`) 
-                VALUES 
-                (9876543210, 6.28, 'no_error');
-            """
-
-            test {
-                sql """ INSERT INTO ex_tbl_${file_format} partition(`pt0`, `pt1`,`pt3`) (`col3`, `col6`, `col9`) 
-                    VALUES 
-                    ('err', 'err', 'err', 9876543210, 6.28, 'error');
-                """
-                exception "errCode = 2, detailMessage = Column count doesn't match value count"
+                exception "errCode = 2, detailMessage = Not support insert with partition spec in hive catalog"
             }
 
             sql """ DROP TABLE ${catalog_name}.test_hive_ex.ex_tbl_${file_format} """

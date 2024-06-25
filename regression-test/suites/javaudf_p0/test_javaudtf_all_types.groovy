@@ -24,6 +24,7 @@ import java.nio.file.Paths
 suite("test_javaudtf_all_types") {
     def tableName = "test_javaudtf_all_types"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
+    scp_udf_file_to_all_be(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {
@@ -196,23 +197,6 @@ suite("test_javaudtf_all_types") {
         qt_select_string_col_outer   """select int_col, string_col,e1 from ${tableName} lateral view udtf_string_outer(string_col, "") tmp1 as e1 order by int_col,2,3;"""  
         qt_select_array_col_outer    """select int_col, array_col,e1 from ${tableName} lateral view udtf_list_outer(array_col, int_col) tmp1 as e1 order by int_col,3;"""
         qt_select_map_col_outer      """select int_col, map_col,e1 from ${tableName} lateral view udtf_map_outer(map_col, int_col) tmp1 as e1 order by int_col,3;"""
-        // qt_java_udf_all_types """select
-        //     int_col,
-        //     udtf_boolean(boolean_col),
-        //     udtf_tinyint(tinyint_col),
-        //     udtf_short(smallint_col),
-        //     udtf_int(int_col),
-        //     udtf_long(bigint_col),
-        //     udtf_largeint(largeint_col),
-        //     udtf_decimal(decimal_col),
-        //     udtf_float(float_col),
-        //     udtf_double(double_col),
-        //     udtf_date(date_col),
-        //     udtf_datetime(datetime_col),
-        //     udtf_string(string_col),
-        //     udtf_list(array_col),
-        //     udtf_map(map_col)
-        //     from ${tableName} order by int_col;"""
     } finally {
         try_sql """DROP FUNCTION IF EXISTS udtf_boolean_outer(boolean, int);"""
         try_sql """DROP FUNCTION IF EXISTS udtf_tinyint_outer(tinyint, int);"""
@@ -228,6 +212,6 @@ suite("test_javaudtf_all_types") {
         try_sql """DROP FUNCTION IF EXISTS udtf_string_outer(string, string);"""
         try_sql """DROP FUNCTION IF EXISTS udtf_list_outer(array<string>, int);"""
         try_sql """DROP FUNCTION IF EXISTS udtf_map_outer(map<string,string>, int);"""
-        // try_sql("""DROP TABLE IF EXISTS ${tableName};""")
+        try_sql """DROP TABLE IF EXISTS ${tableName};"""
     }
 }

@@ -80,8 +80,8 @@ void MemTableMemoryLimiter::register_writer(std::weak_ptr<MemTableWriter> writer
 int64_t MemTableMemoryLimiter::_avail_mem_lack() {
     // reserve a small amount of memory so we do not trigger MinorGC
     auto reserved_mem = doris::MemInfo::sys_mem_available_low_water_mark();
-    auto avail_mem_lack =
-            doris::MemInfo::sys_mem_available_warning_water_mark() - MemInfo::sys_mem_available();
+    auto avail_mem_lack = doris::MemInfo::sys_mem_available_warning_water_mark() -
+                          doris::GlobalMemoryArbitrator::sys_mem_available();
     return avail_mem_lack + reserved_mem;
 }
 
@@ -225,14 +225,13 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
     _log_timer.reset();
     // if not exist load task, this log should not be printed.
     if (_mem_usage != 0) {
-        LOG(INFO) << ss.str() << ", process mem: " << PerfCounters::get_vm_rss_str()
-                  << " (without allocator cache: "
-                  << PrettyPrinter::print_bytes(GlobalMemoryArbitrator::process_memory_usage())
-                  << "), load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
-                  << ", memtable writers num: " << _writers.size()
-                  << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
-                  << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
-                  << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
+        LOG(INFO) << fmt::format(
+                "{}, {}, load mem: {}, memtable writers num: {} (active: {}, write: {}, flush: {})",
+                ss.str(), GlobalMemoryArbitrator::process_memory_used_details_str(),
+                PrettyPrinter::print_bytes(_mem_tracker->consumption()), _writers.size(),
+                PrettyPrinter::print_bytes(_active_mem_usage),
+                PrettyPrinter::print_bytes(_write_mem_usage),
+                PrettyPrinter::print_bytes(_flush_mem_usage));
     }
 }
 

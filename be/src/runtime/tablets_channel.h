@@ -165,6 +165,7 @@ protected:
     bool _open_by_incremental = false;
 
     // next sequence we expect
+    std::set<int32_t> _recieved_senders;
     int _num_remaining_senders = 0;
     std::vector<int64_t> _next_seqs;
     Bitmap _closed_senders;

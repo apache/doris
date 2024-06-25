@@ -446,8 +446,7 @@ public class EditLog {
                     Frontend fe = (Frontend) journal.getData();
                     env.replayDropFrontend(fe);
                     if (fe.getNodeName().equals(Env.getCurrentEnv().getNodeName())) {
-                        System.out.println("current fe " + fe + " is removed. will exit");
-                        LOG.info("current fe " + fe + " is removed. will exit");
+                        LOG.warn("current fe {} is removed. will exit", fe);
                         System.exit(-1);
                     }
                     break;
@@ -1015,7 +1014,8 @@ public class EditLog {
                     env.getAuth().replayAlterUser(log);
                     break;
                 }
-                case OperationType.OP_INIT_CATALOG: {
+                case OperationType.OP_INIT_CATALOG:
+                case OperationType.OP_INIT_CATALOG_COMP: {
                     final InitCatalogLog log = (InitCatalogLog) journal.getData();
                     env.getCatalogMgr().replayInitCatalog(log);
                     break;
@@ -2101,5 +2101,18 @@ public class EditLog {
             return ((BDBJEJournal) journal).getNotReadyReason();
         }
         return "";
+    }
+
+    public boolean exceedMaxJournalSize(BackupJob job) {
+        try {
+            return exceedMaxJournalSize(OperationType.OP_BACKUP_JOB, job);
+        } catch (Exception e) {
+            LOG.warn("exceedMaxJournalSize exception:", e);
+        }
+        return true;
+    }
+
+    private boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
+        return journal.exceedMaxJournalSize(op, writable);
     }
 }

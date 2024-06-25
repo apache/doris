@@ -24,12 +24,36 @@
 #include <ostream>
 
 #include "common/config.h"
+#include "http/http_headers.h"
 #include "http/http_status.h"
 #include "util/stack_util.h"
 
 namespace doris {
 
-HttpClient::HttpClient() {}
+static const char* header_error_msg(CURLHcode code) {
+    switch (code) {
+    case CURLHE_OK:
+        return "OK";
+    case CURLHE_BADINDEX:
+        return "header exists but not with this index ";
+    case CURLHE_MISSING:
+        return "no such header exists";
+    case CURLHE_NOHEADERS:
+        return "no headers at all exist (yet)";
+    case CURLHE_NOREQUEST:
+        return "no request with this number was used";
+    case CURLHE_OUT_OF_MEMORY:
+        return "out of memory while processing";
+    case CURLHE_BAD_ARGUMENT:
+        return "a function argument was not okay";
+    case CURLHE_NOT_BUILT_IN:
+        return "curl_easy_header() was disabled in the build";
+    default:
+        return "unknown";
+    }
+}
+
+HttpClient::HttpClient() = default;
 
 HttpClient::~HttpClient() {
     if (_curl != nullptr) {
@@ -88,7 +112,7 @@ Status HttpClient::init(const std::string& url) {
     }
 
     curl_write_callback callback = [](char* buffer, size_t size, size_t nmemb, void* param) {
-        HttpClient* client = (HttpClient*)param;
+        auto* client = (HttpClient*)param;
         return client->on_response_data(buffer, size * nmemb);
     };
 
@@ -174,6 +198,24 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
                      << ", trace=" << get_stack_trace();
         return Status::HttpError(_to_errmsg(code));
     }
+    return Status::OK();
+}
+
+Status HttpClient::get_content_md5(std::string* md5) const {
+    struct curl_header* header_ptr;
+    auto code = curl_easy_header(_curl, HttpHeaders::CONTENT_MD5, 0, CURLH_HEADER, 0, &header_ptr);
+    if (code == CURLHE_MISSING || code == CURLHE_NOHEADERS) {
+        // no such headers exists
+        md5->clear();
+        return Status::OK();
+    } else if (code != CURLHE_OK) {
+        auto msg = fmt::format("failed to get http header {}: {} ({})", HttpHeaders::CONTENT_MD5,
+                               header_error_msg(code), code);
+        LOG(WARNING) << msg << ", trace=" << get_stack_trace();
+        return Status::HttpError(std::move(msg));
+    }
+
+    *md5 = header_ptr->value;
     return Status::OK();
 }
 

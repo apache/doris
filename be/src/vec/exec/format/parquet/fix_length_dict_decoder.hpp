@@ -51,32 +51,35 @@ public:
                 dict_items.emplace_back(_dict_items[i], _type_length);
             }
             assert_cast<ColumnDictI32&>(*doris_column)
-                    .insert_many_dict_data(&dict_items[0], dict_items.size());
+                    .insert_many_dict_data(dict_items.data(), dict_items.size());
         }
         _indexes.resize(non_null_size);
-        _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
+        _index_batch_decoder->GetBatch(_indexes.data(), non_null_size);
 
         if (doris_column->is_column_dictionary() || is_dict_filter) {
             return _decode_dict_values<has_filter>(doris_column, select_vector, is_dict_filter);
         }
 
-        return _decode_fixed_values<has_filter>(doris_column, select_vector);
+        return _decode_fixed_values<has_filter>(doris_column, data_type, select_vector);
     }
 
 protected:
     template <bool has_filter>
-    Status _decode_fixed_values(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector) {
-        auto& column_data = reinterpret_cast<ColumnVector<Int8>&>(*doris_column).get_data();
-        size_t data_index = column_data.size();
-        column_data.resize(data_index + _type_length * (select_vector.num_values() -
-                                                        select_vector.num_filtered()));
+    Status _decode_fixed_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                ColumnSelectVector& select_vector) {
+        size_t primitive_length = remove_nullable(data_type)->get_size_of_value_in_memory();
+        size_t data_index = doris_column->size() * primitive_length;
+        size_t scale_size = (select_vector.num_values() - select_vector.num_filtered()) *
+                            (_type_length / primitive_length);
+        doris_column->resize(doris_column->size() + scale_size);
+        char* raw_data = const_cast<char*>(doris_column->get_raw_data().data);
         size_t dict_index = 0;
         ColumnSelectVector::DataReadType read_type;
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
                 for (size_t i = 0; i < run_length; ++i) {
-                    memcpy(column_data.data() + data_index, _dict_items[_indexes[dict_index++]],
+                    memcpy(raw_data + data_index, _dict_items[_indexes[dict_index++]],
                            _type_length);
                     data_index += _type_length;
                 }

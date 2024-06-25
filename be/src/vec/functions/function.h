@@ -54,6 +54,11 @@ namespace doris::vectorized {
     return is_nullable || !is_datev2 ? make_nullable(std::make_shared<TYPE>())           \
                                      : std::make_shared<TYPE>();
 
+#define SET_NULLMAP_IF_FALSE(EXPR) \
+    if (!EXPR) [[unlikely]] {      \
+        null_map[i] = true;        \
+    }
+
 class Field;
 
 // Only use dispose the variadic argument
@@ -180,10 +185,11 @@ public:
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
 
-    virtual Status eval_inverted_index(FunctionContext* context,
-                                       const vectorized::NameAndTypePair& data_type_with_name,
-                                       segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
-                                       roaring::Roaring* bitmap) const {
+    virtual Status eval_inverted_index(
+            FunctionContext* context,
+            const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+            segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+            roaring::Roaring* bitmap) const {
         return Status::NotSupported("eval_inverted_index is not supported in function: ",
                                     get_name());
     }
@@ -406,7 +412,7 @@ public:
 
     // here are lots of function not extends eval_inverted_index.
     Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::NameAndTypePair& data_type_with_name,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const override {
         return Status::NotSupported("eval_inverted_index is not supported in function: ",
@@ -448,7 +454,7 @@ protected:
     }
 
     Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::NameAndTypePair& data_type_with_name,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const {
         return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);
@@ -519,7 +525,7 @@ public:
     }
 
     Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::NameAndTypePair& data_type_with_name,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const override {
         return function->eval_inverted_index(context, data_type_with_name, iter, num_rows, bitmap);

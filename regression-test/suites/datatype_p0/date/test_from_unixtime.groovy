@@ -44,4 +44,5 @@ suite("test_from_unixtime") {
     qt_sql9 "select from_unixtime(-7629445119491449, \"%Y-%m-%d\");"
     qt_sql10 "select from_unixtime(-7629445119491449);"
 
+    qt_long "select from_unixtime(1196440219, '%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b');"
 }

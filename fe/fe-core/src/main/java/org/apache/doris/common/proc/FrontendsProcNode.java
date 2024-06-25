@@ -83,7 +83,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     public static void getFrontendsInfo(Env env, String detailType, List<List<String>> infos) {
         if (detailType == null) {
             getFrontendsInfo(env, infos);
-        } else if (detailType.equals("disks")) {
+        } else if (detailType.equalsIgnoreCase("disks")) {
             getFrontendsDiskInfo(env, infos);
         }
     }

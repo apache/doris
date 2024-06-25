@@ -262,8 +262,7 @@ public class OdbcScanNode extends ExternalScanNode {
 
     @Override
     public int getNumInstances() {
-        return ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
-            ? ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() : 1;
+        return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
     }
 
     public static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {

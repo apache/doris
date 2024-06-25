@@ -37,9 +37,10 @@ namespace doris {
 
 namespace vectorized {
 
-Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                  bool col_const) const {
+template <bool is_binary_format>
+Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
+                                                   MysqlRowBuffer<is_binary_format>& row_buffer,
+                                                   int row_idx, bool col_const) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
     if (!variant.is_finalized()) {
         const_cast<ColumnObject&>(variant).finalize();
@@ -64,6 +65,18 @@ Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
         }
     }
     return Status::OK();
+}
+
+Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                  bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                  bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
 void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,

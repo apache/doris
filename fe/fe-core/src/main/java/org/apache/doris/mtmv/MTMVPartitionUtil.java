@@ -266,7 +266,9 @@ public class MTMVPartitionUtil {
             if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE && mtmv
                     .getMvPartitionInfo().getRelatedTableInfo().equals(baseTableInfo)) {
                 if (CollectionUtils.isEmpty(relatedPartitionNames)) {
-                    throw new AnalysisException("can not found related partition");
+                    // can not found related partition
+                    res.add(mtmvRelatedTableIf.getName());
+                    continue;
                 }
                 boolean isSyncWithPartition = isSyncWithPartitions(mtmv, partitionName, mtmvRelatedTableIf,
                         relatedPartitionNames);
@@ -322,6 +324,11 @@ public class MTMVPartitionUtil {
             Set<String> relatedPartitionNames) throws AnalysisException {
         if (!relatedTable.needAutoRefresh()) {
             return true;
+        }
+        // check if partitions of related table if changed
+        Set<String> snapshotPartitions = mtmv.getRefreshSnapshot().getSnapshotPartitions(mtmvPartitionName);
+        if (!Objects.equals(relatedPartitionNames, snapshotPartitions)) {
+            return false;
         }
         for (String relatedPartitionName : relatedPartitionNames) {
             MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable

@@ -7,6 +7,14 @@
          "gavinchou",
          "dataroaring"
        ]
+    },
+    {
+      "path": "fe/fe-core/src/main/java/org/apache/doris/catalog/Env.java",
+      "maintainers": [
+        "CalvinKirs",
+        "morningman",
+        "dataroaring"
+      ]
     }
-  ] 
+  ]
 }

@@ -129,7 +129,7 @@ public:
     Status save_meta(DataDir* data_dir);
 
     void serialize(std::string* meta_binary);
-    Status deserialize(const std::string& meta_binary);
+    Status deserialize(std::string_view meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
@@ -444,6 +444,11 @@ public:
     bool empty() const;
 
     /**
+     * return the total cardinality of the Delete Bitmap
+     */
+    uint64_t cardinality() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
@@ -511,20 +516,19 @@ public:
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
 
-    class AggCachePolicy : public LRUCachePolicy {
+    class AggCachePolicy : public LRUCachePolicyTrackingManual {
     public:
         AggCachePolicy(size_t capacity)
-                : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
-                                 LRUCacheType::SIZE,
-                                 config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
+                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE,
+                                               capacity, LRUCacheType::SIZE,
+                                               config::delete_bitmap_agg_cache_stale_sweep_time_sec,
+                                               256) {}
     };
 
     class AggCache {
     public:
         class Value : public LRUCacheValueBase {
         public:
-            Value() : LRUCacheValueBase(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE) {}
-
             roaring::Roaring bitmap;
         };
 
