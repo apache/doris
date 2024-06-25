@@ -1884,10 +1884,10 @@ public class TabletScheduler extends MasterDaemon {
                     cancelTablets.add(tabletCtx);
                     stat.counterCloneTaskTimeout.incrementAndGet();
                 } else if (destBeId > 0 && !aliveBeIds.contains(destBeId)) {
-                    tabletCtx.setErrMsg("dest be " + destBeId + " is dead" );
+                    tabletCtx.setErrMsg("dest be " + destBeId + " is dead");
                     cancelTablets.add(tabletCtx);
                 } else if (srcBeId > 0 && !aliveBeIds.contains(srcBeId)) {
-                    tabletCtx.setErrMsg("src be " + srcBeId + " is dead" );
+                    tabletCtx.setErrMsg("src be " + srcBeId + " is dead");
                     cancelTablets.add(tabletCtx);
                 }
             }
