@@ -413,6 +413,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.GeneratedColumnDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
@@ -2747,8 +2748,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 autoIncInitValue = Long.valueOf(1);
             }
         }
+        Optional<GeneratedColumnDesc> desc = ctx.generatedExpr != null
+                ? Optional.of(new GeneratedColumnDesc(ctx.generatedExpr.getText(), getExpression(ctx.generatedExpr)))
+                : Optional.empty();
         return new ColumnDefinition(colName, colType, isKey, aggType, nullableType, autoIncInitValue, defaultValue,
-                onUpdateDefaultValue, comment, true);
+                onUpdateDefaultValue, comment, desc);
     }
 
     @Override
