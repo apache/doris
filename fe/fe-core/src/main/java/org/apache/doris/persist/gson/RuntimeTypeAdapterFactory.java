@@ -183,6 +183,7 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
     private final String typeFieldName;
     private final Map<String, Class<?>> labelToSubtype = new LinkedHashMap<String, Class<?>>();
     private final Map<Class<?>, String> subtypeToLabel = new LinkedHashMap<Class<?>, String>();
+
     private final boolean maintainType;
     private Class<? extends T> defaultType = null;
 
