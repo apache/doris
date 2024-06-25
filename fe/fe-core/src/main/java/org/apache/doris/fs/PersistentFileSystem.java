@@ -19,6 +19,7 @@ package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonPreProcessable;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -30,14 +31,13 @@ import java.util.Map;
 /**
  * Use for persistence, Repository will persist properties of file system.
  */
-public abstract class PersistentFileSystem implements FileSystem {
+public abstract class PersistentFileSystem implements FileSystem, GsonPreProcessable {
     public static final String STORAGE_TYPE = "_DORIS_STORAGE_TYPE_";
     @SerializedName("prop")
-    protected Map<String, String> properties = Maps.newHashMap();
+    public Map<String, String> properties = Maps.newHashMap();
     @SerializedName("n")
-    protected String name;
-    @SerializedName("t")
-    protected StorageBackend.StorageType type;
+    public String name;
+    public StorageBackend.StorageType type;
 
     public boolean needFullPath() {
         return type == StorageBackend.StorageType.S3
@@ -83,5 +83,10 @@ public abstract class PersistentFileSystem implements FileSystem {
             properties.remove(STORAGE_TYPE);
         }
         return FileSystemFactory.get(name, type, properties);
+    }
+
+    @Override
+    public void gsonPreProcess() {
+        properties.put(STORAGE_TYPE, type.name());
     }
 }

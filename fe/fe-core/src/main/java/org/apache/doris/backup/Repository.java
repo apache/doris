@@ -206,8 +206,14 @@ public class Repository implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() {
+        StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
+        if (this.fileSystem.properties.containsKey(PersistentFileSystem.STORAGE_TYPE)) {
+            type = StorageBackend.StorageType.valueOf(
+                    this.fileSystem.properties.get(PersistentFileSystem.STORAGE_TYPE));
+            this.fileSystem.properties.remove(PersistentFileSystem.STORAGE_TYPE);
+        }
         this.fileSystem = FileSystemFactory.get(this.fileSystem.getName(),
-                this.fileSystem.getStorageType(),
+                type,
                 this.fileSystem.getProperties());
     }
 

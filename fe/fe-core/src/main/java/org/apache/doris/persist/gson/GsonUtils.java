@@ -577,6 +577,7 @@ public class GsonUtils {
             // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
+            .registerTypeAdapterFactory(new PreProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(new ExprAdapterFactory())
             .registerTypeAdapterFactory(exprAdapterFactory)
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
@@ -897,6 +898,30 @@ public class GsonUtils {
             final Type type2 = TypeUtils.parameterize(List.class, ((ParameterizedType) type).getActualTypeArguments());
             final List<?> list = context.deserialize(json, type2);
             return ImmutableList.copyOf(list);
+        }
+    }
+
+    public static class PreProcessTypeAdapterFactory implements TypeAdapterFactory {
+
+        public PreProcessTypeAdapterFactory() {
+        }
+
+        @Override
+        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
+            TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
+
+            return new TypeAdapter<T>() {
+                public void write(JsonWriter out, T value) throws IOException {
+                    if (value instanceof GsonPreProcessable) {
+                        ((GsonPreProcessable) value).gsonPreProcess();
+                    }
+                    delegate.write(out, value);
+                }
+
+                public T read(JsonReader reader) throws IOException {
+                    return delegate.read(reader);
+                }
+            };
         }
     }
 
