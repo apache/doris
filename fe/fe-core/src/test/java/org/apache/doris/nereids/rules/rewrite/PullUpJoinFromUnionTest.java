@@ -85,6 +85,17 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
     }
 
     @Test
+    void testConstant() {
+        String sql = "select t2.id, t1.name, 1 as id1 from t1 join t2 on t1.id = t2.id "
+                + "union all "
+                + "select t3.id, t1.name, 2 as id2 from t1 join t3 on t1.id = t3.id;";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+    }
+
+    @Test
     void testFilter() {
         String sql = "select * from t1 join t2 on t1.id = t2.id where t1.name = '' "
                 + "union all "
