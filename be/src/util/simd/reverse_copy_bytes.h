@@ -26,7 +26,7 @@ void reverse_copy_bytes(UInt8* __restrict desc, size_t desc_len, const void* src
         return;
     }
 
-    const UInt8* src_ui8 = static_cast<const UInt8*>(src);
+    const UInt8* src_ui8 = static_cast<const UInt8*>(src_void);
 
     for (int i = desc_len - 1, j = 0; j < str_len; --i, ++j) {
         desc[i] = src_ui8[j];
