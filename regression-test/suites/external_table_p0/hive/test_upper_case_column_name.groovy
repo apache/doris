@@ -56,7 +56,7 @@ suite("test_upper_case_column_name", "p0,external,hive,external_docker,external_
     }
     for (String hivePrefix : ["hive2", "hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-        String catalog_name = "${hivePrefix}_test_hive_to_date"
+        String catalog_name = "${hivePrefix}_test_upper_case_column_name"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         sql """drop catalog if exists ${catalog_name}"""
