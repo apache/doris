@@ -73,9 +73,9 @@ public class KafkaProgress extends RoutineLoadProgress {
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
-    public Map<Integer, Long> getPartitionIdToOffset(List<Integer> partitionIds) {
-        Map<Integer, Long> result = Maps.newHashMap();
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+    public ConcurrentMap<Integer, Long> getPartitionIdToOffset(List<Integer> partitionIds) {
+        ConcurrentMap<Integer, Long> result = Maps.newConcurrentMap();
+        for (ConcurrentMap.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             for (Integer partitionId : partitionIds) {
                 if (entry.getKey().equals(partitionId)) {
                     result.put(partitionId, entry.getValue());
@@ -110,8 +110,8 @@ public class KafkaProgress extends RoutineLoadProgress {
     // OFFSET_END: user set offset = OFFSET_END, no committed msg
     // OFFSET_BEGINNING: user set offset = OFFSET_BEGINNING, no committed msg
     // other: current committed msg's offset
-    private void getReadableProgress(Map<Integer, String> showPartitionIdToOffset) {
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+    private void getReadableProgress(ConcurrentMap<Integer, String> showPartitionIdToOffset) {
+        for (ConcurrentMap.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (entry.getValue() == 0) {
                 showPartitionIdToOffset.put(entry.getKey(), OFFSET_ZERO);
             } else if (entry.getValue() == -1) {
@@ -142,7 +142,7 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     public List<Pair<Integer, String>> getPartitionOffsetPairs(boolean alreadyConsumed) {
         List<Pair<Integer, String>> pairs = Lists.newArrayList();
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+        for (ConcurrentMap.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (entry.getValue() == 0) {
                 pairs.add(Pair.of(entry.getKey(), OFFSET_ZERO));
             } else if (entry.getValue() == -1) {
@@ -183,7 +183,7 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     @Override
     public String toString() {
-        Map<Integer, String> showPartitionIdToOffset = Maps.newHashMap();
+        ConcurrentMap<Integer, String> showPartitionIdToOffset = Maps.newConcurrentMap();
         getReadableProgress(showPartitionIdToOffset);
         return "KafkaProgress [partitionIdToOffset="
                 + Joiner.on("|").withKeyValueSeparator("_").join(showPartitionIdToOffset) + "]";
@@ -191,7 +191,7 @@ public class KafkaProgress extends RoutineLoadProgress {
 
     @Override
     public String toJsonString() {
-        Map<Integer, String> showPartitionIdToOffset = Maps.newHashMap();
+        ConcurrentMap<Integer, String> showPartitionIdToOffset = Maps.newConcurrentMap();
         getReadableProgress(showPartitionIdToOffset);
         Gson gson = new Gson();
         return gson.toJson(showPartitionIdToOffset);
