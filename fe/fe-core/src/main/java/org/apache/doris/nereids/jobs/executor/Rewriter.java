@@ -331,8 +331,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // this rule should invoke after infer predicate and push down distinct, and before push down limit
             topic("eliminate join according unique or foreign key",
                 bottomUp(new EliminateJoinByFK()),
-                topDown(new EliminateJoinByUnique()),
-                topDown(new PullUpJoinFromUnion())
+                topDown(new EliminateJoinByUnique())
             ),
 
             // this rule should be after topic "Column pruning and infer predicate"
@@ -351,9 +350,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
 
             // this rule should be invoked after topic "Join pull up"
-            topic("eliminate Aggregate according to fd items",
+            topic("eliminate group by keys according to fd items",
                     topDown(new EliminateGroupByKey()),
-                    topDown(new PushDownAggThroughJoinOnPkFk())
+                    topDown(new PushDownAggThroughJoinOnPkFk()),
+                    topDown(new PullUpJoinFromUnion())
             ),
 
             topic("Limit optimization",
