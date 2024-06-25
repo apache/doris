@@ -19,7 +19,6 @@ package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -31,7 +30,7 @@ import java.util.Map;
 /**
  * Use for persistence, Repository will persist properties of file system.
  */
-public abstract class PersistentFileSystem implements FileSystem, Writable {
+public abstract class PersistentFileSystem implements FileSystem {
     public static final String STORAGE_TYPE = "_DORIS_STORAGE_TYPE_";
     @SerializedName("prop")
     protected Map<String, String> properties = Maps.newHashMap();
