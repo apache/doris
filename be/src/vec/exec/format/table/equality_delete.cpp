@@ -17,6 +17,8 @@
 
 #include "vec/exec/format/table/equality_delete.h"
 
+#include "util/simd/bits.h"
+
 namespace doris::vectorized {
 
 std::unique_ptr<EqualityDeleteBase> EqualityDeleteBase::get_delete_impl(Block* delete_block) {
@@ -28,7 +30,6 @@ std::unique_ptr<EqualityDeleteBase> EqualityDeleteBase::get_delete_impl(Block* d
 }
 
 Status SimpleEqualityDelete::_build_set() {
-    COUNTER_UPDATE(num_delete_rows, _delete_block->rows());
     if (_delete_block->columns() != 1) {
         return Status::InternalError("Simple equality delete can be only applied with one column");
     }
@@ -82,12 +83,14 @@ Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
         filter_data[i] = !filter_data[i];
     }
 
+    auto delete_count = simd::count_zero_num((int8_t*)_filter->data(), _filter->size());
+    COUNTER_UPDATE(num_delete_rows, delete_count);
+
     Block::filter_block_internal(data_block, *_filter.get(), data_block->columns());
     return Status::OK();
 }
 
 Status MultiEqualityDelete::_build_set() {
-    COUNTER_UPDATE(num_delete_rows, _delete_block->rows());
     size_t rows = _delete_block->rows();
     _delete_hashes.clear();
     _delete_hashes.resize(rows, 0);
@@ -139,6 +142,9 @@ Status MultiEqualityDelete::filter_data_block(Block* data_block) {
             }
         }
     }
+
+    auto delete_count = simd::count_zero_num((int8_t*)_filter->data(), _filter->size());
+    COUNTER_UPDATE(num_delete_rows, delete_count);
 
     Block::filter_block_internal(data_block, *_filter.get(), data_block->columns());
     return Status::OK();
