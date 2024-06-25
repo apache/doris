@@ -262,6 +262,8 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);
         }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tblName);
+        db.setLastUpdateTime(System.currentTimeMillis());
         db.setUnInitialized(true);
     }
 
