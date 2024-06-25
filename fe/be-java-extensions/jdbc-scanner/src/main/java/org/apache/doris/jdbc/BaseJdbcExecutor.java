@@ -27,7 +27,6 @@ import org.apache.doris.common.jni.vec.VectorColumn;
 import org.apache.doris.common.jni.vec.VectorTable;
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
-import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Preconditions;
 import com.zaxxer.hikari.HikariDataSource;
@@ -58,14 +57,12 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private HikariDataSource hikariDataSource = null;
     private final byte[] hikariDataSourceLock = new byte[0];
-    private TOdbcTableType tableType;
     private JdbcDataSourceConfig config;
     private Connection conn = null;
     protected PreparedStatement preparedStatement = null;
     protected Statement stmt = null;
     protected ResultSet resultSet = null;
     protected ResultSetMetaData resultSetMetaData = null;
-    protected List<String> resultColumnTypeNames = null;
     protected List<Object[]> block = null;
     protected VectorTable outputTable = null;
     protected int batchSizeNum = 0;
@@ -79,7 +76,6 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         } catch (TException e) {
             throw new InternalException(e.getMessage());
         }
-        tableType = request.table_type;
         this.config = new JdbcDataSourceConfig()
                 .setCatalogId(request.catalog_id)
                 .setJdbcUser(request.jdbc_user)
@@ -176,11 +172,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             resultSet = ((PreparedStatement) stmt).executeQuery();
             resultSetMetaData = resultSet.getMetaData();
             int columnCount = resultSetMetaData.getColumnCount();
-            resultColumnTypeNames = new ArrayList<>(columnCount);
             block = new ArrayList<>(columnCount);
-            for (int i = 0; i < columnCount; ++i) {
-                resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
-            }
             return columnCount;
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
@@ -282,10 +274,6 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor rollback transaction has error: ", e);
         }
-    }
-
-    public List<String> getResultColumnTypeNames() {
-        return resultColumnTypeNames;
     }
 
     public int getCurBlockRows() {

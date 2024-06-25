@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/obj_storage_client.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 
@@ -43,16 +44,17 @@ namespace io {
 struct S3FileBuffer;
 class S3FileSystem;
 struct AsyncCloseStatusPack;
+class ObjClientHolder;
 
 class S3FileWriter final : public FileWriter {
 public:
-    S3FileWriter(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket, std::string key,
+    S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket, std::string key,
                  const FileWriterOptions* opts);
     ~S3FileWriter() override;
 
     Status appendv(const Slice* data, size_t data_cnt) override;
 
-    const Path& path() const override { return _path; }
+    const Path& path() const override { return _obj_storage_path_opts.path; }
     size_t bytes_appended() const override { return _bytes_appended; }
     State state() const override { return _state; }
 
@@ -60,13 +62,15 @@ public:
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();
     }
 
-    const std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>& completed_parts() const {
-        return _completed_parts;
-    }
+    const std::vector<ObjectCompleteMultiPart>& completed_parts() const { return _completed_parts; }
 
-    const std::string& key() const { return _key; }
-    const std::string& bucket() const { return _bucket; }
-    const std::string& upload_id() const { return _upload_id; }
+    const std::string& key() const { return _obj_storage_path_opts.key; }
+    const std::string& bucket() const { return _obj_storage_path_opts.bucket; }
+    std::string upload_id() const {
+        return _obj_storage_path_opts.upload_id.has_value()
+                       ? _obj_storage_path_opts.upload_id.value()
+                       : std::string();
+    }
 
     Status close(bool non_block = false) override;
 
@@ -81,17 +85,12 @@ private:
     void _put_object(UploadFileBuffer& buf);
     void _upload_one_part(int64_t part_num, UploadFileBuffer& buf);
 
-    Path _path;
-    std::string _bucket;
-    std::string _key;
-
-    std::shared_ptr<Aws::S3::S3Client> _client;
-    std::string _upload_id;
+    ObjectStoragePathOptions _obj_storage_path_opts;
 
     // Current Part Num for CompletedPart
     int _cur_part_num = 1;
     std::mutex _completed_lock;
-    std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>> _completed_parts;
+    std::vector<ObjectCompleteMultiPart> _completed_parts;
 
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
@@ -115,6 +114,7 @@ private:
     bool _used_by_s3_committer;
     std::unique_ptr<AsyncCloseStatusPack> _async_close_pack;
     State _state {State::OPENED};
+    std::shared_ptr<ObjClientHolder> _obj_client;
 };
 
 } // namespace io

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupId;
@@ -26,6 +27,8 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
@@ -34,6 +37,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -47,6 +52,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -56,66 +62,100 @@ import java.util.stream.Collectors;
  */
 public abstract class MaterializationContext {
     private static final Logger LOG = LogManager.getLogger(MaterializationContext.class);
-    public final Map<RelationMapping, SlotMapping> queryToMvSlotMappingCache = new HashMap<>();
+    public final Map<RelationMapping, SlotMapping> queryToMaterializationSlotMappingCache = new HashMap<>();
     protected List<Table> baseTables;
     protected List<Table> baseViews;
-    // The plan of mv def sql
-    protected Plan mvPlan;
-    // The original plan of mv def sql
-    protected Plan originalMvPlan;
+    // The plan of materialization def sql
+    protected final Plan plan;
+    // The original plan of materialization sql
+    protected final Plan originalPlan;
     // Should regenerate when materialization is already rewritten successfully because one query may hit repeatedly
     // make sure output is different in multi using
-    protected Plan mvScanPlan;
-    // The mvPlan output shuttled expression, this is used by generate field mvExprToMvScanExprMapping
-    protected List<? extends Expression> mvPlanOutputShuttledExpressions;
-    // Generated mapping from mv plan out shuttled expr to mv scan plan out slot mapping, this is used for later used
-    protected ExpressionMapping mvExprToMvScanExprMapping;
+    protected Plan scanPlan;
+    // The materialization plan output shuttled expression, this is used by generate field
+    // exprToScanExprMapping
+    protected List<? extends Expression> planOutputShuttledExpressions;
+    // Generated mapping from materialization plan out expr to materialization scan plan out slot mapping,
+    // this is used for later
+    protected Map<Expression, Expression> exprToScanExprMapping = new HashMap<>();
+    // Generated mapping from materialization plan out shuttled expr to materialization scan plan out slot mapping,
+    // this is used for expression rewrite
+    protected ExpressionMapping shuttledExprToScanExprMapping;
     // This mark the materialization context is available or not,
     // will not be used in query transparent rewritten if false
     protected boolean available = true;
-    // Mark the mv plan in the context is already rewritten successfully or not
+    // Mark the materialization plan in the context is already rewritten successfully or not
     protected boolean success = false;
     // Mark enable record failure detail info or not, because record failure detail info is performance-depleting
     protected final boolean enableRecordFailureDetail;
-    // The mv plan struct info
+    // The materialization plan struct info, construct struct info is expensive,
+    // this should be constructed once for all query for performance
     protected final StructInfo structInfo;
-    // Group id set that are rewritten unsuccessfully by this mv for reducing rewrite times
+    // Group id set that are rewritten unsuccessfully by this materialization for reducing rewrite times
     protected final Set<GroupId> matchedFailGroups = new HashSet<>();
-    // Group id set that are rewritten successfully by this mv for reducing rewrite times
+    // Group id set that are rewritten successfully by this materialization for reducing rewrite times
     protected final Set<GroupId> matchedSuccessGroups = new HashSet<>();
-    // Record the reason, if rewrite by mv fail. The failReason should be empty if success.
+    // Record the reason, if rewrite by materialization fail. The failReason should be empty if success.
     // The key is the query belonged group expression objectId, the value is the fail reasons because
     // for one materialization query may be multi when nested materialized view.
     protected final Multimap<ObjectId, Pair<String, String>> failReason = HashMultimap.create();
 
     /**
-     * MaterializationContext, this contains necessary info for query rewriting by mv
+     * MaterializationContext, this contains necessary info for query rewriting by materialization
      */
-    public MaterializationContext(Plan mvPlan, Plan originalMvPlan, Plan mvScanPlan, CascadesContext cascadesContext) {
-        this.mvPlan = mvPlan;
-        this.originalMvPlan = originalMvPlan;
-        this.mvScanPlan = mvScanPlan;
+    public MaterializationContext(Plan plan, Plan originalPlan, Plan scanPlan,
+            CascadesContext cascadesContext, StructInfo structInfo) {
+        this.plan = plan;
+        this.originalPlan = originalPlan;
+        this.scanPlan = scanPlan;
 
         StatementBase parsedStatement = cascadesContext.getStatementContext().getParsedStatement();
         this.enableRecordFailureDetail = parsedStatement != null && parsedStatement.isExplain()
                 && ExplainLevel.MEMO_PLAN == parsedStatement.getExplainOptions().getExplainLevel();
-
-        this.mvPlanOutputShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
-                originalMvPlan.getOutput(),
-                originalMvPlan,
-                new BitSet());
-        // mv output expression shuttle, this will be used to expression rewrite
-        this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
-                this.mvScanPlan.getOutput());
-        // copy the plan from cache, which the plan in cache may change
-        List<StructInfo> viewStructInfos = MaterializedViewUtils.extractStructInfo(
-                mvPlan, cascadesContext, new BitSet());
-        if (viewStructInfos.size() > 1) {
-            // view struct info should only have one, log error and use the first struct info
-            LOG.warn(String.format("view strut info is more than one, materialization name is %s, mv plan is %s",
-                    getMaterializationQualifier(), getMvPlan().treeString()));
+        List<Slot> originalPlanOutput = originalPlan.getOutput();
+        List<Slot> scanPlanOutput = this.scanPlan.getOutput();
+        if (originalPlanOutput.size() == scanPlanOutput.size()) {
+            for (int slotIndex = 0; slotIndex < originalPlanOutput.size(); slotIndex++) {
+                this.exprToScanExprMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
+            }
         }
-        this.structInfo = viewStructInfos.get(0);
+        this.planOutputShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(originalPlanOutput,
+                originalPlan, new BitSet());
+        // materialization output expression shuttle, this will be used to expression rewrite
+        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(
+                this.planOutputShuttledExpressions,
+                scanPlanOutput);
+        // Construct materialization struct info, catch exception which may cause planner roll back
+        if (structInfo == null) {
+            Optional<StructInfo> structInfoOptional = constructStructInfo(plan, cascadesContext, new BitSet());
+            if (!structInfoOptional.isPresent()) {
+                this.available = false;
+            }
+            this.structInfo = structInfoOptional.orElseGet(() -> null);
+        } else {
+            this.structInfo = structInfo;
+        }
+    }
+
+    /**
+     * Construct materialized view Struct info
+     */
+    public static Optional<StructInfo> constructStructInfo(Plan plan, CascadesContext cascadesContext,
+            BitSet expectedTableBitSet) {
+        List<StructInfo> viewStructInfos;
+        try {
+            viewStructInfos = MaterializedViewUtils.extractStructInfo(plan, cascadesContext, expectedTableBitSet);
+            if (viewStructInfos.size() > 1) {
+                // view struct info should only have one, log error and use the first struct info
+                LOG.warn(String.format("view strut info is more than one, materialization plan is %s",
+                        plan.treeString()));
+            }
+        } catch (Exception exception) {
+            LOG.warn(String.format("construct materialization struct info fail, materialization plan is %s",
+                    plan.treeString()), exception);
+            return Optional.empty();
+        }
+        return Optional.of(viewStructInfos.get(0));
     }
 
     public boolean alreadyRewrite(GroupId groupId) {
@@ -133,32 +173,42 @@ public abstract class MaterializationContext {
     /**
      * Try to generate scan plan for materialization
      * if MaterializationContext is already rewritten successfully, then should generate new scan plan in later
-     * query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
+     * query rewrite, because one plan may hit the materialized view repeatedly and the materialization scan output
      * should be different.
      * This method should be called when query rewrite successfully
      */
-    public void tryReGenerateMvScanPlan(CascadesContext cascadesContext) {
-        this.mvScanPlan = doGenerateMvPlan(cascadesContext);
-        // mv output expression shuttle, this will be used to expression rewrite
-        this.mvExprToMvScanExprMapping = ExpressionMapping.generate(this.mvPlanOutputShuttledExpressions,
-                this.mvScanPlan.getOutput());
+    public void tryReGenerateScanPlan(CascadesContext cascadesContext) {
+        this.scanPlan = doGenerateScanPlan(cascadesContext);
+        // materialization output expression shuttle, this will be used to expression rewrite
+        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(
+                this.planOutputShuttledExpressions,
+                this.scanPlan.getOutput());
+        Map<Expression, Expression> regeneratedMapping = new HashMap<>();
+        List<Slot> originalPlanOutput = originalPlan.getOutput();
+        List<Slot> scanPlanOutput = this.scanPlan.getOutput();
+        if (originalPlanOutput.size() == scanPlanOutput.size()) {
+            for (int slotIndex = 0; slotIndex < originalPlanOutput.size(); slotIndex++) {
+                regeneratedMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
+            }
+        }
+        this.exprToScanExprMapping = regeneratedMapping;
     }
 
     public void addSlotMappingToCache(RelationMapping relationMapping, SlotMapping slotMapping) {
-        queryToMvSlotMappingCache.put(relationMapping, slotMapping);
+        queryToMaterializationSlotMappingCache.put(relationMapping, slotMapping);
     }
 
     public SlotMapping getSlotMappingFromCache(RelationMapping relationMapping) {
-        return queryToMvSlotMappingCache.get(relationMapping);
+        return queryToMaterializationSlotMappingCache.get(relationMapping);
     }
 
     /**
      * Try to generate scan plan for materialization
      * if MaterializationContext is already rewritten successfully, then should generate new scan plan in later
-     * query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
+     * query rewrite, because one plan may hit the materialized view repeatedly and the materialization scan output
      * should be different
      */
-    abstract Plan doGenerateMvPlan(CascadesContext cascadesContext);
+    abstract Plan doGenerateScanPlan(CascadesContext cascadesContext);
 
     /**
      * Get materialization unique qualifier which identify it
@@ -171,20 +221,48 @@ public abstract class MaterializationContext {
     abstract String getStringInfo();
 
     /**
+     * Get materialization plan statistics,
+     * the key is the identifier of statistics which is usual the scan plan relationId or something similar
+     * the value is original plan statistics.
+     * the statistics is used by cost estimation when the materialization is used
+     * Which should be the materialization origin plan statistics
+     */
+    abstract Optional<Pair<Id, Statistics>> getPlanStatistics(CascadesContext cascadesContext);
+
+    // original plan statistics is generated by origin plan, and the column expression in statistics
+    // should be keep consistent to mv scan plan
+    protected Statistics normalizeStatisticsColumnExpression(Statistics originalPlanStatistics) {
+        Map<Expression, ColumnStatistic> normalizedExpressionMap = new HashMap<>();
+        // this statistics column expression is materialization origin plan, should normalize it to
+        // materialization scan plan
+        for (Map.Entry<Expression, ColumnStatistic> entry : originalPlanStatistics.columnStatistics().entrySet()) {
+            Expression targetExpression = entry.getKey();
+            Expression sourceExpression = this.getExprToScanExprMapping().get(targetExpression);
+            if (sourceExpression != null && targetExpression instanceof NamedExpression
+                    && sourceExpression instanceof NamedExpression) {
+                normalizedExpressionMap.put(AbstractMaterializedViewRule.normalizeExpression(
+                                (NamedExpression) sourceExpression, (NamedExpression) targetExpression).toSlot(),
+                        entry.getValue());
+            }
+        }
+        return originalPlanStatistics.withExpressionToColumnStats(normalizedExpressionMap);
+    }
+
+    /**
      * Calc the relation is chosen finally or not
      */
     abstract boolean isFinalChosen(Relation relation);
 
-    public Plan getMvPlan() {
-        return mvPlan;
+    public Plan getPlan() {
+        return plan;
     }
 
-    public Plan getOriginalMvPlan() {
-        return originalMvPlan;
+    public Plan getOriginalPlan() {
+        return originalPlan;
     }
 
-    public Plan getMvScanPlan() {
-        return mvScanPlan;
+    public Plan getScanPlan() {
+        return scanPlan;
     }
 
     public List<Table> getBaseTables() {
@@ -195,8 +273,12 @@ public abstract class MaterializationContext {
         return baseViews;
     }
 
-    public ExpressionMapping getMvExprToMvScanExprMapping() {
-        return mvExprToMvScanExprMapping;
+    public Map<Expression, Expression> getExprToScanExprMapping() {
+        return exprToScanExprMapping;
+    }
+
+    public ExpressionMapping getShuttledExprToScanExprMapping() {
+        return shuttledExprToScanExprMapping;
     }
 
     public boolean isAvailable() {
@@ -276,9 +358,8 @@ public abstract class MaterializationContext {
         // rewrite success and chosen
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
         if (!chosenMaterializationQualifiers.isEmpty()) {
-            builder.append("  Names: ");
             chosenMaterializationQualifiers.forEach(materializationQualifier ->
-                    builder.append(generateQualifierName(materializationQualifier)).append(", "));
+                    builder.append(generateQualifierName(materializationQualifier)).append(", \n"));
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");

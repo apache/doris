@@ -100,6 +100,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public static final float FUNCTION_CALL_COST = 10;
 
+    protected Optional<Boolean> nullableFromNereids = Optional.empty();
+
     // returns true if an Expr is a non-analytic aggregate.
     private static final com.google.common.base.Predicate<Expr> IS_AGGREGATE_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
@@ -1003,7 +1005,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
         msg.output_scale = getOutputScale();
-        msg.setIsNullable(isNullable());
+        msg.setIsNullable(nullableFromNereids.isPresent() ? nullableFromNereids.get() : isNullable());
         toThrift(msg);
         container.addToNodes(msg);
         for (Expr child : children) {
@@ -2575,6 +2577,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public boolean isZeroLiteral() {
         return this instanceof LiteralExpr && ((LiteralExpr) this).isZero();
+    }
+
+    public void setNullableFromNereids(boolean nullable) {
+        nullableFromNereids = Optional.of(nullable);
     }
 }
 

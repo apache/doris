@@ -82,9 +82,6 @@ void TimezoneUtils::load_timezone_names() {
         path = config::default_tzfiles_path + '/';
         CHECK(std::filesystem::exists(path))
                 << "Can't find system tzfiles or default tzfiles neither.";
-    } else if (config::use_doris_tzfile) {
-        path = config::default_tzfiles_path + '/';
-        LOG(INFO) << "Directly use Doris' tzfiles in " << path;
     }
 
     auto path_prefix_len = path.size();
@@ -111,8 +108,10 @@ T swapEndianness(T value) {
 
 template <typename T>
 T next_from_charstream(int8_t*& src) {
-    T value = *reinterpret_cast<T*>(src);
-    src += sizeof(T) / sizeof(int8_t);
+    T value = 0;
+    constexpr auto step = sizeof(T) / sizeof(int8_t);
+    memcpy(&value, src, step);
+    src += step;
     if constexpr (std::endian::native == std::endian::little) {
         return swapEndianness(
                 value); // timezone information files use network endianess, which is big-endian
@@ -243,14 +242,12 @@ void TimezoneUtils::load_timezones_to_cache() {
     base_str += tzdir;
     base_str += '/';
 
-    if (!std::filesystem::exists(base_str)) {
+    auto root_path = std::filesystem::path {base_str};
+    if (!std::filesystem::exists(root_path)) {
         LOG_WARNING("Cannot find system tzfile. Use default instead.");
-        base_str = config::default_tzfiles_path + '/';
-        CHECK(std::filesystem::exists(base_str))
+        root_path = config::default_tzfiles_path + '/';
+        CHECK(std::filesystem::exists(root_path))
                 << "Can't find system tzfiles or default tzfiles neither.";
-    } else if (config::use_doris_tzfile) {
-        base_str = config::default_tzfiles_path + '/';
-        LOG(INFO) << "Directly use Doris' tzfiles in " << base_str;
     }
 
     std::set<std::string> ignore_paths = {"posix", "right"}; // duplications

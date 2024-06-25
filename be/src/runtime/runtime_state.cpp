@@ -28,10 +28,14 @@
 #include <memory>
 #include <string>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "io/fs/s3_file_system.h"
+#include "olap/storage_engine.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -55,10 +59,8 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         : _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(fragment_exec_params.query_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -94,14 +96,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                 fragment_exec_params.runtime_filter_params);
     }
-
-    if (_query_ctx) {
-        if (fragment_exec_params.__isset.topn_filter_source_node_ids) {
-            _query_ctx->init_runtime_predicates(fragment_exec_params.topn_filter_source_node_ids);
-        } else {
-            _query_ctx->init_runtime_predicates({0});
-        }
-    }
 }
 
 RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
@@ -110,11 +104,9 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
         : _profile("Fragment " + print_id(instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -148,11 +140,9 @@ RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& 
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(nullptr),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -182,11 +172,9 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
         : _profile("PipelineX  " + std::to_string(fragment_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
@@ -217,9 +205,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         : _profile("<unnamed>"),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
     if (query_globals.__isset.time_zone && query_globals.__isset.nano_seconds) {
@@ -252,11 +238,10 @@ RuntimeState::RuntimeState()
         : _profile("<unnamed>"),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
-          _is_cancelled(false),
           _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
+    _query_options.be_exec_version = BeExecVersionManager::get_newest_version();
     _timezone = TimezoneUtils::default_time_zone;
     _timestamp_ms = 0;
     _nano_seconds = 0;
@@ -272,6 +257,20 @@ RuntimeState::~RuntimeState() {
         _error_log_file->close();
         delete _error_log_file;
         _error_log_file = nullptr;
+        if (_s3_error_fs) {
+            std::string error_log_absolute_path =
+                    _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
+            // upload error log file to s3
+            Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
+            if (st.ok()) {
+                // remove local error log file
+                std::filesystem::remove(error_log_absolute_path);
+            } else {
+                // remove local error log file later by clean_expired_temp_path thread
+                LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
+                             << _error_log_file_path << ", error=" << st;
+            }
+        }
     }
 
     _obj_pool->clear();
@@ -358,25 +357,39 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
     }
 }
 
-Status RuntimeState::query_status() {
-    auto st = _query_ctx->exec_status();
-    RETURN_IF_ERROR(st);
-    std::lock_guard<std::mutex> l(_process_status_lock);
-    return _process_status;
-}
-
 bool RuntimeState::is_cancelled() const {
     // Maybe we should just return _is_cancelled.load()
-    return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
+    return !_exec_status.ok() || (_query_ctx && _query_ctx->is_cancelled());
 }
 
-std::string RuntimeState::cancel_reason() const {
-    return _cancel_reason;
+Status RuntimeState::cancel_reason() const {
+    if (!_exec_status.ok()) {
+        return _exec_status.status();
+    }
+
+    if (_query_ctx) {
+        return _query_ctx->exec_status();
+    }
+
+    return Status::Cancelled("Query cancelled");
 }
 
 const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_error_log_file() {
+    if (config::save_load_error_log_to_s3 && config::is_cloud_mode()) {
+        _s3_error_fs = std::dynamic_pointer_cast<io::S3FileSystem>(
+                ExecEnv::GetInstance()->storage_engine().to_cloud().latest_fs());
+        if (_s3_error_fs) {
+            std::stringstream ss;
+            // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_err_packet.html
+            // shorten the path as much as possible to prevent the length of the presigned URL from
+            // exceeding the MySQL error packet size limit
+            ss << "error_log/" << _import_label << "_" << std::hex << _fragment_instance_id.hi;
+            _s3_error_log_file_path = ss.str();
+        }
+    }
+
     static_cast<void>(_exec_env->load_path_mgr()->get_load_error_file_name(
             _db_name, _import_label, _fragment_instance_id, &_error_log_file_path));
     std::string error_log_absolute_path =
@@ -449,6 +462,17 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
         }
     }
     return Status::OK();
+}
+
+std::string RuntimeState::get_error_log_file_path() const {
+    if (_s3_error_fs) {
+        // expiration must be less than a week (in seconds) for presigned url
+        static const unsigned EXPIRATION_SECONDS = 7 * 24 * 60 * 60 - 1;
+        // We should return a public endpoint to user.
+        return _s3_error_fs->generate_presigned_url(_s3_error_log_file_path, EXPIRATION_SECONDS,
+                                                    true);
+    }
+    return _error_log_file_path;
 }
 
 int64_t RuntimeState::get_load_mem_limit() {

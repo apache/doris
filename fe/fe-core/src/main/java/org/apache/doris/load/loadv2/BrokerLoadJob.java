@@ -51,7 +51,9 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -123,7 +125,9 @@ public class BrokerLoadJob extends BulkLoadJob {
             QuotaExceedException, MetaNotFoundException {
         transactionId = Env.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        new TxnCoordinator(TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
                         getTimeout());
     }
@@ -322,7 +326,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
 
         // check data quality
-        if (!checkDataQuality()) {
+        if (!checkDataQuality() || attachment.getStatus().getErrorCode() == TStatusCode.DATA_QUALITY_ERROR) {
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED,
                             DataQualityException.QUALITY_FAIL_MSG), true, true);
             return;
@@ -396,7 +400,7 @@ public class BrokerLoadJob extends BulkLoadJob {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
             builder.totalTime(DebugUtil.getPrettyStringMs(currentTimestamp - createTimestamp));
         }
-        builder.taskState("FINISHED");
+        builder.taskState(isFinished ? "FINISHED" : "RUNNING");
         builder.user(getUserInfo() != null ? getUserInfo().getQualifiedUser() : "N/A");
         builder.defaultDb(getDefaultDb());
         builder.sqlStatement(getOriginStmt().originStmt);

@@ -54,23 +54,24 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalProject
 ------------------------filter((ss3.d_qoy = 3) and (ss3.d_year = 1999))
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ca_county = ws2.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL)))
-----------------------hashJoin[INNER_JOIN] hashCondition=((ss1.ca_county = ws1.ca_county)) otherCondition=()
-------------------------hashJoin[INNER_JOIN] hashCondition=((ss1.ca_county = ss2.ca_county)) otherCondition=()
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ca_county = ws2.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL)))
+------------------------hashJoin[INNER_JOIN] hashCondition=((ss1.ca_county = ws1.ca_county)) otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((ss1.ca_county = ss2.ca_county)) otherCondition=()
+----------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------PhysicalProject
+--------------------------------filter((ss1.d_qoy = 1) and (ss1.d_year = 1999))
+----------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------PhysicalProject
+--------------------------------filter((ss2.d_qoy = 2) and (ss2.d_year = 1999))
+----------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
-------------------------------filter((ss1.d_qoy = 1) and (ss1.d_year = 1999))
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------PhysicalProject
-------------------------------filter((ss2.d_qoy = 2) and (ss2.d_year = 1999))
---------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------------filter((ws1.d_qoy = 1) and (ws1.d_year = 1999))
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------PhysicalProject
-----------------------------filter((ws1.d_qoy = 1) and (ws1.d_year = 1999))
+----------------------------filter((ws2.d_qoy = 2) and (ws2.d_year = 1999))
 ------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------filter((ws2.d_qoy = 2) and (ws2.d_year = 1999))
-----------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 

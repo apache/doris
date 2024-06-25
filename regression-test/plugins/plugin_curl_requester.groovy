@@ -32,13 +32,37 @@ Suite.metaClass.curl = { String method, String url /* param */->
     }
     
     Integer timeout = 10; // 10 seconds;
+    Integer maxRetries = 10; // Maximum number of retries
+    Integer retryCount = 0; // Current retry count
+    Integer sleepTime = 5000; // Sleep time in milliseconds
 
     String cmd = String.format("curl --max-time %d -X %s %s", timeout, method, url).toString()
     logger.info("curl cmd: " + cmd)
-    def process = cmd.execute()
-    int code = process.waitFor()
-    String err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-    String out = process.getText()
+    def process
+    int code
+    String err
+    String out
+
+    while (retryCount < maxRetries) {
+        process = cmd.execute()
+        code = process.waitFor()
+        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+        out = process.getText()
+
+        // If the command was successful, break the loop
+        if (code == 0) {
+            break
+        }
+
+        // If the command was not successful, increment the retry count, sleep for a while and try again
+        retryCount++
+        sleep(sleepTime)
+    }
+
+    // If the command was not successful after maxRetries attempts, log the failure and return the result
+    if (code != 0) {
+        logger.error("Command curl failed after " + maxRetries + " attempts. code: "  + code + ", err: " + err)
+    }
 
     return [code, out, err]
 }
@@ -54,6 +78,10 @@ logger.info("Added 'show_be_config' function to Suite")
 
 Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id  /* param */->
     return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id))
+}
+
+Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* param */->
+    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
 }
 
 logger.info("Added 'be_get_compaction_status' function to Suite")

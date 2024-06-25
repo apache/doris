@@ -55,8 +55,9 @@ class BetaRowset;
 // Make sure that cache_handle is valid during the segment usage period.
 using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
 
-class SegmentCache : public LRUCachePolicy {
+class SegmentCache : public LRUCachePolicyTrackingManual {
 public:
+    using LRUCachePolicyTrackingManual::insert;
     // The cache key or segment lru cache
     struct CacheKey {
         CacheKey(RowsetId rowset_id_, int64_t segment_id_)
@@ -74,15 +75,15 @@ public:
     // Holding all opened segments of a rowset.
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::SEGMENT_CACHE) {}
         ~CacheValue() override { segment.reset(); }
 
         segment_v2::SegmentSharedPtr segment;
     };
 
     SegmentCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::SEGMENT_CACHE, capacity, LRUCacheType::SIZE,
-                             config::tablet_rowset_stale_sweep_time_sec) {}
+            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::SEGMENT_CACHE, capacity,
+                                           LRUCacheType::SIZE,
+                                           config::tablet_rowset_stale_sweep_time_sec) {}
 
     // Lookup the given segment in the cache.
     // If the segment is found, the cache entry will be written into handle.
@@ -114,15 +115,20 @@ public:
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
-                         bool use_cache = false);
+                         bool use_cache = false, bool need_load_pk_index_and_bf = false);
 
     void erase_segment(const SegmentCache::CacheKey& key);
 
     void erase_segments(const RowsetId& rowset_id, int64_t num_segments);
 
+    // Just used for BE UT
+    int64_t cache_mem_usage() const { return _cache_mem_usage; }
+
 private:
     SegmentLoader();
     std::unique_ptr<SegmentCache> _segment_cache;
+    // Just used for BE UT
+    int64_t _cache_mem_usage = 0;
 };
 
 // A handle for a single rowset from segment lru cache.

@@ -107,7 +107,8 @@ suite("github_event_advance_p2", "variant_type,p2"){
                     "AWS_ACCESS_KEY" = "$ak",
                     "AWS_SECRET_KEY" = "$sk",
                     "AWS_ENDPOINT" = "${s3Endpoint}",
-                    "AWS_REGION" = "${s3Region}"
+                    "AWS_REGION" = "${s3Region}",
+                    "provider" = "${getS3Provider()}"
                 )
                 PROPERTIES(
                     "load_parallelism" = "${paral}"

@@ -196,7 +196,7 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 0, 0);
+                return new ColStatsMeta(0, null, null, null, 0, 0, 0, null);
             }
         };
 
@@ -221,7 +221,7 @@ class StatisticsUtilTest {
                 return true;
             }
         };
-        tableMeta.newPartitionLoaded.set(true);
+        tableMeta.partitionChanged.set(true);
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test empty table to non-empty table.
@@ -231,7 +231,7 @@ class StatisticsUtilTest {
                 return 100;
             }
         };
-        tableMeta.newPartitionLoaded.set(false);
+        tableMeta.partitionChanged.set(false);
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test non-empty table to empty table.
@@ -244,20 +244,20 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 100, 0);
+                return new ColStatsMeta(0, null, null, null, 0, 100, 0, null);
             }
         };
-        tableMeta.newPartitionLoaded.set(false);
+        tableMeta.partitionChanged.set(false);
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test table still empty.
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 0, 0);
+                return new ColStatsMeta(0, null, null, null, 0, 0, 0, null);
             }
         };
-        tableMeta.newPartitionLoaded.set(false);
+        tableMeta.partitionChanged.set(false);
         Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test row count changed more than threshold.
@@ -270,10 +270,10 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 500, 0);
+                return new ColStatsMeta(0, null, null, null, 0, 500, 0, null);
             }
         };
-        tableMeta.newPartitionLoaded.set(false);
+        tableMeta.partitionChanged.set(false);
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test update rows changed more than threshold.
@@ -286,15 +286,15 @@ class StatisticsUtilTest {
         new MockUp<TableStatsMeta>() {
             @Mock
             public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
-                return new ColStatsMeta(0, null, null, null, 0, 100, 80);
+                return new ColStatsMeta(0, null, null, null, 0, 100, 80, null);
             }
         };
-        tableMeta.newPartitionLoaded.set(false);
+        tableMeta.partitionChanged.set(false);
         tableMeta.updatedRows.set(200);
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
         // Test update rows changed less than threshold
-        tableMeta.newPartitionLoaded.set(false);
+        tableMeta.partitionChanged.set(false);
         tableMeta.updatedRows.set(100);
         Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 

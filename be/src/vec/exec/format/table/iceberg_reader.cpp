@@ -151,17 +151,6 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
     return _shrink_block_if_need(block);
 }
 
-Status IcebergTableReader::set_fill_columns(
-        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    return _file_format_reader->set_fill_columns(partition_columns, missing_columns);
-}
-
-bool IcebergTableReader::fill_all_columns() const {
-    return _file_format_reader->fill_all_columns();
-};
-
 Status IcebergTableReader::get_columns(
         std::unordered_map<std::string, TypeDescriptor>* name_to_type,
         std::unordered_set<std::string>* missing_cols) {
@@ -191,7 +180,8 @@ Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
     }
 
     if (position_delete_files.size() > 0) {
-        RETURN_IF_ERROR(_position_delete_base(position_delete_files));
+        RETURN_IF_ERROR(
+                _position_delete_base(table_desc.original_file_path, position_delete_files));
     }
     if (equality_delete_files.size() > 0) {
         RETURN_IF_ERROR(_equality_delete_base(equality_delete_files));
@@ -304,17 +294,7 @@ Status IcebergTableReader::_shrink_block_if_need(Block* block) {
 }
 
 Status IcebergTableReader::_position_delete_base(
-        const std::vector<TIcebergDeleteFileDesc>& delete_files) {
-    std::string data_file_path = _range.path;
-    // the path in _range is remove the namenode prefix,
-    // and the file_path in delete file is full path, so we should add it back.
-    if (_params.__isset.hdfs_params && _params.hdfs_params.__isset.fs_name) {
-        std::string fs_name = _params.hdfs_params.fs_name;
-        if (!starts_with(data_file_path, fs_name)) {
-            data_file_path = fs_name + data_file_path;
-        }
-    }
-
+        const std::string data_file_path, const std::vector<TIcebergDeleteFileDesc>& delete_files) {
     std::vector<DeleteRows*> delete_rows_array;
     int64_t num_delete_rows = 0;
     std::vector<DeleteFile*> erase_data;

@@ -377,7 +377,7 @@ Status VCollectIterator::_topn_next(Block* block) {
 
                 size_t base = mutable_block.rows();
                 // append block to mutable_block
-                mutable_block.add_rows(block, 0, rows_to_copy);
+                RETURN_IF_ERROR(mutable_block.add_rows(block, 0, rows_to_copy));
                 // insert appended rows pos in mutable_block to sorted_row_pos and sort it
                 for (size_t i = 0; i < rows_to_copy; i++) {
                     sorted_row_pos.insert(base + i);
@@ -414,7 +414,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             }
 
             // update runtime_predicate
-            if (_reader->_reader_context.use_topn_opt && changed &&
+            if (!_reader->_reader_context.topn_filter_source_node_ids.empty() && changed &&
                 sorted_row_pos.size() >= _topn_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();

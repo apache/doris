@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_json_type_cast", "p0") {
+    sql """ set enable_fold_constant_by_be = false;"""
     qt_sql1 "SELECT CAST(CAST(10 AS JSON) as INT)"
     qt_sql2 "SELECT CAST(CAST(102423 AS JSON) as TINYINT)"
     qt_sql3 "SELECT CAST(CAST(102423 AS JSON) as SMALLINT)"

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.odbc.sink.OdbcTableSink;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TExplainLevel;
@@ -70,6 +71,8 @@ public abstract class DataSink {
             return new OdbcTableSink((OdbcTable) table);
         } else if (table instanceof HMSExternalTable) {
             return new HiveTableSink((HMSExternalTable) table);
+        } else if (table instanceof IcebergExternalTable) {
+            return new IcebergTableSink((IcebergExternalTable) table);
         } else {
             throw new AnalysisException("Unknown table type " + table.getType());
         }

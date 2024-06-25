@@ -18,7 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.DynamicPartitionProperty;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -68,7 +72,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         }
 
         if (properties.size() != 1
-                && !TableProperty.isSamePrefixProperties(properties, TableProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
+                && !TableProperty.isSamePrefixProperties(
+                        properties, DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
                 && !TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_BINLOG_PREFIX)) {
             throw new AnalysisException(
                     "Can only set one table property(without dynamic partition && binlog) at a time");
@@ -313,8 +318,26 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             throw new AnalysisException("You can not modify storage vault id");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
             throw new AnalysisException("You can not modify estimate partition size");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
+            // do nothing, will be analyzed when creating alter job
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS)) {
+            // do nothing, will be analyzed when creating alter job
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
+        }
+        analyzeForMTMV();
+    }
+
+    private void analyzeForMTMV() throws AnalysisException {
+        if (tableName != null) {
+            Table table = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb())
+                    .getTableOrAnalysisException(tableName.getTbl());
+            if (!(table instanceof MTMV)) {
+                return;
+            }
+            if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+                throw new AnalysisException("Not support dynamic partition properties on async materialized view");
+            }
         }
     }
 
@@ -326,6 +349,11 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
     @Override
     public boolean allowOpMTMV() {
         return true;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
     }
 
     @Override

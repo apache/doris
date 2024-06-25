@@ -55,6 +55,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -2378,6 +2379,56 @@ public class AuthTest {
     }
 
     @Test
+    public void testTableNamesCaseSensitive() throws UserException {
+        new Expectations() {
+            {
+                Env.isTableNamesCaseSensitive();
+                minTimes = 0;
+                result = true;
+            }
+        };
+        UserIdentity userIdentity = new UserIdentity("sensitiveUser", "%");
+        createUser(userIdentity);
+        // `load_priv` and `select_priv` can not `show create view`
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, new TablePattern("sensitivedb", "sensitiveTable"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV)));
+        grant(grantStmt);
+        Assert.assertTrue(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb", "sensitiveTable",
+                        PrivPredicate.SELECT));
+
+        Assert.assertFalse(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb", "sensitivetable",
+                        PrivPredicate.SELECT));
+        dropUser(userIdentity);
+    }
+
+    @Test
+    public void testTableNamesCaseInsensitive() throws UserException {
+        new Expectations() {
+            {
+                Env.isTableNamesCaseSensitive();
+                minTimes = 0;
+                result = false;
+            }
+        };
+        UserIdentity userIdentity = new UserIdentity("sensitiveUser1", "%");
+        createUser(userIdentity);
+        // `load_priv` and `select_priv` can not `show create view`
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, new TablePattern("sensitivedb1", "sensitiveTable"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV)));
+        grant(grantStmt);
+        Assert.assertTrue(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb1", "sensitiveTable",
+                        PrivPredicate.SELECT));
+
+        Assert.assertTrue(accessManager
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "sensitivedb1", "sensitivetable",
+                        PrivPredicate.SELECT));
+        dropUser(userIdentity);
+    }
+
+    @Test
     public void testSetInitialRootPassword() {
         // Skip set root password if `initial_root_password` set to empty string
         auth.setInitialRootPassword("");
@@ -2392,5 +2443,46 @@ public class AuthTest {
         auth.setInitialRootPassword(new String(scrambled));
         Assert.assertTrue(
                 auth.checkPlainPasswordForTest("root", "192.168.0.1", "validRootPassword", null));
+    }
+
+    @Test
+    public void testShowRoles() {
+        String role = "test_wg_role";
+        CreateRoleStmt roleStmt = new CreateRoleStmt(role);
+        try {
+            roleStmt.analyze(analyzer);
+            auth.createRole(roleStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        AccessPrivilege accessPrivilege = AccessPrivilege.fromName("USAGE_PRIV");
+        AccessPrivilegeWithCols apwc = new AccessPrivilegeWithCols(accessPrivilege);
+        List<AccessPrivilegeWithCols> list = new ArrayList<>();
+        list.add(apwc);
+        WorkloadGroupPattern wgp = new WorkloadGroupPattern("test_wg");
+        GrantStmt grantStmt = new GrantStmt(null, role, wgp, list);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        List<List<String>> showInfo = auth.getRoleInfo();
+        boolean findWgPriv = false;
+        for (int i = 0; i < showInfo.size(); i++) {
+            List<String> row = showInfo.get(i);
+            String name = row.get(0);
+            if (role.equals(name)) {
+                findWgPriv = true;
+                String wgPriv = row.get(row.size() - 1);
+                Assert.assertTrue("test_wg: Usage_priv".equals(wgPriv));
+            }
+        }
+        Assert.assertTrue(findWgPriv);
+
     }
 }

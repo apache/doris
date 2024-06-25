@@ -248,10 +248,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return hasColocatePlanNode;
     }
 
-    public void setDataPartition(DataPartition dataPartition) {
-        this.dataPartition = dataPartition;
-    }
-
     /**
      * Finalize plan tree and create stream sink, if needed.
      */

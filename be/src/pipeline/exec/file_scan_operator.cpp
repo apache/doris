@@ -44,17 +44,17 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     _kv_cache.reset(new vectorized::ShardedKVCache(shard_num));
     for (int i = 0; i < _max_scanners; ++i) {
         std::unique_ptr<vectorized::VFileScanner> scanner = vectorized::VFileScanner::create_unique(
-                state(), this, p._limit_per_scanner, _split_source, _scanner_profile.get(),
-                _kv_cache.get());
+                state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get());
         RETURN_IF_ERROR(
-                scanner->prepare(_conjuncts, &_colname_to_value_range, &_colname_to_slot_id));
+                scanner->prepare(_conjuncts, &_colname_to_value_range, &p._colname_to_slot_id));
         scanners->push_back(std::move(scanner));
     }
     return Status::OK();
 }
 
 std::string FileScanLocalState::name_suffix() const {
-    return fmt::format(" (id={}. table name = {})", std::to_string(_parent->node_id()),
+    return fmt::format(" (id={}. nereids_id={}. table name = {})",
+                       std::to_string(_parent->node_id()), std::to_string(_parent->nereids_id()),
                        _parent->cast<FileScanOperatorX>()._table_name);
 }
 

@@ -73,7 +73,7 @@ class MemTracker;
 class BaseStorageEngine;
 class ResultBufferMgr;
 class ResultQueueMgr;
-class RuntimeQueryStatiticsMgr;
+class RuntimeQueryStatisticsMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class LoadStreamMgr;
@@ -81,7 +81,6 @@ class LoadStreamMapPool;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
-class BlockSpillManager;
 class BackendServiceClient;
 class TPaloBrokerServiceClient;
 class PBackendService_Stub;
@@ -151,7 +150,7 @@ public:
     pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
     WorkloadGroupMgr* workload_group_mgr() { return _workload_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
-    RuntimeQueryStatiticsMgr* runtime_query_statistics_mgr() {
+    RuntimeQueryStatisticsMgr* runtime_query_statistics_mgr() {
         return _runtime_query_statistics_mgr;
     }
 
@@ -216,9 +215,9 @@ public:
         return _function_client_cache;
     }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
+    LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr.get(); }
     std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
-    BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
     doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
 
@@ -266,7 +265,9 @@ public:
         this->_dummy_lru_cache = dummy_lru_cache;
     }
     void set_write_cooldown_meta_executors();
-
+    static void set_tracking_memory(bool tracking_memory) {
+        _s_tracking_memory.store(tracking_memory, std::memory_order_release);
+    }
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
@@ -382,6 +383,7 @@ private:
     BfdParser* _bfd_parser = nullptr;
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
+    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
     // TODO(zhiqiang): Do not use shared_ptr in exec_env, we can not control its life cycle.
     std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
@@ -393,7 +395,6 @@ private:
     HeartbeatFlags* _heartbeat_flags = nullptr;
     vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
-    BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
@@ -429,7 +430,7 @@ private:
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
 
-    RuntimeQueryStatiticsMgr* _runtime_query_statistics_mgr = nullptr;
+    RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;
 
     std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;

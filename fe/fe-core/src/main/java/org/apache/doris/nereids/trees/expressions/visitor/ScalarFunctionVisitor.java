@@ -67,10 +67,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeYea
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayShuffle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayWithConstant;
@@ -307,6 +309,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
@@ -328,6 +331,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplace
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplaceOne;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Repeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Replace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ReplaceEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Reverse;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Right;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
@@ -630,6 +634,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArraySortBy(ArraySortBy arraySortBy, C context) {
         return visitScalarFunction(arraySortBy, context);
+    }
+
+    default R visitArraySplit(ArraySplit arraySplit, C context) {
+        return visitScalarFunction(arraySplit, context);
+    }
+
+    default R visitArrayReverseSplit(ArrayReverseSplit arrayReverseSplit, C context) {
+        return visitScalarFunction(arrayReverseSplit, context);
     }
 
     default R visitArrayShuffle(ArrayShuffle arrayShuffle, C context) {
@@ -1600,6 +1612,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(nvl, context);
     }
 
+    default R visitOverlay(Overlay overlay, C context) {
+        return visitScalarFunction(overlay, context);
+    }
+
     default R visitParseUrl(ParseUrl parseUrl, C context) {
         return visitScalarFunction(parseUrl, context);
     }
@@ -1686,6 +1702,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitReplace(Replace replace, C context) {
         return visitScalarFunction(replace, context);
+    }
+
+    default R visitReplaceEmpty(ReplaceEmpty replaceEmpty, C context) {
+        return visitScalarFunction(replaceEmpty, context);
     }
 
     default R visitReverse(Reverse reverse, C context) {

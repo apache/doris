@@ -143,6 +143,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
         int formatVersion = icebergSplit.getFormatVersion();
         fileDesc.setFormatVersion(formatVersion);
+        fileDesc.setOriginalFilePath(icebergSplit.getOriginalPath());
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
         } else {
@@ -258,7 +259,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                         new String[0],
                         formatVersion,
                         source.getCatalog().getProperties(),
-                        partitionValues);
+                        partitionValues,
+                        splitTask.file().path().toString());
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
                     split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
                 }
@@ -283,6 +285,9 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public Long getSpecifiedSnapshot() throws UserException {
         TableSnapshot tableSnapshot = source.getDesc().getRef().getTableSnapshot();
+        if (tableSnapshot == null) {
+            tableSnapshot = this.tableSnapshot;
+        }
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
             try {
@@ -460,5 +465,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         return super.getNodeExplainString(prefix, detailLevel)
                 + String.format("%sicebergPredicatePushdown=\n%s\n", prefix, sb);
+    }
+
+    public void setTableSnapshot(TableSnapshot tableSnapshot) {
+        this.tableSnapshot = tableSnapshot;
     }
 }

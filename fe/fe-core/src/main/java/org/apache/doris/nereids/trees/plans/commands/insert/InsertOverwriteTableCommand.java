@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
@@ -26,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
@@ -60,7 +62,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * insert into select command implementation
@@ -76,14 +77,17 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
 
     private LogicalPlan logicalQuery;
     private Optional<String> labelName;
+    private final Optional<LogicalPlan> cte;
 
     /**
      * constructor
      */
-    public InsertOverwriteTableCommand(LogicalPlan logicalQuery, Optional<String> labelName) {
+    public InsertOverwriteTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
+            Optional<LogicalPlan> cte) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
+        this.cte = cte;
     }
 
     public void setLabelName(Optional<String> labelName) {
@@ -111,7 +115,14 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
             throw new AnalysisException("insert into overwrite only support OLAP and HMS table."
                     + " But current table type is " + targetTableIf.getType());
         }
-        this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
+        if (targetTableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
+            throw new AnalysisException("Not allowed to perform current operation on async materialized view");
+        }
+        this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, Optional.empty());
+        if (cte.isPresent()) {
+            this.logicalQuery = (LogicalPlan) logicalQuery.withChildren(cte.get().withChildren(
+                    this.logicalQuery.child(0)));
+        }
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
@@ -122,7 +133,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         }
 
         Optional<TreeNode<?>> plan = (planner.getPhysicalPlan()
-                .<Set<TreeNode<?>>>collect(node -> node instanceof PhysicalTableSink)).stream().findAny();
+                .<TreeNode<?>>collect(node -> node instanceof PhysicalTableSink)).stream().findAny();
         Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
         PhysicalTableSink<?> physicalTableSink = ((PhysicalTableSink<?>) plan.get());
         TableIf targetTable = physicalTableSink.getTargetTable();
@@ -182,7 +193,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
                                   ConnectContext ctx, StmtExecutor executor) throws Exception {
         InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(logicalQuery, labelName,
-                Optional.of(insertCtx));
+                Optional.of(insertCtx), Optional.empty());
         insertCommand.run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -216,7 +227,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     (LogicalPlan) (sink.child(0)));
             // 1. for overwrite situation, we disable auto create partition.
             // 2. we save and pass overwrite auto detect by insertCtx
-            insertCtx = new OlapInsertCommandContext(false);
+            insertCtx = new OlapInsertCommandContext(false, true);
         } else if (logicalQuery instanceof UnboundHiveTableSink) {
             UnboundHiveTableSink<?> sink = (UnboundHiveTableSink<?>) logicalQuery;
             copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
@@ -248,7 +259,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         InsertCommandContext insertCtx;
         if (logicalQuery instanceof UnboundTableSink) {
             insertCtx = new OlapInsertCommandContext(false,
-                    ((UnboundTableSink<?>) logicalQuery).isAutoDetectPartition(), groupId);
+                    ((UnboundTableSink<?>) logicalQuery).isAutoDetectPartition(), groupId, true);
         } else if (logicalQuery instanceof UnboundHiveTableSink) {
             insertCtx = new HiveInsertCommandContext();
             ((HiveInsertCommandContext) insertCtx).setOverwrite(true);

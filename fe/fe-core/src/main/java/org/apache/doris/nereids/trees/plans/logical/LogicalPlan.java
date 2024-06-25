@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -26,7 +26,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -58,13 +57,13 @@ public interface LogicalPlan extends Plan {
     }
 
     /**
-     * Compute FunctionalDependencies for different plan
+     * Compute DataTrait for different plan
      * Note: Unless you really know what you're doing, please use the following interface.
      *   - BlockFDPropagation: clean the fd
      *   - PropagateFD: propagate the fd
      */
-    default FunctionalDependencies computeFuncDeps() {
-        FunctionalDependencies.Builder fdBuilder = new FunctionalDependencies.Builder();
+    default DataTrait computeFuncDeps() {
+        DataTrait.Builder fdBuilder = new DataTrait.Builder();
         computeUniform(fdBuilder);
         computeUnique(fdBuilder);
         computeEqualSet(fdBuilder);
@@ -72,17 +71,15 @@ public interface LogicalPlan extends Plan {
         ImmutableSet<FdItem> fdItems = computeFdItems();
         fdBuilder.addFdItems(fdItems);
 
-        List<Set<Slot>> uniqueSlots = fdBuilder.getAllUnique();
-        Set<Slot> uniformSlots = fdBuilder.getAllUniform();
         for (Slot slot : getOutput()) {
             Set<Slot> o = ImmutableSet.of(slot);
-            // all slot dependents unique slot
-            for (Set<Slot> uniqueSlot : uniqueSlots) {
+            // all slots dependent unique slot
+            for (Set<Slot> uniqueSlot : fdBuilder.getAllUniqueAndNotNull()) {
                 fdBuilder.addDeps(uniqueSlot, o);
             }
-            // uniform slot dependents all unique slot
-            for (Slot uniformSlot : uniformSlots) {
-                fdBuilder.addDeps(o, ImmutableSet.of(uniformSlot));
+            // uniform slot dependents all slots
+            for (Set<Slot> uniformSlot : fdBuilder.getAllUniformAndNotNull()) {
+                fdBuilder.addDeps(o, uniformSlot);
             }
         }
         for (Set<Slot> equalSet : fdBuilder.calEqualSetList()) {
@@ -96,11 +93,11 @@ public interface LogicalPlan extends Plan {
 
     ImmutableSet<FdItem> computeFdItems();
 
-    void computeUnique(FunctionalDependencies.Builder fdBuilder);
+    void computeUnique(DataTrait.Builder builder);
 
-    void computeUniform(FunctionalDependencies.Builder fdBuilder);
+    void computeUniform(DataTrait.Builder builder);
 
-    void computeEqualSet(FunctionalDependencies.Builder fdBuilder);
+    void computeEqualSet(DataTrait.Builder builder);
 
-    void computeFd(FunctionalDependencies.Builder fdBuilder);
+    void computeFd(DataTrait.Builder builder);
 }

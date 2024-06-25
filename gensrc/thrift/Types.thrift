@@ -114,7 +114,8 @@ enum TStorageBackendType {
     HDFS,
     JFS,
     LOCAL,
-    OFS
+    OFS,
+    AZURE
 }
 
 struct TScalarType {
@@ -167,6 +168,7 @@ struct TTypeDesc {
     4: optional list<TTypeDesc> sub_types
     5: optional bool result_is_nullable
     6: optional string function_name
+    7: optional i32 be_exec_version
 }
 
 enum TAggregationType {
@@ -404,7 +406,7 @@ enum TOdbcTableType {
     PRESTO,
     OCEANBASE,
     OCEANBASE_ORACLE,
-    NEBULA,
+    NEBULA, // Deprecated
     DB2
 }
 
@@ -618,6 +620,7 @@ enum TTableType {
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
     MAX_COMPUTE_TABLE,
+    LAKESOUL_TABLE,
     TRINO_CONNECTOR_TABLE
 }
 

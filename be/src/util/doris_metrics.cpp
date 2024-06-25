@@ -316,6 +316,10 @@ void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::stri
     }
 }
 
+void DorisMetrics::init_jvm_metrics(JNIEnv* env) {
+    _jvm_metrics.reset(new JvmMetrics(&_metric_registry, env));
+}
+
 void DorisMetrics::_update() {
     _update_process_thread_num();
     _update_process_fd_num();
@@ -334,7 +338,7 @@ void DorisMetrics::_update_process_thread_num() {
     int64_t count =
             std::count_if(dict_iter, std::filesystem::end(dict_iter), [](const auto& entry) {
                 std::error_code error_code;
-                return entry.is_regular_file(error_code) && !error_code;
+                return entry.is_directory(error_code) && !error_code;
             });
 
     process_thread_num->set_value(count);

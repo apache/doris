@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <iterator>
 #include <ostream>
 #include <set>
@@ -59,7 +60,6 @@
 #include "util/runtime_profile.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
-#include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/json/path_in_data.h"
@@ -69,8 +69,8 @@ namespace doris::vectorized {
 
 using ReadSource = TabletReader::ReadSource;
 
-template <class T>
-NewOlapScanner::NewOlapScanner(T* parent, NewOlapScanner::Params&& params)
+NewOlapScanner::NewOlapScanner(pipeline::ScanLocalStateBase* parent,
+                               NewOlapScanner::Params&& params)
         : VScanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
           _tablet_reader_params({
@@ -81,10 +81,6 @@ NewOlapScanner::NewOlapScanner(T* parent, NewOlapScanner::Params&& params)
     _tablet_reader_params.set_read_source(std::move(params.read_source));
     _is_init = false;
 }
-
-template NewOlapScanner::NewOlapScanner(NewOlapScanNode*, NewOlapScanner::Params&&);
-
-template NewOlapScanner::NewOlapScanner(pipeline::OlapScanLocalState*, NewOlapScanner::Params&&);
 
 static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
                                           const std::vector<uint32_t>& read_columns) {
@@ -116,22 +112,13 @@ Status NewOlapScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
 
 Status NewOlapScanner::init() {
     _is_init = true;
-    auto* parent = static_cast<NewOlapScanNode*>(_parent);
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
-    if (_parent) {
-        for (auto& ctx : parent->_common_expr_ctxs_push_down) {
-            VExprContextSPtr context;
-            RETURN_IF_ERROR(ctx->clone(_state, context));
-            _common_expr_ctxs_push_down.emplace_back(context);
-        }
-    } else {
-        for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
-            VExprContextSPtr context;
-            RETURN_IF_ERROR(ctx->clone(_state, context));
-            _common_expr_ctxs_push_down.emplace_back(context);
-        }
+    for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(ctx->clone(_state, context));
+        _common_expr_ctxs_push_down.emplace_back(context);
     }
 
     // set limit to reduce end of rowset and segment mem use
@@ -145,8 +132,7 @@ Status NewOlapScanner::init() {
     TabletSchemaSPtr cached_schema;
     std::string schema_key;
     {
-        TOlapScanNode& olap_scan_node =
-                _parent ? parent->_olap_scan_node : local_state->olap_scan_node();
+        TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
             !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0 &&
@@ -206,10 +192,9 @@ Status NewOlapScanner::init() {
         }
 
         // Initialize tablet_reader_params
-        RETURN_IF_ERROR(_init_tablet_reader_params(
-                _key_ranges, parent ? parent->_olap_filters : local_state->_olap_filters,
-                parent ? parent->_filter_predicates : local_state->_filter_predicates,
-                parent ? parent->_push_down_functions : local_state->_push_down_functions));
+        RETURN_IF_ERROR(_init_tablet_reader_params(_key_ranges, local_state->_olap_filters,
+                                                   local_state->_filter_predicates,
+                                                   local_state->_push_down_functions));
     }
 
     // add read columns in profile
@@ -227,8 +212,7 @@ Status NewOlapScanner::init() {
 
 Status NewOlapScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
-    auto* timer = _parent ? ((NewOlapScanNode*)_parent)->_reader_init_timer
-                          : ((pipeline::OlapScanLocalState*)_local_state)->_reader_init_timer;
+    auto* timer = ((pipeline::OlapScanLocalState*)_local_state)->_reader_init_timer;
     SCOPED_TIMER(timer);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
@@ -253,7 +237,7 @@ void NewOlapScanner::set_compound_filters(const std::vector<TCondition>& compoun
 // it will be called under tablet read lock because capture rs readers need
 Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
-        const FilterPredicates& filter_predicates,
+        const pipeline::FilterPredicates& filter_predicates,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     const bool single_version = _tablet_reader_params.has_single_version();
@@ -262,8 +246,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.direct_mode = true;
         _tablet_reader_params.aggregation = true;
     } else {
-        auto push_down_agg_type = _parent ? _parent->get_push_down_agg_type()
-                                          : _local_state->get_push_down_agg_type();
+        auto push_down_agg_type = _local_state->get_push_down_agg_type();
         _tablet_reader_params.direct_mode = _tablet_reader_params.aggregation || single_version ||
                                             (push_down_agg_type != TPushAggOp::NONE &&
                                              push_down_agg_type != TPushAggOp::COUNT_ON_INDEX);
@@ -273,8 +256,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
     RETURN_IF_ERROR(_init_return_columns());
 
     _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
-    _tablet_reader_params.push_down_agg_type_opt =
-            _parent ? _parent->get_push_down_agg_type() : _local_state->get_push_down_agg_type();
+    _tablet_reader_params.push_down_agg_type_opt = _local_state->get_push_down_agg_type();
 
     // TODO: If a new runtime filter arrives after `_conjuncts` move to `_common_expr_ctxs_push_down`,
     if (_common_expr_ctxs_push_down.empty()) {
@@ -289,11 +271,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.output_columns =
-            _parent ? ((NewOlapScanNode*)_parent)->_maybe_read_column_ids
-                    : ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
+            ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
     _tablet_reader_params.target_cast_type_for_variants =
-            _parent ? ((NewOlapScanNode*)_parent)->_cast_types_for_variants
-                    : ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants;
+            ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants;
     // Condition
     for (auto& filter : filters) {
         _tablet_reader_params.conditions.push_back(filter);
@@ -339,7 +319,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.end_key.push_back(key_range->end_scan_range);
     }
 
-    _tablet_reader_params.profile = _parent ? _parent->runtime_profile() : _local_state->profile();
+    _tablet_reader_params.profile = _local_state->profile();
     _tablet_reader_params.runtime_state = _state;
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
@@ -384,13 +364,11 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
     if (!_state->skip_storage_engine_merge()) {
         TOlapScanNode& olap_scan_node =
-                _parent ? ((NewOlapScanNode*)_parent)->_olap_scan_node
-                        : ((pipeline::OlapScanLocalState*)_local_state)->olap_scan_node();
+                ((pipeline::OlapScanLocalState*)_local_state)->olap_scan_node();
         // order by table keys optimization for topn
         // will only read head/tail of data file since it's already sorted by keys
         if (olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty()) {
-            _limit = _parent ? ((NewOlapScanNode*)_parent)->_limit_per_scanner
-                             : _local_state->limit_per_scanner();
+            _limit = _local_state->limit_per_scanner();
             _tablet_reader_params.read_orderby_key = true;
             if (!olap_scan_node.sort_info.is_asc_order[0]) {
                 _tablet_reader_params.read_orderby_key_reverse = true;
@@ -401,13 +379,13 @@ Status NewOlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.filter_block_conjuncts = _conjuncts;
         }
 
-        if (!_parent) {
-            // set push down topn filter
-            _tablet_reader_params.topn_filter_source_node_ids =
-                    ((pipeline::OlapScanLocalState*)_local_state)
-                            ->get_topn_filter_source_node_ids(_state, true);
-            _tablet_reader_params.use_topn_opt =
-                    !_tablet_reader_params.topn_filter_source_node_ids.empty();
+        // set push down topn filter
+        _tablet_reader_params.topn_filter_source_node_ids =
+                ((pipeline::OlapScanLocalState*)_local_state)
+                        ->get_topn_filter_source_node_ids(_state, true);
+        if (!_tablet_reader_params.topn_filter_source_node_ids.empty()) {
+            _tablet_reader_params.topn_filter_target_node_id =
+                    ((pipeline::OlapScanLocalState*)_local_state)->parent()->node_id();
         }
     }
 
@@ -453,7 +431,7 @@ Status NewOlapScanner::_init_variant_columns() {
             }
         }
     }
-    schema_util::inherit_root_attributes(tablet_schema);
+    schema_util::inherit_column_attributes(tablet_schema);
     return Status::OK();
 }
 
@@ -525,6 +503,7 @@ Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
         _profile_updated = _tablet_reader->update_profile(_profile);
     }
     if (block->rows() > 0) {
+        _tablet_reader_params.tablet->read_block_count.fetch_add(1, std::memory_order_relaxed);
         *eof = false;
     }
     _update_realtime_counters();
@@ -549,18 +528,14 @@ Status NewOlapScanner::close(RuntimeState* state) {
 }
 
 void NewOlapScanner::_update_realtime_counters() {
-    NewOlapScanNode* olap_parent = static_cast<NewOlapScanNode*>(_parent);
     pipeline::OlapScanLocalState* local_state =
             static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& stats = _tablet_reader->stats();
-    COUNTER_UPDATE(olap_parent ? olap_parent->_read_compressed_counter
-                               : local_state->_read_compressed_counter,
-                   stats.compressed_bytes_read);
+    COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     _compressed_bytes_read += stats.compressed_bytes_read;
     _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
 
-    COUNTER_UPDATE(olap_parent ? olap_parent->_raw_rows_counter : local_state->_raw_rows_counter,
-                   stats.raw_rows_read);
+    COUNTER_UPDATE(local_state->_raw_rows_counter, stats.raw_rows_read);
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
     _raw_rows_read += stats.raw_rows_read;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
@@ -664,13 +639,8 @@ void NewOlapScanner::_collect_profile_before_close() {
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
 
-    if (_parent) {
-        NewOlapScanNode* olap_parent = (NewOlapScanNode*)_parent;
-        INCR_COUNTER(olap_parent);
-    } else {
-        pipeline::OlapScanLocalState* local_state = (pipeline::OlapScanLocalState*)_local_state;
-        INCR_COUNTER(local_state);
-    }
+    pipeline::OlapScanLocalState* local_state = (pipeline::OlapScanLocalState*)_local_state;
+    INCR_COUNTER(local_state);
 
 #undef INCR_COUNTER
 #endif

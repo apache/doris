@@ -24,13 +24,13 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -53,7 +54,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * insert into select command implementation
@@ -74,16 +74,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      */
     private long jobId;
     private Optional<InsertCommandContext> insertCtx;
+    private final Optional<LogicalPlan> cte;
 
     /**
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
-                                  Optional<InsertCommandContext> insertCtx) {
+                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.insertCtx = insertCtx;
+        this.cte = cte;
     }
 
     public Optional<String> getLabelName() {
@@ -140,7 +142,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         targetTableIf.readLock();
         try {
             // 1. process inline table (default values, empty values)
-            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
+            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, insertCtx);
+            if (cte.isPresent()) {
+                this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
+            }
 
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
@@ -151,7 +156,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 ctx.getMysqlChannel().reset();
             }
             Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
-                    .<Set<PhysicalSink<?>>>collect(PhysicalSink.class::isInstance)).stream()
+                    .<PhysicalSink<?>>collect(PhysicalSink.class::isInstance)).stream()
                     .findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain target table");
             PhysicalSink physicalSink = plan.get();
@@ -161,11 +166,13 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     ctx.isTxnModel() ? null : String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
-                if (GroupCommitInserter.groupCommit(ctx, sink, physicalSink)) {
-                    // return;
-                    throw new AnalysisException("group commit is not supported in Nereids now");
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                if (GroupCommitInsertExecutor.canGroupCommit(ctx, sink, physicalSink, planner)) {
+                    insertExecutor = new GroupCommitInsertExecutor(ctx, targetTableIf, label, planner, insertCtx,
+                            emptyInsert);
+                    targetTableIf.readUnlock();
+                    return insertExecutor;
                 }
-                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 // the insertCtx contains some variables to adjust SinkNode
                 insertExecutor = ctx.isTxnModel()
@@ -179,14 +186,19 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 insertExecutor.getCoordinator().getQueryOptions()
                         .setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
             } else if (physicalSink instanceof PhysicalHiveTableSink) {
-                boolean emptyInsert = leafIsEmptyRelation(physicalSink);
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
                 insertExecutor = new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
                         Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert);
                 // set hive query options
+            } else if (physicalSink instanceof PhysicalIcebergTableSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                IcebergExternalTable icebergExternalTable = (IcebergExternalTable) targetTableIf;
+                insertExecutor = new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
+                        Optional.of(insertCtx.orElse((new BaseExternalTableInsertCommandContext()))), emptyInsert);
             } else {
                 // TODO: support other table types
-                throw new AnalysisException("insert into command only support olap table");
+                throw new AnalysisException("insert into command only support [olap, hive, iceberg] table");
             }
 
             insertExecutor.beginTransaction();
@@ -231,15 +243,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         return visitor.visitInsertIntoTableCommand(this, context);
     }
 
-    private boolean leafIsEmptyRelation(TreeNode<Plan> node) {
-        if (node.children() == null || node.children().isEmpty()) {
-            return node instanceof PhysicalEmptyRelation;
+    private boolean childIsEmptyRelation(PhysicalSink sink) {
+        if (sink.children() != null && sink.children().size() == 1
+                && sink.child(0) instanceof PhysicalEmptyRelation) {
+            return true;
         }
-        for (TreeNode<Plan> child : node.children()) {
-            if (!leafIsEmptyRelation(child)) {
-                return false;
-            }
-        }
-        return true;
+        return false;
     }
 }

@@ -30,23 +30,10 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
-#include "vec/exec/scan/new_jdbc_scan_node.h"
-#include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vjdbc_connector.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
-NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
-                               const TupleId& tuple_id, const std::string& query_string,
-                               TOdbcTableType::type table_type, RuntimeProfile* profile)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
-          _jdbc_eos(false),
-          _tuple_id(tuple_id),
-          _query_string(query_string),
-          _tuple_desc(nullptr),
-          _table_type(table_type) {
-    _init_profile(get_parent()->_scanner_profile);
-}
 
 NewJdbcScanner::NewJdbcScanner(RuntimeState* state,
                                doris::pipeline::JDBCScanLocalState* local_state, int64_t limit,
@@ -95,6 +82,7 @@ Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
     _jdbc_param.passwd = jdbc_table->jdbc_passwd();
     _jdbc_param.tuple_desc = _tuple_desc;
     _jdbc_param.query_string = std::move(_query_string);
+    _jdbc_param.use_transaction = false; // not useful for scanner but only sink.
     _jdbc_param.table_type = _table_type;
     _jdbc_param.connection_pool_min_size = jdbc_table->connection_pool_min_size();
     _jdbc_param.connection_pool_max_size = jdbc_table->connection_pool_max_size();
@@ -102,19 +90,10 @@ Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
     _jdbc_param.connection_pool_max_wait_time = jdbc_table->connection_pool_max_wait_time();
     _jdbc_param.connection_pool_keep_alive = jdbc_table->connection_pool_keep_alive();
 
-    if (get_parent() != nullptr) {
-        get_parent()->_scanner_profile->add_info_string("JdbcDriverClass",
-                                                        _jdbc_param.driver_class);
-        get_parent()->_scanner_profile->add_info_string("JdbcDriverUrl", _jdbc_param.driver_path);
-        get_parent()->_scanner_profile->add_info_string("JdbcUrl", _jdbc_param.jdbc_url);
-        get_parent()->_scanner_profile->add_info_string("QuerySql", _jdbc_param.query_string);
-    } else { //pipelineX
-        _local_state->scanner_profile()->add_info_string("JdbcDriverClass",
-                                                         _jdbc_param.driver_class);
-        _local_state->scanner_profile()->add_info_string("JdbcDriverUrl", _jdbc_param.driver_path);
-        _local_state->scanner_profile()->add_info_string("JdbcUrl", _jdbc_param.jdbc_url);
-        _local_state->scanner_profile()->add_info_string("QuerySql", _jdbc_param.query_string);
-    }
+    _local_state->scanner_profile()->add_info_string("JdbcDriverClass", _jdbc_param.driver_class);
+    _local_state->scanner_profile()->add_info_string("JdbcDriverUrl", _jdbc_param.driver_path);
+    _local_state->scanner_profile()->add_info_string("JdbcUrl", _jdbc_param.jdbc_url);
+    _local_state->scanner_profile()->add_info_string("QuerySql", _jdbc_param.query_string);
 
     _jdbc_connector.reset(new (std::nothrow) JdbcConnector(_jdbc_param));
     if (_jdbc_connector == nullptr) {

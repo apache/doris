@@ -51,7 +51,7 @@ public class LogicalEmptyRelation extends LogicalRelation
 
     public LogicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(relationId, PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
+        super(relationId, PlanType.LOGICAL_EMPTY_RELATION, groupExpression, logicalProperties);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
 

@@ -48,6 +48,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -127,7 +128,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             publishBackends.addAll(allBackends);
         }
 
-        if (transactionState.getSubTransactionStates() != null) {
+        if (transactionState.getSubTxnIds() != null) {
             for (Entry<Long, TableCommitInfo> entry : transactionState.getSubTxnIdToTableCommitInfo().entrySet()) {
                 long subTxnId = entry.getKey();
                 List<TPartitionVersionInfo> partitionVersionInfos = generatePartitionVersionInfos(entry.getValue(),
@@ -262,7 +263,9 @@ public class PublishVersionDaemon extends MasterDaemon {
                 .getIdToPartitionCommitInfo()
                 .values().stream()
                 .map(PartitionCommitInfo::getPartitionId)
-                .map(table::getPartition)
+                .map(partitionId -> Optional.ofNullable(table.getPartition(partitionId)))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
                 .map(Partition::getBaseIndex)
                 .map(MaterializedIndex::getTablets)
                 .flatMap(Collection::stream)
@@ -302,7 +305,14 @@ public class PublishVersionDaemon extends MasterDaemon {
     private List<TPartitionVersionInfo> generatePartitionVersionInfos(TableCommitInfo tableCommitInfo,
             TransactionState transactionState, Map<Long, Set<Long>> beIdToBaseTabletIds) {
         try {
-            beIdToBaseTabletIds.putAll(getBaseTabletIdsForEachBe(transactionState, tableCommitInfo));
+            Map<Long, Set<Long>> map = getBaseTabletIdsForEachBe(transactionState, tableCommitInfo);
+            map.forEach((beId, newSet) -> {
+                beIdToBaseTabletIds.computeIfPresent(beId, (id, orgSet) -> {
+                    orgSet.addAll(newSet);
+                    return orgSet;
+                });
+                beIdToBaseTabletIds.putIfAbsent(beId, newSet);
+            });
         } catch (MetaNotFoundException e) {
             LOG.warn("exception occur when trying to get rollup tablets info", e);
         }

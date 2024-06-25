@@ -22,6 +22,8 @@
 
 #include "util/defer_op.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/block.h"
@@ -144,13 +146,12 @@ public:
                                  size_t num_rows) const = 0;
 
     virtual void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                           AggregateDataPtr rhs, const ColumnString* column,
+                                           AggregateDataPtr rhs, const IColumn* column,
                                            Arena* arena, const size_t num_rows) const = 0;
 
     virtual void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                                    AggregateDataPtr rhs,
-                                                    const ColumnString* column, Arena* arena,
-                                                    const size_t num_rows) const = 0;
+                                                    AggregateDataPtr rhs, const IColumn* column,
+                                                    Arena* arena, const size_t num_rows) const = 0;
 
     virtual void deserialize_from_column(AggregateDataPtr places, const IColumn& column,
                                          Arena* arena, size_t num_rows) const = 0;
@@ -375,13 +376,14 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
         const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
+        const auto* column_string = assert_cast<const ColumnString*>(column);
         for (size_t i = 0; i != num_rows; ++i) {
             try {
                 auto rhs_place = rhs + size_of_data * i;
-                VectorBufferReader buffer_reader(column->get_data_at(i));
+                VectorBufferReader buffer_reader(column_string->get_data_at(i));
                 assert_cast<const Derived*>(this)->create(rhs_place);
                 assert_cast<const Derived*>(this)->deserialize_and_merge(
                         places[i] + offset, rhs_place, buffer_reader, arena);
@@ -397,17 +399,19 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
         const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
+        const auto* column_string = assert_cast<const ColumnString*>(column);
         for (size_t i = 0; i != num_rows; ++i) {
             try {
                 auto rhs_place = rhs + size_of_data * i;
-                VectorBufferReader buffer_reader(column->get_data_at(i));
+                VectorBufferReader buffer_reader(column_string->get_data_at(i));
                 assert_cast<const Derived*>(this)->create(rhs_place);
-                if (places[i])
+                if (places[i]) {
                     assert_cast<const Derived*>(this)->deserialize_and_merge(
                             places[i] + offset, rhs_place, buffer_reader, arena);
+                }
             } catch (...) {
                 for (int j = 0; j < i; ++j) {
                     auto place = rhs + size_of_data * j;

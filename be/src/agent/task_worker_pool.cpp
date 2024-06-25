@@ -53,6 +53,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/obj_storage_client.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
@@ -77,6 +78,7 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/debug_points.h"
@@ -196,9 +198,10 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                     .tag("new_tablet_id", new_tablet_id)
                     .tag("mem_limit",
                          engine.memory_limitation_bytes_per_thread_for_schema_change());
-            DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
             SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2,
-                                std::to_string(agent_task_req.alter_tablet_req_v2.job_id));
+                                std::to_string(agent_task_req.alter_tablet_req_v2.__isset.job_id
+                                                       ? agent_task_req.alter_tablet_req_v2.job_id
+                                                       : 0));
             status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
         } catch (const Exception& e) {
             status = e.to_status();
@@ -1115,7 +1118,7 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
         auto& resource = resource_list.emplace_back();
         int64_t id = -1;
         if (auto [_, ec] = std::from_chars(id_str.data(), id_str.data() + id_str.size(), id);
-            ec == std::errc {}) [[unlikely]] {
+            ec != std::errc {}) [[unlikely]] {
             LOG(ERROR) << "invalid resource id format: " << id_str;
         } else {
             resource.__set_id(id);
@@ -1376,23 +1379,8 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
 
     if (!existed_fs) {
         // No such FS instance on BE
-        S3Conf s3_conf {
-                .bucket = param.s3_storage_param.bucket,
-                .prefix = param.s3_storage_param.root_path,
-                .client_conf = {
-                        .endpoint = param.s3_storage_param.endpoint,
-                        .region = param.s3_storage_param.region,
-                        .ak = param.s3_storage_param.ak,
-                        .sk = param.s3_storage_param.sk,
-                        .token = param.s3_storage_param.token,
-                        .max_connections = param.s3_storage_param.max_conn,
-                        .request_timeout_ms = param.s3_storage_param.request_timeout_ms,
-                        .connect_timeout_ms = param.s3_storage_param.conn_timeout_ms,
-                        // When using cold heat separation in minio, user might use ip address directly,
-                        // which needs enable use_virtual_addressing to true
-                        .use_virtual_addressing = !param.s3_storage_param.use_path_style,
-                }};
-        auto res = io::S3FileSystem::create(std::move(s3_conf), std::to_string(param.id));
+        auto res = io::S3FileSystem::create(S3Conf::get_s3_conf(param.s3_storage_param),
+                                            std::to_string(param.id));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
@@ -1401,10 +1389,12 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     } else {
         DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
         auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
+        auto new_s3_conf = S3Conf::get_s3_conf(param.s3_storage_param);
         S3ClientConf conf {
-                .ak = param.s3_storage_param.ak,
-                .sk = param.s3_storage_param.sk,
-                .token = param.s3_storage_param.token,
+                .ak = std::move(new_s3_conf.client_conf.ak),
+                .sk = std::move(new_s3_conf.client_conf.sk),
+                .token = std::move(new_s3_conf.client_conf.token),
+                .provider = new_s3_conf.client_conf.provider,
         };
         st = client->reset(conf);
         fs = std::move(existed_fs);
@@ -1416,7 +1406,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         LOG_INFO("successfully update hdfs resource")
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name);
-        put_storage_resource(param.id, {std::move(fs), param.version});
+        put_storage_resource(param.id, {std::move(fs)}, param.version);
     }
 }
 
@@ -1450,7 +1440,7 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name)
                 .tag("root_path", fs->root_path().string());
-        put_storage_resource(param.id, {std::move(fs), param.version});
+        put_storage_resource(param.id, {std::move(fs)}, param.version);
     }
 }
 
@@ -1460,16 +1450,20 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
     const auto& push_storage_policy_req = req.push_storage_policy_req;
     // refresh resource
     for (auto&& param : push_storage_policy_req.resource) {
-        auto existed_resource = get_storage_resource(param.id);
-        if (existed_resource.version >= param.version) {
-            // Stale request, ignore
-            continue;
+        io::RemoteFileSystemSPtr fs;
+        if (auto existed_resource = get_storage_resource(param.id); existed_resource) {
+            if (existed_resource->second >= param.version) {
+                // Stale request, ignore
+                continue;
+            }
+
+            fs = std::move(existed_resource->first.fs);
         }
 
         if (param.__isset.s3_storage_param) {
-            update_s3_resource(param, std::move(existed_resource.fs));
+            update_s3_resource(param, std::move(fs));
         } else if (param.__isset.hdfs_storage_param) {
-            update_hdfs_resource(param, std::move(existed_resource.fs));
+            update_hdfs_resource(param, std::move(fs));
         } else {
             LOG(WARNING) << "unknown resource=" << param;
         }
@@ -1792,7 +1786,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .error(status);
     } else {
         if (!config::disable_auto_compaction &&
-            !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {

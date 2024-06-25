@@ -119,7 +119,7 @@ public:
     // execute current expr with inverted index to filter block. Given a roaringbitmap of match rows
     virtual Status eval_inverted_index(
             VExprContext* context,
-            const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
+            const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
                                                          segment_v2::InvertedIndexIterator*>>&
                     colid_to_inverted_index_iter,
             uint32_t num_rows, roaring::Roaring* bitmap) const {
@@ -145,6 +145,7 @@ public:
     TypeDescriptor type() { return _type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+    virtual bool is_literal() const { return false; }
 
     TExprNodeType::type node_type() const { return _node_type; }
 
@@ -230,6 +231,13 @@ public:
                    << this->debug_string();
         return nullptr;
     }
+
+    // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
+    bool fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
+                      size_t input_rows_count, const std::string& function_name);
+
+    std::string gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
+                                          const std::string& function_name);
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information

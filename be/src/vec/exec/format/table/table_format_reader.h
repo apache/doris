@@ -55,6 +55,15 @@ public:
         return _file_format_reader->get_parsed_schema(col_names, col_types);
     }
 
+    Status set_fill_columns(
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns,
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override {
+        return _file_format_reader->set_fill_columns(partition_columns, missing_columns);
+    }
+
+    bool fill_all_columns() const override { return _file_format_reader->fill_all_columns(); }
+
     virtual Status init_row_filters(const TFileRangeDesc& range) = 0;
 
 protected:

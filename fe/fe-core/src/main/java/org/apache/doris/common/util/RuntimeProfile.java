@@ -95,8 +95,6 @@ public class RuntimeProfile {
     // and we can distinguish them using tags.
     // In the old pipeline, we can only differentiate them based on their position
     // in the profile, which is quite tricky and only transitional.
-    @SerializedName(value = "isPipelineX")
-    private Boolean isPipelineX = false;
     @SerializedName(value = "isSinkOperator")
     private Boolean isSinkOperator = false;
     @SerializedName(value = "nodeid")
@@ -175,10 +173,6 @@ public class RuntimeProfile {
 
     public Boolean sinkOperator() {
         return this.isSinkOperator;
-    }
-
-    public void setIsPipelineX(boolean isPipelineX) {
-        this.isPipelineX = isPipelineX;
     }
 
     public Map<String, Counter> getCounterMap() {
@@ -392,29 +386,16 @@ public class RuntimeProfile {
         return brief;
     }
 
-    private void printActimeCounter(StringBuilder builder, boolean isPipelineX) {
-        if (!isPipelineX) {
-            Counter counter = this.counterMap.get("TotalTime");
-            Preconditions.checkState(counter != null);
-            if (counter.getValue() != 0) {
-                try (Formatter fmt = new Formatter()) {
-                    builder.append("(Active: ")
-                            .append(RuntimeProfile.printCounter(counter.getValue(), counter.getType()))
-                            .append(", % non-child: ").append(fmt.format("%.2f", localTimePercent))
-                            .append("%)");
-                }
-            }
-        } else {
-            Counter counter = this.counterMap.get("ExecTime");
-            if (counter == null) {
-                counter = this.counterMap.get("TotalTime");
-            }
-            if (counter.getValue() != 0) {
-                try (Formatter fmt = new Formatter()) {
-                    builder.append("(ExecTime: ")
-                            .append(RuntimeProfile.printCounter(counter.getValue(), counter.getType()))
-                            .append(")");
-                }
+    private void printActimeCounter(StringBuilder builder) {
+        Counter counter = this.counterMap.get("ExecTime");
+        if (counter == null) {
+            counter = this.counterMap.get("TotalTime");
+        }
+        if (counter.getValue() != 0) {
+            try (Formatter fmt = new Formatter()) {
+                builder.append("(ExecTime: ")
+                        .append(RuntimeProfile.printCounter(counter.getValue(), counter.getType()))
+                        .append(")");
             }
         }
     }
@@ -425,14 +406,10 @@ public class RuntimeProfile {
     // 3. Counters
     // 4. Children
     public void prettyPrint(StringBuilder builder, String prefix) {
-        prettyPrint(builder, prefix, false);
-    }
-
-    public void prettyPrint(StringBuilder builder, String prefix, boolean isPipelineX) {
         // 1. profile name
         builder.append(prefix).append(name).append(":");
         // total time
-        printActimeCounter(builder, isPipelineX);
+        printActimeCounter(builder);
 
         builder.append("\n");
 
@@ -466,7 +443,7 @@ public class RuntimeProfile {
                 Pair<RuntimeProfile, Boolean> pair = childList.get(i);
                 boolean indent = pair.second;
                 RuntimeProfile profile = pair.first;
-                profile.prettyPrint(builder, prefix + (indent ? "  " : ""), isPipelineX);
+                profile.prettyPrint(builder, prefix + (indent ? "  " : ""));
             }
         } finally {
             childLock.readLock().unlock();
@@ -501,7 +478,7 @@ public class RuntimeProfile {
 
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        prettyPrint(builder, "", isPipelineX);
+        prettyPrint(builder, "");
         return builder.toString();
     }
 

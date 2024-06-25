@@ -49,6 +49,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.task.DirMoveTask;
@@ -232,14 +233,22 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
             }
 
-            if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
+            if (repo.getRemoteFileSystem() instanceof S3FileSystem
+                    || repo.getRemoteFileSystem() instanceof AzureFileSystem) {
                 Map<String, String> oldProperties = new HashMap<>(stmt.getProperties());
                 Status status = repo.alterRepositoryS3Properties(oldProperties);
                 if (!status.ok()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, status.getErrMsg());
                 }
-                RemoteFileSystem fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
-                        StorageBackend.StorageType.S3, oldProperties);
+                RemoteFileSystem fileSystem = null;
+                if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
+                    fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
+                            StorageBackend.StorageType.S3, oldProperties);
+                } else if (repo.getRemoteFileSystem() instanceof AzureFileSystem) {
+                    fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
+                            StorageBackend.StorageType.AZURE, oldProperties);
+                }
+
                 Repository newRepo = new Repository(repo.getId(), repo.getName(), repo.isReadOnly(),
                         repo.getLocation(), fileSystem);
                 if (!newRepo.ping()) {
@@ -260,7 +269,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 }
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                                "Only support alter s3 repository");
+                        "Only support alter s3 or azure repository");
             }
         } finally {
             seqlock.unlock();
@@ -388,7 +397,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
         for (TableRef tblRef : tblRefs) {
             String tblName = tblRef.getName().getTbl();
             Table tbl = db.getTableOrDdlException(tblName);
-            if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC) {
+            if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC
+                    || tbl.getType() == TableType.MATERIALIZED_VIEW) {
                 continue;
             }
             if (tbl.getType() != TableType.OLAP) {
@@ -748,6 +758,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public void replayAddJob(AbstractJob job) {
+        LOG.info("replay backup/restore job: {}", job);
+
         if (job.isCancelled()) {
             AbstractJob existingJob = getCurrentJob(job.getDbId());
             if (existingJob == null || existingJob.isDone()) {
@@ -767,6 +779,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             // We use replayed job, not the existing job, to do the replayRun().
             // Because if we use the existing job to run again,
             // for example: In restore job, PENDING will transfer to SNAPSHOTING, not DOWNLOAD.
+            job.setEnv(env);
             job.replayRun();
         }
 

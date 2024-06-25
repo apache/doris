@@ -9,12 +9,15 @@ PhysicalOlapTableSink
 
 -- !test_shape_join --
 PhysicalOlapTableSink
---PhysicalProject
-----PhysicalEmptyRelation
+--PhysicalEmptyRelation
 
 -- !test_shape_agg_filter_limit --
 PhysicalOlapTableSink
---PhysicalLimit[GLOBAL]
-----PhysicalLimit[LOCAL]
-------PhysicalEmptyRelation
+--PhysicalEmptyRelation
+
+-- !test_insert_empty_agg --
+1
+
+-- !test_insert_empty_agg_select --
+\N	0	\N
 

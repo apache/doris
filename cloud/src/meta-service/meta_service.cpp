@@ -737,6 +737,9 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
         } else if (tablet_meta_info.has_time_series_compaction_level_threshold()) {
             tablet_meta.set_time_series_compaction_level_threshold(
                     tablet_meta_info.time_series_compaction_level_threshold());
+        } else if (tablet_meta_info.has_disable_auto_compaction()) {
+            tablet_meta.mutable_schema()->set_disable_auto_compaction(
+                    tablet_meta_info.disable_auto_compaction());
         }
         int64_t table_id = tablet_meta.table_id();
         int64_t index_id = tablet_meta.index_id();
@@ -1000,7 +1003,8 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     prepare_rowset.SerializeToString(&val);
     DCHECK_GT(prepare_rowset.expiration(), 0);
     txn->put(prepare_rs_key, val);
-    LOG(INFO) << "xxx put prepare_rs_key " << hex(prepare_rs_key) << " value_size " << val.size();
+    LOG(INFO) << "put prepare_rs_key " << hex(prepare_rs_key) << " value_size " << val.size()
+              << " txn_id " << request->txn_id();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -1127,8 +1131,9 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     auto tmp_rs_val = rowset_meta.SerializeAsString();
     txn->put(tmp_rs_key, tmp_rs_val);
-    LOG(INFO) << "xxx put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
-              << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size();
+    LOG(INFO) << "put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
+              << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size() << " txn_id "
+              << request->txn_id();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);

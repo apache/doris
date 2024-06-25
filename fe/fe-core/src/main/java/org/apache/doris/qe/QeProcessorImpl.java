@@ -238,7 +238,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 }
             } else {
                 LOG.warn("Invalid report profile req, this is a logical error, BE must set backendId and isDone"
-                            + " at same time, query id: {}" + DebugUtil.printId(params.query_id));
+                            + " at same time, query id: {}", DebugUtil.printId(params.query_id));
             }
         }
 

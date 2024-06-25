@@ -187,4 +187,6 @@ CONF_mBool(enable_distinguish_hdfs_path, "true");
 // If no IP match this rule, a random IP is used (usually it is the IP binded to hostname).
 CONF_String(priority_networks, "");
 
+CONF_Bool(enable_cluster_name_check, "false");
+
 } // namespace doris::cloud::config

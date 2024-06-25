@@ -18,10 +18,10 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -148,26 +148,26 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     @Override
-    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+    public void computeUnique(DataTrait.Builder builder) {
         if (getLimit() == 1) {
-            getOutput().forEach(fdBuilder::addUniqueSlot);
+            getOutput().forEach(builder::addUniqueSlot);
         } else {
-            fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+            builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
         }
     }
 
     @Override
-    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+    public void computeUniform(DataTrait.Builder builder) {
         if (getLimit() == 1) {
-            getOutput().forEach(fdBuilder::addUniformSlot);
+            getOutput().forEach(builder::addUniformSlot);
         } else {
-            fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+            builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
         }
     }
 
     @Override
     public ImmutableSet<FdItem> computeFdItems() {
-        ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getFunctionalDependencies().getFdItems();
+        ImmutableSet<FdItem> fdItems = child(0).getLogicalProperties().getTrait().getFdItems();
         if (getLimit() == 1 && !phase.isLocal()) {
             ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
             List<Slot> output = getOutput();
@@ -183,12 +183,12 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     @Override
-    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
     }
 
     @Override
-    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
 }

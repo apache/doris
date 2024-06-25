@@ -2780,6 +2780,10 @@ public class SelectStmt extends QueryStmt {
         if (isPointQuery) {
             return true;
         }
+        if (ConnectContext.get() == null
+                    || !ConnectContext.get().getSessionVariable().isEnableShortCircuitQuery()) {
+            return false;
+        }
         eqPredicates = new TreeMap<SlotRef, Expr>(
                 new Comparator<SlotRef>() {
                     @Override
@@ -2820,7 +2824,7 @@ public class SelectStmt extends QueryStmt {
         if (eqPredicates == null) {
             return false;
         }
-        if (!olapTable.getEnableUniqueKeyMergeOnWrite() || !olapTable.storeRowColumn()) {
+        if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
             return false;
         }
         // check if PK columns are fully matched with predicate

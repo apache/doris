@@ -32,6 +32,16 @@ bool DataTypeIPv4::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
+size_t DataTypeIPv4::number_length() const {
+    //255.255.255.255
+    return 16;
+}
+void DataTypeIPv4::push_bumber(ColumnString::Chars& chars, const IPv4& num) const {
+    auto value = IPv4Value(num);
+    auto ipv4_str = value.to_string();
+    chars.insert(ipv4_str.begin(), ipv4_str.end());
+}
+
 std::string DataTypeIPv4::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;

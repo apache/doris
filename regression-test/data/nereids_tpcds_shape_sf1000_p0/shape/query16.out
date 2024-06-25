@@ -13,25 +13,27 @@ PhysicalResultSink
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4
---------------------PhysicalProject
-----------------------hashJoin[RIGHT_ANTI_JOIN] hashCondition=((cs1.cs_order_number = cr1.cr_order_number)) otherCondition=() build RFs:RF3 cs_order_number->[cr_order_number]
-------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF3
-------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashJoin[RIGHT_ANTI_JOIN] hashCondition=((cs1.cs_order_number = cr1.cr_order_number)) otherCondition=() build RFs:RF3 cs_order_number->[cr_order_number]
+----------------------PhysicalDistribute[DistributionSpecHash]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF3
+----------------------PhysicalDistribute[DistributionSpecHash]
+------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_call_center_sk = call_center.cc_call_center_sk)) otherCondition=() build RFs:RF2 cc_call_center_sk->[cs_call_center_sk]
-----------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_ship_date_sk]
-------------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[cs_ship_addr_sk]
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_ship_date_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[cs_ship_addr_sk]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
+------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------------PhysicalProject
+----------------------------------------filter((customer_address.ca_state = 'PA'))
+------------------------------------------PhysicalOlapScan[customer_address]
 --------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
-------------------------------------filter((customer_address.ca_state = 'PA'))
---------------------------------------PhysicalOlapScan[customer_address]
-------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------PhysicalProject
-----------------------------------filter((date_dim.d_date <= '2002-05-31') and (date_dim.d_date >= '2002-04-01'))
-------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------filter((date_dim.d_date <= '2002-05-31') and (date_dim.d_date >= '2002-04-01'))
+--------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------PhysicalProject
 --------------------------------filter((call_center.cc_county = 'Williamson County'))
