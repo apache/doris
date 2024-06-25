@@ -598,7 +598,8 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select_json_keys """SELECT id, j, json_keys(j, '\$.k2') FROM ${testTable} ORDER BY id"""
     qt_select_json_keys """SELECT id, j, json_keys(j, '\$.a1') FROM ${testTable} ORDER BY id"""
     
-    // make table with path 
+    // make table with path
+    sql """ DROP TABLE IF EXISTS json_keys_table;"""
     sql """
         CREATE TABLE IF NOT EXISTS json_keys_table (
             id INT,

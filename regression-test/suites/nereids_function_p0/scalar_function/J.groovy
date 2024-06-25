@@ -565,8 +565,9 @@ suite("nereids_scalar_fn_J") {
         qt_select_json_keys """SELECT id, j, json_keys(j, '\$.a1') FROM ${testTable} ORDER BY id"""
 
         // make table with path
+        sql """ DROP TABLE IF EXISTS json_keys_table_nereid; """
         sql """
-            CREATE TABLE IF NOT EXISTS json_keys_table (
+            CREATE TABLE IF NOT EXISTS json_keys_table_nereid (
                 id INT,
                 j JSONB,
                 p STRING
@@ -576,8 +577,8 @@ suite("nereids_scalar_fn_J") {
             PROPERTIES("replication_num" = "1");
             """
 
-        sql """ insert into json_keys_table values (1, '{"a.b.c":{"k1.a1":"v31", "k2": 300}, "a": {}}', '\$.a'), (2, '{"a.b.c":{"k1.a1":"v31", "k2": 300}}', '\$.a.b.c'), (3, '{"a.b.c":{"k1.a1":"v31", "k2": 300}, "a": {"k1.a1": 1}}', '\$.a'), (4, '["a", "b"]', '\$.a'); """
-        qt_select_json_keys """SELECT j, p, json_keys(j, p) FROM json_keys_table ORDER BY id"""
+        sql """ insert into json_keys_table_nereid values (1, '{"a.b.c":{"k1.a1":"v31", "k2": 300}, "a": {}}', '\$.a'), (2, '{"a.b.c":{"k1.a1":"v31", "k2": 300}}', '\$.a.b.c'), (3, '{"a.b.c":{"k1.a1":"v31", "k2": 300}, "a": {"k1.a1": 1}}', '\$.a'), (4, '["a", "b"]', '\$.a'); """
+        qt_select_json_keys """SELECT id, j, p, json_keys(j, p) FROM json_keys_table_nereid ORDER BY id"""
 
 
 }
