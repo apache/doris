@@ -43,6 +43,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -63,11 +64,13 @@ import javax.annotation.Nullable;
  */
 public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
     // map union child slot to union slot
-    HashMap<Slot, Slot> originChildSlotToUnion = new HashMap<>();
+    Map<Slot, Slot> originChildSlotToUnion = new HashMap<>();
     // if union child is project, map the join slot to the project
-    HashMap<Slot, NamedExpression> joinSlotToProject = new HashMap<>();
+    Map<Slot, NamedExpression> joinSlotToProject = new HashMap<>();
     // save the constant alias in project above join
-    HashMap<Plan, Set<NamedExpression>> constantAlias = new HashMap<>();
+    Map<Plan, Set<NamedExpression>> constantAlias = new HashMap<>();
+    // save the miss slot of other child that not in the union, we need pull up them in new union
+    Map<Plan, List<Slot>> missSlotMap = new HashMap<>();
 
     @Override
     public Rule build() {
@@ -109,15 +112,22 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
     // this function is checking the second condition
     private boolean checkJoinCondition(
             List<Pair<LogicalJoin<?, ?>, Plan>> commonChild) {
-        HashMap<Integer, Slot> joinCondIndices = new HashMap<>();
+        HashMap<Integer, Integer> joinCondIndices = new HashMap<>();
+        HashMap<Integer, HashMap<Plan, Slot>> missSlotOfSameSlot = new HashMap<>();
         for (Pair<LogicalJoin<?, ?>, Plan> joinChildPair : commonChild) {
+            Plan commonPlan = joinChildPair.second;
+            Plan otherPlan;
+            if (joinChildPair.first.child(0).equals(commonPlan)) {
+                otherPlan = joinChildPair.first.child(1);
+            } else {
+                otherPlan = joinChildPair.first.child(0);
+            }
             for (Expression expression : joinChildPair.first.getHashJoinConjuncts()) {
                 if (!(expression instanceof EqualTo)
                         && expression.child(0).isSlot()
                         && expression.child(1).isSlot()) {
                     return false;
                 }
-                Plan commonPlan = joinChildPair.second;
 
                 Slot otherChildSlot;
                 Slot commonChildSlot;
@@ -130,18 +140,25 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                 } else {
                     return false;
                 }
-
-                if (!joinSlotToProject.containsKey(otherChildSlot)
-                        || !originChildSlotToUnion.containsKey(joinSlotToProject.get(otherChildSlot).toSlot())) {
-                    return false;
-                }
+                int otherUnionId = -1;
                 int commonIndex = commonPlan.getOutput().indexOf(commonChildSlot);
-                Slot otherUnionSlot = originChildSlotToUnion.get(
-                        joinSlotToProject.get(otherChildSlot).toSlot());
-                joinCondIndices.putIfAbsent(commonIndex, otherUnionSlot);
-                if (joinCondIndices.get(commonIndex) != otherUnionSlot) {
+                if (joinSlotToProject.containsKey(otherChildSlot)
+                        && originChildSlotToUnion.containsKey(joinSlotToProject.get(otherChildSlot).toSlot())) {
+                    otherUnionId = originChildSlotToUnion.get(
+                            joinSlotToProject.get(otherChildSlot).toSlot()).hashCode();
+                } else {
+                    missSlotOfSameSlot.computeIfAbsent(commonIndex,
+                            k -> new HashMap<>()).put(otherPlan, otherChildSlot);
+                }
+                joinCondIndices.putIfAbsent(commonIndex, otherUnionId);
+                if (joinCondIndices.get(commonIndex) != otherUnionId) {
                     return false;
                 }
+            }
+        }
+        for (Map<Plan, Slot> miss : missSlotOfSameSlot.values()) {
+            for (Entry<Plan, Slot> e : miss.entrySet()) {
+                missSlotMap.computeIfAbsent(e.getKey(), k -> new ArrayList<>()).add(e.getValue());
             }
         }
         return true;
@@ -242,6 +259,9 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
             } else {
                 projects.add(entry.first);
             }
+        }
+        if (!missSlotMap.get(plan).isEmpty()) {
+            projects.addAll(missSlotMap.get(plan));
         }
         if (plan.getOutput().equals(projects)) {
             return plan;
