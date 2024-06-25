@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.fs.FileStatus;
@@ -44,6 +45,10 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
 
     protected org.apache.hadoop.fs.FileSystem nativeFileSystem(String remotePath) throws UserException {
         throw new UserException("Not support to getFileSystem.");
+    }
+
+    public boolean ifNotSetFallbackToSimpleAuth() {
+        return properties.getOrDefault(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty();
     }
 
     @Override

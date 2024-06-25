@@ -25,6 +25,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -60,7 +61,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        Configuration conf = new Configuration();
+        Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
         for (Map.Entry<String, String> propEntry : this.catalogProperty.getHadoopProperties().entrySet()) {
             conf.set(propEntry.getKey(), propEntry.getValue());
         }
