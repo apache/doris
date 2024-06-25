@@ -181,6 +181,7 @@ protected:
     RuntimeProfile::Counter* _merge_block_timer {};
     RuntimeProfile::Counter* _memory_usage_counter {};
     RuntimeProfile::Counter* _peak_memory_usage_counter {};
+    RuntimeProfile::Counter* _close_timer {};
 
     std::unique_ptr<MemTracker> _mem_tracker;
 

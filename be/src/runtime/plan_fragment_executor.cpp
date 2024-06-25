@@ -231,7 +231,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
-
+    _fragment_exec_timer = ADD_TIMER(profile(), "FragmentExecTime");
+    _fragment_get_status_lock_timer = ADD_TIMER(profile(), "FragmentStatusLockTime");
+    _fragment_sink_close_timer = ADD_TIMER(profile(), "FragmentSinkCloseTIme");
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
     return Status::OK();
@@ -294,6 +296,7 @@ Status PlanFragmentExecutor::open() {
 
 Status PlanFragmentExecutor::open_vectorized_internal() {
     SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_fragment_exec_timer);
     {
         ThreadCpuStopWatch cpu_time_stop_watch;
         cpu_time_stop_watch.start();
@@ -335,11 +338,15 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
     {
         Status status;
         {
+            SCOPED_TIMER(_fragment_get_status_lock_timer);
             std::lock_guard<std::mutex> l(_status_lock);
             status = _status;
         }
-        status = _sink->close(runtime_state(), status);
-        RETURN_IF_ERROR(status);
+        {
+            SCOPED_TIMER(_fragment_sink_close_timer);
+            status = _sink->close(runtime_state(), status);
+            RETURN_IF_ERROR(status);
+        }
     }
     // Setting to NULL ensures that the d'tor won't double-close the sink.
     _sink.reset(nullptr);

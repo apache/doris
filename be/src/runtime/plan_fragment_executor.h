@@ -196,6 +196,12 @@ private:
 
     RuntimeProfile::Counter* _fragment_cpu_timer;
 
+    RuntimeProfile::Counter* _fragment_exec_timer;
+
+    RuntimeProfile::Counter* _fragment_get_status_lock_timer;
+
+    RuntimeProfile::Counter* _fragment_sink_close_timer;
+
     // Record the cancel information when calling the cancel() method, return it to FE
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
