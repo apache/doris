@@ -25,9 +25,15 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Lists;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
@@ -441,5 +447,29 @@ public class RangePartitionInfoTest {
             singlePartitionDesc.analyze(columns, null);
             partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId++, false);
         }
+    }
+
+    @Test
+    public void testSerialization() throws IOException, AnalysisException, DdlException {
+        // 1. Write objects to file
+        final Path path = Files.createTempFile("rangePartitionInfo", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+        partitionInfo = new RangePartitionInfo(partitionColumns);
+
+        partitionInfo.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+        RangePartitionInfo partitionInfo2 = (RangePartitionInfo) PartitionInfo.read(in);
+
+        Assert.assertEquals(partitionInfo.getType(), partitionInfo2.getType());
+
+        // 3. delete files
+        in.close();
+        Files.delete(path);
     }
 }

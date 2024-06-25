@@ -18,6 +18,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -84,6 +85,7 @@ protected:
 
 private:
     UniqueId _load_id;
+    int64_t _txn_id = 0;
 
     SpinLock _profile_serialize_lock;
     std::unique_ptr<RuntimeProfile> _profile;

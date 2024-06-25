@@ -238,6 +238,10 @@ public class ConnectContext {
     private Exec exec;
     private boolean runProcedure = false;
 
+    // isProxy used for forward request from other FE and used in one thread
+    // it's default thread-safe
+    private boolean isProxy = false;
+
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);
@@ -360,6 +364,7 @@ public class ConnectContext {
             mysqlChannel = new MysqlChannel(connection, this);
         } else if (isProxy) {
             mysqlChannel = new ProxyMysqlChannel();
+            this.isProxy = isProxy;
         } else {
             mysqlChannel = new DummyMysqlChannel();
         }
@@ -1367,5 +1372,9 @@ public class ConnectContext {
 
     public void setUserVars(Map<String, LiteralExpr> userVars) {
         this.userVars = userVars;
+    }
+
+    public boolean isProxy() {
+        return isProxy;
     }
 }

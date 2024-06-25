@@ -130,8 +130,6 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::TABLET_VERSION_CACHE) {}
-
         int64_t value;
     };
 
@@ -268,12 +266,13 @@ private:
     void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
 
-    class TabletVersionCache : public LRUCachePolicy {
+    class TabletVersionCache : public LRUCachePolicyTrackingManual {
     public:
         TabletVersionCache(size_t capacity)
-                : LRUCachePolicy(CachePolicy::CacheType::TABLET_VERSION_CACHE, capacity,
-                                 LRUCacheType::NUMBER, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
-                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::TABLET_VERSION_CACHE,
+                                               capacity, LRUCacheType::NUMBER, -1,
+                                               DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                               DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
     };
 
 private:

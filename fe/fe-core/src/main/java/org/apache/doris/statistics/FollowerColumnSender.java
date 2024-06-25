@@ -127,7 +127,7 @@ public class FollowerColumnSender extends MasterDaemon {
             try {
                 table = StatisticsUtil.findTable(column.catalogId, column.dbId, column.tblId);
             } catch (Exception e) {
-                LOG.warn("Failed to find table for column {}", column.colName, e);
+                LOG.warn("Failed to find table for column {}", column.colName);
                 continue;
             }
             if (StatisticsUtil.isUnsupportedType(table.getColumn(column.colName).getType())) {

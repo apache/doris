@@ -18,7 +18,6 @@
 #pragma once
 
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -102,30 +101,6 @@ public:
     virtual void prune_all(bool force) = 0;
 
     CacheType type() { return _type; }
-    void init_mem_tracker(const std::string& type_name) {
-        _mem_tracker =
-                std::make_unique<MemTracker>(fmt::format("{}[{}]", type_string(_type), type_name),
-                                             ExecEnv::GetInstance()->details_mem_tracker_set());
-    }
-    MemTracker* mem_tracker() { return _mem_tracker.get(); }
-    void init_mem_tracker_by_allocator(const std::string& type_name) {
-        _mem_tracker_by_allocator = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::GLOBAL,
-                fmt::format("{}[{}](AllocByAllocator)", type_string(_type), type_name));
-    }
-    std::shared_ptr<MemTrackerLimiter> mem_tracker_by_allocator() const {
-        DCHECK(_mem_tracker_by_allocator != nullptr);
-        return _mem_tracker_by_allocator;
-    }
-    int64_t mem_consumption() {
-        if (_mem_tracker_by_allocator != nullptr) {
-            return _mem_tracker_by_allocator->consumption();
-        } else if (_mem_tracker != nullptr) {
-            return _mem_tracker->consumption();
-        }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
     bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 
@@ -141,9 +116,6 @@ protected:
     }
 
     CacheType _type;
-
-    std::unique_ptr<MemTracker> _mem_tracker;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker_by_allocator;
 
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile::Counter* _prune_stale_number_counter = nullptr;

@@ -256,6 +256,7 @@ public:
     std::vector<Dependency*> local_state_dependency(int channel_id) override;
 
     void add_mem_usage(LocalExchangeSinkLocalState& local_state, int64_t delta);
+    void sub_mem_usage(LocalExchangeSinkLocalState& local_state, int64_t delta);
     void sub_mem_usage(LocalExchangeSourceLocalState& local_state, int channel_id, int64_t delta);
     void close(LocalExchangeSourceLocalState& local_state) override {}
 

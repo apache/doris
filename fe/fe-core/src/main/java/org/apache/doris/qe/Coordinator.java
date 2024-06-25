@@ -130,6 +130,7 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.ByteString;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
@@ -196,6 +197,10 @@ public class Coordinator implements CoordInterface {
     private final TQueryGlobals queryGlobals = new TQueryGlobals();
     private TQueryOptions queryOptions;
     private TNetworkAddress coordAddress;
+    // fe audit log in connected FE,if a query is forward
+    // we should send the connected FE to be,
+    // then be report query statistics to the connected FE
+    private TNetworkAddress currentConnectFE;
 
     // protects all fields below
     private final Lock lock = new ReentrantLock();
@@ -257,8 +262,6 @@ public class Coordinator implements CoordInterface {
 
     private boolean enableShareHashTableForBroadcastJoin = false;
 
-    private boolean enablePipelineEngine = true;
-    private boolean enablePipelineXEngine = true;
     private boolean useNereids = false;
 
     // Runtime filter merge instance address and ID
@@ -375,10 +378,6 @@ public class Coordinator implements CoordInterface {
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
         this.executionProfile = new ExecutionProfile(queryId, fragments);
-        // Need to be same with LoadLoadingTask
-        // https://github.com/apache/doris/blob/bd6f5b6a0e5f1b12744607336123d7f97eb76af9/fe/fe-core/src/main/java/org/apache/doris/load/loadv2/LoadLoadingTask.java#L155
-        this.enablePipelineEngine = Config.enable_pipeline_load;
-        this.enablePipelineXEngine = Config.enable_pipeline_load;
     }
 
     private void setFromUserProperty(ConnectContext connectContext) {
@@ -406,8 +405,6 @@ public class Coordinator implements CoordInterface {
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setEnablePipelineEngine(true);
-        this.queryOptions.setEnablePipelineXEngine(true);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
@@ -447,11 +444,6 @@ public class Coordinator implements CoordInterface {
 
     public void setQueryType(TQueryType type) {
         this.queryOptions.setQueryType(type);
-    }
-
-    public void setExecPipEngine() {
-        this.queryOptions.setEnablePipelineEngine(true);
-        this.queryOptions.setEnablePipelineXEngine(true);
     }
 
     public Status getExecStatus() {
@@ -538,6 +530,13 @@ public class Coordinator implements CoordInterface {
         }
 
         coordAddress = new TNetworkAddress(localIP, Config.rpc_port);
+        if (ConnectContext.get() != null && ConnectContext.get().isProxy() && !StringUtils.isEmpty(
+                ConnectContext.get().getCurrentConnectedFEIp())) {
+            currentConnectFE = new TNetworkAddress(ConnectContext.get().getCurrentConnectedFEIp(),
+                    Config.rpc_port);
+        } else {
+            currentConnectFE = coordAddress;
+        }
 
         this.idToBackend = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
 
@@ -647,6 +646,9 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void close() {
+        for (ScanNode scanNode : scanNodes) {
+            scanNode.stop();
+        }
         if (queryQueue != null && queueToken != null) {
             try {
                 queryQueue.releaseAndNotify(queueToken);
@@ -786,8 +788,7 @@ public class Coordinator implements CoordInterface {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
                     backendFragments.add(Pair.of(fragment.getFragmentId(), backendId));
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
-                            entry.getValue(), backendId, fragmentInstancesMap,
-                            this.enablePipelineXEngine, executionProfile);
+                            entry.getValue(), backendId, fragmentInstancesMap, executionProfile);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
@@ -841,11 +842,9 @@ public class Coordinator implements CoordInterface {
             } // end for fragments
 
             // Init the mark done in order to track the finished state of the query
-            if (this.enablePipelineXEngine) {
-                fragmentsDoneLatch = new MarkedCountDownLatch<>(backendFragments.size());
-                for (Pair<PlanFragmentId, Long> pair : backendFragments) {
-                    fragmentsDoneLatch.addMark(pair.first.asInt(), pair.second);
-                }
+            fragmentsDoneLatch = new MarkedCountDownLatch<>(backendFragments.size());
+            for (Pair<PlanFragmentId, Long> pair : backendFragments) {
+                fragmentsDoneLatch.addMark(pair.first.asInt(), pair.second);
             }
 
             // 4. send and wait fragments rpc
@@ -1224,6 +1223,9 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void cancel(Status cancelReason) {
+        for (ScanNode scanNode : scanNodes) {
+            scanNode.stop();
+        }
         if (cancelReason.ok()) {
             throw new RuntimeException("Should use correct cancel reason, but it is "
                     + cancelReason.toString());
@@ -1401,7 +1403,7 @@ public class Coordinator implements CoordInterface {
                     params.destinations.add(dest);
                 }
             } else {
-                if (enablePipelineEngine && enableShareHashTableForBroadcastJoin
+                if (enableShareHashTableForBroadcastJoin
                         && ((ExchangeNode) exchNode).isRightChildOfBroadcastHashJoin()) {
                     // here choose the first instance to build hash table.
                     Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
@@ -1523,7 +1525,7 @@ public class Coordinator implements CoordInterface {
                         bucketSeq++;
                         destinations.add(dest);
                     }
-                } else if (enablePipelineEngine && enableShareHashTableForBroadcastJoin
+                } else if (enableShareHashTableForBroadcastJoin
                         && ((ExchangeNode) exchNode).isRightChildOfBroadcastHashJoin()) {
                     // here choose the first instance to build hash table.
                     Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
@@ -1833,8 +1835,7 @@ public class Coordinator implements CoordInterface {
                         boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream().allMatch(
                                 scanNode -> scanNode.ignoreStorageDataDistribution(context, addressToBackendID.size()))
                                 && useNereids);
-                        if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
-                                || ignoreStorageDataDistribution)) {
+                        if (node.isPresent() && ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
@@ -1872,7 +1873,7 @@ public class Coordinator implements CoordInterface {
                             instanceParam.perNodeSharedScans.put(planNodeId, sharedScan);
                             params.instanceExecParams.add(instanceParam);
                         }
-                        params.ignoreDataDistribution = sharedScan && enablePipelineXEngine;
+                        params.ignoreDataDistribution = sharedScan;
                         params.parallelTasksNum = params.ignoreDataDistribution ? 1 : params.instanceExecParams.size();
                     }
                 }
@@ -2704,7 +2705,7 @@ public class Coordinator implements CoordInterface {
                 }
             }
         }
-        params.ignoreDataDistribution = ignoreStorageDataDistribution && enablePipelineXEngine;
+        params.ignoreDataDistribution = ignoreStorageDataDistribution;
         params.parallelTasksNum = params.ignoreDataDistribution ? 1 : params.instanceExecParams.size();
     }
 
@@ -2721,11 +2722,8 @@ public class Coordinator implements CoordInterface {
         PlanFragmentId fragmentId;
         boolean initiated;
         boolean done;
-        // use for pipeline
-        Map<TUniqueId, Boolean> fragmentInstancesMap;
-        // use for pipelineX
 
-        boolean enablePipelineX;
+        Map<TUniqueId, Boolean> fragmentInstancesMap;
         TNetworkAddress brpcAddress;
         TNetworkAddress address;
         Backend backend;
@@ -2737,7 +2735,7 @@ public class Coordinator implements CoordInterface {
         public PipelineExecContext(PlanFragmentId fragmentId,
                 TPipelineFragmentParams rpcParams, Long backendId,
                 Map<TUniqueId, Boolean> fragmentInstancesMap,
-                boolean enablePipelineX, ExecutionProfile executionProfile) {
+                ExecutionProfile executionProfile) {
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
             this.numInstances = rpcParams.local_params.size();
@@ -2752,7 +2750,6 @@ public class Coordinator implements CoordInterface {
             this.beProcessEpoch = backend.getProcessEpoch();
 
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
-            this.enablePipelineX = enablePipelineX;
             executionProfile.addFragmentBackend(fragmentId, backendId);
         }
 
@@ -3034,10 +3031,10 @@ public class Coordinator implements CoordInterface {
                 params.params.setSenderId(i);
                 params.params.setNumSenders(instanceExecParams.size());
                 params.setCoord(coordAddress);
+                params.setCurrentConnectFe(currentConnectFE);
                 params.setBackendNum(backendNum++);
                 params.setQueryGlobals(queryGlobals);
                 params.setQueryOptions(queryOptions);
-                params.query_options.setEnablePipelineEngine(false);
                 params.params.setSendQueryStatisticsWithEveryBatch(
                         fragment.isTransferQueryStatisticsWithEveryBatch());
                 params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
@@ -3131,10 +3128,9 @@ public class Coordinator implements CoordInterface {
                     params.setDestinations(destinations);
                     params.setNumSenders(instanceExecParams.size());
                     params.setCoord(coordAddress);
+                    params.setCurrentConnectFe(currentConnectFE);
                     params.setQueryGlobals(queryGlobals);
                     params.setQueryOptions(queryOptions);
-                    params.query_options.setEnablePipelineEngine(true);
-                    params.query_options.setEnablePipelineXEngine(true);
                     params.query_options.setMemLimit(memLimit);
                     params.setSendQueryStatisticsWithEveryBatch(
                             fragment.isTransferQueryStatisticsWithEveryBatch());

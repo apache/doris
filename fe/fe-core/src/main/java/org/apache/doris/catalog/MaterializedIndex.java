@@ -17,9 +17,11 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -208,21 +210,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-
-        Text.writeString(out, state.name());
-        out.writeLong(rowCount);
-
-        int tabletCount = tablets.size();
-        out.writeInt(tabletCount);
-        for (Tablet tablet : tablets) {
-            tablet.write(out);
-        }
-
-        out.writeLong(rollupIndexId);
-        out.writeLong(rollupFinishedVersion);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -245,9 +233,13 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
     }
 
     public static MaterializedIndex read(DataInput in) throws IOException {
-        MaterializedIndex materializedIndex = new MaterializedIndex();
-        materializedIndex.readFields(in);
-        return materializedIndex;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            MaterializedIndex mi = new MaterializedIndex();
+            mi.readFields(in);
+            return mi;
+        }
+
+        return GsonUtils.GSON.fromJson(Text.readString(in), MaterializedIndex.class);
     }
 
     @Override

@@ -275,6 +275,7 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
     out->mutable_cluster_key_idxes()->CopyFrom(in.cluster_key_idxes());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
+    out->mutable_row_store_column_unique_ids()->CopyFrom(in.row_store_column_unique_ids());
 }
 
 void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in) {
@@ -299,6 +300,7 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
     out->mutable_cluster_key_idxes()->Swap(in.mutable_cluster_key_idxes());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
+    out->mutable_row_store_column_unique_ids()->Swap(in.mutable_row_store_column_unique_ids());
 }
 
 TabletSchemaPB cloud_tablet_schema_to_doris(const TabletSchemaCloudPB& in) {
@@ -336,6 +338,7 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
     out->mutable_cluster_key_idxes()->CopyFrom(in.cluster_key_idxes());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
+    out->mutable_row_store_column_unique_ids()->CopyFrom(in.row_store_column_unique_ids());
 }
 
 void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in) {
@@ -361,6 +364,7 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     out->set_skip_write_index_on_load(in.skip_write_index_on_load());
     out->mutable_cluster_key_idxes()->Swap(in.mutable_cluster_key_idxes());
     out->set_is_dynamic_schema(in.is_dynamic_schema());
+    out->mutable_row_store_column_unique_ids()->Swap(in.mutable_row_store_column_unique_ids());
 }
 
 TabletMetaCloudPB doris_tablet_meta_to_cloud(const TabletMetaPB& in) {

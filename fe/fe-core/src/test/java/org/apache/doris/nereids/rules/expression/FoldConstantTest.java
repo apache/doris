@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
@@ -522,6 +523,18 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.lastDay(dateLiteral).toSql(), answer[answerIdx]);
+    }
+
+    @Test
+    void testDateError() {
+        boolean isError = false;
+        try {
+            new DateV2Literal("0000-02-29");
+        } catch (AnalysisException e) {
+            Assertions.assertEquals(e.getMessage(), "date/datetime literal [0000-02-29] is out of range");
+            isError = true;
+        }
+        Assertions.assertEquals(isError, true);
     }
 
     @Test

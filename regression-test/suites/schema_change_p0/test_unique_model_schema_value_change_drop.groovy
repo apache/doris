@@ -18,6 +18,8 @@
 suite("test_unique_model_schema_value_drop", "p0") {
     def tbName = "test_unique_model_schema_value_drop"
     def tbName2 = "test_unique_model_schema_value_drop_1"
+    def on_write = getRandomBoolean()
+    println String.format("current enable_unique_key_merge_on_write is : %s ",on_write)
     sql """ DROP TABLE IF EXISTS ${tbName} """
     def initTable1 = ""
     def initTableData1 = ""
@@ -56,7 +58,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     def initTableData = "insert into ${tbName} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -100,7 +102,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890,  10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -151,7 +153,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25,  1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -202,7 +204,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York',  1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -253,7 +255,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true,  1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -304,7 +306,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10,  '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -355,7 +357,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1,  true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -406,7 +408,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000,  '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -457,7 +459,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000,  '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -508,7 +510,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11',  '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -559,7 +561,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11',  '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -610,7 +612,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11',  '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -661,7 +663,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5,  25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -712,7 +714,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -763,7 +765,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]')," +
@@ -814,7 +816,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', '[\"abc\", \"def\"]')," +
@@ -865,7 +867,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200})," +
@@ -892,7 +894,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData = "insert into ${tbName} values(1, 123.4567890123, 123.45, 1234.5678901234)," +
@@ -924,7 +926,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1,  123.45, 1234.5678901234)," +
@@ -962,7 +964,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 123.4567890123,  1234.5678901234)," +
@@ -1000,7 +1002,7 @@ suite("test_unique_model_schema_value_drop", "p0") {
             "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
             "          PROPERTIES (\n" +
             "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-            "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+            "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n"  +
             "          );"
 
     initTableData1 = "insert into ${tbName2} values(1, 123.4567890123, 123.45)," +

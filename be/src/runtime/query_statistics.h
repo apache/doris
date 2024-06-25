@@ -81,7 +81,7 @@ public:
         this->_scan_bytes_from_remote_storage += scan_bytes_from_remote_storage;
     }
 
-    void set_returned_rows(int64_t num_rows) { this->returned_rows = num_rows; }
+    void add_returned_rows(int64_t num_rows) { this->returned_rows += num_rows; }
 
     void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) {
         this->max_peak_memory_bytes.store(max_peak_memory_bytes, std::memory_order_relaxed);
