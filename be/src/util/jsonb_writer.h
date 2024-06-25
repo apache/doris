@@ -89,7 +89,8 @@ public:
             if (key_id < 0) {
                 os_->put(len);
                 if (len == 0) {
-                    JsonbKeyValue::keyid_type idx = 0;
+                    // NOTE: we use sMaxKeyId to represent an empty key
+                    JsonbKeyValue::keyid_type idx = JsonbKeyValue::sMaxKeyId;
                     os_->write((char*)&idx, sizeof(JsonbKeyValue::keyid_type));
                     size += sizeof(JsonbKeyValue::keyid_type);
                 } else {
