@@ -187,7 +187,10 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
         List<NamedExpression> newOutput = new ArrayList<>();
         for (int i = 0; i < originalUnion.getOutput().size(); i++) {
             Slot originalSlot = originalUnion.getOutput().get(i);
-            Slot newSlot = originalToNewSlot.get(originalSlot);
+            NamedExpression newSlot = originalToNewSlot.get(originalSlot);
+            if (joinSlotToProject.containsKey(newSlot) && !joinSlotToProject.get(newSlot).isSlot()) {
+                newSlot = joinSlotToProject.get(newSlot.toSlot());
+            }
             newOutput.add(new Alias(originalSlot.getExprId(), newSlot, originalSlot.getName()));
         }
         return newOutput;
