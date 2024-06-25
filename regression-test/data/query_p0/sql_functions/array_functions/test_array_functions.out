@@ -1659,11 +1659,23 @@
 10005	[10005, null, null]	[null, 3, 10005, 2, 1]
 10006	[60002, 60002, 60003, null, 60005]	[null, 3, 60002, 60005, 60003, 2, 1]
 
+-- !select_union_left_const --
+10005	[10005, null, null]	[null, 3, 10005, 2, 1]
+10006	[60002, 60002, 60003, null, 60005]	[null, 3, 60002, 60005, 60003, 2, 1]
+
 -- !select_except --
 10005	[10005, null, null]	[10005, null]
 10006	[60002, 60002, 60003, null, 60005]	[60002, 60003, null, 60005]
 
+-- !select_except_left_const --
+10005	[10005, null, null]	[1, 2, 3]
+10006	[60002, 60002, 60003, null, 60005]	[1, 2, 3]
+
 -- !select_intersect --
+10005	[10005, null, null]	[null]
+10006	[60002, 60002, 60003, null, 60005]	[null]
+
+-- !select_intersect_left_const --
 10005	[10005, null, null]	[null]
 10006	[60002, 60002, 60003, null, 60005]	[null]
 
