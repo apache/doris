@@ -74,6 +74,7 @@ public class FeConstants {
     public static final String FS_PREFIX_BOS = "bos";
     public static final String FS_PREFIX_COS = "cos";
     public static final String FS_PREFIX_COSN = "cosn";
+    public static final String FS_PREFIX_LAKEFS = "lakefs";
     public static final String FS_PREFIX_OBS = "obs";
     public static final String FS_PREFIX_OFS = "ofs";
     public static final String FS_PREFIX_GFS = "gfs";

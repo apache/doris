@@ -470,7 +470,7 @@ public class PropertyConverterTest extends TestWithFeService {
                     + "    'cos.secret_key' = 'skk'\n"
                     + ");";
         testS3CompatibleCatalogProperties(catalogName0, CosProperties.COS_PREFIX,
-                "cos.ap-beijing.myqcloud.com", query0, 12, 17);
+                "cos.ap-beijing.myqcloud.com", query0, 12, 18);
 
         String catalogName1 = "hms_oss";
         String query1 = "create catalog " + catalogName1 + " properties (\n"
