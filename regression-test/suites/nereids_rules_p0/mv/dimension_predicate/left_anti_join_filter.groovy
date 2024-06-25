@@ -101,7 +101,9 @@ suite("left_anti_join_filter") {
     (1, 2, 3, null, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (2, 3, 2, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', null, '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-18'),
     (3, 1, 1, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
-    (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
+    (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
+    (5, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-18'),
+    (5, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-19');
     """
 
     sql """analyze table orders_left_anti_join with sync;"""
@@ -152,7 +154,7 @@ suite("left_anti_join_filter") {
     }
 
     // left anti join + filter on different position
-    def mv_stmt_0 = """select t.l_shipdate, t.l_partkey, t.l_suppkey  
+    def mv_stmt_0 = """select t.l_shipdate, t.l_partkey, t.l_suppkey 
         from (select l_shipdate, l_partkey, l_suppkey, l_orderkey from lineitem_left_anti_join where l_shipdate > '2023-10-17') t
         left anti join orders_left_anti_join 
         on t.l_orderkey = orders_left_anti_join.o_orderkey"""
@@ -198,6 +200,11 @@ suite("left_anti_join_filter") {
 
     def mv_list_1 = [mv_stmt_0, mv_stmt_1, mv_stmt_2, mv_stmt_3, mv_stmt_4, mv_stmt_5,
                      mv_stmt_6, mv_stmt_7]
+    for (int i = 0; i < mv_list_1.size(); i++) {
+        def res = sql """${mv_list_1[i]}"""
+        assertTrue(res.size() > 0)
+    }
+
     for (int i = 0; i < mv_list_1.size(); i++) {
         logger.info("i:" + i)
         def mv_name = """mv_name_left_anti_join_${i}"""
