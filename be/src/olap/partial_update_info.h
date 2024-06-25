@@ -18,6 +18,7 @@
 #pragma once
 
 #include "olap/tablet_schema.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -27,6 +28,7 @@ struct PartialUpdateInfo {
               int64_t timestamp_ms, const std::string& timezone) {
         is_partial_update = partial_update;
         partial_update_input_columns = partial_update_cols;
+
         this->timestamp_ms = timestamp_ms;
         this->timezone = timezone;
         missing_cids.clear();
@@ -43,8 +45,37 @@ struct PartialUpdateInfo {
             }
         }
         this->is_strict_mode = is_strict_mode;
+        _generate_default_values_for_missing_cids(tablet_schema);
     }
 
+private:
+    void _generate_default_values_for_missing_cids(const TabletSchema& tablet_schema) {
+        for (auto i = 0; i < missing_cids.size(); ++i) {
+            auto cur_cid = missing_cids[i];
+            const auto& column = tablet_schema.column(cur_cid);
+            if (column.has_default_value()) {
+                std::string default_value;
+                if (UNLIKELY(tablet_schema.column(cur_cid).type() ==
+                                     FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
+                             to_lower(tablet_schema.column(cur_cid).default_value())
+                                             .find(to_lower("CURRENT_TIMESTAMP")) !=
+                                     std::string::npos)) {
+                    vectorized::DateV2Value<vectorized::DateTimeV2ValueType> dtv;
+                    dtv.from_unixtime(timestamp_ms / 1000, timezone);
+                    default_value = dtv.debug_string();
+                } else {
+                    default_value = tablet_schema.column(cur_cid).default_value();
+                }
+                default_values.emplace_back(default_value);
+            } else {
+                // place an empty string here
+                default_values.emplace_back();
+            }
+        }
+        CHECK_EQ(missing_cids.size(), default_values.size());
+    }
+
+public:
     bool is_partial_update {false};
     std::set<std::string> partial_update_input_columns;
     std::vector<uint32_t> missing_cids;
@@ -55,5 +86,8 @@ struct PartialUpdateInfo {
     bool is_strict_mode {false};
     int64_t timestamp_ms {0};
     std::string timezone;
+
+    // default values for missing cids
+    std::vector<std::string> default_values;
 };
 } // namespace doris
