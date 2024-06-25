@@ -115,9 +115,8 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
                                       PageFooterPB* footer, PageTypePB type,
                                       BlockCompressionCodec* codec, bool pre_decode) const {
     OlapReaderStatistics tmp_stats;
-    bool use_page_cache = _use_page_cache && (!config::file_cache_index_only || type == INDEX_PAGE);
     PageReadOptions opts {
-            .use_page_cache = use_page_cache,
+            .use_page_cache = _use_page_cache,
             .kept_in_memory = _kept_in_memory,
             .pre_decode = pre_decode,
             .type = type,
