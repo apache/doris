@@ -279,6 +279,18 @@ public class SummaryProfile {
         }
     }
 
+    // This method is for UT usage
+    public void fuzzyInit() {
+        for (String key : SUMMARY_KEYS) {
+            String randomId = String.valueOf(TimeUtils.getStartTimeMs());
+            summaryProfile.addInfoString(key, randomId);
+        }
+        for (String key : EXECUTION_SUMMARY_KEYS) {
+            String randomId = String.valueOf(TimeUtils.getStartTimeMs());
+            executionSummaryProfile.addInfoString(key, randomId);
+        }
+    }
+
     public void prettyPrint(StringBuilder builder) {
         summaryProfile.prettyPrint(builder, "");
         executionSummaryProfile.prettyPrint(builder, "");
