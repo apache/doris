@@ -87,32 +87,9 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
-        orc::CompressionKind orc_compression_type;
-        switch (_compress_type) {
-        case TFileCompressType::PLAIN: {
-            orc_compression_type = orc::CompressionKind::CompressionKind_NONE;
-            break;
-        }
-        case TFileCompressType::SNAPPYBLOCK: {
-            orc_compression_type = orc::CompressionKind::CompressionKind_SNAPPY;
-            break;
-        }
-        case TFileCompressType::ZLIB: {
-            orc_compression_type = orc::CompressionKind::CompressionKind_ZLIB;
-            break;
-        }
-        case TFileCompressType::ZSTD: {
-            orc_compression_type = orc::CompressionKind::CompressionKind_ZSTD;
-            break;
-        }
-        default: {
-            return Status::InternalError("Unsupported compress type {} with orc", _compress_type);
-        }
-        }
-
         _file_format_transformer.reset(
-                new VOrcTransformer(state, _file_writer.get(), _write_output_expr_ctxs,
-                                    _write_column_names, false, orc_compression_type, &_schema));
+                new VOrcTransformer(state, _file_writer.get(), _write_output_expr_ctxs, "",
+                                    _write_column_names, false, _compress_type, &_schema));
         return _file_format_transformer->open();
     }
     default: {
