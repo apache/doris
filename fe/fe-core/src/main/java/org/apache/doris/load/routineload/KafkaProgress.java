@@ -65,13 +65,12 @@ public class KafkaProgress extends RoutineLoadProgress {
     public KafkaProgress(TKafkaRLTaskProgress tKafkaRLTaskProgress) {
         super(LoadDataSourceType.KAFKA);
         this.partitionIdToOffset = new ConcurrentHashMap<>();
-        this.partitionIdToOffset.putAll(tKafkaRLTaskProgress.getPartitionCmtOffset());
+        partitionIdToOffset.putAll(tKafkaRLTaskProgress.getPartitionCmtOffset());
     }
 
-    public KafkaProgress(Map<Integer, Long> partitionIdToOffset) {
+    public KafkaProgress(ConcurrentMap<Integer, Long> partitionIdToOffset) {
         super(LoadDataSourceType.KAFKA);
-        this.partitionIdToOffset = new ConcurrentHashMap<>();
-        this.partitionIdToOffset.putAll(partitionIdToOffset);
+        this.partitionIdToOffset = partitionIdToOffset;
     }
 
     public Map<Integer, Long> getPartitionIdToOffset(List<Integer> partitionIds) {
@@ -94,7 +93,7 @@ public class KafkaProgress extends RoutineLoadProgress {
         return partitionIdToOffset.get(kafkaPartition);
     }
 
-    public Map<Integer, Long> getOffsetByPartition() {
+    public ConcurrentMap<Integer, Long> getOffsetByPartition() {
         return partitionIdToOffset;
     }
 
