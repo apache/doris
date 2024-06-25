@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -29,7 +30,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class ReplicaPersistInfo implements Writable {
+public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
 
     public enum ReplicaOperationType {
         ADD(0),
@@ -318,6 +319,13 @@ public class ReplicaPersistInfo implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (opType == null) {
+            throw new IOException("could not parse operation type from replica info");
+        }
     }
 
     @Deprecated

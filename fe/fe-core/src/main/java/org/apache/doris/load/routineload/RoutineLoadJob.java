@@ -53,6 +53,7 @@ import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -103,7 +104,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * The desireTaskConcurrentNum means that user expect the number of concurrent stream load
  * The routine load job support different streaming medium such as KAFKA
  */
-public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback implements Writable, LoadTaskInfo {
+public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback implements Writable, LoadTaskInfo, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
 
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
@@ -123,7 +124,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     @Getter
     @Setter
-    @SerializedName("imt")
     private boolean isMultiTable = false;
 
     /*
@@ -172,17 +172,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // this code is used to verify be task request
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
-    @SerializedName("part")
     protected PartitionNames partitions; // optional
-    @SerializedName("cde")
     protected ImportColumnDescs columnDescs; // optional
-    @SerializedName("pf")
     protected Expr precedingFilter; // optional
-    @SerializedName("we")
     protected Expr whereExpr; // optional
-    @SerializedName("cse")
     protected Separator columnSeparator; // optional
-    @SerializedName("ld")
     protected Separator lineDelimiter;
     @SerializedName("dtcn")
     protected int desireTaskConcurrentNum; // optional
@@ -225,7 +219,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @SerializedName("ipu")
     protected boolean isPartialUpdate = false;
 
-    @SerializedName("sc")
     protected String sequenceCol;
 
     protected boolean memtableOnSinkNode = false;
@@ -283,9 +276,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected String comment = "";
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-    @SerializedName("mt")
     protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
-    @SerializedName("dec")
     protected Expr deleteCondition;
     // TODO(ml): error sample
 
@@ -1853,6 +1844,24 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (tableId == 0) {
+            isMultiTable = true;
+        }
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
+                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
+        CreateRoutineLoadStmt stmt = null;
+        try {
+            stmt = (CreateRoutineLoadStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
+            stmt.checkLoadProperties();
+            setRoutineLoadDesc(stmt.getRoutineLoadDesc());
+        } catch (Exception e) {
+            throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
+        }
+        userIdentity.setIsAnalyzed();
     }
 
     @Deprecated

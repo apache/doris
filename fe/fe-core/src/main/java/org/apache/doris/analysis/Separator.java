@@ -20,16 +20,13 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.StringWriter;
 
 public class Separator implements ParseNode {
     private static final String HEX_STRING = "0123456789ABCDEF";
 
-    @SerializedName("osp")
     private final String oriSeparator;
-    @SerializedName("sp")
     private String separator;
 
     public Separator(String separator) {
