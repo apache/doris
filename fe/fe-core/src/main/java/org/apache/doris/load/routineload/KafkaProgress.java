@@ -68,6 +68,12 @@ public class KafkaProgress extends RoutineLoadProgress {
         partitionIdToOffset.putAll(tKafkaRLTaskProgress.getPartitionCmtOffset());
     }
 
+    public KafkaProgress(Map<Integer, Long> partitionIdToOffset) {
+        super(LoadDataSourceType.KAFKA);
+        this.partitionIdToOffset = new ConcurrentHashMap<>();
+        this.partitionIdToOffset.putAll(partitionIdToOffset);
+    }
+
     public KafkaProgress(ConcurrentMap<Integer, Long> partitionIdToOffset) {
         super(LoadDataSourceType.KAFKA);
         this.partitionIdToOffset = partitionIdToOffset;
@@ -170,7 +176,7 @@ public class KafkaProgress extends RoutineLoadProgress {
     // so the lag should be (4-2=)2.
     public Map<Integer, Long> getLag(Map<Integer, Long> partitionIdWithLatestOffsets) {
         Map<Integer, Long> lagMap = Maps.newHashMap();
-        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+        for (ConcurrentMap.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (partitionIdWithLatestOffsets.containsKey(entry.getKey())) {
                 long lag = partitionIdWithLatestOffsets.get(entry.getKey()) - entry.getValue();
                 lagMap.put(entry.getKey(), lag);
