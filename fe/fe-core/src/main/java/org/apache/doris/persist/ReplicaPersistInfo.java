@@ -49,6 +49,7 @@ public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
         DEFAULT_OP(8),
         TABLET_INFO(9);
 
+        @SerializedName("v")
         private final int value;
 
         ReplicaOperationType(int value) {
