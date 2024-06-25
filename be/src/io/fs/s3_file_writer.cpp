@@ -296,7 +296,7 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
     }
     const auto& client = _obj_client->get();
     if (nullptr == client) {
-        LOG_INFO("failed at key: {}, load part {} bacause of invalid obj client",
+        LOG_WARNING("failed at key: {}, load part {} bacause of invalid obj client",
                  _obj_storage_path_opts.key, part_num);
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));
         return;
