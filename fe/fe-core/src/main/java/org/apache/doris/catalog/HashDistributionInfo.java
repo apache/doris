@@ -25,7 +25,6 @@ import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -65,17 +64,6 @@ public class HashDistributionInfo extends DistributionInfo {
     @Override
     public void setBucketNum(int bucketNum) {
         this.bucketNum = bucketNum;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        int columnCount = distributionColumns.size();
-        out.writeInt(columnCount);
-        for (Column column : distributionColumns) {
-            column.write(out);
-        }
-        out.writeInt(bucketNum);
     }
 
     @Override
