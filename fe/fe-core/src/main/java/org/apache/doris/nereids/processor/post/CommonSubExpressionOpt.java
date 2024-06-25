@@ -50,13 +50,12 @@ import java.util.Set;
  */
 public class CommonSubExpressionOpt extends PlanPostProcessor {
     @Override
-    public PhysicalProject visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext ctx) {
+    public PhysicalProject<? extends Plan> visitPhysicalProject(
+            PhysicalProject<? extends Plan> project, CascadesContext ctx) {
         project.child().accept(this, ctx);
-        if (!project.hasPushedDownToProjectionFunctions()) {
-            List<List<NamedExpression>> multiLayers = computeMultiLayerProjections(
-                    project.getInputSlots(), project.getProjects());
-            project.setMultiLayerProjects(multiLayers);
-        }
+        List<List<NamedExpression>> multiLayers = computeMultiLayerProjections(
+                project.getInputSlots(), project.getProjects());
+        project.setMultiLayerProjects(multiLayers);
         return project;
     }
 

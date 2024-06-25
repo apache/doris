@@ -24,6 +24,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.DLFProperties;
 import org.apache.doris.datasource.property.constants.GCSProperties;
@@ -125,6 +126,8 @@ public class PropertyConverter {
             return convertToCOSProperties(props, CosProperties.getCredential(props));
         } else if (props.containsKey(MinioProperties.ENDPOINT)) {
             return convertToMinioProperties(props, MinioProperties.getCredential(props));
+        } else if (props.containsKey(AzureProperties.ENDPOINT)) {
+            return convertToAzureProperties(props, AzureProperties.getCredential(props));
         } else if (props.containsKey(S3Properties.ENDPOINT)) {
             CloudCredential s3Credential = S3Properties.getCredential(props);
             Map<String, String> s3Properties = convertToS3Properties(props, s3Credential);
@@ -139,6 +142,10 @@ public class PropertyConverter {
             return convertToCompatibleS3Properties(props, s3CliEndpoint, envCredentials, s3Properties);
         }
         return props;
+    }
+
+    private static Map<String, String> convertToAzureProperties(Map<String, String> props, CloudCredential credential) {
+        return null;
     }
 
     private static Map<String, String> convertToCompatibleS3Properties(Map<String, String> props,

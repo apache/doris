@@ -1170,7 +1170,7 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
         // Currently it supports 2 kinds of requests:
         // 1. get all kafka partition ids for given topic
         // 2. get all kafka partition offsets for given topic and timestamp.
-        int timeout_ms = request->has_timeout_secs() ? request->timeout_secs() * 1000 : 5 * 1000;
+        int timeout_ms = request->has_timeout_secs() ? request->timeout_secs() * 1000 : 60 * 1000;
         if (request->has_kafka_meta_request()) {
             const PKafkaMetaProxyRequest& kafka_request = request->kafka_meta_request();
             if (!kafka_request.offset_flags().empty()) {
@@ -2023,23 +2023,19 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
         ctx->pipe = pipe;
         Status st = _exec_env->new_load_stream_mgr()->put(load_id, ctx);
         if (st.ok()) {
-            std::mutex mutex;
-            std::condition_variable cv;
-            bool handled = false;
             try {
                 st = _exec_plan_fragment_impl(
                         request->exec_plan_fragment_request().request(),
                         request->exec_plan_fragment_request().version(),
                         request->exec_plan_fragment_request().compact(),
-                        [&](RuntimeState* state, Status* status) {
+                        [&, response, done, load_id](RuntimeState* state, Status* status) {
+                            brpc::ClosureGuard cb_closure_guard(done);
                             response->set_label(state->import_label());
                             response->set_txn_id(state->wal_id());
                             response->set_loaded_rows(state->num_rows_load_success());
                             response->set_filtered_rows(state->num_rows_load_filtered());
-                            st = *status;
-                            std::unique_lock l(mutex);
-                            handled = true;
-                            cv.notify_one();
+                            status->to_protobuf(response->mutable_status());
+                            _exec_env->new_load_stream_mgr()->remove(load_id);
                         });
             } catch (const Exception& e) {
                 st = e.to_status();
@@ -2050,6 +2046,7 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
             if (!st.ok()) {
                 LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
             } else {
+                closure_guard.release();
                 for (int i = 0; i < request->data().size(); ++i) {
                     std::unique_ptr<PDataRow> row(new PDataRow());
                     row->CopyFrom(request->data(i));
@@ -2060,15 +2057,9 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                 }
                 if (st.ok()) {
                     static_cast<void>(pipe->finish());
-                    std::unique_lock l(mutex);
-                    if (!handled) {
-                        cv.wait(l);
-                    }
                 }
             }
         }
-        st.to_protobuf(response->mutable_status());
-        _exec_env->new_load_stream_mgr()->remove(load_id);
     });
     if (!ret) {
         _exec_env->new_load_stream_mgr()->remove(load_id);

@@ -24,10 +24,10 @@ import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.io.output.NullOutputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -107,38 +108,49 @@ public class Function implements Writable {
 
     public static final long UNIQUE_FUNCTION_ID = 0;
     // Function id, every function has a unique id. Now all built-in functions' id is 0
+    @SerializedName("id")
     private long id = 0;
     // User specified function name e.g. "Add"
+    @SerializedName("n")
     private FunctionName name;
+    @SerializedName("rt")
     private Type retType;
     // Array of parameter types.  empty array if this function does not have parameters.
+    @SerializedName("at")
     private Type[] argTypes;
     // If true, this function has variable arguments.
     // TODO: we don't currently support varargs with no fixed types. i.e. fn(...)
+    @SerializedName("hva")
     private boolean hasVarArgs;
 
     // If true (default), this function is called directly by the user. For operators,
     // this is false. If false, it also means the function is not visible from
     // 'show functions'.
+    @SerializedName("uv")
     private boolean userVisible;
 
     // Absolute path in HDFS for the binary that contains this function.
     // e.g. /udfs/udfs.jar
+    @SerializedName("l")
     private URI location;
+    @SerializedName("bt")
     private TFunctionBinaryType binaryType;
 
     private Function nestedFunction = null;
 
+    @SerializedName("nm")
     protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
 
     protected boolean vectorized = true;
 
     // library's checksum to make sure all backends use one library to serve user's request
+    @SerializedName("cs")
     protected String checksum = "";
 
     // If true, this function is global function
     protected boolean isGlobal = false;
     // If true, this function is table function, mainly used by java-udtf
+    @SerializedName("isU")
     protected boolean isUDTFunction = false;
 
     // Only used for serialization
@@ -624,6 +636,7 @@ public class Function implements Writable {
         AGGREGATE(2),
         ALIAS(3);
 
+        @SerializedName("c")
         private int code;
 
         FunctionType(int code) {
@@ -648,43 +661,21 @@ public class Function implements Writable {
             return null;
         }
 
-        public void write(DataOutput output) throws IOException {
-            output.writeInt(code);
-        }
-
         public static FunctionType read(DataInput input) throws IOException {
-            return fromCode(input.readInt());
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+                return fromCode(input.readInt());
+            } else {
+                return GsonUtils.GSON.fromJson(Text.readString(input), FunctionType.class);
+            }
         }
-    }
-
-    protected void writeFields(DataOutput output) throws IOException {
-        output.writeLong(id);
-        name.write(output);
-        ColumnType.write(output, retType);
-        output.writeInt(argTypes.length);
-        for (Type type : argTypes) {
-            ColumnType.write(output, type);
-        }
-        output.writeBoolean(hasVarArgs);
-        output.writeBoolean(userVisible);
-        output.writeInt(binaryType.getValue());
-        // write library URL
-        String libUrl = "";
-        if (location != null) {
-            libUrl = location.getLocation();
-        }
-        IOUtils.writeOptionString(output, libUrl);
-        IOUtils.writeOptionString(output, checksum);
-        output.writeUTF(nullableMode.toString());
-        output.writeBoolean(isUDTFunction);
     }
 
     @Override
     public void write(DataOutput output) throws IOException {
-        throw new Error("Origin function cannot be serialized");
+        Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput input) throws IOException {
+    protected void readFields(DataInput input) throws IOException {
         id = input.readLong();
         name = FunctionName.read(input);
         retType = ColumnType.read(input);
@@ -720,6 +711,9 @@ public class Function implements Writable {
     }
 
     public static Function read(DataInput input) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
+            return GsonUtils.GSON.fromJson(Text.readString(input), Function.class);
+        }
         Function function;
         FunctionType functionType = FunctionType.read(input);
         switch (functionType) {

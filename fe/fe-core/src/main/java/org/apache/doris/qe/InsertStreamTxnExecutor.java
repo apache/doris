@@ -67,6 +67,7 @@ public class InsertStreamTxnExecutor {
         // StreamLoadTask's id == request's load_id
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner((Database) txnEntry.getDb(), table, streamLoadTask);
+        boolean isMowTable = ((OlapTable) txnEntry.getTable()).getEnableUniqueKeyMergeOnWrite();
         TPipelineFragmentParamsList pipelineParamsList = new TPipelineFragmentParamsList();
         if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
             throw new UserException("get table read lock timeout, database=" + table.getDatabase().getId() + ",table="
@@ -76,6 +77,7 @@ public class InsertStreamTxnExecutor {
             // Will using load id as query id in fragment
             TPipelineFragmentParams tRequest = planner.plan(streamLoadTask.getId());
             tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
+            tRequest.setIsMowTable(isMowTable);
             for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.local_params.get(0).per_node_scan_ranges
                     .entrySet()) {
                 for (TScanRangeParams scanRangeParams : entry.getValue()) {

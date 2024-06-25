@@ -43,6 +43,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
+import org.apache.doris.thrift.TSubTxnInfo;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TTxnLoadInfo;
 import org.apache.doris.thrift.TTxnParams;
@@ -85,9 +86,6 @@ public class TransactionEntry {
     private long transactionId = -1;
     private TransactionState transactionState;
     private long timeoutTimestamp = -1;
-    // 1. For cloud mode, we keep subTransactionStates in TransactionEntry;
-    // 2. For doris, we keep subTransactionStates in TransactionState, because if executed in observer,
-    // the dml statements will be forwarded to master, so keep the subTransactionStates is in master.
     private List<SubTransactionState> subTransactionStates = new ArrayList<>();
     // Used for cloud mode, including all successful or failed sub transactions except the first one
     private long allSubTxnNum = 0;
@@ -222,7 +220,6 @@ public class TransactionEntry {
             this.dbId = this.database.getId();
             this.transactionState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(database.getId(), transactionId);
-            this.transactionState.resetSubTransactionStates();
             return this.transactionId;
         } else {
             if (this.database.getId() != database.getId()) {
@@ -253,13 +250,15 @@ public class TransactionEntry {
     public TransactionStatus commitTransaction() throws Exception {
         if (isTransactionBegan) {
             try {
-                if (Env.getCurrentEnv().isMaster() || Config.isCloudMode()) {
+                // cloud mode does not commit on observer fe because CloudGlobalTransactionMgr#afterCommitTxnResp
+                // will produce event
+                if (Env.getCurrentEnv().isMaster()) {
                     beforeFinishTransaction();
                     // the report_tablet_interval_seconds is default 60
                     long commitTimeout = Math.min(Config.commit_timeout_second * 1000L,
                             Math.max(timeoutTimestamp - System.currentTimeMillis(), 0));
                     if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(database, transactionId,
-                            transactionState.getSubTransactionStates(), commitTimeout)) {
+                            subTransactionStates, commitTimeout)) {
                         return TransactionStatus.VISIBLE;
                     } else {
                         return TransactionStatus.COMMITTED;
@@ -336,13 +335,20 @@ public class TransactionEntry {
         }
     }
 
-    private void beforeFinishTransaction() {
+    private void beforeFinishTransaction() throws DdlException {
         if (isTransactionBegan) {
-            List<Long> tableIds = transactionState.getTableIdList().stream().distinct().collect(Collectors.toList());
-            transactionState.setTableIdList(tableIds);
-            List<SubTransactionState> subTransactionStatesPtr = Config.isCloudMode() ? subTransactionStates
-                    : transactionState.getSubTransactionStates();
-            subTransactionStatesPtr.sort((s1, s2) -> {
+            if (Config.isCloudMode()) {
+                // null if this is observer
+                if (transactionState == null) {
+                    database = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
+                    transactionState = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, transactionId);
+                }
+            } else {
+                List<Long> tableIds = transactionState.getTableIdList().stream().distinct()
+                        .collect(Collectors.toList());
+                transactionState.setTableIdList(tableIds);
+            }
+            subTransactionStates.sort((s1, s2) -> {
                 if (s1.getSubTransactionType() == SubTransactionType.INSERT
                         && s2.getSubTransactionType() == SubTransactionType.DELETE) {
                     return 1;
@@ -353,11 +359,9 @@ public class TransactionEntry {
                     return Long.compare(s1.getSubTransactionId(), s2.getSubTransactionId());
                 }
             });
-            if (Config.isCloudMode()) {
-                transactionState.setSubTransactionStates(subTransactionStatesPtr);
-            }
-            LOG.info("subTransactionStates={}", transactionState.getSubTransactionStates());
-            transactionState.resetSubTxnIds();
+            LOG.info("subTransactionStates={}", subTransactionStates);
+            transactionState.setSubTxnIds(subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
+                    .collect(Collectors.toList()));
         }
     }
 
@@ -395,10 +399,7 @@ public class TransactionEntry {
             LOG.debug("label={}, txn_id={}, sub_txn_id={}, table={}, commit_infos={}",
                     label, transactionId, subTxnId, table, commitInfos);
         }
-        List<SubTransactionState> subTransactionStatesPtr = Config.isCloudMode() ? subTransactionStates
-                : transactionState.getSubTransactionStates();
-        subTransactionStatesPtr
-                .add(new SubTransactionState(subTxnId, table, commitInfos, subTransactionType));
+        subTransactionStates.add(new SubTransactionState(subTxnId, table, commitInfos, subTransactionType));
     }
 
     public boolean isTransactionBegan() {
@@ -443,27 +444,22 @@ public class TransactionEntry {
         this.setTxnConf(new TTxnParams().setNeedTxn(true).setTxnId(-1));
         this.label = txnLoadInfo.getLabel();
         if (txnLoadInfo.isSetTxnId()) {
-            this.dbId = txnLoadInfo.getDbId();
-            this.database = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
-            this.transactionId = txnLoadInfo.getTxnId();
+            Preconditions.checkState(subTransactionStates.isEmpty(),
+                    "subTxnStates is not empty: " + subTransactionStates);
+            resetByTxnInfo(txnLoadInfo);
             this.transactionState = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, transactionId);
             Preconditions.checkNotNull(this.transactionState,
                     "db_id" + dbId + " txn_id=" + transactionId + " not found");
             Preconditions.checkState(this.label.equals(this.transactionState.getLabel()), "expected label="
                     + this.label + ", real label=" + this.transactionState.getLabel());
             this.isTransactionBegan = true;
-            this.timeoutTimestamp = txnLoadInfo.getTimeoutTimestamp();
         }
-        LOG.info("set txn info in master, label={}, txnId={}, dbId={}, timeoutTimestamp={}",
-                label, transactionId, dbId, timeoutTimestamp);
+        LOG.info("set txn info in master, label={}, txnId={}, dbId={}, timeoutTimestamp={}, allSubTxnNum={}, "
+                + "subTxnStates={}", label, transactionId, dbId, timeoutTimestamp, allSubTxnNum, subTransactionStates);
     }
 
     public TTxnLoadInfo getTxnInfoInMaster() {
-        TTxnLoadInfo txnLoadInfo = new TTxnLoadInfo();
-        txnLoadInfo.setLabel(label);
-        txnLoadInfo.setTxnId(transactionId);
-        txnLoadInfo.setDbId(dbId);
-        txnLoadInfo.setTimeoutTimestamp(timeoutTimestamp);
+        TTxnLoadInfo txnLoadInfo = getTxnLoadInfo();
         LOG.info("master return txn info: {}", txnLoadInfo);
         return txnLoadInfo;
     }
@@ -473,31 +469,56 @@ public class TransactionEntry {
             throw new AnalysisException(
                     "Transaction insert can not insert into values and insert into select at the same time");
         }
+        TTxnLoadInfo txnLoadInfo = getTxnLoadInfo();
+        LOG.info("get txn load info in observer: {}", txnLoadInfo);
+        return txnLoadInfo;
+    }
+
+    public void setTxnLoadInfoInObserver(TTxnLoadInfo txnLoadInfo) throws DdlException {
+        Preconditions.checkState(txnLoadInfo.getLabel().equals(this.label),
+                "expected label=" + this.label + ", real label=" + txnLoadInfo.getLabel());
+        subTransactionStates.clear();
+        resetByTxnInfo(txnLoadInfo);
+        this.isTransactionBegan = true;
+        LOG.info("set txn load info in observer, label={}, txnId={}, dbId={}, timeoutTimestamp={}, allSubTxnNum={}, "
+                + "subTxnStates={}", label, transactionId, dbId, timeoutTimestamp, allSubTxnNum, subTransactionStates);
+    }
+
+    private void resetByTxnInfo(TTxnLoadInfo txnLoadInfo) throws DdlException {
+        this.dbId = txnLoadInfo.getDbId();
+        this.database = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
+        this.transactionId = txnLoadInfo.getTxnId();
+        this.timeoutTimestamp = txnLoadInfo.getTimeoutTimestamp();
+        this.allSubTxnNum = txnLoadInfo.getAllSubTxnNum();
+        for (TSubTxnInfo subTxnInfo : txnLoadInfo.getSubTxnInfos()) {
+            TableIf table = database.getTableOrDdlException(subTxnInfo.getTableId());
+            subTransactionStates.add(
+                    new SubTransactionState(subTxnInfo.getSubTxnId(), (Table) table,
+                            subTxnInfo.getTabletCommitInfos(),
+                            SubTransactionState.getSubTransactionType(subTxnInfo.getSubTxnType())));
+        }
+    }
+
+    private TTxnLoadInfo getTxnLoadInfo() {
         TTxnLoadInfo txnLoadInfo = new TTxnLoadInfo();
         txnLoadInfo.setLabel(label);
         if (this.isTransactionBegan) {
             txnLoadInfo.setTxnId(transactionId);
             txnLoadInfo.setDbId(dbId);
             txnLoadInfo.setTimeoutTimestamp(timeoutTimestamp);
+            txnLoadInfo.setAllSubTxnNum(allSubTxnNum);
+            for (SubTransactionState subTxnState : subTransactionStates) {
+                txnLoadInfo.addToSubTxnInfos(new TSubTxnInfo()
+                        .setSubTxnId(subTxnState.getSubTransactionId())
+                        .setTableId(subTxnState.getTable().getId())
+                        .setTabletCommitInfos(subTxnState.getTabletCommitInfos())
+                        .setSubTxnType(SubTransactionState.getSubTransactionType(subTxnState.getSubTransactionType())));
+            }
         }
-        LOG.info("get txn load info in observer: {}", txnLoadInfo);
         return txnLoadInfo;
     }
 
-    public void setTxnLoadInfoInObserver(TTxnLoadInfo txnLoadInfo) {
-        Preconditions.checkState(txnLoadInfo.getLabel().equals(this.label),
-                "expected label=" + this.label + ", real label=" + txnLoadInfo.getLabel());
-        this.isTransactionBegan = true;
-        this.transactionId = txnLoadInfo.txnId;
-        this.timeoutTimestamp = txnLoadInfo.timeoutTimestamp;
-        this.dbId = txnLoadInfo.dbId;
-        LOG.info("set txn load info in observer, label={}, txnId={}, dbId={}, timeoutTimestamp={}",
-                label, transactionId, dbId, timeoutTimestamp);
-    }
-
     private Set<Long> getTableIds() {
-        List<SubTransactionState> subTransactionStatesPtr = Config.isCloudMode() ? subTransactionStates
-                : transactionState.getSubTransactionStates();
-        return subTransactionStatesPtr.stream().map(s -> s.getTable().getId()).collect(Collectors.toSet());
+        return subTransactionStates.stream().map(s -> s.getTable().getId()).collect(Collectors.toSet());
     }
 }

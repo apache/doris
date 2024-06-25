@@ -208,7 +208,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     @Override
-    protected void deleteNotExistPartitionStats() throws DdlException {
+    protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
         TableStatsMeta tableStats = Env.getServingEnv().getAnalysisManager().findTableStatsStatus(tbl.getId());
         // When a partition was dropped, newPartitionLoaded will set to true.
         // So we don't need to check dropped partition if newPartitionLoaded is false.
@@ -228,6 +228,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             Partition partition = table.getPartition(partId);
             if (partition == null) {
                 columnStats.partitionUpdateRows.remove(partId);
+                tableStats.partitionUpdateRows.remove(partId);
+                jobInfo.partitionUpdateRows.remove(partId);
                 expiredPartition.add(partId);
                 if (expiredPartition.size() == Config.max_allowed_in_element_num_of_delete) {
                     String partitionCondition = " AND part_id in (" + Joiner.on(", ").join(expiredPartition) + ")";

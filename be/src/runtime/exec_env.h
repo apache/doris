@@ -73,7 +73,7 @@ class MemTracker;
 class BaseStorageEngine;
 class ResultBufferMgr;
 class ResultQueueMgr;
-class RuntimeQueryStatiticsMgr;
+class RuntimeQueryStatisticsMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class LoadStreamMgr;
@@ -150,7 +150,7 @@ public:
     pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
     WorkloadGroupMgr* workload_group_mgr() { return _workload_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
-    RuntimeQueryStatiticsMgr* runtime_query_statistics_mgr() {
+    RuntimeQueryStatisticsMgr* runtime_query_statistics_mgr() {
         return _runtime_query_statistics_mgr;
     }
 
@@ -430,7 +430,7 @@ private:
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
 
-    RuntimeQueryStatiticsMgr* _runtime_query_statistics_mgr = nullptr;
+    RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;
 
     std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;

@@ -189,6 +189,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             MaterializedIndex rollupIndex = entry.getValue();
             Cloud.CreateTabletsRequest.Builder requestBuilder =
                     Cloud.CreateTabletsRequest.newBuilder();
+            List<String> rowStoreColumns =
+                                        tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet rollupTablet : rollupIndex.getTablets()) {
                 OlapFile.TabletMetaCloudPB.Builder builder =
                         ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
@@ -206,7 +208,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                             tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             tbl.getTimeSeriesCompactionLevelThreshold(),
-                            tbl.disableAutoCompaction());
+                            tbl.disableAutoCompaction(),
+                            tbl.getRowStoreColumnsUniqueIds(rowStoreColumns));
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

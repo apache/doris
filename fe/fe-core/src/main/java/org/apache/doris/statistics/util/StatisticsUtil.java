@@ -868,13 +868,7 @@ public class StatisticsUtil {
     }
 
     public static long getHugePartitionLowerBoundRows() {
-        try {
-            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_PARTITION_LOWER_BOUND_ROWS)
-                .hugePartitionLowerBoundRows;
-        } catch (Exception e) {
-            LOG.warn("Failed to get value of huge_partition_lower_bound_rows, return default", e);
-        }
-        return StatisticConstants.HUGE_PARTITION_LOWER_BOUND_ROWS;
+        return GlobalVariable.hugePartitionLowerBoundRows;
     }
 
     public static int getPartitionAnalyzeBatchSize() {
@@ -1032,14 +1026,14 @@ public class StatisticsUtil {
             // lastAnalyzeRowCount == 0 is always false here.
             double changeRate =
                     ((double) Math.abs(currentRowCount - lastAnalyzeRowCount) / lastAnalyzeRowCount) * 100.0;
-            if (changeRate > StatisticsUtil.getTableStatsHealthThreshold()) {
+            if (changeRate > (100 - StatisticsUtil.getTableStatsHealthThreshold())) {
                 return true;
             }
             // 2. Check update rows.
             long currentUpdatedRows = tableStatsStatus.updatedRows.get();
             long lastAnalyzeUpdateRows = columnStatsMeta.updatedRows;
             changeRate = ((double) Math.abs(currentUpdatedRows - lastAnalyzeUpdateRows) / lastAnalyzeRowCount) * 100.0;
-            if (changeRate > StatisticsUtil.getTableStatsHealthThreshold()) {
+            if (changeRate > (100 - StatisticsUtil.getTableStatsHealthThreshold())) {
                 return true;
             }
             // 3. Check partition
@@ -1074,10 +1068,19 @@ public class StatisticsUtil {
             return true;
         }
         int changedPartitions = 0;
+        long hugePartitionLowerBoundRows = getHugePartitionLowerBoundRows();
         for (Partition p : partitions) {
             long id = p.getId();
+            // Skip partition that is too large.
+            if (p.getBaseIndex().getRowCount() > hugePartitionLowerBoundRows) {
+                continue;
+            }
             // New partition added.
             if (!partitionUpdateRows.containsKey(id)) {
+                return true;
+            }
+            // Former skipped large partition is not large anymore. Need to analyze it.
+            if (partitionUpdateRows.get(id) == -1) {
                 return true;
             }
             long currentUpdateRows = tableStatsStatus.partitionUpdateRows.getOrDefault(id, 0L);
@@ -1086,12 +1089,12 @@ public class StatisticsUtil {
             if (changedRows > 0) {
                 changedPartitions++;
                 // Too much partition changed, need to reanalyze.
-                if (changedPartitions > UPDATED_PARTITION_THRESHOLD) {
+                if (changedPartitions >= UPDATED_PARTITION_THRESHOLD) {
                     return true;
                 }
-                double changeRate = ((double) changedRows) / currentUpdateRows;
+                double changeRate = (((double) changedRows) / currentUpdateRows) * 100;
                 // One partition changed too much, need to reanalyze.
-                if (changeRate > StatisticsUtil.getTableStatsHealthThreshold()) {
+                if (changeRate > (100 - StatisticsUtil.getTableStatsHealthThreshold())) {
                     return true;
                 }
             }
