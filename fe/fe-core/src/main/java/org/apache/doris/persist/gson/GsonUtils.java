@@ -164,9 +164,9 @@ import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.ObjFileSystem;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.fs.remote.dfs.JFSFileSystem;
@@ -536,8 +536,8 @@ public class GsonUtils {
             .registerDefaultSubtype(RoutineLoadJob.class)
             .registerSubtype(KafkaRoutineLoadJob.class, KafkaRoutineLoadJob.class.getSimpleName());
 
-    private static RuntimeTypeAdapterFactory<RemoteFileSystem> remoteFileSystemTypeAdapterFactory
-            = RuntimeTypeAdapterFactory.of(RemoteFileSystem.class, "clazz")
+    private static RuntimeTypeAdapterFactory<PersistentFileSystem> remoteFileSystemTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(PersistentFileSystem.class, "clazz")
             .registerSubtype(BrokerFileSystem.class, BrokerFileSystem.class.getSimpleName())
             .registerSubtype(DFSFileSystem.class, DFSFileSystem.class.getSimpleName())
             .registerSubtype(JFSFileSystem.class, JFSFileSystem.class.getSimpleName())

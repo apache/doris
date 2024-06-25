@@ -19,6 +19,8 @@ package org.apache.doris.backup;
 
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.fs.remote.AzureFileSystem;
@@ -26,6 +28,8 @@ import org.apache.doris.fs.remote.S3FileSystem;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,6 +47,7 @@ public class RepositoryMgr extends Daemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(RepositoryMgr.class);
 
     // all key should be in lower case
+    @SerializedName("rn")
     private Map<String, Repository> repoNameMap = Maps.newConcurrentMap();
     private Map<Long, Repository> repoIdMap = Maps.newConcurrentMap();
 
@@ -153,19 +158,22 @@ public class RepositoryMgr extends Daemon implements Writable {
     }
 
     public static RepositoryMgr read(DataInput in) throws IOException {
-        RepositoryMgr mgr = new RepositoryMgr();
-        mgr.readFields(in);
-        return mgr;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
+            RepositoryMgr mgr = new RepositoryMgr();
+            mgr.readFields(in);
+            return mgr;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), RepositoryMgr.class);
+        }
+
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(repoNameMap.size());
-        for (Repository repo : repoNameMap.values()) {
-            repo.write(out);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
