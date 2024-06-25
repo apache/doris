@@ -28,9 +28,12 @@
 #include <azure/storage/blobs/blob_batch.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
+#include <azure/storage/blobs/blob_sas_builder.hpp>
 #include <azure/storage/blobs/rest_client.hpp>
+#include <azure/storage/common/account_sas_builder.hpp>
 #include <azure/storage/common/storage_credential.hpp>
 #include <azure/storage/common/storage_exception.hpp>
+#include <chrono>
 #include <exception>
 #include <iterator>
 #include <ranges>
@@ -39,6 +42,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/obj_storage_client.h"
+#include "util/s3_util.h"
 
 using namespace Azure::Storage::Blobs;
 
@@ -52,6 +56,8 @@ auto base64_encode_part_num(int part_num) {
     return Aws::Utils::HashingUtils::Base64Encode(
             {reinterpret_cast<unsigned char*>(&part_num), sizeof(part_num)});
 }
+
+constexpr char SAS_TOKEN_URL_TEMPLATE[] = "https://{}.blob.core.windows.net/{}/{}{}";
 } // namespace
 
 namespace doris::io {
@@ -311,5 +317,23 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects_recursively(
         }
     }
     return {};
+}
+
+std::string AzureObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
+                                                          int64_t expiration_secs,
+                                                          const S3ClientConf& conf) {
+    Azure::Storage::Sas::BlobSasBuilder sas_builder;
+    sas_builder.ExpiresOn =
+            std::chrono::system_clock::now() + std::chrono::seconds(expiration_secs);
+    sas_builder.BlobContainerName = opts.bucket;
+    sas_builder.BlobName = opts.key;
+    sas_builder.Resource = Azure::Storage::Sas::BlobSasResource::Blob;
+    sas_builder.Protocol = Azure::Storage::Sas::SasProtocol::HttpsOnly;
+    sas_builder.SetPermissions(Azure::Storage::Sas::BlobSasPermissions::Read);
+
+    std::string sasToken = sas_builder.GenerateSasToken(
+            Azure::Storage::StorageSharedKeyCredential(conf.ak, conf.sk));
+
+    return fmt::format(SAS_TOKEN_URL_TEMPLATE, conf.ak, conf.bucket, opts.key, sasToken);
 }
 } // namespace doris::io

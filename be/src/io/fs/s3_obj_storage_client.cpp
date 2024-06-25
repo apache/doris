@@ -393,7 +393,8 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
 }
 
 std::string S3ObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                                       int64_t expiration_secs) {
+                                                       int64_t expiration_secs,
+                                                       const S3ClientConf&) {
     return _client->GeneratePresignedUrl(opts.bucket, opts.key, Aws::Http::HttpMethod::HTTP_GET,
                                          expiration_secs);
 }
