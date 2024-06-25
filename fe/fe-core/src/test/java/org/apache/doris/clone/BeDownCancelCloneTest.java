@@ -17,14 +17,12 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.clone.RebalancerTestUtil;
-import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -33,7 +31,6 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

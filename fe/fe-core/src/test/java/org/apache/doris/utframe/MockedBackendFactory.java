@@ -251,7 +251,8 @@ public class MockedBackendFactory {
                     while (DebugPointUtil.isEnable("MockedBackendFactory.handleCloneTablet.block")) {
                         try {
                             Thread.sleep(10);
-                        } catch (Exception e) {
+                        } catch (InterruptedException e) {
+                            // ignore
                         }
                     }
                     TCloneReq req = request.getCloneReq();
