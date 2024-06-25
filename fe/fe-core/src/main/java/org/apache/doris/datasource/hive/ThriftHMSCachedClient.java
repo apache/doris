@@ -245,6 +245,23 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                ugiDoAs(() -> {
+                    client.client.truncateTable(dbName, tblName, partitions);
+                    return null;
+                });
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to check if table %s in db %s exists", e, tblName, dbName);
+        }
+    }
+
+    @Override
     public boolean tableExists(String dbName, String tblName) {
         try (ThriftHMSClient client = getClient()) {
             try {

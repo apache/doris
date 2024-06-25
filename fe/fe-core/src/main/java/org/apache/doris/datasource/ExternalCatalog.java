@@ -831,9 +831,19 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException {
-        TableRef tblRef = truncateTableStmt.getTblRef();
-        TableName dbTbl = tblRef.getName();
-
+    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+        }
+        try {
+            TableRef tableRef = stmt.getTblRef();
+            TableName tableName = tableRef.getName();
+            List<String> partitions = tableRef.getPartitionNames().getPartitionNames();
+            metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop a table", e);
+            throw e;
+        }
     }
 }

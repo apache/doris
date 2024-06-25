@@ -5560,7 +5560,7 @@ public class Env {
      */
     public void truncateTable(TruncateTableStmt stmt) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getTblRef().getName().getCtl(),
-            catalog -> new DdlException(("Unknown catalog " + catalog)));
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
         catalogIf.truncateTable(stmt);
     }
 

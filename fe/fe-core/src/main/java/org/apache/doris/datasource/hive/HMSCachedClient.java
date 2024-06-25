@@ -94,6 +94,8 @@ public interface HMSCachedClient {
 
     void dropTable(String dbName, String tableName);
 
+    void truncateTable(String dbName, String tblName, List<String> partitions);
+
     void createTable(TableMetadata catalogTable, boolean ignoreIfExists);
 
     void updateTableStatistics(

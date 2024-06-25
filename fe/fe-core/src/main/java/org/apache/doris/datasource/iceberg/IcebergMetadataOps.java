@@ -83,6 +83,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 .collect(Collectors.toList());
     }
 
+
     @Override
     public List<String> listTableNames(String dbName) {
         List<TableIdentifier> tableIdentifiers = catalog.listTables(Namespace.of(dbName));
@@ -172,5 +173,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         catalog.dropTable(TableIdentifier.of(dbName, tableName));
         db.setUnInitialized(true);
+    }
+
+    @Override
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {
+        throw new UnsupportedOperationException("Iceberg truncate table is not supported.");
     }
 }

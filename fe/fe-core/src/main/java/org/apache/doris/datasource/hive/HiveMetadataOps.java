@@ -252,6 +252,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {
+        client.truncateTable(dbName, tblName, partitions);
+    }
+
+    @Override
     public List<String> listTableNames(String dbName) {
         return client.getAllTables(dbName);
     }
