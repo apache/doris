@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_change_on_new_column") {
+suite("test_index_change_on_renamed_column") {
     def timeout = 60000
     def delta_time = 1000
     def alter_res = "null"
@@ -59,7 +59,7 @@ suite("test_index_change_on_new_column") {
         assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
     }
     
-    def tableName = "test_index_change_on_new_column"
+    def tableName = "test_index_change_on_renamed_column"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -72,32 +72,39 @@ suite("test_index_change_on_new_column") {
         """
 
     sql """ INSERT INTO ${tableName} VALUES
-         (1, 'hello world')
+         (1, 'hello world');
+        """
+    sql """ INSERT INTO ${tableName} VALUES
+         (2, 'welcome to the world');
         """
     
-    // add new column
-    sql """ alter table ${tableName} add column s1 varchar(50) default null after s; """
-    
-    qt_select1 """ SELECT * FROM ${tableName}; """
-
-    // create inverted index on new column
-    sql """ alter table ${tableName} add index idx_s1(s1) USING INVERTED PROPERTIES('parser' = 'english')"""
+    // create inverted 
+    sql """ alter table ${tableName} add index idx_s(s) USING INVERTED PROPERTIES('parser' = 'english')"""
     wait_for_latest_op_on_table_finish(tableName, timeout)
+    
+    qt_select1 """ SELECT * FROM ${tableName} order by id; """
 
-    // build inverted index on new column
+    // rename column
+    sql """ alter table ${tableName} rename column s s1; """
+
+    // build inverted index on renamed column
     if (!isCloudMode()) {
-        sql """ INSERT INTO ${tableName} VALUES
-             (2, 'hello wold', 'welcome to the world')
-            """
-        sql """ build index idx_s1 on ${tableName} """
+        sql """ build index idx_s on ${tableName} """
         wait_for_build_index_on_partition_finish(tableName, timeout)
     }
 
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
     assertEquals(show_result.size(), 1)
-    assertEquals(show_result[0][2], "idx_s1")
+    assertEquals(show_result[0][2], "idx_s")
 
     qt_select2 """ SELECT * FROM ${tableName} order by id; """
     qt_select3 """ SELECT * FROM ${tableName} where s1 match 'welcome'; """
+
+    // drop inverted index on renamed column
+    sql """ alter table ${tableName} drop index idx_s; """
+    wait_for_latest_op_on_table_finish(tableName, timeout)
+    show_result = sql "show index from ${tableName}"
+    logger.info("show index from " + tableName + " result: " + show_result)
+    assertEquals(show_result.size(), 0)
 }
