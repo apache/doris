@@ -41,7 +41,7 @@ suite("test_partial_update_delete_sign_with_conflict") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ CREATE TABLE IF NOT EXISTS ${tableName} (
             `k1` int NOT NULL,
-            `c1` int default 100,
+            `c1` int default '100',
             `c2` int,
             `c3` int,
             `c4` varchar(100) default 'foo'
