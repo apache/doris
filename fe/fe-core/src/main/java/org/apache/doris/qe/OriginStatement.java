@@ -18,20 +18,18 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 /*
  * This class represents an origin statement
  * in multiple statements.
  */
-public class OriginStatement implements Writable {
+public class OriginStatement {
     // the origin stmt from client. this may includes more than one statement.
     // eg: "select 1; select 2; select 3"
     @SerializedName(value = "originStmt")
