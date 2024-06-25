@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TTxnCommitAttachment;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -34,7 +35,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public abstract class TxnCommitAttachment implements Writable {
+public abstract class TxnCommitAttachment implements Writable, GsonPostProcessable {
     @SerializedName(value = "sourceType")
     protected TransactionState.LoadJobSourceType sourceType;
     protected boolean isTypeRead = false;
@@ -83,6 +84,10 @@ public abstract class TxnCommitAttachment implements Writable {
         } else {
             return GsonUtils.GSON.fromJson(Text.readString(in), TxnCommitAttachment.class);
         }
+    }
+
+    public void gsonPostProcess() {
+        setTypeRead(true);
     }
 
     @Override
