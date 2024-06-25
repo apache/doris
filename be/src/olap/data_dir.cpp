@@ -627,46 +627,6 @@ Status DataDir::load() {
     return Status::OK();
 }
 
-void DataDir::add_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.insert(id);
-}
-
-// gc unused local tablet dir
-void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path, int16_t shard_id) {
-    if (_stop_bg_worker) {
-        return;
-    }
-
-    TTabletId tablet_id = -1;
-    TSchemaHash schema_hash = -1;
-    bool is_valid = TabletManager::get_tablet_id_and_schema_hash_from_path(
-            tablet_schema_hash_path, &tablet_id, &schema_hash);
-    if (!is_valid || tablet_id < 1 || schema_hash < 1) [[unlikely]] {
-        LOG(WARNING) << "[path gc] unknown path: " << tablet_schema_hash_path;
-        return;
-    }
-
-    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-    if (!tablet || tablet->data_dir() != this) {
-        if (tablet) {
-            LOG(INFO) << "The tablet in path " << tablet_schema_hash_path
-                      << " is not same with the running one: " << tablet->tablet_path()
-                      << ", might be the old tablet after migration, try to move it to trash";
-        }
-        _engine.tablet_manager()->try_delete_unused_tablet_path(this, tablet_id, schema_hash,
-                                                                tablet_schema_hash_path, shard_id);
-        return;
-    }
-
-    _perform_rowset_gc(tablet_schema_hash_path);
-}
-
-void DataDir::remove_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.erase(id);
-}
-
 void DataDir::perform_path_gc() {
     std::unique_lock<std::mutex> lck(_check_path_mutex);
     _check_path_cv.wait(lck, [this] {
@@ -714,6 +674,8 @@ void DataDir::_perform_path_gc_by_tablet() {
             // could find the tablet, then skip check it
             continue;
         }
+        // data_dir_path/data/8/10031/1785511963
+        // data_dir_path/
         std::string data_dir_path =
                 io::Path(path).parent_path().parent_path().parent_path().parent_path();
         DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_path);
@@ -721,7 +683,19 @@ void DataDir::_perform_path_gc_by_tablet() {
             LOG(WARNING) << "could not find data dir for tablet path " << path;
             continue;
         }
-        _tablet_manager->try_delete_unused_tablet_path(data_dir, tablet_id, schema_hash, path);
+        // data_dir_path/data/8
+        std::string shard_path = io::Path(path).parent_path().parent_path();
+        std::filesystem::path sp(shard_path);
+        int16_t shard_id = -1;
+        try {
+            // 8
+            shard_id = std::stoi(sp.filename().string());
+        } catch (const std::exception&) {
+            LOG(WARNING) << "failed to stoi shard_id, shard name=" << sp.filename().string();
+            continue;
+        }
+        _tablet_manager->try_delete_unused_tablet_path(data_dir, tablet_id, schema_hash, path,
+                                                       shard_id);
     }
     _all_tablet_schemahash_paths.clear();
     LOG(INFO) << "finished one time path gc by tablet.";
@@ -845,14 +819,6 @@ Status DataDir::perform_path_scan() {
                             fmt::format("{}/{}", tablet_schema_hash_path, rowset_file.file_name);
                     _all_check_paths.insert(rowset_file_path);
                 }
-                int16_t shard_id = -1;
-                try {
-                    shard_id = std::stoi(shard.file_name);
-                } catch (const std::exception&) {
-                    LOG(WARNING) << "failed to stoi shard_id, shard name=" << shard.file_name;
-                    continue;
-                }
-                _perform_tablet_gc(tablet_id_path + '/' + schema_hash.file_name, shard_id);
             }
         }
     }
@@ -876,11 +842,6 @@ void DataDir::_process_garbage_path(const std::string& path) {
         WARN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(path),
                       "remove garbage failed");
     }
-}
-
-bool DataDir::_check_pending_ids(const std::string& id) {
-    std::shared_lock rd_lock(_pending_path_mutex);
-    return _pending_path_ids.find(id) != _pending_path_ids.end();
 }
 
 Status DataDir::update_capacity() {

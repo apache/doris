@@ -197,11 +197,11 @@ Status EngineStorageMigrationTask::_migrate() {
     LOG(INFO) << "begin to process tablet migrate. "
               << "tablet_id=" << tablet_id << ", dest_store=" << _dest_store->path();
 
-    RETURN_IF_ERROR(_engine.tablet_manager()->register_transition_tablet(_tablet->tablet_id(),
-                                                                         "disk migrate"));
+    RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->register_transition_tablet(
+            _tablet->tablet_id(), "disk migrate"));
     Defer defer {[&]() {
-        _engine.tablet_manager()->unregister_transition_tablet(_tablet->tablet_id(),
-                                                               "disk migrate");
+        StorageEngine::instance()->tablet_manager()->unregister_transition_tablet(
+                _tablet->tablet_id(), "disk migrate");
     }};
 
     DorisMetrics::instance()->storage_migrate_requests_total->increment(1);

@@ -374,7 +374,6 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
 
     // should remove the tablet's pending_id no matter create-tablet success or not
     DataDir* data_dir = tablet->data_dir();
-    SCOPED_CLEANUP({ data_dir->remove_pending_ids(StrCat(TABLET_ID_PREFIX, new_tablet_id)); });
 
     // TODO(yiguolei)
     // the following code is very difficult to understand because it mixed alter tablet v2
@@ -464,15 +463,9 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
     string pending_id = StrCat(TABLET_ID_PREFIX, request.tablet_id);
     // Many attempts are made here in the hope that even if a disk fails, it can still continue.
     std::string parent_timer_name = "CreateMeta";
-    DataDir* last_dir = nullptr;
     MonotonicStopWatch watch;
     watch.start();
     for (auto& data_dir : data_dirs) {
-        if (last_dir != nullptr) {
-            // If last_dir != null, it means the last attempt to create a tablet failed
-            last_dir->remove_pending_ids(pending_id);
-        }
-        last_dir = data_dir;
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RemovePendingIds", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
 
@@ -504,11 +497,15 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
             LOG(WARNING) << "skip this dir because tablet path exist, path=" << schema_hash_dir;
             continue;
         } else {
-            data_dir->add_pending_ids(pending_id);
             Status st = io::global_local_filesystem()->create_directory(schema_hash_dir);
             if (!st.ok()) {
                 continue;
             }
+        }
+
+        if (tablet_meta->partition_id() <= 0) {
+            LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << ", tablet "
+                         << tablet_meta->tablet_id();
         }
 
         TabletSharedPtr new_tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
@@ -524,10 +521,6 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id,
                                   bool is_drop_table_or_partition) {
     auto& shard = _get_tablets_shard(tablet_id);
     std::lock_guard wrlock(shard.lock);
-    if (shard.tablets_under_clone.count(tablet_id) > 0) {
-        return Status::Aborted("tablet {} is under clone, skip drop task", tablet_id);
-    }
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     return _drop_tablet_unlocked(tablet_id, replica_id, false, is_drop_table_or_partition);
 }
 

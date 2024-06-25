@@ -178,8 +178,6 @@ private:
 
     void _perform_tablet_gc(const std::string& tablet_schema_hash_path, int16_t shard_name);
 
-    bool _check_pending_ids(const std::string& id);
-
     void _perform_path_gc_by_tablet();
 
     void _perform_path_gc_by_rowsetid();
