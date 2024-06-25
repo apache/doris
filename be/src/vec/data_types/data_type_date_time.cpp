@@ -42,6 +42,20 @@ bool DataTypeDateTime::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
+size_t DataTypeDateTime::number_length() const {
+    //2024-01-01 00:00:00
+    return 20;
+}
+
+void DataTypeDateTime::push_bumber(ColumnString::Chars& chars, const Int64& num) const {
+    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(num);
+
+    char buf[64];
+    char* pos = value.to_string(buf);
+    // DateTime to_string the end is /0
+    chars.insert(buf, pos - 1);
+}
+
 std::string DataTypeDateTime::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
