@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_unique_model_schema_value_change1","p0") {
+suite("test_unique_schema_value_modify1","p0") {
      def tbName = "test_unique_model_value_change1"
      def tbName2 = "test_unique_model_value_change_1"
      def on_write = getRandomBoolean()
@@ -53,7 +53,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      sql initTableData
      def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1  "
      def errorMessage=""
-     def insertSql = "insert into ${tbName} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01');"
+     def insertSql = "insert into ${tbName} values(923456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01');"
 
 
 
@@ -97,7 +97,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time BOOLEAN  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 6.4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', false, {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', false, {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -111,7 +111,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time TINYINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -125,7 +125,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time SMALLINT   """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 2, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 2, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -139,7 +139,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTableData
 
           sql """ alter  table ${tbName} MODIFY  column register_time INT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 156, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 156, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -153,7 +153,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time BIGINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 545645, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '15662', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 545645, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '15662', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -166,7 +166,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time LARGEINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 156546, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 15898, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 156546, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 15898, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -180,7 +180,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time DOUBLE  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -194,7 +194,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time DECIMAL(38,0)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.6598, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.6598, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -209,7 +209,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time FLOAT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.6, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.6, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -222,7 +222,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} MODIFY  column register_time DATETIME  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31 20:12:12', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+     insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31 20:12:12', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -232,7 +232,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} MODIFY  column register_time DATETIMEV2  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31 20:12:12', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+     insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31 20:12:12', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -244,7 +244,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time CHAR(15)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'cs1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'cs1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -258,7 +258,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time VARCHAR(100)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 8.45, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'asd', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 8.45, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'asd', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -272,7 +272,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time STRING  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.89, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.89, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -287,7 +287,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time Map<STRING, INT>  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.49, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', {'a': 100, 'b': 200}, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.49, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', {'a': 100, 'b': 200}, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -301,7 +301,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time JSON  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.34, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '{'a': 100, 'b': 200}', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.34, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '{'a': 100, 'b': 200}', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -349,7 +349,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time BOOLEAN  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 6.4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', false, {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', false, {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -363,7 +363,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time TINYINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -377,7 +377,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time SMALLINT   """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 2, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 2, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -391,7 +391,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTableData
 
           sql """ alter  table ${tbName} MODIFY  column register_time INT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 156, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 156, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -405,7 +405,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time BIGINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 545645, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '15662', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 545645, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '15662', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -418,7 +418,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time LARGEINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 156546, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 15898, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 156546, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 15898, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -432,7 +432,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time DOUBLE  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -446,7 +446,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time DECIMAL(38,0)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.6598, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.6598, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -461,7 +461,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time FLOAT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.6, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.6, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -474,7 +474,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} MODIFY  column register_time DATETIME  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31 20:12:12', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+     insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31 20:12:12', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -484,7 +484,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} MODIFY  column register_time DATETIMEV2  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31 20:12:12', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+     insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31 20:12:12', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -496,7 +496,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time CHAR(15)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'cs1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'cs1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -510,7 +510,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time VARCHAR(100)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 8.45, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'asd', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 8.45, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'asd', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -524,7 +524,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time STRING  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.89, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.89, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -539,7 +539,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time Map<STRING, INT>  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.49, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', {'a': 100, 'b': 200}, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.49, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', {'a': 100, 'b': 200}, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -553,7 +553,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time JSON  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.34, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '{'a': 100, 'b': 200}', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.34, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '{'a': 100, 'b': 200}', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -602,7 +602,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time BOOLEAN  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 6.4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', false, {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', false, {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -616,7 +616,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time TINYINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -630,7 +630,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time SMALLINT   """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 2, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 2, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -644,7 +644,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTableData
 
           sql """ alter  table ${tbName} MODIFY  column register_time INT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 156, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 156, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -658,7 +658,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time BIGINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 545645, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '15662', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 545645, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '15662', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -671,7 +671,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time LARGEINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 156546, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 15898, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 156546, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 15898, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -685,7 +685,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time DOUBLE  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -699,7 +699,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time DECIMAL(38,0)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.6598, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.6598, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -714,7 +714,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time FLOAT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.6, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.6, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -727,7 +727,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} MODIFY  column register_time DATE  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+     insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -737,7 +737,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} MODIFY  column register_time DATEV2  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+     insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -749,7 +749,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time CHAR(15)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'cs1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'cs1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -763,7 +763,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time VARCHAR(100)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 8.45, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'asd', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 8.45, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'asd', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -777,7 +777,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time STRING  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.89, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.89, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -792,7 +792,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time Map<STRING, INT>  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.49, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', {'a': 100, 'b': 200}, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.49, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', {'a': 100, 'b': 200}, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -806,7 +806,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time JSON  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.34, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '{'a': 100, 'b': 200}', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.34, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '{'a': 100, 'b': 200}', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -853,7 +853,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time BOOLEAN  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 6.4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', false, {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', false, {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -867,7 +867,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time TINYINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -881,7 +881,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time SMALLINT   """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 2, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 2, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -895,7 +895,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTableData
 
           sql """ alter  table ${tbName} MODIFY  column register_time INT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 156, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 156, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -909,7 +909,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time BIGINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 545645, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '15662', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 545645, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '15662', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -922,7 +922,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time LARGEINT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 156546, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 15898, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 156546, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 15898, {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -936,7 +936,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time DOUBLE  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -950,7 +950,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time DECIMAL(38,0)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.6598, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 3.6598, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -965,7 +965,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time FLOAT  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.6, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.6, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 1.65, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -978,7 +978,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} MODIFY  column register_time DATE  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+     insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -988,7 +988,7 @@ suite("test_unique_model_schema_value_change1","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName} MODIFY  column register_time DATEV2  """
-     insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+     insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2003-12-31', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -1000,7 +1000,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time CHAR(15)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'cs1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'cs1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -1014,7 +1014,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time VARCHAR(100)  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 8.45, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'asd', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 8.45, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', 'asd', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -1028,7 +1028,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time STRING  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.89, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.89, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -1043,7 +1043,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time Map<STRING, INT>  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.49, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', {'a': 100, 'b': 200}, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.49, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', {'a': 100, 'b': 200}, {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -1057,7 +1057,7 @@ suite("test_unique_model_schema_value_change1","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName} MODIFY  column register_time JSON  """
-          insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.34, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '{'a': 100, 'b': 200}', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+          insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.34, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '{'a': 100, 'b': 200}', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
