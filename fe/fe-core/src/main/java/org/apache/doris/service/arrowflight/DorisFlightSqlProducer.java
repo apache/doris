@@ -225,7 +225,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             } else {
                 // Now only query stmt will pull results from BE.
                 final ByteString handle = ByteString.copyFromUtf8(
-                        DebugUtil.printId(connectContext.getFinstId()) + ":" + query);
+                        DebugUtil.printId(connectContext.queryId()) + ":" + query);
                 Schema schema = flightSQLConnectProcessor.fetchArrowFlightSchema(5000);
                 if (schema == null) {
                     throw CallStatus.INTERNAL.withDescription("fetch arrow flight schema is null").toRuntimeException();
