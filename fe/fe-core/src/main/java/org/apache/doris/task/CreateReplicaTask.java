@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
@@ -364,6 +365,17 @@ public class CreateReplicaTask extends AgentTask {
 
         if (invertedIndexFileStorageFormat != null) {
             createTabletReq.setInvertedIndexFileStorageFormat(invertedIndexFileStorageFormat);
+            // We will discard the "TInvertedIndexStorageFormat". Don't make any further changes here.
+            switch (invertedIndexFileStorageFormat) {
+                case V1:
+                    createTabletReq.setInvertedIndexStorageFormat(TInvertedIndexStorageFormat.V1);
+                    break;
+                case V2:
+                    createTabletReq.setInvertedIndexStorageFormat(TInvertedIndexStorageFormat.V2);
+                    break;
+                default:
+                    break;
+            }
         }
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
