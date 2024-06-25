@@ -166,11 +166,11 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
             }
             JoinOperator joinOp = hashJoinNode.getJoinOp();
             switch (joinOp) {
-                case RIGHT_OUTER_JOIN:
-                case RIGHT_SEMI_JOIN:
-                case RIGHT_ANTI_JOIN:
-                    return true;
+                case INNER_JOIN:
+                case CROSS_JOIN:
+                    break;
                 default:
+                    return true;
             }
         }
         return false;

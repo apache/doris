@@ -169,7 +169,7 @@ suite("local_shuffle") {
         "replication_allocation" = "tag.location.default: 1"
         );
         
-        insert into test_shuffle_left values (1, 1), (2, 2), (3, 4);
+        insert into test_shuffle_left_with_local_shuffle values (1, 1), (2, 2), (3, 4);
         """
 
     order_qt_shuffle_left """
