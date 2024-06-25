@@ -32,6 +32,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.InsertStreamTxnExecutor;
 import org.apache.doris.qe.MasterTxnExecutor;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TTabletCommitInfo;
@@ -175,7 +176,9 @@ public class TransactionEntry {
         if (!isTransactionBegan) {
             this.transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                     database.getId(), Lists.newArrayList(table.getId()), label,
-                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    new TxnCoordinator(TxnSourceType.FE, 0,
+                            FrontendOptions.getLocalHostAddress(),
+                            ExecuteEnv.getInstance().getStartupTime()),
                     LoadJobSourceType.INSERT_STREAMING, ConnectContext.get().getExecTimeout());
             this.isTransactionBegan = true;
             this.database = database;
