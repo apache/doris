@@ -209,9 +209,10 @@ public class PropertyAnalyzer {
     public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
             = Config.group_commit_data_bytes_default_value;
 
-    public static final String PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE = "enable_delete_on_delete_predicate";
-    public static final boolean PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE_DEFAULT_VALUE
-            = Config.enable_delete_on_delete_predicate;
+    public static final String PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE =
+            "enable_mow_delete_on_delete_predicate";
+    public static final boolean PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE_DEFAULT_VALUE
+            = Config.enable_mow_delete_on_predicate;
 
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
@@ -1422,18 +1423,18 @@ public class PropertyAnalyzer {
         if (properties == null || properties.isEmpty()) {
             return false;
         }
-        String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE);
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE);
         if (value == null) {
             return false;
         }
-        properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE);
+        properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE);
         if (value.equals("true")) {
             return true;
         } else if (value.equals("false")) {
             return false;
         }
         throw new AnalysisException(
-                PropertyAnalyzer.PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE + " must be `true` or `false`");
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE + " must be `true` or `false`");
     }
 
     /**

@@ -3586,8 +3586,8 @@ public class Env {
         sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
 
         // enable delete on delete predicate
-        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE)
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)
                     .append("\" = \"");
             sb.append(olapTable.getEnableDeleteOnDeletePredicate()).append("\"");
         }

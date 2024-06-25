@@ -569,13 +569,13 @@ public class TableProperty implements Writable, GsonPostProcessable {
     }
 
     public void setEnableDeleteOnDeletePredicate(boolean enable) {
-        properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE, Boolean.toString(enable));
+        properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE, Boolean.toString(enable));
     }
 
     public boolean getEnableDelteOnDeletePredicate() {
         return Boolean.parseBoolean(properties.getOrDefault(
-                PropertyAnalyzer.PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE,
-                Boolean.toString(PropertyAnalyzer.PROPERTIES_ENABLE_DELETE_ON_DELETE_PREDICATE_DEFAULT_VALUE)));
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE,
+                Boolean.toString(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE_DEFAULT_VALUE)));
     }
 
     public void setSequenceMapCol(String colName) {
