@@ -249,6 +249,7 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
             child.foreach(func);
         }
     }
+
     /** anyMatch */
     public boolean anyMatch(Predicate<TreeNode<? extends NodeType>> func) {
         if (func.apply(this)) {
