@@ -153,7 +153,9 @@ public class Function implements Writable {
     @SerializedName("isU")
     protected boolean isUDTFunction = false;
     // iff true, this udf function is static load, and BE need cache class load.
+    @SerializedName("isS")
     protected boolean isStaticLoad = false;
+    @SerializedName("eT")
     protected long expirationTime = 360; // default 6 hours;
 
     // Only used for serialization
@@ -714,10 +716,6 @@ public class Function implements Writable {
         }
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_131) {
             isUDTFunction = input.readBoolean();
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_137) {
-            isStaticLoad = input.readBoolean();
-            expirationTime = input.readLong();
         }
     }
 
