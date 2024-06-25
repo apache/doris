@@ -148,7 +148,9 @@ import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.KafkaProgress;
+import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadProgress;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
@@ -471,6 +473,11 @@ public class GsonUtils {
             .registerDefaultSubtype(RoutineLoadProgress.class)
             .registerSubtype(KafkaProgress.class, KafkaProgress.class.getSimpleName());
 
+    private static RuntimeTypeAdapterFactory<RoutineLoadJob> routineLoadJobTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(RoutineLoadJob.class, "clazz")
+            .registerDefaultSubtype(RoutineLoadJob.class)
+            .registerSubtype(KafkaRoutineLoadJob.class, KafkaRoutineLoadJob.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
@@ -501,6 +508,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(constraintTypeAdapterFactory)
             .registerTypeAdapterFactory(txnCommitAttachmentTypeAdapterFactory)
             .registerTypeAdapterFactory(routineLoadTypeAdapterFactory)
+            .registerTypeAdapterFactory(routineLoadJobTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())

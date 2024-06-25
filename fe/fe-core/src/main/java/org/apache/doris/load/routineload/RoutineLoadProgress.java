@@ -17,8 +17,11 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -44,25 +47,29 @@ public abstract class RoutineLoadProgress implements Writable {
     abstract String toJsonString();
 
     public static RoutineLoadProgress read(DataInput in) throws IOException {
-        RoutineLoadProgress progress = null;
-        LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
-        if (type == LoadDataSourceType.KAFKA) {
-            progress = new KafkaProgress();
-        } else {
-            throw new IOException("Unknown load data source type: " + type.name());
-        }
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
+            RoutineLoadProgress progress = null;
+            LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
+            if (type == LoadDataSourceType.KAFKA) {
+                progress = new KafkaProgress();
+            } else {
+                throw new IOException("Unknown load data source type: " + type.name());
+            }
 
-        progress.setTypeRead(true);
-        progress.readFields(in);
-        return progress;
+            progress.setTypeRead(true);
+            progress.readFields(in);
+            return progress;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), RoutineLoadProgress.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // ATTN: must write type first
-        Text.writeString(out, loadDataSourceType.name());
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             loadDataSourceType = LoadDataSourceType.valueOf(Text.readString(in));
