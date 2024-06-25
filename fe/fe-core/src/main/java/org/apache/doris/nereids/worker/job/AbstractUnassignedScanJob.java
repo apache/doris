@@ -107,7 +107,8 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
                 int shareScanId = shareScanIdGenerator.getAndIncrement();
                 for (int i = 0; i < instanceNum; i++) {
                     LocalShuffleAssignedJob instance = new LocalShuffleAssignedJob(
-                            instanceIndexInFragment++, shareScanId, context.nextInstanceId(), this, worker, shareScanSource);
+                            instanceIndexInFragment++, shareScanId, context.nextInstanceId(),
+                            this, worker, shareScanSource);
                     instances.add(instance);
                 }
             } else {
@@ -122,7 +123,11 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
                 );
 
                 for (ScanSource instanceToScanRange : instanceToScanRanges) {
-                    instances.add(assignWorkerAndDataSources(instanceIndexInFragment++, context.nextInstanceId(), worker, instanceToScanRange));
+                    instances.add(
+                            assignWorkerAndDataSources(
+                                instanceIndexInFragment++, context.nextInstanceId(), worker, instanceToScanRange
+                            )
+                    );
                 }
             }
         }

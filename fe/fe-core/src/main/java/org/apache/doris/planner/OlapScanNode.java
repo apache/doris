@@ -1420,6 +1420,20 @@ public class OlapScanNode extends ScanNode {
         return shouldColoScan;
     }
 
+    public int getBucketNum() {
+        // In bucket shuffle join, we have 2 situation.
+        // 1. Only one partition: in this case, we use scanNode.getTotalTabletsNum() to get the right bucket num
+        //    because when table turn on dynamic partition, the bucket number in default distribution info
+        //    is not correct.
+        // 2. Table is colocated: in this case, table could have more than one partition, but all partition's
+        //    bucket number must be same, so we use default bucket num is ok.
+        if (olapTable.isColocateTable()) {
+            return olapTable.getDefaultDistributionInfo().getBucketNum();
+        } else {
+            return (int) totalTabletsNum;
+        }
+    }
+
     @Override
     // If scan is key search, should not enable the shared scan opt to prevent the performance problem
     // 1. where contain the eq or in expr of key column slot

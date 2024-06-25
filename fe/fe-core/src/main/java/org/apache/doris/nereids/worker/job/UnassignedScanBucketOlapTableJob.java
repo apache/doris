@@ -29,7 +29,6 @@ import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
@@ -39,8 +38,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import com.google.common.collect.Sets.SetView;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -156,7 +153,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         List<HashJoinNode> hashJoinNodes = fragment.getPlanRoot()
                 .collectInCurrentFragment(HashJoinNode.class::isInstance);
         if (shouldFillUpInstances(hashJoinNodes)) {
-            return fillUpInstances(assignedJobs, hashJoinNodes, inputJobs);
+            return fillUpInstances(assignedJobs);
         }
 
         return assignedJobs;
@@ -179,14 +176,10 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         return false;
     }
 
-    private List<AssignedJob> fillUpInstances(
-            List<AssignedJob> leftSideInstances, List<HashJoinNode> hashJoinNodes,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        Set<Integer> leftSideUsedBuckets = leftSideBuckets(leftSideInstances);
-        Set<Integer> rightSideUsedBuckets = rightSideUsedBuckets(hashJoinNodes, inputJobs);
-        SetView<Integer> missingBucketsInLeft = Sets.difference(rightSideUsedBuckets, leftSideUsedBuckets);
-        if (missingBucketsInLeft.isEmpty()) {
-            return leftSideInstances;
+    private List<AssignedJob> fillUpInstances(List<AssignedJob> instances) {
+        Set<Integer> missingBucketIndexes = missingBuckets(instances);
+        if (missingBucketIndexes.isEmpty()) {
+            return instances;
         }
 
         ConnectContext context = ConnectContext.get();
@@ -194,11 +187,10 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         OlapScanNode olapScanNode = (OlapScanNode) scanNodes.get(0);
         MaterializedIndex randomPartition = randomPartition(olapScanNode);
         ListMultimap<Worker, Integer> missingBuckets = selectWorkerForMissingBuckets(
-                olapScanNode, randomPartition, missingBucketsInLeft);
+                olapScanNode, randomPartition, missingBucketIndexes);
 
-        boolean useLocalShuffle = leftSideInstances.stream().anyMatch(LocalShuffleAssignedJob.class::isInstance);
-
-        List<AssignedJob> newInstances = new ArrayList<>(leftSideInstances);
+        boolean useLocalShuffle = instances.stream().anyMatch(LocalShuffleAssignedJob.class::isInstance);
+        List<AssignedJob> newInstances = new ArrayList<>(instances);
         for (Entry<Worker, Collection<Integer>> workerToBuckets : missingBuckets.asMap().entrySet()) {
             Map<Integer, Map<ScanNode, ScanRanges>> scanEmptyBuckets = Maps.newLinkedHashMap();
             for (Integer bucketIndex : workerToBuckets.getValue()) {
@@ -241,36 +233,37 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         return newInstances;
     }
 
-    private Set<Integer> rightSideUsedBuckets(
-            List<HashJoinNode> hashJoinNodes, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        Set<Integer> rightSideUsedBuckets = new TreeSet<>();
-        for (HashJoinNode hashJoinNode : hashJoinNodes) {
-            PlanNode right = hashJoinNode.getChild(1);
-            if (!(right instanceof ExchangeNode)) {
-                continue;
-            }
-            List<AssignedJob> rightInstances = inputJobs.get((ExchangeNode) right);
-            for (AssignedJob rightInstance : rightInstances) {
-                ScanSource scanSource = rightInstance.getScanSource();
-                if (scanSource instanceof BucketScanSource) {
-                    BucketScanSource bucketScanSource = (BucketScanSource) scanSource;
-                    rightSideUsedBuckets.addAll(bucketScanSource.bucketIndexToScanNodeToTablets.keySet());
-                }
+    private int fullBucketNum() {
+        for (ScanNode scanNode : scanNodes) {
+            if (scanNode instanceof OlapScanNode) {
+                return ((OlapScanNode) scanNode).getBucketNum();
             }
         }
-        return rightSideUsedBuckets;
+        throw new IllegalStateException("Not support bucket shuffle join with non OlapTable");
     }
 
-    private Set<Integer> leftSideBuckets(List<AssignedJob> notPrunedBucketInstances) {
-        Set<Integer> leftSideBuckets = new TreeSet<>();
-        for (AssignedJob instance : notPrunedBucketInstances) {
+    private Set<Integer> missingBuckets(List<AssignedJob> instances) {
+        Set<Integer> usedBuckets = usedBuckets(instances);
+        int bucketNum = fullBucketNum();
+        Set<Integer> missingBuckets = new TreeSet<>();
+        for (int i = 0; i < bucketNum; i++) {
+            if (!usedBuckets.contains(i)) {
+                missingBuckets.add(i);
+            }
+        }
+        return missingBuckets;
+    }
+
+    private Set<Integer> usedBuckets(List<AssignedJob> instances) {
+        Set<Integer> usedBuckets = new TreeSet<>();
+        for (AssignedJob instance : instances) {
             ScanSource scanSource = instance.getScanSource();
             if (scanSource instanceof BucketScanSource) {
                 BucketScanSource bucketScanSource = (BucketScanSource) scanSource;
-                leftSideBuckets.addAll(bucketScanSource.bucketIndexToScanNodeToTablets.keySet());
+                usedBuckets.addAll(bucketScanSource.bucketIndexToScanNodeToTablets.keySet());
             }
         }
-        return leftSideBuckets;
+        return usedBuckets;
     }
 
     private MaterializedIndex randomPartition(OlapScanNode olapScanNode) {

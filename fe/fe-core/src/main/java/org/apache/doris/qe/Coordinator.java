@@ -2113,12 +2113,7 @@ public class Coordinator implements CoordInterface {
             fragmentIdTobucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
 
             // Same as bucket shuffle.
-            int bucketNum = 0;
-            if (scanNode.getOlapTable().isColocateTable()) {
-                bucketNum = scanNode.getOlapTable().getDefaultDistributionInfo().getBucketNum();
-            } else {
-                bucketNum = (int) (scanNode.getTotalTabletsNum());
-            }
+            int bucketNum = scanNode.getBucketNum();
             scanNode.getFragment().setBucketNum(bucketNum);
         }
         Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
@@ -2576,18 +2571,7 @@ public class Coordinator implements CoordInterface {
                 Map<TNetworkAddress, Long> addressToBackendID,
                 Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
             if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
-                // In bucket shuffle join, we have 2 situation.
-                // 1. Only one partition: in this case, we use scanNode.getTotalTabletsNum() to get the right bucket num
-                //    because when table turn on dynamic partition, the bucket number in default distribution info
-                //    is not correct.
-                // 2. Table is colocated: in this case, table could have more than one partition, but all partition's
-                //    bucket number must be same, so we use default bucket num is ok.
-                int bucketNum = 0;
-                if (scanNode.getOlapTable().isColocateTable()) {
-                    bucketNum = scanNode.getOlapTable().getDefaultDistributionInfo().getBucketNum();
-                } else {
-                    bucketNum = (int) (scanNode.getTotalTabletsNum());
-                }
+                int bucketNum = scanNode.getBucketNum();
                 fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), bucketNum);
                 fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashMap<>());
                 fragmentIdBucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
