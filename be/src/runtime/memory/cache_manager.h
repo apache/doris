@@ -59,8 +59,6 @@ public:
         LOG(INFO) << "Unregister Cache " << CachePolicy::type_string(type);
     }
 
-    CachePolicy* get_cache(CachePolicy::CacheType type) { return _caches.at(type); }
-
     int64_t for_each_cache_prune_stale_wrap(std::function<void(CachePolicy* cache_policy)> func,
                                             RuntimeProfile* profile = nullptr);
 

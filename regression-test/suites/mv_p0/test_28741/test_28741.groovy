@@ -37,6 +37,7 @@ suite ("test_28741") {
             "replication_num" = "1"
             );
         """
+
     createMV ("CREATE MATERIALIZED VIEW mv_test AS SELECT a,b,t,SUM(d) FROM test GROUP BY 1,2,3")
 
     sql "INSERT INTO test(a,b,c,t,d,e) VALUES (1,2,3,'2023-12-19 18:21:00', 56, 78)"

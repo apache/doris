@@ -771,6 +771,11 @@ class Suite implements GroovyInterceptable {
 
     String getS3Url() {
         String s3BucketName = context.config.otherConfigs.get("s3BucketName");
+        if (context.config.otherConfigs.get("s3Provider") == "AZURE") {
+            String accountName = context.config.otherConfigs.get("ak");
+            String s3Url = "http://${accountName}.blob.core.windows.net/${s3BucketName}"
+            return s3Url
+        }
         String s3Endpoint = context.config.otherConfigs.get("s3Endpoint");
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
@@ -1774,6 +1779,21 @@ class Suite implements GroovyInterceptable {
                 last_start_version = start_version
                 last_end_version = end_version
             }
+        }
+    }
+
+    def scp_udf_file_to_all_be = { udf_file_path ->
+        if (!new File(udf_file_path).isAbsolute()) {
+            udf_file_path = new File(udf_file_path).getAbsolutePath()
+        }
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+
+        def udf_file_dir = new File(udf_file_path).parent
+        backendId_to_backendIP.values().each { be_ip ->
+            sshExec ("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"")
+            scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }
 }
