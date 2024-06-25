@@ -173,53 +173,7 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type) {
 }
 
 void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
-    /// Trivial cases
-    if (types.empty()) {
-        *type = std::make_shared<DataTypeNothing>();
-        return;
-    }
-
-    if (types.size() == 1) {
-        *type = types[0];
-        return;
-    }
-
-    /// All types are equal
-    {
-        bool all_equal = true;
-        for (size_t i = 1, size = types.size(); i < size; ++i) {
-            if (!types[i]->equals(*types[0])) {
-                all_equal = false;
-                break;
-            }
-        }
-
-        if (all_equal) {
-            *type = types[0];
-            return;
-        }
-    }
-
-    /// Recursive rules
-
-    /// If there are Nothing types, skip them
-    {
-        DataTypes non_nothing_types;
-        non_nothing_types.reserve(types.size());
-
-        for (const auto& type : types) {
-            if (!typeid_cast<const DataTypeNothing*>(type.get())) {
-                non_nothing_types.emplace_back(type);
-            }
-        }
-
-        if (non_nothing_types.size() < types.size()) {
-            get_least_supertype_jsonb(non_nothing_types, type);
-            return;
-        }
-    }
-
-    /// For Nullable
+    // For Nullable
     {
         bool have_nullable = false;
 
@@ -227,8 +181,7 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
         nested_types.reserve(types.size());
 
         for (const auto& type : types) {
-            if (const DataTypeNullable* type_nullable =
-                        typeid_cast<const DataTypeNullable*>(type.get())) {
+            if (const auto* type_nullable = typeid_cast<const DataTypeNullable*>(type.get())) {
                 have_nullable = true;
 
                 nested_types.emplace_back(type_nullable->get_nested_type());
@@ -245,49 +198,7 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
         }
     }
 
-    /// Non-recursive rules
-
-    phmap::flat_hash_set<TypeIndex> type_ids;
-    for (const auto& type : types) {
-        type_ids.insert(type->get_type_id());
-    }
-
-    /// For String and FixedString, or for different FixedStrings, the common type is String.
-    /// No other types are compatible with Strings. TODO Enums?
-    {
-        UInt32 have_string = type_ids.count(TypeIndex::String);
-        UInt32 have_fixed_string = type_ids.count(TypeIndex::FixedString);
-
-        if (have_string || have_fixed_string) {
-            bool all_strings = type_ids.size() == (have_string + have_fixed_string);
-            if (!all_strings) {
-                *type = std::make_shared<DataTypeJsonb>();
-                return;
-            }
-
-            *type = std::make_shared<DataTypeString>();
-            return;
-        }
-    }
-
-    /// For Date and DateTime, the common type is DateTime. No other types are compatible.
-    {
-        UInt32 have_date = type_ids.count(TypeIndex::Date);
-        UInt32 have_datetime = type_ids.count(TypeIndex::DateTime);
-
-        if (have_date || have_datetime) {
-            bool all_date_or_datetime = type_ids.size() == (have_date + have_datetime);
-            if (!all_date_or_datetime) {
-                *type = std::make_shared<DataTypeJsonb>();
-                return;
-            }
-
-            *type = std::make_shared<DataTypeDateTime>();
-            return;
-        }
-    }
-
-    /// For Arrays
+    // For Arrays
     {
         bool have_array = false;
         bool all_arrays = true;
@@ -319,97 +230,11 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
         }
     }
 
-    /// Decimals
-    {
-        UInt32 have_decimal32 = type_ids.count(TypeIndex::Decimal32);
-        UInt32 have_decimal64 = type_ids.count(TypeIndex::Decimal64);
-        UInt32 have_decimal128 = type_ids.count(TypeIndex::Decimal128V2);
-        UInt32 have_decimal128i = type_ids.count(TypeIndex::Decimal128V3);
-        UInt32 have_decimal256 = type_ids.count(TypeIndex::Decimal256);
-
-        if (have_decimal32 || have_decimal64 || have_decimal128 || have_decimal128i ||
-            have_decimal256) {
-            UInt32 num_supported = have_decimal32 + have_decimal64 + have_decimal128 +
-                                   have_decimal128i + have_decimal256;
-
-            std::vector<TypeIndex> int_ids = {
-                    TypeIndex::Int8,  TypeIndex::UInt8,  TypeIndex::Int16, TypeIndex::UInt16,
-                    TypeIndex::Int32, TypeIndex::UInt32, TypeIndex::Int64, TypeIndex::UInt64};
-            std::vector<UInt32> num_ints(int_ids.size(), 0);
-
-            TypeIndex max_int = TypeIndex::Nothing;
-            for (size_t i = 0; i < int_ids.size(); ++i) {
-                UInt32 num = type_ids.count(int_ids[i]);
-                num_ints[i] = num;
-                num_supported += num;
-                if (num) max_int = int_ids[i];
-            }
-
-            if (num_supported != type_ids.size()) {
-                *type = std::make_shared<DataTypeJsonb>();
-                return;
-            }
-
-            UInt32 max_scale = 0;
-            for (const auto& type : types) {
-                UInt32 scale = get_decimal_scale(*type);
-                if (scale > max_scale) max_scale = scale;
-            }
-
-            UInt32 min_precision = max_scale + least_decimal_precision_for(max_int);
-
-            /// special cases Int32 -> Dec32, Int64 -> Dec64
-            if (max_scale == 0) {
-                if (max_int == TypeIndex::Int32)
-                    min_precision = DataTypeDecimal<Decimal32>::max_precision();
-                else if (max_int == TypeIndex::Int64)
-                    min_precision = DataTypeDecimal<Decimal64>::max_precision();
-            }
-
-            if (min_precision > DataTypeDecimal<Decimal256>::max_precision()) {
-                *type = std::make_shared<DataTypeJsonb>();
-                return;
-            }
-
-            if (have_decimal256 || min_precision > DataTypeDecimal<Decimal128V3>::max_precision()) {
-                *type = std::make_shared<DataTypeDecimal<Decimal256>>(
-                        DataTypeDecimal<Decimal256>::max_precision(), max_scale);
-                return;
-            }
-            if (have_decimal128 || min_precision > DataTypeDecimal<Decimal64>::max_precision()) {
-                *type = std::make_shared<DataTypeDecimal<Decimal128V2>>(
-                        DataTypeDecimal<Decimal128V2>::max_precision(), max_scale);
-                return;
-            }
-            if (have_decimal128i || min_precision > DataTypeDecimal<Decimal64>::max_precision()) {
-                *type = std::make_shared<DataTypeDecimal<Decimal128V3>>(
-                        DataTypeDecimal<Decimal128V3>::max_precision(), max_scale);
-                return;
-            }
-            if (have_decimal64 || min_precision > DataTypeDecimal<Decimal32>::max_precision()) {
-                *type = std::make_shared<DataTypeDecimal<Decimal64>>(
-                        DataTypeDecimal<Decimal64>::max_precision(), max_scale);
-                return;
-            }
-            *type = std::make_shared<DataTypeDecimal<Decimal32>>(
-                    DataTypeDecimal<Decimal32>::max_precision(), max_scale);
-            return;
-        }
+    phmap::flat_hash_set<TypeIndex> type_ids;
+    for (const auto& type : types) {
+        type_ids.insert(type->get_type_id());
     }
-
-    /// For numeric types, the most complicated part.
-    {
-        DataTypePtr numeric_type = nullptr;
-        get_numeric_type(type_ids, &numeric_type);
-        if (numeric_type) {
-            *type = numeric_type;
-            return;
-        }
-    }
-
-    /// All other data types (UUID, AggregateFunction, Enum...) are compatible only if they are the same (checked in trivial cases).
-    *type = std::make_shared<DataTypeJsonb>();
-    return;
+    get_least_supertype_jsonb(type_ids, type);
 }
 
 void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type) {
