@@ -47,7 +47,6 @@ suite("test_cloud_http_stream_2pc_mow", "p0") {
         streamLoad {
             table "${tableName}"
 
-            // set 'column_separator', ','
             set 'version', '1'
             set 'two_phase_commit', 'true'
             set 'sql', """
