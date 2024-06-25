@@ -252,8 +252,17 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void truncateTable(String dbName, String tblName, List<String> partitions) {
-        client.truncateTable(dbName, tblName, partitions);
+    public void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException {
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+        }
+        try {
+            client.truncateTable(dbName, tblName, partitions);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        db.setUnInitialized(true);
     }
 
     @Override

@@ -839,7 +839,11 @@ public abstract class ExternalCatalog
         try {
             TableRef tableRef = stmt.getTblRef();
             TableName tableName = tableRef.getName();
-            List<String> partitions = tableRef.getPartitionNames().getPartitionNames();
+            // delete all table data if null
+            List<String> partitions = null;
+            if (tableRef.getPartitionNames() != null) {
+                partitions = tableRef.getPartitionNames().getPartitionNames();
+            }
             metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
         } catch (Exception e) {
             LOG.warn("Failed to drop a table", e);
