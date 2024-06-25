@@ -75,7 +75,8 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(arguments.size() % 2 == 0)
                 << "function: " << get_name() << ", arguments should not be even number";
-        return std::make_shared<DataTypeMap>(arguments[0], arguments[1]);
+        return std::make_shared<DataTypeMap>(make_nullable(arguments[0]),
+                                             make_nullable(arguments[1]));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
