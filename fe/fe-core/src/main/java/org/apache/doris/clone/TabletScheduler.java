@@ -1996,9 +1996,11 @@ public class TabletScheduler extends MasterDaemon {
         // path hash -> slot num
         private Map<Long, Slot> pathSlots = Maps.newConcurrentMap();
         private long beId;
+        private int nextSlotIndex;
 
         public PathSlot(Map<Long, TStorageMedium> paths, long beId) {
             this.beId = beId;
+            this.nextSlotIndex = 0;
             for (Map.Entry<Long, TStorageMedium> entry : paths.entrySet()) {
                 pathSlots.put(entry.getKey(), new Slot(entry.getValue()));
             }
@@ -2113,19 +2115,6 @@ public class TabletScheduler extends MasterDaemon {
             return num;
         }
 
-        /**
-         * get path whose balance slot num is larger than 0
-         */
-        public synchronized Set<Long> getAvailPathsForBalance() {
-            Set<Long> pathHashs = Sets.newHashSet();
-            for (Map.Entry<Long, Slot> entry : pathSlots.entrySet()) {
-                if (entry.getValue().getAvailableBalance() > 0) {
-                    pathHashs.add(entry.getKey());
-                }
-            }
-            return pathHashs;
-        }
-
         public synchronized List<List<String>> getSlotInfo(long beId) {
             List<List<String>> results = Lists.newArrayList();
             pathSlots.forEach((key, value) -> {
@@ -2158,14 +2147,29 @@ public class TabletScheduler extends MasterDaemon {
             return -1;
         }
 
-        public synchronized long takeAnAvailBalanceSlotFrom(Set<Long> pathHashs) {
-            for (Long pathHash : pathHashs) {
-                Slot slot = pathSlots.get(pathHash);
-                if (slot == null) {
-                    continue;
+        public long takeAnAvailBalanceSlotFrom(List<Long> pathHashs) {
+            if (pathHashs.isEmpty()) {
+                return -1;
+            }
+
+            Collections.sort(pathHashs);
+            int preferSlotIndex;
+            synchronized (this) {
+                if (nextSlotIndex < 0 || nextSlotIndex > 1000000) {
+                    nextSlotIndex = 0;
                 }
-                if (slot.balanceUsed < slot.getBalanceTotal()) {
-                    slot.balanceUsed++;
+                preferSlotIndex = nextSlotIndex % pathHashs.size();
+                nextSlotIndex++;
+            }
+            for (int i = preferSlotIndex; i < pathHashs.size(); i++) {
+                long pathHash = pathHashs.get(i);
+                if (takeBalanceSlot(pathHash) != -1) {
+                    return pathHash;
+                }
+            }
+            for (int i = 0; i < preferSlotIndex; i++) {
+                long pathHash = pathHashs.get(i);
+                if (takeBalanceSlot(pathHash) != -1) {
                     return pathHash;
                 }
             }

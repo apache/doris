@@ -41,7 +41,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Random;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -280,9 +279,9 @@ public class PartitionRebalancer extends Rebalancer {
             Preconditions.checkNotNull(slot, "unable to get slot of toBe " + move.toBe);
 
             List<RootPathLoadStatistic> paths = beStat.getPathStatistics();
-            Set<Long> availPath = paths.stream().filter(path -> path.getStorageMedium() == tabletCtx.getStorageMedium()
+            List<Long> availPath = paths.stream().filter(path -> path.getStorageMedium() == tabletCtx.getStorageMedium()
                             && path.isFit(tabletCtx.getTabletSize(), false) == BalanceStatus.OK)
-                    .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toSet());
+                    .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toList());
             long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath);
             if (pathHash == -1) {
                 throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
