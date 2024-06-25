@@ -218,7 +218,6 @@ public abstract class RoutineLoadJob
     @SerializedName("mbsb")
     protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
-    @SerializedName("ipu")
     protected boolean isPartialUpdate = false;
 
     protected String sequenceCol;
@@ -1853,6 +1852,11 @@ public abstract class RoutineLoadJob
         if (tableId == 0) {
             isMultiTable = true;
         }
+        jobProperties.forEach((k, v) -> {
+            if (k.equals(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
+                isPartialUpdate = Boolean.parseBoolean(v);
+            }
+        });
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         CreateRoutineLoadStmt stmt = null;
