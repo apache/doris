@@ -66,6 +66,7 @@ suite("test_outfile_file_suffix", "p0") {
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "${file_format}",
+                "provider" = "${getS3Provider()}",
                 "region" = "${region}"
             );
             """

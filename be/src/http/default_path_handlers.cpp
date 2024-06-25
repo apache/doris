@@ -115,11 +115,7 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
         auto* _opaque = static_cast<std::string*>(opaque);
         _opaque->append(buf);
     };
-#ifdef USE_JEMALLOC_HOOK
     jemalloc_stats_print(write_cb, &tmp, "a");
-#else
-    malloc_stats_print(write_cb, &tmp, "a");
-#endif
     boost::replace_all(tmp, "\n", "<br>");
     (*output) << tmp << "</pre>";
 #else
@@ -164,6 +160,8 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
             MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::OTHER);
         } else if (iter->second == "reserved_memory") {
             GlobalMemoryArbitrator::make_reserved_memory_snapshots(&snapshots);
+        } else if (iter->second == "all") {
+            MemTrackerLimiter::make_all_memory_state_snapshots(&snapshots);
         }
     } else {
         (*output) << "<h4>*Notice:</h4>\n";

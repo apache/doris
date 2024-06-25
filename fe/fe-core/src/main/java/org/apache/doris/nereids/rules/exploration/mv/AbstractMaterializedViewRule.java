@@ -200,7 +200,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             if (queryToViewSlotMapping == null) {
                 materializationContext.recordFailReason(queryStructInfo,
-                        "Query to view slot mapping is null", () -> "");
+                        "Query to view slot mapping is null", () ->
+                                String.format("queryToViewTableMapping relation mapping is %s",
+                                        queryToViewTableMapping));
                 continue;
             }
             SlotMapping viewToQuerySlotMapping = queryToViewSlotMapping.inverse();
@@ -250,7 +252,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
-                    rewrittenPlan, materializationContext);
+                    rewrittenPlan, materializationContext, cascadesContext);
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
@@ -274,6 +276,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 if (invalidPartitions == null) {
                     // if mv can not offer any partition for query, query rewrite bail out to avoid cycle run
+                    materializationContext.recordFailReason(queryStructInfo,
+                            "mv can not offer any partition for query",
+                            () -> String.format("mv partition info %s",
+                                    ((AsyncMaterializationContext) materializationContext).getMtmv()
+                                            .getMvPartitionInfo()));
                     return rewriteResults;
                 }
                 boolean partitionNeedUnion = needUnionRewrite(invalidPartitions, cascadesContext);
@@ -281,16 +288,26 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         invalidPartitions;
                 if (partitionNeedUnion) {
                     MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
-                    Plan originPlanWithFilter = StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(),
-                            mtmv.getMvPartitionInfo().getPartitionCol(), cascadesContext);
-                    if (finalInvalidPartitions.value().isEmpty() || originPlanWithFilter == null) {
+                    Pair<Plan, Boolean> planAndNeedAddFilterPair =
+                            StructInfo.addFilterOnTableScan(queryPlan, invalidPartitions.value(),
+                                    mtmv.getMvPartitionInfo().getRelatedCol(), cascadesContext);
+                    if (planAndNeedAddFilterPair == null) {
+                        materializationContext.recordFailReason(queryStructInfo,
+                                "Add filter to base table fail when union rewrite",
+                                () -> String.format("invalidPartitions are %s, queryPlan is %s, partition column is %s",
+                                        invalidPartitions, queryPlan.treeString(),
+                                        mtmv.getMvPartitionInfo().getPartitionCol()));
+                        continue;
+                    }
+                    if (finalInvalidPartitions.value().isEmpty() || !planAndNeedAddFilterPair.value()) {
+                        // if invalid base table filter is empty or doesn't need to add filter on base table,
                         // only need remove mv invalid partition
                         rewrittenPlan = rewrittenPlan.accept(new PartitionRemover(), invalidPartitions.key());
                     } else {
                         // For rewrittenPlan which contains materialized view should remove invalid partition ids
                         List<Plan> children = Lists.newArrayList(
                                 rewrittenPlan.accept(new PartitionRemover(), invalidPartitions.key()),
-                                originPlanWithFilter);
+                                planAndNeedAddFilterPair.key());
                         // Union query materialized view and source table
                         rewrittenPlan = new LogicalUnion(Qualifier.ALL,
                                 queryPlan.getOutput().stream().map(NamedExpression.class::cast)
@@ -452,6 +469,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // If related base table create partitions or mv is created with ttl, need base table union
         Sets.difference(queryUsedBaseTablePartitionNameSet, mvValidBaseTablePartitionNameSet)
                 .copyInto(baseTableNeedUnionPartitionNameSet);
+        // Construct result map
         Map<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
         if (!mvNeedRemovePartitionNameSet.isEmpty()) {
             mvPartitionNeedRemoveNameMap.put(new BaseTableInfo(mtmv), mvNeedRemovePartitionNameSet);
@@ -467,7 +485,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * Rewrite query by view, for aggregate or join rewriting should be different inherit class implementation
      */
     protected Plan rewriteQueryByView(MatchMode matchMode, StructInfo queryStructInfo, StructInfo viewStructInfo,
-            SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan, MaterializationContext materializationContext) {
+            SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan, MaterializationContext materializationContext,
+            CascadesContext cascadesContext) {
         return tempRewritedPlan;
     }
 

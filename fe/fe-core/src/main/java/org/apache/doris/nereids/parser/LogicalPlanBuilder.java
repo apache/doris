@@ -172,6 +172,7 @@ import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
 import org.apache.doris.nereids.DorisParser.SetOperationContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
@@ -389,6 +390,7 @@ import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
@@ -413,6 +415,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.GeneratedColumnDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
@@ -423,6 +426,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.ShowCreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.SplitColumnInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
@@ -850,6 +854,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public ResumeMTMVCommand visitResumeMTMV(ResumeMTMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         return new ResumeMTMVCommand(new ResumeMTMVInfo(new TableNameInfo(nameParts)));
+    }
+
+    @Override
+    public ShowCreateMTMVCommand visitShowCreateMTMV(ShowCreateMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        return new ShowCreateMTMVCommand(new ShowCreateMTMVInfo(new TableNameInfo(nameParts)));
     }
 
     @Override
@@ -2774,8 +2784,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 autoIncInitValue = Long.valueOf(1);
             }
         }
+        Optional<GeneratedColumnDesc> desc = ctx.generatedExpr != null
+                ? Optional.of(new GeneratedColumnDesc(ctx.generatedExpr.getText(), getExpression(ctx.generatedExpr)))
+                : Optional.empty();
         return new ColumnDefinition(colName, colType, isKey, aggType, nullableType, autoIncInitValue, defaultValue,
-                onUpdateDefaultValue, comment, true);
+                onUpdateDefaultValue, comment, desc);
     }
 
     @Override
@@ -2789,7 +2802,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> indexCols = visitIdentifierList(ctx.cols);
         Map<String, String> properties = visitPropertyItemList(ctx.properties);
         String indexType = ctx.indexType != null ? ctx.indexType.getText().toUpperCase() : null;
-        String comment = ctx.comment != null ? ctx.comment.getText() : "";
+        //comment should remove '\' and '(") at the beginning and end
+        String comment = ctx.comment == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                        ctx.comment.getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
         // change BITMAP index to INVERTED index
         if (Config.enable_create_bitmap_index_as_inverted_index
                 && "BITMAP".equalsIgnoreCase(indexType)) {

@@ -195,7 +195,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             // rewrite the logical plan if necessary
             rewriteLogicalPlanIfNecessary(logicalQuery);
             // 1. process inline table (default values, empty values)
-            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
+            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, insertCtx);
             if (cte.isPresent()) {
                 this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
             }

@@ -108,6 +108,7 @@ statementBase
     | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #pauseMTMV
     | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #resumeMTMV
     | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier      #cancelMTMVTask
+    | SHOW CREATE MATERIALIZED VIEW mvName=multipartIdentifier #showCreateMTMV
     | ALTER TABLE table=multipartIdentifier
         ADD CONSTRAINT constraintName=errorCapturingIdentifier
         constraint                                                        #addConstraint
@@ -584,6 +585,7 @@ columnDef
     : colName=identifier type=dataType
         KEY?
         (aggType=aggTypeDef)?
+        ((GENERATED ALWAYS)? AS LEFT_PAREN generatedExpr=expression RIGHT_PAREN)?
         ((NOT)? nullable=NULL)?
         (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
         (DEFAULT (nullValue=NULL | INTEGER_VALUE | DECIMAL_VALUE | stringValue=STRING_LITERAL
@@ -591,7 +593,7 @@ columnDef
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
-    
+
 indexDefs
     : indexes+=indexDef (COMMA indexes+=indexDef)*
     ;
@@ -1034,6 +1036,7 @@ nonReserved
     | AGG_STATE
     | AGGREGATE
     | ALIAS
+    | ALWAYS
     | ANALYZED
     | ARRAY
     | ARRAY_RANGE
@@ -1149,6 +1152,7 @@ nonReserved
     | FREE
     | FRONTENDS
     | FUNCTION
+    | GENERATED
     | GENERIC
     | GLOBAL
     | GRAPH

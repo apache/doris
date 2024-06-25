@@ -94,7 +94,7 @@ public class JobExecutionConfiguration {
             return;
         }
         if (timerDefinition.getStartTimeMs() < System.currentTimeMillis()) {
-            throw new IllegalArgumentException("startTimeMs cannot be less than current time");
+            throw new IllegalArgumentException("startTimeMs must be greater than current time");
         }
     }
 

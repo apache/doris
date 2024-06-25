@@ -26,7 +26,6 @@ import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.BindSink;
-import org.apache.doris.nereids.rules.analysis.BindSlotWithPaths;
 import org.apache.doris.nereids.rules.analysis.BuildAggForRandomDistributedTable;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
@@ -139,7 +138,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 new BindDynamicSplit()
             ),
             bottomUp(new BindExpression()),
-            bottomUp(new BindSlotWithPaths()),
             topDown(new BindSink()),
             bottomUp(new CheckAfterBind()),
             bottomUp(

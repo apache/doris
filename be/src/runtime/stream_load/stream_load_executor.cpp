@@ -27,8 +27,10 @@
 #include <glog/logging.h>
 #include <stdint.h>
 
+#include <functional>
 #include <future>
 #include <map>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -66,13 +68,19 @@ bvar::LatencyRecorder g_stream_load_precommit_txn_latency("stream_load", "precom
 bvar::LatencyRecorder g_stream_load_commit_txn_latency("stream_load", "commit_txn");
 
 Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx) {
+    return execute_plan_fragment(ctx, [](std::shared_ptr<StreamLoadContext> ctx) {});
+}
+
+Status StreamLoadExecutor::execute_plan_fragment(
+        std::shared_ptr<StreamLoadContext> ctx,
+        const std::function<void(std::shared_ptr<StreamLoadContext> ctx)>& cb) {
 // submit this params
 #ifndef BE_TEST
     ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << ctx->id;
     Status st;
-    auto exec_fragment = [ctx, this](RuntimeState* state, Status* status) {
+    auto exec_fragment = [ctx, cb, this](RuntimeState* state, Status* status) {
         if (ctx->group_commit) {
             ctx->label = state->import_label();
             ctx->txn_id = state->wal_id();
@@ -142,6 +150,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                   << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
                   << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
                   << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000;
+        cb(ctx);
     };
 
     if (ctx->put_result.__isset.params) {
@@ -294,7 +303,7 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
     request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
     request.sync = true;
-    request.commitInfos = std::move(ctx->commit_infos);
+    request.commitInfos = ctx->commit_infos;
     request.__isset.commitInfos = true;
     request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
     request.tbls = ctx->table_list;

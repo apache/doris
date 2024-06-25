@@ -44,6 +44,15 @@ bool DataTypeTime::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
+size_t DataTypeTime::number_length() const {
+    //59:59:59
+    return 8;
+}
+void DataTypeTime::push_bumber(ColumnString::Chars& chars, const Float64& num) const {
+    auto time_str = time_to_buffer_from_double(num);
+    chars.insert(time_str.begin(), time_str.end());
+}
+
 std::string DataTypeTime::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -72,6 +81,15 @@ MutableColumnPtr DataTypeTime::create_column() const {
 
 bool DataTypeTimeV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
+}
+
+size_t DataTypeTimeV2::number_length() const {
+    //59:59:59:000000
+    return 14;
+}
+void DataTypeTimeV2::push_bumber(ColumnString::Chars& chars, const Float64& num) const {
+    auto timev2_str = timev2_to_buffer_from_double(num, _scale);
+    chars.insert(timev2_str.begin(), timev2_str.end());
 }
 
 std::string DataTypeTimeV2::to_string(const IColumn& column, size_t row_num) const {

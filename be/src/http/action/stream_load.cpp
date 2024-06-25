@@ -33,6 +33,7 @@
 #include <time.h>
 
 #include <algorithm>
+#include <functional>
 #include <future>
 #include <map>
 #include <sstream>
@@ -108,20 +109,67 @@ void StreamLoadAction::handle(HttpRequest* req) {
 
     // status already set to fail
     if (ctx->status.ok()) {
-        ctx->status = _handle(ctx);
+        ctx->status = _handle(ctx, req);
         if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
             LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
                          << ", errmsg=" << ctx->status;
+            _send_reply(ctx, req);
         }
     }
+}
+
+Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
+    if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
+        LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
+                     << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
+        return Status::InternalError("receive body don't equal with body bytes");
+    }
+
+    // if we use non-streaming, MessageBodyFileSink.finish will close the file
+    RETURN_IF_ERROR(ctx->body_sink->finish());
+    if (!ctx->use_streaming) {
+        // we need to close file first, then execute_plan_fragment here
+        ctx->body_sink.reset();
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(
+                ctx,
+                [req, this](std::shared_ptr<StreamLoadContext> ctx) { _on_finish(ctx, req); }));
+    }
+
+    return Status::OK();
+}
+
+void StreamLoadAction::_on_finish(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
+    ctx->status = ctx->future.get();
+    if (ctx->status.ok()) {
+        if (ctx->group_commit) {
+            LOG(INFO) << "skip commit because this is group commit, pipe_id="
+                      << ctx->id.to_string();
+        } else if (ctx->two_phase_commit) {
+            int64_t pre_commit_start_time = MonotonicNanos();
+            ctx->status = _exec_env->stream_load_executor()->pre_commit_txn(ctx.get());
+            ctx->pre_commit_txn_cost_nanos = MonotonicNanos() - pre_commit_start_time;
+        } else {
+            // If put file success we need commit this load
+            int64_t commit_and_publish_start_time = MonotonicNanos();
+            ctx->status = _exec_env->stream_load_executor()->commit_txn(ctx.get());
+            ctx->commit_and_publish_txn_cost_nanos =
+                    MonotonicNanos() - commit_and_publish_start_time;
+        }
+    }
+    _send_reply(ctx, req);
+}
+
+void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
+        LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
+                     << ", errmsg=" << ctx->status;
         if (ctx->need_rollback) {
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             ctx->need_rollback = false;
         }
-        if (ctx->body_sink.get() != nullptr) {
+        if (ctx->body_sink != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
     }
@@ -139,42 +187,6 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
-}
-
-Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
-    if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
-        LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
-                     << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
-        return Status::InternalError("receive body don't equal with body bytes");
-    }
-
-    // if we use non-streaming, MessageBodyFileSink.finish will close the file
-    RETURN_IF_ERROR(ctx->body_sink->finish());
-    if (!ctx->use_streaming) {
-        // we need to close file first, then execute_plan_fragment here
-        ctx->body_sink.reset();
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx));
-    }
-
-    // wait stream load finish
-    RETURN_IF_ERROR(ctx->future.get());
-
-    if (ctx->group_commit) {
-        LOG(INFO) << "skip commit because this is group commit, pipe_id=" << ctx->id.to_string();
-        return Status::OK();
-    }
-
-    if (ctx->two_phase_commit) {
-        int64_t pre_commit_start_time = MonotonicNanos();
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->pre_commit_txn(ctx.get()));
-        ctx->pre_commit_txn_cost_nanos = MonotonicNanos() - pre_commit_start_time;
-    } else {
-        // If put file success we need commit this load
-        int64_t commit_and_publish_start_time = MonotonicNanos();
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
-        ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
-    }
-    return Status::OK();
 }
 
 int StreamLoadAction::on_header(HttpRequest* req) {
@@ -681,7 +693,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         return Status::OK();
     }
 
-    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
+    return _exec_env->stream_load_executor()->execute_plan_fragment(
+            ctx, [http_req, this](std::shared_ptr<StreamLoadContext> ctx) {
+                _on_finish(ctx, http_req);
+            });
 }
 
 Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_path) {

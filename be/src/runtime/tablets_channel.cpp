@@ -21,10 +21,9 @@
 #include <fmt/format.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
-#include <time.h>
 
-#include "cloud/cloud_delta_writer.h"
-#include "cloud/config.h"
+#include <ctime>
+
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 // IWYU pragma: no_include <bits/chrono.h>
@@ -134,8 +133,8 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     if (_state == kOpened || _state == kFinished) {
         return Status::OK();
     }
-    LOG(INFO) << "open tablets channel: " << _key << ", tablets num: " << request.tablets().size()
-              << ", timeout(s): " << request.load_channel_timeout_s();
+    LOG(INFO) << fmt::format("open tablets channel of index {}, tablets num: {} timeout(s): {}",
+                             _index_id, request.tablets().size(), request.load_channel_timeout_s());
     _txn_id = request.txn_id();
     _index_id = request.index_id();
     _schema = std::make_shared<OlapTableSchemaParam>();
@@ -162,6 +161,9 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     } else {
         _num_remaining_senders = max_sender;
     }
+    LOG(INFO) << fmt::format(
+            "txn {}: TabletsChannel of index {} init senders {} with incremental {}", _txn_id,
+            _index_id, _num_remaining_senders, _open_by_incremental ? "on" : "off");
     // just use max_sender no matter incremental or not cuz we dont know how many senders will open.
     _next_seqs.resize(max_sender, 0);
     _closed_senders.Reset(max_sender);
@@ -183,8 +185,16 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
 
     std::lock_guard<std::mutex> l(_lock);
 
+    // one sender may incremental_open many times. but only close one time. so dont count duplicately.
     if (_open_by_incremental) {
-        _num_remaining_senders++;
+        if (params.has_sender_id() && !_recieved_senders.contains(params.sender_id())) {
+            _recieved_senders.insert(params.sender_id());
+            _num_remaining_senders++;
+        } else if (!params.has_sender_id()) { // for compatible
+            _num_remaining_senders++;
+        }
+        VLOG_DEBUG << fmt::format("txn {}: TabletsChannel {} inc senders to {}", _txn_id, _index_id,
+                                  _num_remaining_senders);
     }
 
     std::vector<SlotDescriptor*>* index_slots = nullptr;
@@ -268,8 +278,10 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     _num_remaining_senders--;
     *finished = (_num_remaining_senders == 0);
 
-    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
-              << ", backend id: " << backend_id << " remaining sender: " << _num_remaining_senders;
+    LOG(INFO) << fmt::format(
+            "txn {}: close tablets channel of index {} , sender id: {}, backend {}, remain "
+            "senders: {}",
+            _txn_id, _index_id, sender_id, backend_id, _num_remaining_senders);
 
     if (!*finished) {
         return Status::OK();

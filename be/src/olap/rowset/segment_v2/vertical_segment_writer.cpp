@@ -111,7 +111,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
     if (_tablet_schema->has_inverted_index()) {
         _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 _opts.rowset_ctx->fs(),
-                std::string {InvertedIndexDescriptor::get_index_path_prefix(
+                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                         _opts.rowset_ctx->segment_path(segment_id))},
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format());
@@ -179,9 +179,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     }
     // indexes for this column
     opts.indexes = tablet_schema->get_indexes_for_column(column);
-    if (!InvertedIndexColumnWriter::check_column_valid(column)) {
-        // skip inverted index if invalid
-        opts.indexes.clear();
+    if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
         opts.need_zone_map = false;
         opts.need_bloom_filter = false;
         opts.need_bitmap_index = false;
@@ -313,7 +311,6 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
     DCHECK(_opts.rowset_ctx->partial_update_info != nullptr);
 
-    auto tablet = static_cast<Tablet*>(_tablet.get());
     // create full block and fill with input columns
     full_block = _tablet_schema->create_block();
     const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
@@ -366,7 +363,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     {
         DBUG_EXECUTE_IF("VerticalSegmentWriter._append_block_with_partial_content.sleep",
                         { sleep(60); })
-        std::shared_lock rlock(tablet->get_header_lock());
+        std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _mow_context->rowset_ptrs;
         if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
             // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
@@ -419,8 +416,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
         RowsetSharedPtr rowset;
-        auto st = tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
-                                         _mow_context->max_version, segment_caches, &rowset);
+        auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
+                                          _mow_context->max_version, segment_caches, &rowset);
         if (st.is<KEY_NOT_FOUND>()) {
             if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
@@ -468,7 +465,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             // partial update should not contain invisible columns
             use_default_or_null_flag.emplace_back(false);
             _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-            tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
+            _tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
         }
 
         if (st.is<KEY_ALREADY_EXISTS>()) {
@@ -487,8 +484,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     CHECK_EQ(use_default_or_null_flag.size(), data.num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
-        tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
-                                                   _mow_context->rowset_ids);
+        _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
+                                                    _mow_context->rowset_ids);
     }
 
     // read and fill block
@@ -556,7 +553,6 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         vectorized::MutableColumns& mutable_full_columns,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         const size_t& segment_start_pos, const vectorized::Block* block) {
-    auto tablet = static_cast<Tablet*>(_tablet.get());
     // create old value columns
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(missing_cids);
@@ -576,7 +572,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                 read_index[id_and_pos.pos] = read_idx++;
             }
             if (has_row_column) {
-                auto st = tablet->fetch_value_through_row_column(
+                auto st = _tablet->fetch_value_through_row_column(
                         rowset, *_tablet_schema, seg_it.first, rids, missing_cids, old_value_block);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value through row column";
@@ -586,8 +582,8 @@ Status VerticalSegmentWriter::_fill_missing_columns(
             }
             for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
                 TabletColumn tablet_column = _tablet_schema->column(missing_cids[cid]);
-                auto st = tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
-                                                        mutable_old_columns[cid]);
+                auto st = _tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
+                                                         mutable_old_columns[cid]);
                 // set read value to output block
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value by rowids";
@@ -694,7 +690,6 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
                 "illegal block columns, block columns = {}, tablet_schema columns = {}",
                 block->dump_structure(), _tablet_schema->dump_structure());
     }
-    LOG(INFO) << "add a single block " << block->rows();
     _batched_blocks.emplace_back(block, row_pos, num_rows);
     return Status::OK();
 }

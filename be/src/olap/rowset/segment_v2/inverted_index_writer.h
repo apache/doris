@@ -69,13 +69,11 @@ public:
 
     virtual int64_t size() const = 0;
 
-    virtual int64_t file_size() const = 0;
-
     virtual void close_on_error() = 0;
 
     // check if the column is valid for inverted index, some columns
     // are generated from variant, but not all of them are supported
-    static bool check_column_valid(const TabletColumn& column) {
+    static bool check_support_inverted_index(const TabletColumn& column) {
         // bellow types are not supported in inverted index for extracted columns
         static std::set<FieldType> invalid_types = {
                 FieldType::OLAP_FIELD_TYPE_DOUBLE,
