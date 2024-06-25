@@ -156,7 +156,7 @@ OUTPUTFORMAT
 LOCATION
   '/user/doris/suites/test_external_credit_data/crdmm_data'
 TBLPROPERTIES (
-  'transient_lastDdlTime'='1685331029')
+  'transient_lastDdlTime'='1685331029');
 
 msck repair crdmm_data;
 
