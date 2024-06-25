@@ -27,12 +27,12 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -49,13 +49,21 @@ public class MysqlTable extends Table {
     private static final String MYSQL_TABLE = "table";
     private static final String MYSQL_CHARSET = "charset";
 
+    @SerializedName("ocrn")
     private String odbcCatalogResourceName;
+    @SerializedName("h")
     private String host;
+    @SerializedName("p")
     private String port;
+    @SerializedName("un")
     private String userName;
+    @SerializedName("pwd")
     private String passwd;
+    @SerializedName("mdn")
     private String mysqlDatabaseName;
+    @SerializedName("mtn")
     private String mysqlTableName;
+    @SerializedName("c")
     private String charset;
 
     public MysqlTable() {
@@ -239,32 +247,7 @@ public class MysqlTable extends Table {
         return md5;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        Map<String, String> serializeMap = Maps.newHashMap();
-        serializeMap.put(ODBC_CATALOG_RESOURCE, odbcCatalogResourceName);
-        serializeMap.put(MYSQL_HOST, host);
-        serializeMap.put(MYSQL_PORT, port);
-        serializeMap.put(MYSQL_USER, userName);
-        serializeMap.put(MYSQL_PASSWORD, passwd);
-        serializeMap.put(MYSQL_DATABASE, mysqlDatabaseName);
-        serializeMap.put(MYSQL_TABLE, mysqlTableName);
-        serializeMap.put(MYSQL_CHARSET, charset);
-
-        int size = (int) serializeMap.values().stream().filter(v -> {
-            return v != null;
-        }).count();
-        out.writeInt(size);
-        for (Map.Entry<String, String> kv : serializeMap.entrySet()) {
-            if (kv.getValue() != null) {
-                Text.writeString(out, kv.getKey());
-                Text.writeString(out, kv.getValue());
-            }
-        }
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
