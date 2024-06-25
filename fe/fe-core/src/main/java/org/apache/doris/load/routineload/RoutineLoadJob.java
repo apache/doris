@@ -1861,7 +1861,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         } catch (Exception e) {
             throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }
-        userIdentity.setIsAnalyzed();
+        if (userIdentity != null) {
+            userIdentity.setIsAnalyzed();
+        }
     }
 
     @Deprecated
