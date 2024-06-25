@@ -52,20 +52,6 @@ struct EncodeAsLargeInt {
 
 template <typename Name, typename ReturnType>
 class FunctionEncodeVarchar : public IFunction {
-private:
-    static inline void reverse_copy_bytes(UInt8* __restrict desc, size_t desc_len, const void* src,
-                                          size_t str_len) {
-        if (str_len == 0) {
-            return;
-        }
-
-        auto _src = static_cast<const UInt8*>(src);
-
-        for (int i = desc_len - 1, j = 0; j < str_len; --i, ++j) {
-            desc[i] = _src[j];
-        }
-    }
-
 public:
     static constexpr auto name = Name::name;
     static FunctionPtr create() { return std::make_shared<FunctionEncodeVarchar>(); }

@@ -38,19 +38,6 @@ namespace doris::vectorized {
 
 template <typename IntegerType>
 class FunctionDecodeAsVarchar : public IFunction {
-    static inline void reverse_copy_bytes(UInt8* __restrict desc, size_t desc_len, const void* src,
-                                          size_t src_len) {
-        if (src_len == 0) {
-            return;
-        }
-
-        auto _src = static_cast<const UInt8*>(src);
-
-        for (int i = desc_len - 1, j = 0; j < src_len; --i, ++j) {
-            desc[i] = _src[j];
-        }
-    }
-
 public:
     static constexpr auto name = "decode_as_varchar";
     static FunctionPtr create() { return std::make_shared<FunctionDecodeAsVarchar>(); }
