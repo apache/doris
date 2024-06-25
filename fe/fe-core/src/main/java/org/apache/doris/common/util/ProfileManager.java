@@ -815,7 +815,7 @@ public class ProfileManager extends MasterDaemon {
             try {
                 for (ProfileElement profileElement : queryIdToBeRemoved) {
                     queryIdToProfileMap.remove(profileElement.profile.getSummaryProfile().getProfileId());
-                    TUniqueId thriftQueryId = Util.parseTUniqueIdFromString(
+                    TUniqueId thriftQueryId = DebugUtil.parseTUniqueIdFromString(
                             profileElement.profile.getSummaryProfile().getProfileId());
                     queryIdToExecutionProfiles.remove(thriftQueryId);
                 }

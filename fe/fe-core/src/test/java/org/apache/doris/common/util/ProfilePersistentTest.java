@@ -76,7 +76,7 @@ public class ProfilePersistentTest {
         Profile profile = new Profile();
         SummaryProfile summaryProfile = constructRandomSummaryProfile();
         String stringUniqueId = summaryProfile.getProfileId();
-        TUniqueId thriftUniqueId = Util.parseTUniqueIdFromString(stringUniqueId);
+        TUniqueId thriftUniqueId = DebugUtil.parseTUniqueIdFromString(stringUniqueId);
         profile.setId(stringUniqueId);
         profile.setSummaryProfile(summaryProfile);
 

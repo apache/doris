@@ -18,8 +18,8 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
@@ -73,7 +73,6 @@ public class Profile {
     // For broker load, its SummaryPRofile id is a string representation of a long integer,
     // for others, it is queryID
     private String id = "";
-    private boolean isPipelineX = true;
     // summaryProfile will be serialized to storage as JSON, and we can recover it from storage
     // recover of SummaryProfile is important, because it contains the meta information of the profile
     // we need it to construct memory index for profile retrieving.
@@ -388,7 +387,7 @@ public class Profile {
         if (timeAndID.length != 2) {
             return null;
         }
-        TUniqueId thriftId = Util.parseTUniqueIdFromString(timeAndID[1]);
+        TUniqueId thriftId = DebugUtil.parseTUniqueIdFromString(timeAndID[1]);
         if (thriftId == null) {
             if (Long.valueOf(timeAndID[1]) == null) {
                 return null;

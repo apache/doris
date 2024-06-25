@@ -229,8 +229,6 @@ public class ExecutionProfile {
                 } else {
                     name = "Pipeline :" + pipelineIdx + " " + suffix;
                     pipelineIdx++;
-                    // Duplicate name will be replaced
-                    fragmentProfiles.get(fragmentId).addChild(profileNode);
                 }
                 RuntimeProfile profileNode = new RuntimeProfile(name);
                 taskProfile.add(profileNode);
