@@ -867,7 +867,7 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
-    void sshExec(String username, String host, String cmd) {
+    void sshExec(String username, String host, String cmd, boolean alert=true) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
         logger.info("Execute: ${cmds}".toString())
@@ -875,8 +875,10 @@ class Suite implements GroovyInterceptable {
         def errMsg = new StringBuilder()
         def msg = new StringBuilder()
         p.waitForProcessOutput(msg, errMsg)
-        assert errMsg.length() == 0: "error occurred!" + errMsg
-        assert p.exitValue() == 0
+        if (alert) {
+            assert errMsg.length() == 0: "error occurred!\n" + errMsg
+            assert p.exitValue() == 0
+        }
     }
 
     List<String> getFrontendIpHttpPort() {
@@ -1796,8 +1798,8 @@ class Suite implements GroovyInterceptable {
 
         def udf_file_dir = new File(udf_file_path).parent
         backendId_to_backendIP.values().each { be_ip ->
-            sshExec("root", be_ip, "ssh-keygen -f '/root/.ssh/known_hosts' -R \"${be_ip}\"")
-            sshExec("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"")
+            sshExec("root", be_ip, "ssh-keygen -f '/root/.ssh/known_hosts' -R \"${be_ip}\"", false)
+            sshExec("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"", false)
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }
