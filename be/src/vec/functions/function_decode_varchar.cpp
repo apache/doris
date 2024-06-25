@@ -24,6 +24,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/primitive_type.h"
+#include "util/simd/reverse_copy_bytes.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
@@ -38,19 +39,6 @@ namespace doris::vectorized {
 
 template <typename IntegerType>
 class FunctionDecodeAsVarchar : public IFunction {
-    static inline void reverse_copy_bytes(UInt8* __restrict desc, size_t desc_len, const void* src,
-                                          size_t src_len) {
-        if (src_len == 0) {
-            return;
-        }
-
-        auto _src = static_cast<const UInt8*>(src);
-
-        for (int i = desc_len - 1, j = 0; j < src_len; --i, ++j) {
-            desc[i] = _src[j];
-        }
-    }
-
 public:
     static constexpr auto name = "decode_as_varchar";
     static FunctionPtr create() { return std::make_shared<FunctionDecodeAsVarchar>(); }
@@ -115,8 +103,8 @@ public:
             col_res_offset[i] = col_res_offset[i - 1] + str_size;
             value <<= 1;
 
-            reverse_copy_bytes(col_res_data.data() + col_res_offset[i - 1], str_size,
-                               ui8_ptr + sizeof(IntegerType) - str_size, str_size);
+            simd::reverse_copy_bytes(col_res_data.data() + col_res_offset[i - 1], str_size,
+                                     ui8_ptr + sizeof(IntegerType) - str_size, str_size);
         }
 
         block.get_by_position(result).column = std::move(col_res);

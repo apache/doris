@@ -22,6 +22,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/primitive_type.h"
+#include "util/simd/reverse_copy_bytes.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
@@ -52,20 +53,6 @@ struct EncodeAsLargeInt {
 
 template <typename Name, typename ReturnType>
 class FunctionEncodeVarchar : public IFunction {
-private:
-    static inline void reverse_copy_bytes(UInt8* __restrict desc, size_t desc_len, const void* src,
-                                          size_t str_len) {
-        if (str_len == 0) {
-            return;
-        }
-
-        auto _src = static_cast<const UInt8*>(src);
-
-        for (int i = desc_len - 1, j = 0; j < str_len; --i, ++j) {
-            desc[i] = _src[j];
-        }
-    }
-
 public:
     static constexpr auto name = Name::name;
     static FunctionPtr create() { return std::make_shared<FunctionEncodeVarchar>(); }
@@ -103,7 +90,7 @@ public:
             UInt8* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
 
             // "reverse" the order of string on little endian machine.
-            reverse_copy_bytes(ui8_ptr, sizeof(ReturnType), str_ptr, str_size);
+            simd::reverse_copy_bytes(ui8_ptr, sizeof(ReturnType), str_ptr, str_size);
             // Lowest byte of Integer stores the size of the string, bit left shiflted by 1 so that we can get
             // correct size after right shifting by 1
             memset(ui8_ptr, str_size << 1, 1);
