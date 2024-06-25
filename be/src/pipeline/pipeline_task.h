@@ -242,6 +242,8 @@ public:
         }
     }
 
+    virtual bool is_finished() const { return false; }
+
     virtual void set_close_pipeline_time() {
         if (!_is_close_pipeline) {
             _close_pipeline_time = _pipeline_task_watcher.elapsed_time();
