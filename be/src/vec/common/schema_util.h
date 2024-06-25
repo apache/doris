@@ -124,14 +124,6 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
 vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
         const vectorized::ColumnObject::Subcolumns& subcolumns);
 
-// Rebuild schema from original schema by extend dynamic columns generated from ColumnObject.
-// Block consists of two parts, dynamic part of columns and static part of columns.
-//     static     extracted
-// | --------- | ----------- |
-// The static ones are original tablet_schame columns
-void rebuild_schema_and_block(const TabletSchemaSPtr& original, const std::vector<int>& variant_pos,
-                              Block& flush_block, TabletSchemaSPtr& flush_schema);
-
 // Extract json data from source with path
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);
 
