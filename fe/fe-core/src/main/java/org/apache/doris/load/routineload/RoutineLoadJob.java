@@ -185,7 +185,7 @@ public abstract class RoutineLoadJob
     @SerializedName("st")
     protected JobState state = JobState.NEED_SCHEDULE;
     @Getter
-    @SerializedName("dst")
+    @SerializedName("dsrc")
     protected LoadDataSourceType dataSourceType;
     // max number of error data in max batch rows * 10
     // maxErrorNum / (maxBatchRows * 10) = max error rate of routine load job

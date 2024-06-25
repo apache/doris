@@ -23,6 +23,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
@@ -33,7 +34,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-public class UserPropertyInfo implements Writable {
+public class UserPropertyInfo implements Writable, GsonPostProcessable {
 
     @SerializedName("u")
     private String user;
@@ -63,10 +64,13 @@ public class UserPropertyInfo implements Writable {
             info.readFields(in);
             return info;
         } else {
-            UserPropertyInfo uProp = GsonUtils.GSON.fromJson(Text.readString(in), UserPropertyInfo.class);
-            uProp.user = ClusterNamespace.getNameFromFullName(uProp.user);
-            return uProp;
+            return GsonUtils.GSON.fromJson(Text.readString(in), UserPropertyInfo.class);
         }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        user = ClusterNamespace.getNameFromFullName(user);
     }
 
     @Override
