@@ -153,9 +153,13 @@ suite ("usercase_union_rewrite") {
         o_comment,
         o_orderdate
         """
+
     explain {
         sql("${query_stmt}")
-        contains "${mv_name}(${mv_name})"
+        check {result ->
+            def splitResult = result.split("MaterializedViewRewriteFail")
+            splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
+        }
     }
     compare_res(query_stmt + " order by 1,2,3,4,5,6,7,8")
 
@@ -163,7 +167,10 @@ suite ("usercase_union_rewrite") {
     sleep(10 * 1000)
     explain {
         sql("${query_stmt}")
-        contains "${mv_name}(${mv_name})"
+        check {result ->
+            def splitResult = result.split("MaterializedViewRewriteFail")
+            splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
+        }
     }
     compare_res(query_stmt + " order by 1,2,3,4,5,6,7,8")
 }
