@@ -736,6 +736,85 @@ suite("test_partition_stats") {
     result = sql """show column stats part7 partition(*)"""
     assertEquals(27, result.size())
 
+    // Test truncate table
+    sql """truncate table part7 partition(p1)"""
+    result = sql """show table stats part7 partition(*)"""
+    assertEquals(2, result.size())
+    assertNotEquals('p1', result[0][0])
+    assertNotEquals('p1', result[1][0])
+    result = sql """show column stats part7 partition(p1)"""
+    assertEquals(0, result.size())
+    result = sql """show column cached stats part7 partition(p1)"""
+    assertEquals(0, result.size())
+    result = sql """show column stats part7 partition(p2)"""
+    assertEquals(9, result.size())
+    result = sql """show column stats part7 partition(p3)"""
+    assertEquals(9, result.size())
+
+    sql """Insert into part7 values (7, 7, 7, 7, 7, 7, 7.7, 7.7, 7.7)"""
+    result = sql """show table stats part7 partition(p1)"""
+    assertEquals(1, result.size())
+    assertEquals("p1", result[0][0])
+    assertEquals("1", result[0][1])
+    sql """analyze table part7 properties("use.auto.analyzer"="true")"""
+    result = sql """show column stats part7"""
+    assertEquals(9, result.size())
+    assertEquals("17.0", result[0][2])
+    assertEquals("17.0", result[1][2])
+    assertEquals("17.0", result[2][2])
+    assertEquals("17.0", result[3][2])
+    assertEquals("17.0", result[4][2])
+    assertEquals("17.0", result[5][2])
+    assertEquals("17.0", result[6][2])
+    assertEquals("17.0", result[7][2])
+    assertEquals("17.0", result[8][2])
+    result = sql """show column cached stats part7"""
+    assertEquals(9, result.size())
+    assertEquals("17.0", result[0][2])
+    assertEquals("17.0", result[1][2])
+    assertEquals("17.0", result[2][2])
+    assertEquals("17.0", result[3][2])
+    assertEquals("17.0", result[4][2])
+    assertEquals("17.0", result[5][2])
+    assertEquals("17.0", result[6][2])
+    assertEquals("17.0", result[7][2])
+    assertEquals("17.0", result[8][2])
+    result = sql """show column stats part7 partition(p1)"""
+    assertEquals(9, result.size())
+    result = sql """show column cached stats part7 partition(p1)"""
+    assertEquals(9, result.size())
+
+    sql """truncate table part7"""
+    result = sql """show table stats part7 partition(*)"""
+    assertEquals(0, result.size())
+    result = sql """show column stats part7"""
+    assertEquals(0, result.size())
+    result = sql """show column cached stats part7"""
+    assertEquals(0, result.size())
+    sql """analyze table part7 properties("use.auto.analyzer"="true")"""
+    result = sql """show column stats part7"""
+    assertEquals(9, result.size())
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[1][2])
+    assertEquals("0.0", result[2][2])
+    assertEquals("0.0", result[3][2])
+    assertEquals("0.0", result[4][2])
+    assertEquals("0.0", result[5][2])
+    assertEquals("0.0", result[6][2])
+    assertEquals("0.0", result[7][2])
+    assertEquals("0.0", result[8][2])
+    result = sql """show column cached stats part7"""
+    assertEquals(9, result.size())
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[1][2])
+    assertEquals("0.0", result[2][2])
+    assertEquals("0.0", result[3][2])
+    assertEquals("0.0", result[4][2])
+    assertEquals("0.0", result[5][2])
+    assertEquals("0.0", result[6][2])
+    assertEquals("0.0", result[7][2])
+    assertEquals("0.0", result[8][2])
+
     sql """drop database test_partition_stats"""
 }
 
