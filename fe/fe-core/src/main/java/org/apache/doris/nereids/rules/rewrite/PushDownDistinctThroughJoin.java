@@ -41,8 +41,7 @@ public class PushDownDistinctThroughJoin extends DefaultPlanRewriter<JobContext>
     public Plan rewriteRoot(Plan plan, JobContext context) {
         Set<Integer> enableNereidsRules = context.getCascadesContext().getConnectContext()
                 .getSessionVariable().getEnableNereidsRules();
-        if (!enableNereidsRules.contains(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN.type())
-                && !RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN.checkUseCboRuleHint()) {
+        if (!enableNereidsRules.contains(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN.type())) {
             return null;
         }
         return plan.accept(this, context);

@@ -35,6 +35,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -55,6 +57,12 @@ public class CostBasedRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext jobContext) {
+        // checkHint.first means whether it use hint and checkHint.second means what kind of hint it used
+        Pair<Boolean, Boolean> checkHint = checkRuleHint();
+        // this means it no_use_cbo_rule(xxx) hint
+        if (checkHint.first && !checkHint.second) {
+            return;
+        }
         CascadesContext currentCtx = jobContext.getCascadesContext();
         CascadesContext skipCboRuleCtx = CascadesContext.newCurrentTreeContext(currentCtx);
         CascadesContext applyCboRuleCtx = CascadesContext.newCurrentTreeContext(currentCtx);
@@ -75,7 +83,6 @@ public class CostBasedRewriteJob implements RewriteJob {
                     rewriteJobs, currentCtx.getRewritePlan());
             return;
         }
-        Pair<Boolean, Boolean> checkHint = checkRuleHint();
         if (checkHint.first) {
             if (checkHint.second) {
                 currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
@@ -88,6 +95,13 @@ public class CostBasedRewriteJob implements RewriteJob {
         }
     }
 
+    /**
+     * check if we have use rule hint or no use rule hint
+     *     return an optional object which checkHint.first means whether it use hint
+     *     and checkHint.second means what kind of hint it used
+     *     example, when we use *+ no_use_cbo_rule(xxx) * the optional would be (true, false)
+     *     which means it use hint and the hint forbid this kind of rule
+     */
     private Pair<Boolean, Boolean> checkRuleHint() {
         Pair<Boolean, Boolean> checkResult = Pair.of(false, false);
         if (rewriteJobs.get(0) instanceof RootPlanTreeRewriteJob) {
@@ -101,6 +115,25 @@ public class CostBasedRewriteJob implements RewriteJob {
         return checkResult;
     }
 
+    /**
+     * for these rules we need use_cbo_rule hint to enable it, otherwise it would be close by default
+     */
+    private static boolean checkBlackList(RuleType ruleType) {
+        List<RuleType> ruleWhiteList = new ArrayList<>(Arrays.asList(
+                RuleType.PUSH_DOWN_AGG_THROUGH_JOIN,
+                RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE,
+                RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN));
+        if (!ruleWhiteList.isEmpty() && ruleWhiteList.contains(ruleType)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * main mechanism of checkRuleHint
+     * return an optional object which checkHint.first means whether it use hint
+     * and checkHint.second means what kind of hint it used
+     */
     private Pair<Boolean, Boolean> checkRuleHintWithHintName(RuleType ruleType) {
         for (Hint hint : ConnectContext.get().getStatementContext().getHints()) {
             if (hint.getHintName().equalsIgnoreCase(ruleType.name())) {
@@ -111,6 +144,9 @@ public class CostBasedRewriteJob implements RewriteJob {
                     return Pair.of(true, true);
                 }
             }
+        }
+        if (checkBlackList(ruleType)) {
+            return Pair.of(true, false);
         }
         return Pair.of(false, false);
     }
