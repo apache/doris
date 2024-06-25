@@ -29,6 +29,50 @@ suite('test_new_partial_update_delete') {
             sql "set enable_nereids_planner=true"
             sql "set enable_fallback_to_original_planner=false"
 
+            try {
+                def tableMorName1 = "test_new_partial_update_mor_delete1"
+                sql "DROP TABLE IF EXISTS ${tableMorName1};"
+                sql """ CREATE TABLE IF NOT EXISTS ${tableMorName1} (
+                        `k1` int NOT NULL,
+                        `c1` int,
+                        `c2` int,
+                        `c3` int,
+                        `c4` int
+                        )UNIQUE KEY(k1)
+                    DISTRIBUTED BY HASH(k1) BUCKETS 1
+                    PROPERTIES (
+                        "disable_auto_compaction" = "true",
+                        "enable_unique_key_merge_on_write" = "false",
+                        "enable_mow_delete_on_delete_predicate" = "true",
+                        "replication_num" = "1",
+                        "store_row_column" = "${use_row_store}"); """
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+            }
+
+            try {
+                def tableMorName2 = "test_new_partial_update_mor_delete2"
+                sql "DROP TABLE IF EXISTS ${tableMorName2};"
+                sql """ CREATE TABLE IF NOT EXISTS ${tableMorName2} (
+                        `k1` int NOT NULL,
+                        `c1` int,
+                        `c2` int,
+                        `c3` int,
+                        `c4` int
+                        )UNIQUE KEY(k1)
+                    DISTRIBUTED BY HASH(k1) BUCKETS 1
+                    PROPERTIES (
+                        "disable_auto_compaction" = "true",
+                        "enable_unique_key_merge_on_write" = "false",
+                        "replication_num" = "1",
+                        "store_row_column" = "${use_row_store}"); """
+                sql """alter table ${tableMorName2} set ("enable_mow_delete_on_delete_predicate"="true")"""
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+            }
+
             def tableName1 = "test_new_partial_update_delete1"
             sql "DROP TABLE IF EXISTS ${tableName1};"
             sql """ CREATE TABLE IF NOT EXISTS ${tableName1} (
@@ -63,7 +107,7 @@ suite('test_new_partial_update_delete') {
 
 
 
-            sql """alter table ${tableName1} set ("enable_delete_on_delete_predicate"="true") """
+            sql """alter table ${tableName1} set ("enable_mow_delete_on_delete_predicate"="true") """
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict=true;"
             qt_sql_table2 "show create table ${tableName1}"
@@ -96,6 +140,49 @@ suite('test_new_partial_update_delete') {
 
 
             // old planner
+            try {
+                def tableMorName3 = "test_new_partial_update_mor_delete3"
+                sql "DROP TABLE IF EXISTS ${tableMorName3};"
+                sql """ CREATE TABLE IF NOT EXISTS ${tableMorName3} (
+                        `k1` int NOT NULL,
+                        `c1` int,
+                        `c2` int,
+                        `c3` int,
+                        `c4` int
+                        )UNIQUE KEY(k1)
+                    DISTRIBUTED BY HASH(k1) BUCKETS 1
+                    PROPERTIES (
+                        "disable_auto_compaction" = "true",
+                        "enable_unique_key_merge_on_write" = "false",
+                        "enable_mow_delete_on_delete_predicate" = "true",
+                        "replication_num" = "1",
+                        "store_row_column" = "${use_row_store}"); """
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+            }
+
+            try {
+                def tableMorName4 = "test_new_partial_update_mor_delete4"
+                sql "DROP TABLE IF EXISTS ${tableMorName4};"
+                sql """ CREATE TABLE IF NOT EXISTS ${tableMorName4} (
+                        `k1` int NOT NULL,
+                        `c1` int,
+                        `c2` int,
+                        `c3` int,
+                        `c4` int
+                        )UNIQUE KEY(k1)
+                    DISTRIBUTED BY HASH(k1) BUCKETS 1
+                    PROPERTIES (
+                        "disable_auto_compaction" = "true",
+                        "enable_unique_key_merge_on_write" = "false",
+                        "replication_num" = "1",
+                        "store_row_column" = "${use_row_store}"); """
+                sql """alter table ${tableMorName4} set ("enable_mow_delete_on_delete_predicate"="true")"""
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+            }
             sql "set enable_nereids_planner=false"
             def tableName2 = "test_new_partial_update_delete2"
             sql "DROP TABLE IF EXISTS ${tableName2};"
@@ -131,7 +218,7 @@ suite('test_new_partial_update_delete') {
 
 
 
-            sql """alter table ${tableName2} set ("enable_delete_on_delete_predicate"="true") """
+            sql """alter table ${tableName2} set ("enable_mow_delete_on_delete_predicate"="true") """
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict=true;"
             qt_sql_table32 "show create table ${tableName2}"
