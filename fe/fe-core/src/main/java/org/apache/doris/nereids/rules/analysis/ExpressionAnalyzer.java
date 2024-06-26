@@ -93,6 +93,7 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -108,9 +109,10 @@ import javax.annotation.Nullable;
 
 /** ExpressionAnalyzer */
 public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext> {
-    public static final ExpressionAnalyzer FUNCTION_ANALYZER = new ExpressionAnalyzer(
+    private static final ExpressionAnalyzer FUNCTION_ANALYZER = new ExpressionAnalyzer(
             null, new Scope(ImmutableList.of()), null, false, false);
 
+    @VisibleForTesting
     public static final AbstractExpressionRewriteRule FUNCTION_ANALYZER_RULE = new AbstractExpressionRewriteRule() {
         @Override
         public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
