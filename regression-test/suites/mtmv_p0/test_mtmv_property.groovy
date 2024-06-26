@@ -75,19 +75,19 @@ suite("test_mtmv_property","mtmv") {
 
     // replication_num
     sql """
-        ALTER TABLE ${mvName} set ("replication_num" = "2");
+        ALTER TABLE ${mvName} set ("replication_num" = "1");
         """
     showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
-    assertTrue(showCreateTableResult.toString().contains('tag.location.default: 2'))
+    assertTrue(showCreateTableResult.toString().contains('tag.location.default: 1'))
 
     // replication_allocation
     sql """
-        ALTER TABLE ${mvName} set ("replication_allocation" = "tag.location.default: 3");
+        ALTER TABLE ${mvName} set ("replication_allocation" = "tag.location.default: 1");
         """
     showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
-    assertTrue(showCreateTableResult.toString().contains('tag.location.default: 3'))
+    assertTrue(showCreateTableResult.toString().contains('tag.location.default: 1'))
 
     // min_load_replica_num
     sql """
@@ -150,7 +150,7 @@ suite("test_mtmv_property","mtmv") {
         sql """ALTER TABLE ${mvName} SET ("store_row_column" = "false");"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Unknown table property"))
+        assertTrue(e.getMessage().contains("Can not alter store_row_column"))
     }
 
     // is_being_synced
