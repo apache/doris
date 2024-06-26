@@ -45,6 +45,7 @@ import com.google.common.collect.ImmutableList;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -582,7 +583,9 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         strLen = Math.min(strLen, data.remaining());
         byte[] bytes = new byte[strLen];
         data.get(bytes);
-        return new StringLiteral(new String(bytes));
+        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
+        // different environment
+        return new StringLiteral(new String(bytes, StandardCharsets.UTF_8));
     }
 
     private static Literal handleVarcharLiteral(ByteBuffer data) {
@@ -590,6 +593,8 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         strLen = Math.min(strLen, data.remaining());
         byte[] bytes = new byte[strLen];
         data.get(bytes);
-        return new VarcharLiteral(new String(bytes));
+        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
+        // different environment
+        return new VarcharLiteral(new String(bytes, StandardCharsets.UTF_8));
     }
 }
