@@ -406,8 +406,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_left_join --
@@ -458,8 +458,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_left_anti_join --
@@ -511,8 +511,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_outer_join --
@@ -538,8 +538,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_having --
@@ -552,8 +552,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_mixed_aggregates --
@@ -579,8 +579,8 @@ PhysicalResultSink
 ------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_with_order_by --
@@ -594,8 +594,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_multiple_equal_conditions --
@@ -607,8 +607,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_equal_conditions_with_aggregate --
@@ -620,8 +620,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_equal_conditions_non_aggregate_selection --
@@ -633,8 +633,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_equal_conditions_non_aggregate_selection_with_aggregate --
@@ -646,8 +646,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_with_where_clause --
@@ -660,8 +660,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_varied_aggregates --
@@ -688,8 +688,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_alias_multiple_equal_conditions --
@@ -701,8 +701,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_complex_join_condition --
@@ -742,8 +742,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[count_t_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_basic --

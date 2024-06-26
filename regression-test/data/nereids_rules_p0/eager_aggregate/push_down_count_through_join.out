@@ -404,14 +404,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_left_join --
@@ -458,14 +456,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_left_anti_join --
@@ -512,15 +508,13 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
+--------PhysicalOlapScan[count_t]
+--------filter((count_t.score > 10))
 ----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------filter((count_t.score > 10))
-------------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_outer_join --
@@ -541,15 +535,13 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
+--------PhysicalOlapScan[count_t]
+--------filter((count_t.score > 10))
 ----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------filter((count_t.score > 10))
-------------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_having --
@@ -558,14 +550,12 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t]
+----------PhysicalOlapScan[count_t]
+----------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_mixed_aggregates --
@@ -583,22 +573,17 @@ SyntaxError:
 
 -- !with_hint_groupby_pushdown_multi_table_join --
 PhysicalResultSink
---hashAgg[LOCAL]
-----hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------PhysicalOlapScan[count_t]
+----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_with_order_by --
@@ -608,14 +593,12 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
+------------PhysicalOlapScan[count_t]
+------------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_multiple_equal_conditions --
@@ -623,14 +606,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_equal_conditions_with_aggregate --
@@ -651,14 +632,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_equal_conditions_non_aggregate_selection_with_aggregate --
@@ -666,14 +645,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_with_where_clause --
@@ -681,15 +658,13 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
+--------PhysicalOlapScan[count_t]
+--------filter((t1.score > 50))
 ----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------filter((t1.score > 50))
-------------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_varied_aggregates --
@@ -712,14 +687,12 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
+------------PhysicalOlapScan[count_t]
+------------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_alias_multiple_equal_conditions --
@@ -727,14 +700,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1_alias.id = t2_alias.id) and (t1_alias.name = t2_alias.name)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_complex_join_condition --
@@ -768,16 +739,14 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
-----------filter((count_t.id < 100))
-------------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------filter((count_t.score > 20) and (t1.id < 100))
-------------PhysicalOlapScan[count_t]
+--------filter((count_t.id < 100))
+----------PhysicalOlapScan[count_t]
+--------filter((count_t.score > 20) and (t1.id < 100))
+----------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_basic --
@@ -785,14 +754,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_left_join --
@@ -839,14 +806,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_left_anti_join --
@@ -880,14 +845,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_subquery --
@@ -895,15 +858,13 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
+--------PhysicalOlapScan[count_t]
+--------filter((count_t.score > 10))
 ----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------filter((count_t.score > 10))
-------------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_outer_join --
@@ -924,15 +885,13 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
+--------PhysicalOlapScan[count_t]
+--------filter((count_t.score > 10))
 ----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------filter((count_t.score > 10))
-------------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_having --
@@ -941,34 +900,27 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t]
-----------hashAgg[LOCAL]
-------------PhysicalOlapScan[count_t]
+----------PhysicalOlapScan[count_t]
+----------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_multi_table_join --
 PhysicalResultSink
---hashAgg[LOCAL]
-----hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------PhysicalOlapScan[count_t]
+----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_with_order_by --
@@ -978,14 +930,12 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
+------------PhysicalOlapScan[count_t]
+------------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_multiple_equal_conditions --
@@ -993,14 +943,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_equal_conditions_non_aggregate_selection --
@@ -1008,14 +956,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
+--------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_with_where_clause --
@@ -1023,15 +969,13 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
+--------PhysicalOlapScan[count_t]
+--------filter((t1.score > 50))
 ----------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------filter((t1.score > 50))
-------------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_varied_aggregates --
@@ -1054,14 +998,12 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[count_t]
+------------PhysicalOlapScan[count_t]
+------------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_complex_join_condition --
@@ -1082,15 +1024,13 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[LOCAL]
-----------filter((count_t.id < 100))
-------------PhysicalOlapScan[count_t]
---------hashAgg[LOCAL]
-----------filter((count_t.score > 20) and (t1.id < 100))
-------------PhysicalOlapScan[count_t]
+--------filter((count_t.id < 100))
+----------PhysicalOlapScan[count_t]
+--------filter((count_t.score > 20) and (t1.id < 100))
+----------PhysicalOlapScan[count_t]
 
 Hint log:
-Used: use_push_down_agg_through_join
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join
 SyntaxError:
 

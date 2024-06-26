@@ -46,8 +46,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_2 --
@@ -60,8 +60,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_3 --
@@ -87,7 +87,7 @@ PhysicalResultSink
 --------PhysicalOlapScan[com_dd_library_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 

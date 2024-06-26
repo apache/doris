@@ -58,9 +58,9 @@ public class CostBasedRewriteJob implements RewriteJob {
     @Override
     public void execute(JobContext jobContext) {
         // checkHint.first means whether it use hint and checkHint.second means what kind of hint it used
-        Pair<Boolean, Boolean> checkHint = checkRuleHint();
+        Pair<Boolean, Hint> checkHint = checkRuleHint();
         // this means it no_use_cbo_rule(xxx) hint
-        if (checkHint.first && !checkHint.second) {
+        if (checkHint.first && checkHint.second == null) {
             return;
         }
         CascadesContext currentCtx = jobContext.getCascadesContext();
@@ -84,7 +84,8 @@ public class CostBasedRewriteJob implements RewriteJob {
             return;
         }
         if (checkHint.first) {
-            if (checkHint.second) {
+            checkHint.second.setStatus(Hint.HintStatus.SUCCESS);
+            if (((UseCboRuleHint) checkHint.second).isNotUseCboRule()) {
                 currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
             }
             return;
@@ -102,11 +103,14 @@ public class CostBasedRewriteJob implements RewriteJob {
      *     example, when we use *+ no_use_cbo_rule(xxx) * the optional would be (true, false)
      *     which means it use hint and the hint forbid this kind of rule
      */
-    private Pair<Boolean, Boolean> checkRuleHint() {
-        Pair<Boolean, Boolean> checkResult = Pair.of(false, false);
+    private Pair<Boolean, Hint> checkRuleHint() {
+        Pair<Boolean, Hint> checkResult = Pair.of(false, null);
         if (rewriteJobs.get(0) instanceof RootPlanTreeRewriteJob) {
             for (Rule rule : ((RootPlanTreeRewriteJob) rewriteJobs.get(0)).getRules()) {
                 checkResult = checkRuleHintWithHintName(rule.getRuleType());
+                if (checkResult.first) {
+                    return checkResult;
+                }
             }
         }
         if (rewriteJobs.get(0) instanceof CustomRewriteJob) {
@@ -134,21 +138,16 @@ public class CostBasedRewriteJob implements RewriteJob {
      * return an optional object which checkHint.first means whether it use hint
      * and checkHint.second means what kind of hint it used
      */
-    private Pair<Boolean, Boolean> checkRuleHintWithHintName(RuleType ruleType) {
+    private Pair<Boolean, Hint> checkRuleHintWithHintName(RuleType ruleType) {
         for (Hint hint : ConnectContext.get().getStatementContext().getHints()) {
             if (hint.getHintName().equalsIgnoreCase(ruleType.name())) {
-                hint.setStatus(Hint.HintStatus.SUCCESS);
-                if (((UseCboRuleHint) hint).isNotUseCboRule()) {
-                    return Pair.of(true, false);
-                } else {
-                    return Pair.of(true, true);
-                }
+                return Pair.of(true, hint);
             }
         }
         if (checkBlackList(ruleType)) {
-            return Pair.of(true, false);
+            return Pair.of(true, null);
         }
-        return Pair.of(false, false);
+        return Pair.of(false, null);
     }
 
     @Override
