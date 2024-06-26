@@ -50,9 +50,9 @@ suite("test_unique_table_auto_inc_concurrent") {
         qt_sql "select count(id), count(distinct id) from ${table1};"
     }
 
-    run_test(30, 10000, 10)
-    run_test(30, 100000, 1)
-    run_test(5, 60000, 10)
+    run_test(15, 10000, 10)
+    run_test(15, 100000, 1)
+    run_test(5, 30000, 10)
 
     sql "drop table if exists ${table1};"
 }

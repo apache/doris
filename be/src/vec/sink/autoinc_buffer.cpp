@@ -19,8 +19,8 @@
 
 #include <gen_cpp/HeartbeatService_types.h>
 
+#include <chrono>
 #include <mutex>
-#include <string>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -28,7 +28,6 @@
 #include "runtime/exec_env.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_rpc_helper.h"
-#include "vec/sink/vtablet_block_convertor.h"
 
 namespace doris::vectorized {
 
@@ -75,6 +74,7 @@ Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
                     retry_times);
             master_addr = result.master_address;
             _discard_all();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
 
@@ -82,6 +82,7 @@ Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
             LOG(WARNING)
                     << "Failed to fetch auto-incremnt range, encounter rpc failure. retry_time="
                     << retry_times << ", errmsg=" << _rpc_status.to_string();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
         if (result.length != length) [[unlikely]] {
@@ -91,6 +92,7 @@ Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
                     length, result.length, retry_times);
             LOG(WARNING) << msg;
             _rpc_status = Status::RpcError<true>(msg);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
 
