@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -132,6 +133,17 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         this.bindSlotInOuterScope = bindSlotInOuterScope;
         this.wantToParseSqlFromSqlCache = CacheAnalyzer.canUseSqlCache(
                 cascadesContext.getConnectContext().getSessionVariable());
+    }
+
+    public static Expression analyzeFunction(LogicalPlan plan, CascadesContext cascadesContext, Expression expression) {
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(plan, new Scope(ImmutableList.of()),
+                cascadesContext, false, false);
+        return analyzer.analyze(expression, new ExpressionRewriteContext(cascadesContext));
+    }
+
+
+    public Expression analyze(Expression expression) {
+        return analyze(expression, new ExpressionRewriteContext(getCascadesContext()));
     }
 
     /** analyze */
