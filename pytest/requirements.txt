@@ -26,7 +26,7 @@ petl==1.7.12
 pexpect==4.8.0
 ptyprocess==0.7.0
 pycurl==7.45.2
-PyMySQL==1.0.3
+PyMySQL==1.1.1
 pytest==7.4.0
 pytest-html==3.2.0
 pytest-metadata==3.0.0
