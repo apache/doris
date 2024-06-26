@@ -79,13 +79,9 @@ private:
 class VOrcTransformer final : public VFileFormatTransformer {
 public:
     VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                    const VExprContextSPtrs& output_vexpr_ctxs, const std::string& schema,
-                    bool output_object_data);
-
-    VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                    const VExprContextSPtrs& output_vexpr_ctxs,
+                    const VExprContextSPtrs& output_vexpr_ctxs, std::string schema,
                     std::vector<std::string> column_names, bool output_object_data,
-                    orc::CompressionKind compression,
+                    TFileCompressType::type compression,
                     const iceberg::Schema* iceberg_schema = nullptr);
 
     ~VOrcTransformer() = default;
@@ -99,6 +95,7 @@ public:
     int64_t written_len() override;
 
 private:
+    void set_compression_type(const TFileCompressType::type& compress_type);
     std::unique_ptr<orc::Type> _build_orc_type(const TypeDescriptor& type_descriptor,
                                                const iceberg::NestedField* nested_field);
 
@@ -113,7 +110,7 @@ private:
     std::vector<std::string> _column_names;
     std::unique_ptr<orc::OutputStream> _output_stream;
     std::unique_ptr<orc::WriterOptions> _write_options;
-    const std::string* _schema_str;
+    std::string _schema_str;
     std::unique_ptr<orc::Type> _schema;
     std::unique_ptr<orc::Writer> _writer;
 
