@@ -1043,6 +1043,10 @@ public class LoadManager implements Writable {
         writeLock();
         try {
             checkLabelUsed(dbId, label);
+            if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
+                throw new DdlException("There are more than " + Config.desired_max_waiting_jobs
+                        + " unfinished load jobs, please retry later. You can use `SHOW LOAD` to view submitted jobs");
+            }
             loadJob = new IngestionLoadJob(dbId, label, tableNames, userInfo);
             loadJob.setJobProperties(properties);
             createLoadJob(loadJob);
