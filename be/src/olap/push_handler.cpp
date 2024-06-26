@@ -100,8 +100,8 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
             RETURN_IF_ERROR(_engine.tablet_manager()->report_tablet_info(&tablet_info));
             tablet_info_vec->push_back(tablet_info);
         }
-        LOG(INFO) << "process realtime push successfully. " << "tablet=" << tablet->tablet_id()
-                  << ", partition_id=" << request.partition_id
+        LOG(INFO) << "process realtime push successfully. "
+                  << "tablet=" << tablet->tablet_id() << ", partition_id=" << request.partition_id
                   << ", transaction_id=" << request.transaction_id;
     }
 
@@ -193,7 +193,8 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     res = _convert_v2(tablet, &rowset_to_add, tablet_schema, push_type);
     if (!res.ok()) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
-                     << ", failed to process realtime push." << ", tablet=" << tablet->tablet_id()
+                     << ", failed to process realtime push."
+                     << ", tablet=" << tablet->tablet_id()
                      << ", transaction_id=" << request.transaction_id;
 
         Status rollback_status = _engine.txn_manager()->rollback_txn(request.partition_id, *tablet,
@@ -285,16 +286,16 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             while (!reader->eof()) {
                 res = reader->next(&block);
                 if (!res.ok()) {
-                    LOG(WARNING) << "read next row failed." << " res=" << res
-                                 << " read_rows=" << num_rows;
+                    LOG(WARNING) << "read next row failed."
+                                 << " res=" << res << " read_rows=" << num_rows;
                     break;
                 } else {
                     if (reader->eof()) {
                         break;
                     }
                     if (!(res = rowset_writer->add_block(&block)).ok()) {
-                        LOG(WARNING) << "fail to attach block to rowset_writer. " << "res=" << res
-                                     << ", tablet=" << cur_tablet->tablet_id()
+                        LOG(WARNING) << "fail to attach block to rowset_writer. "
+                                     << "res=" << res << ", tablet=" << cur_tablet->tablet_id()
                                      << ", read_rows=" << num_rows;
                         break;
                     }
