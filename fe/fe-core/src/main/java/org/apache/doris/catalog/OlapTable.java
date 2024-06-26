@@ -99,6 +99,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -140,7 +141,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     @SerializedName("partitionInfo")
     private PartitionInfo partitionInfo;
     @SerializedName("idToPartition")
-    private Map<Long, Partition> idToPartition = new HashMap<>();
+    private ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
     private Map<String, Partition> nameToPartition = Maps.newTreeMap();
 
     @SerializedName(value = "distributionInfo")
@@ -611,7 +612,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         // reset partition info and idToPartition map
         Map<Long, Long> partitionMap = Maps.newHashMap();
         Map<Long, Partition> origIdToPartition = idToPartition;
-        idToPartition = Maps.newHashMap();
+        idToPartition = new ConcurrentHashMap<>();
         for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
             long newPartId = env.getNextId();
             idToPartition.put(newPartId, origIdToPartition.get(entry.getValue()));
