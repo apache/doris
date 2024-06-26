@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/memory/memory_arbitrator.h"
+#include "runtime/memory/memory_reclamation.h"
 
 #include "runtime/memory/cache_manager.h"
 #include "runtime/workload_group/workload_group.h"
@@ -30,7 +30,7 @@ namespace doris {
 // step2: free resource groups memory that enable overcommit
 // step3: free global top overcommit query, if enable query memory overcommit
 // TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
-bool MemoryArbitrator::process_minor_gc(std::string mem_info) {
+bool MemoryReclamation::process_minor_gc(std::string mem_info) {
     MonotonicStopWatch watch;
     watch.start();
     int64_t freed_mem = 0;
@@ -81,7 +81,7 @@ bool MemoryArbitrator::process_minor_gc(std::string mem_info) {
 // step3: free global top memory query
 // step4: free top overcommit load, load retries are more expensive, So cancel at the end.
 // step5: free top memory load
-bool MemoryArbitrator::process_full_gc(std::string mem_info) {
+bool MemoryReclamation::process_full_gc(std::string mem_info) {
     MonotonicStopWatch watch;
     watch.start();
     int64_t freed_mem = 0;
@@ -142,7 +142,7 @@ bool MemoryArbitrator::process_full_gc(std::string mem_info) {
     return freed_mem > MemInfo::process_full_gc_size();
 }
 
-int64_t MemoryArbitrator::tg_disable_overcommit_group_gc() {
+int64_t MemoryReclamation::tg_disable_overcommit_group_gc() {
     MonotonicStopWatch watch;
     watch.start();
     std::vector<WorkloadGroupPtr> task_groups;
@@ -196,8 +196,9 @@ int64_t MemoryArbitrator::tg_disable_overcommit_group_gc() {
     return total_free_memory;
 }
 
-int64_t MemoryArbitrator::tg_enable_overcommit_group_gc(int64_t request_free_memory,
-                                                        RuntimeProfile* profile, bool is_minor_gc) {
+int64_t MemoryReclamation::tg_enable_overcommit_group_gc(int64_t request_free_memory,
+                                                         RuntimeProfile* profile,
+                                                         bool is_minor_gc) {
     MonotonicStopWatch watch;
     watch.start();
     std::vector<WorkloadGroupPtr> task_groups;

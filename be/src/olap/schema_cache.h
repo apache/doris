@@ -44,7 +44,7 @@ using SegmentIteratorUPtr = std::unique_ptr<SegmentIterator>;
 // eliminating the need for frequent allocation and deallocation during usage.
 // This caching mechanism proves immensely advantageous, particularly in scenarios
 // with high concurrency, where queries are executed simultaneously.
-class SchemaCache : public LRUCachePolicy {
+class SchemaCache : public LRUCachePolicyTrackingManual {
 public:
     enum class Type { TABLET_SCHEMA = 0, SCHEMA = 1 };
 
@@ -104,8 +104,6 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::SCHEMA_CACHE) {}
-
         Type type;
         // either tablet_schema or schema
         TabletSchemaSPtr tablet_schema = nullptr;
@@ -113,8 +111,9 @@ public:
     };
 
     SchemaCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::SCHEMA_CACHE, capacity, LRUCacheType::NUMBER,
-                             config::schema_cache_sweep_time_sec) {}
+            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::SCHEMA_CACHE, capacity,
+                                           LRUCacheType::NUMBER,
+                                           config::schema_cache_sweep_time_sec) {}
 
 private:
     static constexpr char SCHEMA_DELIMITER = '-';

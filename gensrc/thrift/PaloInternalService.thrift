@@ -308,6 +308,7 @@ struct TQueryOptions {
 
   116: optional bool enable_no_need_read_data_opt = true;
   
+  117: optional bool read_csv_empty_line_as_null = false
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

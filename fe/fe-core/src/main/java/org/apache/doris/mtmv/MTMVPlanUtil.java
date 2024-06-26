@@ -65,6 +65,7 @@ public class MTMVPlanUtil {
         setPersonalizedSession(sessionVariable, mtmv);
         sessionVariable.enableFallbackToOriginalPlanner = false;
         sessionVariable.enableNereidsDML = true;
+        sessionVariable.allowModifyMaterializedViewData = true;
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             sessionVariable.setWorkloadGroup(workloadGroup.get());
