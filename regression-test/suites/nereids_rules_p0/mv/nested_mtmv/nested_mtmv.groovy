@@ -839,23 +839,22 @@ suite("nested_mtmv") {
     }
     compare_res(sql_2 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
 
-    // tmp and will fix soon
-//    explain {
-//        sql("${sql_3}")
-//        contains "${mv_3}(${mv_3})"
-//    }
-//    compare_res(sql_3 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
-//
-//    explain {
-//        sql("${sql_4}")
-//        contains "${mv_4}(${mv_4})"
-//    }
-//    compare_res(sql_4 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
-//
-//    explain {
-//        sql("${sql_5}")
-//        contains "${mv_5}(${mv_5})"
-//    }
-//    compare_res(sql_5 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
+    explain {
+        sql("${sql_3}")
+        contains "${mv_3}(${mv_3})"
+    }
+    compare_res(sql_3 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
+
+    explain {
+        sql("${sql_4}")
+        contains "${mv_4}(${mv_4})"
+    }
+    compare_res(sql_4 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
+
+    explain {
+        sql("${sql_5}")
+        contains "${mv_5}(${mv_5})"
+    }
+    compare_res(sql_5 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
 
 }
