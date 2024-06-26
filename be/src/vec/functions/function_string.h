@@ -38,6 +38,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -70,6 +71,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/functions/round.h"
 #include "vec/io/io_helper.h"
+#include "vec/utils/template_helpers.hpp"
 
 #ifndef USE_LIBCPP
 #include <memory_resource>
@@ -2277,70 +2279,102 @@ public:
         res_offsets.resize(input_rows_count);
 
         size_t argument_size = arguments.size();
-        bool has_key = argument_size >= 3;
+        const bool has_key = argument_size >= 3;
 
         std::vector<ColumnPtr> argument_columns(argument_size);
+        std::vector<UInt8> col_const(argument_size);
         for (size_t i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
 
-        const auto* url_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* part_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const ColumnString* key_col = nullptr;
+        const auto* url_col = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* part_col = assert_cast<const ColumnString*>(argument_columns[1].get());
+        const bool part_const = col_const[1];
+        std::vector<UrlParser::UrlPart> url_parts;
+        const int part_nums = part_const ? 1 : input_rows_count;
+
+        url_parts.resize(part_nums);
+        for (int i = 0; i < part_nums; i++) {
+            StringRef part = part_col->get_data_at(i);
+            UrlParser::UrlPart url_part = UrlParser::get_url_part(part);
+            if (url_part == UrlParser::INVALID) {
+                return Status::RuntimeError("Invalid URL part: {}\n{}",
+                                            std::string(part.data, part.size),
+                                            "(Valid URL parts are 'PROTOCOL', 'HOST', "
+                                            "'PATH', 'REF', 'AUTHORITY', "
+                                            "'FILE', 'USERINFO', 'PORT' and 'QUERY')");
+            }
+            url_parts[i] = url_part;
+        }
+
         if (has_key) {
-            key_col = check_and_get_column<ColumnString>(argument_columns[2].get());
-        }
-
-        if (!url_col || !part_col || (has_key && !key_col)) {
-            return Status::InternalError("Not supported input arguments types");
-        }
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map_data[i]) {
-                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                continue;
-            }
-
-            auto part = part_col->get_data_at(i);
-            StringRef p(const_cast<char*>(part.data), part.size);
-            UrlParser::UrlPart url_part = UrlParser::get_url_part(p);
-            StringRef url_key;
-            if (has_key) {
-                auto key = key_col->get_data_at(i);
-                url_key = StringRef(const_cast<char*>(key.data), key.size);
-            }
-
-            auto source = url_col->get_data_at(i);
-            StringRef url_val(const_cast<char*>(source.data), source.size);
-
-            StringRef parse_res;
-            bool success = false;
-            if (has_key) {
-                success = UrlParser::parse_url_key(url_val, url_part, url_key, &parse_res);
-            } else {
-                success = UrlParser::parse_url(url_val, url_part, &parse_res);
-            }
-
-            if (!success) {
-                // url is malformed, or url_part is invalid.
-                if (url_part == UrlParser::INVALID) {
-                    return Status::RuntimeError("Invalid URL part: {}\n{}",
-                                                std::string(part.data, part.size),
-                                                "(Valid URL parts are 'PROTOCOL', 'HOST', "
-                                                "'PATH', 'REF', 'AUTHORITY', "
-                                                "'FILE', 'USERINFO', 'PORT' and 'QUERY')");
-                } else {
-                    StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                    continue;
-                }
-            }
-
-            StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
-                                        res_chars, res_offsets);
+            const bool url_const = col_const[0];
+            const bool key_const = col_const[2];
+            const auto* key_col = assert_cast<const ColumnString*>(argument_columns[2].get());
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto url_const, auto part_const, auto key_const) {
+                        return vector_parse_key<url_const, part_const, key_const>(
+                                url_col, url_parts, key_col, input_rows_count, null_map_data,
+                                res_chars, res_offsets);
+                    },
+                    vectorized::make_bool_variant(url_const),
+                    vectorized::make_bool_variant(part_const),
+                    vectorized::make_bool_variant(key_const)));
+        } else {
+            const bool url_const = col_const[0];
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto url_const, auto part_const) {
+                        return vector_parse<url_const, part_const>(url_col, url_parts,
+                                                                   input_rows_count, null_map_data,
+                                                                   res_chars, res_offsets);
+                    },
+                    vectorized::make_bool_variant(url_const),
+                    vectorized::make_bool_variant(part_const)));
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+    template <bool url_const, bool part_const>
+    static Status vector_parse(const ColumnString* url_col,
+                               std::vector<UrlParser::UrlPart>& url_parts, const int size,
+                               ColumnUInt8::Container& null_map_data,
+                               ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets) {
+        for (size_t i = 0; i < size; ++i) {
+            UrlParser::UrlPart& url_part = url_parts[part_const ? 0 : i];
+            StringRef url_val = url_col->get_data_at(url_const ? 0 : i);
+            StringRef parse_res;
+            if (UrlParser::parse_url(url_val, url_part, &parse_res)) {
+                StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
+                                            res_chars, res_offsets);
+            } else {
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                continue;
+            }
+        }
+        return Status::OK();
+    }
+    template <bool url_const, bool part_const, bool key_const>
+    static Status vector_parse_key(const ColumnString* url_col,
+                                   std::vector<UrlParser::UrlPart>& url_parts,
+                                   const ColumnString* key_col, const int size,
+                                   ColumnUInt8::Container& null_map_data,
+                                   ColumnString::Chars& res_chars,
+                                   ColumnString::Offsets& res_offsets) {
+        for (size_t i = 0; i < size; ++i) {
+            UrlParser::UrlPart& url_part = url_parts[part_const ? 0 : i];
+            StringRef url_val = url_col->get_data_at(url_const ? 0 : i);
+            StringRef url_key = key_col->get_data_at(key_const ? 0 : i);
+            StringRef parse_res;
+            if (UrlParser::parse_url_key(url_val, url_part, url_key, &parse_res)) {
+                StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
+                                            res_chars, res_offsets);
+            } else {
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                continue;
+            }
+        }
         return Status::OK();
     }
 };
