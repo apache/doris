@@ -63,20 +63,19 @@ import javax.annotation.Nullable;
  *       t2   t3
  */
 public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
-    // map union child slot to union slot
-    Map<Slot, Slot> originChildSlotToUnion = new HashMap<>();
-    // if union child is project, map the join slot to the project
-    Map<Slot, NamedExpression> joinSlotToProject = new HashMap<>();
-    // save the constant alias in project above join
-    Map<Plan, Set<NamedExpression>> constantAlias = new HashMap<>();
-    // save the miss slot of other child that not in the union, we need pull up them in new union
-    Map<Plan, List<Slot>> missSlotMap = new HashMap<>();
-
     @Override
     public Rule build() {
         return logicalUnion()
                 .when(union -> union.getQualifier() != Qualifier.DISTINCT)
                 .then(union -> {
+                    // map union child slot to union slot
+                    Map<Slot, Slot> originChildSlotToUnion = new HashMap<>();
+                    // if union child is project, map the join slot to the project
+                    Map<Slot, NamedExpression> joinSlotToProject = new HashMap<>();
+                    // save the constant alias in project above join
+                    Map<Plan, Set<NamedExpression>> constantAlias = new HashMap<>();
+                    // save the miss slot of other child that not in the union, we need pull up them in new union
+                    Map<Plan, List<Slot>> missSlotMap = new HashMap<>();
                     HashMap<Plan, List<Pair<LogicalJoin<?, ?>, Plan>>> commonChildCount =
                             tryToExtractCommonChild(union);
                     if (commonChildCount == null) {
@@ -94,15 +93,17 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                         return null;
                     }
 
-                    boolean success = tryMapJoinSlotToUnion(union, commonChild);
+                    boolean success = tryMapJoinSlotToUnion(
+                            union, commonChild, joinSlotToProject, constantAlias, originChildSlotToUnion);
                     if (!success) {
                         return null;
                     }
-                    if (!checkJoinCondition(commonChild)) {
+                    if (!checkJoinCondition(commonChild, joinSlotToProject, missSlotMap, originChildSlotToUnion)) {
                         return null;
                     }
 
-                    return constructNewJoinUnion(union, commonChild);
+                    return constructNewJoinUnion(
+                            union, commonChild, constantAlias, missSlotMap, originChildSlotToUnion, joinSlotToProject);
                 }).toRule(RuleType.PULL_UP_JOIN_FROM_UNION);
     }
 
@@ -111,7 +112,10 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
     // 2. The other side has the same Index/Slot in the union
     // this function is checking the second condition
     private boolean checkJoinCondition(
-            List<Pair<LogicalJoin<?, ?>, Plan>> commonChild) {
+            List<Pair<LogicalJoin<?, ?>, Plan>> commonChild,
+            Map<Slot, NamedExpression> joinSlotToProject,
+            Map<Plan, List<Slot>> missSlotMap,
+            Map<Slot, Slot> originChildSlotToUnion) {
         HashMap<Integer, Integer> joinCondIndices = new HashMap<>();
         HashMap<Integer, HashMap<Plan, Slot>> missSlotOfSameSlot = new HashMap<>();
         for (Pair<LogicalJoin<?, ?>, Plan> joinChildPair : commonChild) {
@@ -165,10 +169,15 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
     }
 
     private Plan constructNewJoinUnion(
-            LogicalUnion union, List<Pair<LogicalJoin<?, ?>, Plan>> commonChild) {
+            LogicalUnion union, List<Pair<LogicalJoin<?, ?>, Plan>> commonChild,
+            Map<Plan, Set<NamedExpression>> constantAlias,
+            Map<Plan, List<Slot>> missSlotMap,
+            Map<Slot, Slot> originChildSlotToUnion,
+            Map<Slot, NamedExpression> joinSlotToProject) {
 
         // 1. construct new children of union
-        LogicalUnion newUnion = constructNewUnion(commonChild);
+        LogicalUnion newUnion = constructNewUnion(
+                commonChild, joinSlotToProject, constantAlias, missSlotMap, originChildSlotToUnion);
 
         // 2. construct join union
         LogicalJoin<?, ?> originalJoin = commonChild.iterator().next().first;
@@ -176,13 +185,16 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
         Plan newJoin = constructNewJoin(originalJoin, newUnion, newChild);
 
         // 3. map the output to origin output
-        List<NamedExpression> newOutput = constructFinalOutput(newUnion, newChild, union);
+        List<NamedExpression> newOutput = constructFinalOutput(
+                newUnion, newChild, union, originChildSlotToUnion, joinSlotToProject);
         return new LogicalProject<>(newOutput, newJoin);
     }
 
     private List<NamedExpression> constructFinalOutput(LogicalUnion newUnion,
             Plan commonChild,
-            LogicalUnion originalUnion) {
+            LogicalUnion originalUnion,
+            Map<Slot, Slot> originChildSlotToUnion,
+            Map<Slot, NamedExpression> joinSlotToProject) {
         HashMap<Slot, Slot> originalToNewSlot = new HashMap<>();
         for (int i = 0; i < newUnion.getOutput().size(); i++) {
             Slot newSlot = newUnion.getOutput().get(i);
@@ -214,15 +226,21 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
     }
 
     private LogicalUnion constructNewUnion(
-            List<Pair<LogicalJoin<?, ?>, Plan>> commonChild) {
+            List<Pair<LogicalJoin<?, ?>, Plan>> commonChild,
+            Map<Slot, NamedExpression> joinSlotToProject,
+            Map<Plan, Set<NamedExpression>> constantAlias,
+            Map<Plan, List<Slot>> missSlotMap,
+            Map<Slot, Slot> originChildSlotToUnion) {
         List<Plan> newChildren = new ArrayList<>();
         for (Pair<LogicalJoin<?, ?>, Plan> child : commonChild) {
             // find the child that is not the common side
             Plan newChild;
             if (child.first.child(0).equals(child.second)) {
-                newChild = constructNewChild(child.first.child(1));
+                newChild = constructNewChild(
+                        child.first.child(1), joinSlotToProject, constantAlias, missSlotMap, originChildSlotToUnion);
             } else {
-                newChild = constructNewChild(child.first.child(0));
+                newChild = constructNewChild(
+                        child.first.child(0), joinSlotToProject, constantAlias, missSlotMap, originChildSlotToUnion);
             }
             newChildren.add(newChild);
         }
@@ -239,7 +257,10 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
         return newUnion;
     }
 
-    private Plan constructNewChild(Plan plan) {
+    private Plan constructNewChild(Plan plan, Map<Slot, NamedExpression> joinSlotToProject,
+            Map<Plan, Set<NamedExpression>> constantAlias,
+            Map<Plan, List<Slot>> missSlotMap,
+            Map<Slot, Slot> originChildSlotToUnion) {
         List<Pair<Slot, NamedExpression>> projectEntry = new ArrayList<>();
         for (Entry<Slot, NamedExpression> entry : joinSlotToProject.entrySet()) {
             if (!plan.getOutput().contains(entry.getKey())
@@ -260,7 +281,7 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                 projects.add(entry.first);
             }
         }
-        if (!missSlotMap.get(plan).isEmpty()) {
+        if (missSlotMap.containsKey(plan) && !missSlotMap.get(plan).isEmpty()) {
             projects.addAll(missSlotMap.get(plan));
         }
         if (plan.getOutput().equals(projects)) {
@@ -322,7 +343,10 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
         return planCount;
     }
 
-    private boolean tryMapJoinSlotToUnion(LogicalUnion union, List<Pair<LogicalJoin<?, ?>, Plan>> commonChild) {
+    private boolean tryMapJoinSlotToUnion(LogicalUnion union, List<Pair<LogicalJoin<?, ?>, Plan>> commonChild,
+            Map<Slot, NamedExpression> joinSlotToProject,
+            Map<Plan, Set<NamedExpression>> constantAlias,
+            Map<Slot, Slot> originChildSlotToUnion) {
         for (int i = 0; i < union.children().size(); i++) {
             Plan child = union.child(i);
             if (union.getRegularChildOutput(i).isEmpty()) {
