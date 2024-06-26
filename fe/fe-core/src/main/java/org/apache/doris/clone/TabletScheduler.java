@@ -2154,7 +2154,6 @@ public class TabletScheduler extends MasterDaemon {
             }
 
             Collections.sort(pathHashs);
-            int preferSlotIndex;
             synchronized (this) {
                 int preferSlotIndex = pathHashs.indexOf(lastPickPathHash) + 1;
                 if (preferSlotIndex < 0 || preferSlotIndex >= pathHashs.size()) {
