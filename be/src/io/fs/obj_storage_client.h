@@ -61,7 +61,14 @@ struct ObjectStorageResponse {
     ObjectStorageStatus status {};
     int http_code {200};
     std::string request_id = std::string();
-    static ObjectStorageResponse OK() { return {}; }
+    static ObjectStorageResponse OK() {
+        // clang-format off
+        return {
+                .status { .code = 0, },
+                .http_code = 200,
+        };
+        // clang-format on
+    }
 };
 
 struct ObjectStorageUploadResponse {
