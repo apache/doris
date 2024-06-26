@@ -1777,6 +1777,11 @@ visible_functions = {
         [['jsonb_type'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['jsonb_type'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
 
+        [['jsonb_keys'], 'ARRAY_STRING', ['JSONB'], 'ALWAYS_NULLABLE'],
+        [['jsonb_keys'], 'ARRAY_STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['json_keys'], 'ARRAY_STRING', ['JSONB'], 'ALWAYS_NULLABLE'],
+        [['json_keys'], 'ARRAY_STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+
         [['jsonb_extract'], 'JSONB', ['JSONB', 'VARCHAR', '...'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract'], 'JSONB', ['JSONB', 'STRING', '...'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_isnull'], 'BOOLEAN', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],

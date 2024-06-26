@@ -119,13 +119,13 @@ class LeastSuperTypeTest : public TypeTest {};
 TEST_P(LeastSuperTypeTest, getLeastSupertype) {
     DataTypePtr result_type;
     if (this->expected_type) {
-        get_least_supertype(this->from_types, &result_type);
+        get_least_supertype_jsonb(this->from_types, &result_type);
         std::cout << std::endl
                   << " " << this->expected_type->get_name() << " " << result_type->get_name()
                   << std::endl;
         ASSERT_EQ(*(this->expected_type), *result_type);
     } else {
-        EXPECT_ANY_THROW(get_least_supertype(this->from_types, &result_type));
+        EXPECT_ANY_THROW(get_least_supertype_jsonb(this->from_types, &result_type));
     }
 }
 

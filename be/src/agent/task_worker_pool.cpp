@@ -83,6 +83,7 @@
 #include "service/backend_options.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
+#include "util/jni-util.h"
 #include "util/mem_info.h"
 #include "util/random.h"
 #include "util/s3_util.h"
@@ -2058,6 +2059,13 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     static_cast<void>(engine.start_trash_sweep(nullptr, true));
     static_cast<void>(engine.notify_listener("REPORT_DISK_STATE"));
     LOG(INFO) << "clean trash finish";
+}
+
+void clean_udf_cache_callback(const TAgentTaskRequest& req) {
+    LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature;
+    static_cast<void>(
+            JniUtil::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
+    LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
 }
 
 } // namespace doris
