@@ -652,6 +652,8 @@ struct TBeginTxnRequest {
     10: optional Types.TUniqueId request_id
     11: optional string token
     12: optional i64 backend_id
+    // used for ccr
+    13: optional i64 sub_txn_num = 0
 }
 
 struct TBeginTxnResult {
@@ -660,6 +662,8 @@ struct TBeginTxnResult {
     3: optional string job_status // if label already used, set status of existing job
     4: optional i64 db_id
     5: optional Types.TNetworkAddress master_address
+    // used for ccr
+    6: optional list<i64> sub_txn_ids
 }
 
 // StreamLoad request, used to load a streaming to engine
@@ -830,6 +834,9 @@ struct TCommitTxnRequest {
     10: optional i64 thrift_rpc_timeout_ms
     11: optional string token
     12: optional i64 db_id
+    // used for ccr
+    13: optional bool txn_insert
+    14: optional list<TSubTxnInfo> sub_txn_infos
 }
 
 struct TCommitTxnResult {
