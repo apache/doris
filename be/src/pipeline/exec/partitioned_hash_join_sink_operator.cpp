@@ -126,13 +126,8 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
             _shared_state->shared_from_this();
     auto query_id = state->query_id();
     auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
-    auto spill_func = [build_blocks = std::move(build_blocks), state, num_slots, this]() mutable {
-        Defer defer {[&]() {
-            // need to reset build_block here, or else build_block will be destructed
-            // after SCOPED_ATTACH_TASK_WITH_ID and will trigger memory_orphan_check failure
-            build_blocks.clear();
-        }};
-
+    auto spill_func = [state, num_slots,
+                       this](std::vector<vectorized::Block>& build_blocks) mutable {
         auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
         auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
         std::vector<std::vector<uint32_t>> partitions_indexes(p._partition_count);
@@ -216,9 +211,16 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
         _dependency->set_ready();
     };
 
-    auto exception_catch_func = [spill_func, shared_state_holder, execution_context, state,
-                                 query_id, mem_tracker, this]() mutable {
+    auto exception_catch_func = [build_blocks = std::move(build_blocks), spill_func,
+                                 shared_state_holder, execution_context, state, query_id,
+                                 mem_tracker, this]() mutable {
         SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        Defer defer {[&]() {
+            // need to reset build_block here, or else build_block will be destructed
+            // after SCOPED_ATTACH_TASK_WITH_ID and will trigger memory_orphan_check failure
+            build_blocks.clear();
+        }};
+
         std::shared_ptr<TaskExecutionContext> execution_context_lock;
         auto shared_state_sptr = shared_state_holder.lock();
         if (shared_state_sptr) {
@@ -230,7 +232,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
         }
 
         auto status = [&]() {
-            RETURN_IF_CATCH_EXCEPTION(spill_func());
+            RETURN_IF_CATCH_EXCEPTION(spill_func(build_blocks));
             return Status::OK();
         }();
 
