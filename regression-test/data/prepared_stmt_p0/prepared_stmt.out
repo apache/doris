@@ -74,6 +74,12 @@ a
 -- !select7 --
 2	1	user1	\N	1111111	1111111
 
+-- !select6_1 --
+2	1	user1	\N	1234.1111	xxxlalala
+
+-- !select7_1 --
+2	1	user1	\N	1111111	1111111
+
 -- !select8 --
 1
 1
@@ -98,7 +104,4 @@ a
 1235	991129292901.111380000	dd	Will we ignore LIMIT ?,?	2021-01-01	2020-01-01T12:36:38	652.692	5022-01-01	[]
 1236	100320.111390000	laa    ddd	Will we ignore LIMIT ?,?	2021-01-01	2020-01-01T12:36:38	2.7692	6022-01-01	[null]
 1237	120939.111300000	a    ddd	Will we ignore LIMIT ?,?	2021-01-01	2020-01-01T12:36:38	22.822	7022-01-01	["2025-01-01 11:30:38"]
-
--- !select16 --
-mytable1	CREATE TABLE `mytable1` (\n  `siteid` INT NULL DEFAULT "10",\n  `citycode` SMALLINT NULL,\n  `username` VARCHAR(32) NULL DEFAULT "",\n  `pv` BIGINT SUM NULL DEFAULT "0"\n) ENGINE=OLAP\nAGGREGATE KEY(`siteid`, `citycode`, `username`)\nDISTRIBUTED BY HASH(`siteid`) BUCKETS 10\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"min_load_replica_num" = "-1",\n"is_being_synced" = "false",\n"storage_medium" = "hdd",\n"storage_format" = "V2",\n"inverted_index_storage_format" = "V2",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false",\n"enable_single_replica_compaction" = "false",\n"group_commit_interval_ms" = "10000",\n"group_commit_data_bytes" = "134217728"\n);
 
