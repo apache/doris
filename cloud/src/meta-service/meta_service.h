@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "common/sync_point.h"
 #include "meta-service/txn_kv.h"
+#include "meta-service/txn_lazy_committer.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
 
@@ -288,9 +289,16 @@ private:
                                  std::string& msg, std::stringstream& ss,
                                  const std::string& instance_id);
 
+    void commit_txn_eventually(
+            ::google::protobuf::RpcController* controller, const CommitTxnRequest* request,
+            CommitTxnResponse* response, ::google::protobuf::Closure* done, MetaServiceCode& code,
+            std::string& msg, std::stringstream& ss, const std::string& instance_id, int64_t db_id,
+            std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta);
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
 class MetaServiceProxy final : public MetaService {

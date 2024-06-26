@@ -53,6 +53,11 @@ namespace doris::cloud {
 
 using namespace std::chrono;
 
+extern void make_committed_txn_visible(const std::string& instance_id, int64_t txn_id,
+                                       std::shared_ptr<TxnKv> txn_kv, MetaServiceCode& code,
+                                       std::string& msg, std::stringstream& ss,
+                                       std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
+
 // return 0 for success get a key, 1 for key not found, negative for error
 [[maybe_unused]] static int txn_get(TxnKv* txn_kv, std::string_view key, std::string& val) {
     std::unique_ptr<Transaction> txn;
@@ -166,6 +171,7 @@ static inline void check_recycle_task(const std::string& instance_id, const std:
 
 Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
     ip_port_ = std::string(butil::my_ip_cstr()) + ":" + std::to_string(config::brpc_listen_port);
+    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>();
 }
 
 Recycler::~Recycler() {
@@ -225,7 +231,8 @@ void Recycler::recycle_callback() {
             // skip instance in recycling
             if (recycling_instance_map_.count(instance_id)) continue;
         }
-        auto instance_recycler = std::make_shared<InstanceRecycler>(txn_kv_, instance);
+        auto instance_recycler =
+                std::make_shared<InstanceRecycler>(txn_kv_, instance, txn_lazy_committer_);
         if (instance_recycler->init() != 0) {
             LOG(WARNING) << "failed to init instance recycler, instance_id=" << instance_id;
             continue;
@@ -325,7 +332,8 @@ int Recycler::start(brpc::Server* server) {
 
     if (server) {
         // Add service
-        auto recycler_service = new RecyclerServiceImpl(txn_kv_, this, checker_.get());
+        auto recycler_service =
+                new RecyclerServiceImpl(txn_kv_, this, checker_.get(), txn_lazy_committer_);
         server->AddService(recycler_service, brpc::SERVER_OWNS_SERVICE);
     }
 
@@ -438,11 +446,13 @@ private:
     std::unordered_set<Key, HashOfKey> schemas_without_inverted_index_;
 };
 
-InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance)
+InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
+                                   std::shared_ptr<TxnLazyCommitter> txn_lazy_committer)
         : txn_kv_(std::move(txn_kv)),
           instance_id_(instance.instance_id()),
           instance_info_(instance),
-          inverted_index_id_cache_(std::make_unique<InvertedIndexIdCache>(instance_id_, txn_kv_)) {}
+          inverted_index_id_cache_(std::make_unique<InvertedIndexIdCache>(instance_id_, txn_kv_)),
+          txn_lazy_committer_(txn_lazy_committer) {}
 
 InstanceRecycler::~InstanceRecycler() = default;
 
@@ -548,7 +558,7 @@ int InstanceRecycler::do_recycle() {
         if (recycle_partitions() != 0) ret = -1;
         if (recycle_tmp_rowsets() != 0) ret = -1;
         if (recycle_rowsets() != 0) ret = -1;
-        if (abort_timeout_txn() != 0) ret = -1;
+        if (advance_pending_txn() != 0) ret = -1;
         if (recycle_expired_txn_label() != 0) ret = -1;
         if (recycle_copy_jobs() != 0) ret = -1;
         if (recycle_stage() != 0) ret = -1;
@@ -1573,6 +1583,52 @@ int InstanceRecycler::recycle_rowsets() {
     return ret;
 }
 
+bool check_txn_abort(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                     int64_t txn_id) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return false;
+    }
+
+    std::string index_val;
+    const std::string index_key = txn_index_key({instance_id, txn_id});
+    err = txn->get(index_key, &index_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        if (TxnErrorCode::TXN_KEY_NOT_FOUND == err) {
+            return true;
+        }
+        return false;
+    }
+
+    TxnIndexPB index_pb;
+    if (!index_pb.ParseFromString(index_val)) {
+        return false;
+    }
+
+    DCHECK(index_pb.has_tablet_index() == true);
+    DCHECK(index_pb.tablet_index().has_db_id() == true);
+    int64_t db_id = index_pb.tablet_index().db_id();
+
+    std::string info_val;
+    const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+    err = txn->get(info_key, &info_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        DCHECK(err != TxnErrorCode::TXN_KEY_NOT_FOUND);
+        return false;
+    }
+
+    TxnInfoPB txn_info;
+    if (!txn_info.ParseFromString(info_val)) {
+        return false;
+    }
+    DCHECK(txn_info.txn_id() == txn_id);
+    if (TxnStatusPB::TXN_STATUS_ABORTED == txn_info.status()) {
+        return true;
+    }
+    return false;
+}
+
 int InstanceRecycler::recycle_tmp_rowsets() {
     const std::string task_name = "recycle_tmp_rowsets";
     int num_scanned = 0;
@@ -1630,6 +1686,11 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             // not expired
             return 0;
         }
+
+        if (!check_txn_abort(txn_kv_, instance_id_, rowset.txn_id())) {
+            return 0;
+        }
+
         ++num_expired;
         expired_rowset_size += v.size();
         if (!rowset.has_resource_id()) {
@@ -1709,7 +1770,7 @@ int InstanceRecycler::scan_and_recycle(
     return ret;
 }
 
-int InstanceRecycler::abort_timeout_txn() {
+int InstanceRecycler::advance_pending_txn() {
     const std::string task_name = "abort_timeout_txn";
     int num_scanned = 0;
     int num_timeout = 0;
@@ -1784,43 +1845,53 @@ int InstanceRecycler::abort_timeout_txn() {
             LOG_WARNING("failed to parse txn info").tag("key", hex(k));
             return -1;
         }
-        txn_info.set_status(TxnStatusPB::TXN_STATUS_ABORTED);
-        txn_info.set_finish_time(current_time);
-        txn_info.set_reason("timeout");
-        VLOG_DEBUG << "txn_info=" << txn_info.DebugString();
-        txn_inf_val.clear();
-        if (!txn_info.SerializeToString(&txn_inf_val)) {
-            LOG_WARNING("failed to serialize txn info").tag("key", hex(k));
-            return -1;
+
+        if (TxnStatusPB::TXN_STATUS_COMMITTED == txn_info.status()) {
+            MetaServiceCode code;
+            std::string msg;
+            std::stringstream ss;
+            make_committed_txn_visible(instance_id_, txn_id, txn_kv_, code, msg, ss,
+                                       txn_lazy_committer_);
+            return 0;
+        } else {
+            txn_info.set_status(TxnStatusPB::TXN_STATUS_ABORTED);
+            txn_info.set_finish_time(current_time);
+            txn_info.set_reason("timeout");
+            VLOG_DEBUG << "txn_info=" << txn_info.DebugString();
+            txn_inf_val.clear();
+            if (!txn_info.SerializeToString(&txn_inf_val)) {
+                LOG_WARNING("failed to serialize txn info").tag("key", hex(k));
+                return -1;
+            }
+            txn->put(txn_inf_key, txn_inf_val);
+            VLOG_DEBUG << "txn->put, txn_inf_key=" << hex(txn_inf_key);
+            // Put recycle txn key
+            std::string recyc_txn_key, recyc_txn_val;
+            recycle_txn_key({instance_id_, db_id, txn_id}, &recyc_txn_key);
+            RecycleTxnPB recycle_txn_pb;
+            recycle_txn_pb.set_creation_time(current_time);
+            recycle_txn_pb.set_label(txn_info.label());
+            if (!recycle_txn_pb.SerializeToString(&recyc_txn_val)) {
+                LOG_WARNING("failed to serialize txn recycle info")
+                        .tag("key", hex(k))
+                        .tag("db_id", db_id)
+                        .tag("txn_id", txn_id);
+                return -1;
+            }
+            txn->put(recyc_txn_key, recyc_txn_val);
+            // Remove txn running key
+            txn->remove(k);
+            err = txn->commit();
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to commit txn err={}", err)
+                        .tag("key", hex(k))
+                        .tag("db_id", db_id)
+                        .tag("txn_id", txn_id);
+                return -1;
+            }
+            ++num_abort;
+            return 0;
         }
-        txn->put(txn_inf_key, txn_inf_val);
-        VLOG_DEBUG << "txn->put, txn_inf_key=" << hex(txn_inf_key);
-        // Put recycle txn key
-        std::string recyc_txn_key, recyc_txn_val;
-        recycle_txn_key({instance_id_, db_id, txn_id}, &recyc_txn_key);
-        RecycleTxnPB recycle_txn_pb;
-        recycle_txn_pb.set_creation_time(current_time);
-        recycle_txn_pb.set_label(txn_info.label());
-        if (!recycle_txn_pb.SerializeToString(&recyc_txn_val)) {
-            LOG_WARNING("failed to serialize txn recycle info")
-                    .tag("key", hex(k))
-                    .tag("db_id", db_id)
-                    .tag("txn_id", txn_id);
-            return -1;
-        }
-        txn->put(recyc_txn_key, recyc_txn_val);
-        // Remove txn running key
-        txn->remove(k);
-        err = txn->commit();
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to commit txn err={}", err)
-                    .tag("key", hex(k))
-                    .tag("db_id", db_id)
-                    .tag("txn_id", txn_id);
-            return -1;
-        }
-        ++num_abort;
-        return 0;
     };
 
     return scan_and_recycle(begin_txn_running_key, end_txn_running_key,

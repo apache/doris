@@ -1215,7 +1215,7 @@ TEST(RecyclerTest, abort_timeout_txn) {
     InstanceRecycler recycler(txn_kv, instance);
     ASSERT_EQ(recycler.init(), 0);
     sleep(1);
-    ASSERT_EQ(recycler.abort_timeout_txn(), 0);
+    ASSERT_EQ(recycler.advance_pending_txn(), 0);
     TxnInfoPB txn_info_pb;
     get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
     ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_ABORTED);
@@ -1258,7 +1258,7 @@ TEST(RecyclerTest, abort_timeout_txn_and_rebegin) {
     InstanceRecycler recycler(txn_kv, instance);
     ASSERT_EQ(recycler.init(), 0);
     sleep(1);
-    ASSERT_EQ(recycler.abort_timeout_txn(), 0);
+    ASSERT_EQ(recycler.advance_pending_txn(), 0);
     TxnInfoPB txn_info_pb;
     get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
     ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_ABORTED);
@@ -1324,7 +1324,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         instance.set_instance_id(mock_instance);
         InstanceRecycler recycler(txn_kv, instance);
         ASSERT_EQ(recycler.init(), 0);
-        recycler.abort_timeout_txn();
+        recycler.advance_pending_txn();
         TxnInfoPB txn_info_pb;
         ASSERT_EQ(get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb), 0);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
@@ -1376,7 +1376,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         InstanceRecycler recycler(txn_kv, instance);
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
-        recycler.abort_timeout_txn();
+        recycler.advance_pending_txn();
         TxnInfoPB txn_info_pb;
         get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
@@ -1428,7 +1428,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         InstanceRecycler recycler(txn_kv, instance);
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
-        recycler.abort_timeout_txn();
+        recycler.advance_pending_txn();
         TxnInfoPB txn_info_pb;
         get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
@@ -1487,7 +1487,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         InstanceRecycler recycler(txn_kv, instance);
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
-        recycler.abort_timeout_txn();
+        recycler.advance_pending_txn();
         TxnInfoPB txn_info_pb;
         get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
         ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
