@@ -374,6 +374,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                 if (!value.has_value()) {
                     // return -1 if the target version is not exists.
                     response->add_versions(-1);
+                    response->add_version_update_times_ms(-1);
                 } else if (is_table_version) {
                     int64_t version = 0;
                     if (!txn->decode_atomic_int(*value, &version)) {
