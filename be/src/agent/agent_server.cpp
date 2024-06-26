@@ -180,6 +180,9 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     _workers[TTaskType::CLEAN_TRASH] = std::make_unique<TaskWorkerPool>(
             "CLEAN_TRASH", 1, [&engine](auto&& task) {return clean_trash_callback(engine, task); });
 
+    _workers[TTaskType::CLEAN_UDF_CACHE] = std::make_unique<TaskWorkerPool>(
+            "CLEAN_UDF_CACHE", 1, [](auto&& task) {return clean_udf_cache_callback(task); });
+
     _workers[TTaskType::UPDATE_VISIBLE_VERSION] = std::make_unique<TaskWorkerPool>(
             "UPDATE_VISIBLE_VERSION", 1, [&engine](auto&& task) { return visible_version_callback(engine, task); });
 
