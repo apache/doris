@@ -103,7 +103,6 @@ public class HMSResource extends Resource {
         }
         // read properties from hive-site.xml.
         HiveConf hiveConf = new HiveConf();
-        res.forEach(hiveConf::set);
         String metastoreType = hiveConf.get(HIVE_METASTORE_TYPE);
         if (!DLF_TYPE.equalsIgnoreCase(metastoreType)) {
             return res;
