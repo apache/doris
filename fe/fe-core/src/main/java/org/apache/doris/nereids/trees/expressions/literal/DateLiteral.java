@@ -27,10 +27,10 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.nereids.util.StandardDateFormat;
 
 import com.google.common.collect.ImmutableSet;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.temporal.ChronoField;
@@ -158,7 +158,9 @@ public class DateLiteral extends Literal {
 
     static String normalize(String s) {
         // merge consecutive space
-        s = s.replaceAll(" +", " ");
+        if (s.contains("  ")) {
+            s = s.replaceAll(" +", " ");
+        }
 
         StringBuilder sb = new StringBuilder();
 
@@ -181,6 +183,10 @@ public class DateLiteral extends Literal {
         }
 
         // normalize leading 0 for date and time
+        // The first part is 1-digit x: 000x-month-day
+        // The first part is 2-digit xy: 20xy-month-day / 19xy-month-day
+        // The first part is 3-digit xyz: 20xy-0z-day / 19xy-0z-day
+        // The first part is 4-digit xyzw: xyzw-month-day
         while (i < s.length() && partNumber < 6) {
             char c = s.charAt(i);
             if (Character.isDigit(c)) {
@@ -192,6 +198,20 @@ public class DateLiteral extends Literal {
                 int len = j - i;
                 if (len == 4 || len == 2) {
                     sb.append(s, i, j);
+                } else if (len == 3) {
+                    if (partNumber == 0) {
+                        String yy = s.substring(i, i + 2);
+                        int year = Integer.parseInt(yy);
+                        if (year >= 0 && year <= 69) {
+                            sb.append("20");
+                        } else if (year >= 70 && year <= 99) {
+                            sb.append("19");
+                        }
+                        sb.append(yy).append('-');
+                    } else {
+                        sb.append(s, i, i + 2).append(' ');
+                    }
+                    j = j - 1;
                 } else if (len == 1) {
                     if (partNumber == 0) {
                         sb.append("000").append(c);
@@ -244,23 +264,18 @@ public class DateLiteral extends Literal {
 
         sb.append(s.substring(i));
 
-        // Zone Part
-        // while(i < s.length()) {
-        //
-        // }
-
-        // add missing :00 in Zone part
-        // int len = sb.length();
-        // int signIdx = sb.indexOf("+", 10); // from index:10, skip date part (it contains '-')
-        // signIdx = signIdx == -1 ? sb.indexOf("-", 10) : signIdx;
-        // if (signIdx != -1 && len - signIdx == 3) {
-        //     sb.append(":00");
-        // }
-
         return sb.toString();
     }
 
     protected static TemporalAccessor parse(String s) {
+        // fast parse '2022-01-01'
+        if (s.length() == 10 && s.charAt(4) == '-' && s.charAt(7) == '-') {
+            TemporalAccessor date = fastParseDate(s);
+            if (date != null) {
+                return date;
+            }
+        }
+
         String originalString = s;
         try {
             TemporalAccessor dateTime;
@@ -323,7 +338,7 @@ public class DateLiteral extends Literal {
 
     protected boolean checkDate() {
         if (month != 0 && day > DAYS_IN_MONTH[((int) month)]) {
-            if (month == 2 && day == 29 && Year.isLeap(year)) {
+            if (month == 2 && day == 29 && (Year.isLeap(year) && year > 0)) {
                 return false;
             }
             return true;
@@ -354,12 +369,36 @@ public class DateLiteral extends Literal {
 
     @Override
     public String getStringValue() {
+        if (0 <= year && year <= 9999 && 0 <= month && month <= 99 && 0 <= day && day <= 99) {
+            char[] format = new char[] {'0', '0', '0', '0', '-', '0', '0', '-', '0', '0'};
+            int offset = 3;
+            long year = this.year;
+            while (year > 0) {
+                format[offset--] = (char) ('0' + (year % 10));
+                year /= 10;
+            }
+
+            offset = 6;
+            long month = this.month;
+            while (month > 0) {
+                format[offset--] = (char) ('0' + (month % 10));
+                month /= 10;
+            }
+
+            offset = 9;
+            long day = this.day;
+            while (day > 0) {
+                format[offset--] = (char) ('0' + (day % 10));
+                day /= 10;
+            }
+            return String.valueOf(format);
+        }
         return String.format("%04d-%02d-%02d", year, month, day);
     }
 
     @Override
     public String toSql() {
-        return String.format("'%s'", toString());
+        return "'" + getStringValue() + "'";
     }
 
     @Override
@@ -369,7 +408,7 @@ public class DateLiteral extends Literal {
 
     @Override
     public String toString() {
-        return String.format("%04d-%02d-%02d", year, month, day);
+        return getStringValue();
     }
 
     @Override
@@ -390,22 +429,19 @@ public class DateLiteral extends Literal {
     }
 
     public Expression plusDays(long days) {
-        return fromJavaDateType(DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusDays(days));
+        return fromJavaDateType(toJavaDateType().plusDays(days));
     }
 
     public Expression plusMonths(long months) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusMonths(months));
+        return fromJavaDateType(toJavaDateType().plusMonths(months));
     }
 
     public Expression plusWeeks(long weeks) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusWeeks(weeks));
+        return fromJavaDateType(toJavaDateType().plusWeeks(weeks));
     }
 
     public Expression plusYears(long years) {
-        return fromJavaDateType(
-                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusYears(years));
+        return fromJavaDateType(toJavaDateType().plusYears(years));
     }
 
     public LocalDateTime toJavaDateType() {
@@ -458,10 +494,10 @@ public class DateLiteral extends Literal {
     /**
      * 2020-01-01
      *
-     * @return 2020-01-01 24:00:00
+     * @return 2020-01-01 23:59:59
      */
     public DateTimeLiteral toEndOfTheDay() {
-        return new DateTimeLiteral(year, month, day, 24, 0, 0);
+        return new DateTimeLiteral(year, month, day, 23, 59, 59);
     }
 
     /**
@@ -476,5 +512,31 @@ public class DateLiteral extends Literal {
         } else {
             return toEndOfTheDay();
         }
+    }
+
+    private static TemporalAccessor fastParseDate(String date) {
+        Integer year = readNextInt(date, 0, 4);
+        Integer month = readNextInt(date, 5, 2);
+        Integer day = readNextInt(date, 8, 2);
+        if (year != null && month != null && day != null) {
+            return LocalDate.of(year, month, day);
+        } else {
+            return null;
+        }
+    }
+
+    private static Integer readNextInt(String str, int offset, int readLength) {
+        int value = 0;
+        int realReadLength = 0;
+        for (int i = offset; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if ('0' <= c && c <= '9') {
+                realReadLength++;
+                value = value * 10 + (c - '0');
+            } else {
+                break;
+            }
+        }
+        return readLength == realReadLength ? value : null;
     }
 }

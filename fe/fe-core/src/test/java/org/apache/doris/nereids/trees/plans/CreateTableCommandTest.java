@@ -724,7 +724,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                     + "distributed by hash (id) properties (\"a\"=\"b\")");
         } catch (Exception e) {
             Assertions.assertEquals(
-                    "internal catalog does not support functions in 'LIST' partition",
+                    "errCode = 2, detailMessage = auto create partition only support slotRef in list partitions. func1(`id2`, '1')",
                     e.getMessage());
         }
 
@@ -831,5 +831,72 @@ public class CreateTableCommandTest extends TestWithFeService {
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
         createTableInfo.validate(connectContext);
         return createTableInfo.translateToLegacyStmt().getPartitionDesc();
+    }
+
+    @Test
+    public void testPartitionCheckForHive() {
+        try {
+            getCreateTableStmt("CREATE TABLE `tb11`(\n"
+                    + "    `par1` int\n"
+                    + ") ENGINE = hive PARTITION BY LIST (\n"
+                    + "    par1\n"
+                    + ")();");
+            Assertions.assertTrue(false);
+        } catch (Exception e) {
+            Assertions.assertEquals("Cannot set all columns as partitioning columns.", e.getMessage());
+        }
+        try {
+            getCreateTableStmt("CREATE TABLE `tb11`(\n"
+                    + "    `par1` int,\n"
+                    + "    `c1` bigint\n"
+                    + ") ENGINE = hive PARTITION BY LIST (\n"
+                    + "    par1\n"
+                    + ")();");
+            Assertions.assertTrue(false);
+        } catch (Exception e) {
+            Assertions.assertEquals(
+                    "The partition field must be at the end of the schema.",
+                    e.getMessage());
+        }
+        try {
+            getCreateTableStmt("CREATE TABLE `tb11`(\n"
+                    + "    `c1` bigint,\n"
+                    + "    `par2` int,\n"
+                    + "    `par1` int\n"
+                    + ") ENGINE = hive PARTITION BY LIST (\n"
+                    + "    par1, par2\n"
+                    + ")();");
+            Assertions.assertTrue(false);
+        } catch (Exception e) {
+            Assertions.assertEquals(
+                    "The order of partition fields in the schema "
+                            + "must be consistent with the order defined in `PARTITIONED BY LIST()`",
+                    e.getMessage());
+        }
+        try {
+            getCreateTableStmt("CREATE TABLE `tb11`(\n"
+                    + "    `c1` bigint,\n"
+                    + "    `par2` int\n"
+                    + ") ENGINE = hive PARTITION BY LIST (\n"
+                    + "    par1, par2, par3 ,par4\n"
+                    + ")();");
+            Assertions.assertTrue(false);
+        } catch (Exception e) {
+            Assertions.assertEquals("partition key par1 is not exists", e.getMessage());
+        }
+
+        try {
+            getCreateTableStmt("CREATE TABLE `tb11`(\n"
+                    + "    `c1` bigint,\n"
+                    + "    `par1` int,\n"
+                    + "    `par2` int,\n"
+                    + "    `par3` int\n"
+                    + ") ENGINE = hive PARTITION BY LIST (\n"
+                    + "    par1, par2\n"
+                    + ")();");
+            Assertions.assertTrue(false);
+        } catch (Exception e) {
+            Assertions.assertEquals("The partition field must be at the end of the schema.", e.getMessage());
+        }
     }
 }

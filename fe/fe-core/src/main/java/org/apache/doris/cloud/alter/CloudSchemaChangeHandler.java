@@ -92,7 +92,14 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             throws UserException {
         Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS));
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION));
 
         if (properties.size() != 1) {
             throw new UserException("Can only set one table property at a time");
@@ -149,6 +156,142 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             }
             param.groupCommitDataBytes = groupCommitDataBytes;
             param.type = UpdatePartitionMetaParam.TabletMetaType.GROUP_COMMIT_DATA_BYTES;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
+            String compactionPolicy = properties.get(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY);
+            if (compactionPolicy != null
+                    && !compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+                    && !compactionPolicy.equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
+                throw new UserException("Table compaction policy only support for "
+                        + PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
+                        + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
+            }
+            olapTable.readLock();
+            try {
+                if (compactionPolicy == olapTable.getCompactionPolicy()) {
+                    LOG.info("compactionPolicy:{} is equal with olapTable.getCompactionPolicy():{}",
+                            compactionPolicy, olapTable.getCompactionPolicy());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.compactionPolicy = compactionPolicy;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
+            long timeSeriesCompactionGoalSizeMbytes = Long.parseLong(properties.get(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES));
+            olapTable.readLock();
+            try {
+                if (timeSeriesCompactionGoalSizeMbytes
+                        == olapTable.getTimeSeriesCompactionGoalSizeMbytes()) {
+                    LOG.info("timeSeriesCompactionGoalSizeMbytes:{} is equal with"
+                                    + " olapTable.timeSeriesCompactionGoalSizeMbytes():{}",
+                            timeSeriesCompactionGoalSizeMbytes,
+                            olapTable.getTimeSeriesCompactionGoalSizeMbytes());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.timeSeriesCompactionGoalSizeMbytes = timeSeriesCompactionGoalSizeMbytes;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
+            long timeSeriesCompactionFileCountThreshold = Long.parseLong(properties.get(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD));
+            olapTable.readLock();
+            try {
+                if (timeSeriesCompactionFileCountThreshold
+                        == olapTable.getTimeSeriesCompactionFileCountThreshold()) {
+                    LOG.info("timeSeriesCompactionFileCountThreshold:{} is equal with"
+                                    + " olapTable.getTimeSeriesCompactionFileCountThreshold():{}",
+                            timeSeriesCompactionFileCountThreshold,
+                            olapTable.getTimeSeriesCompactionFileCountThreshold());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.timeSeriesCompactionFileCountThreshold = timeSeriesCompactionFileCountThreshold;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
+            long timeSeriesCompactionTimeThresholdSeconds = Long.parseLong(properties.get(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
+            olapTable.readLock();
+            try {
+                if (timeSeriesCompactionTimeThresholdSeconds
+                        == olapTable.getTimeSeriesCompactionTimeThresholdSeconds()) {
+                    LOG.info("timeSeriesCompactionTimeThresholdSeconds:{} is equal with"
+                                    + " olapTable.getTimeSeriesCompactionTimeThresholdSeconds():{}",
+                            timeSeriesCompactionTimeThresholdSeconds,
+                            olapTable.getTimeSeriesCompactionTimeThresholdSeconds());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.timeSeriesCompactionTimeThresholdSeconds = timeSeriesCompactionTimeThresholdSeconds;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+            long timeSeriesCompactionEmptyRowsetsThreshold = Long.parseLong(properties.get(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD));
+            olapTable.readLock();
+            try {
+                if (timeSeriesCompactionEmptyRowsetsThreshold
+                        == olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold()) {
+                    LOG.info("timeSeriesCompactionEmptyRowsetsThreshold:{} is equal with"
+                                    + " olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold():{}",
+                            timeSeriesCompactionEmptyRowsetsThreshold,
+                            olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.timeSeriesCompactionEmptyRowsetsThreshold = timeSeriesCompactionEmptyRowsetsThreshold;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
+            long timeSeriesCompactionLevelThreshold = Long.parseLong(properties.get(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD));
+            olapTable.readLock();
+            try {
+                if (timeSeriesCompactionLevelThreshold
+                        == olapTable.getTimeSeriesCompactionLevelThreshold()) {
+                    LOG.info("timeSeriesCompactionLevelThreshold:{} is equal with"
+                                    + " olapTable.getTimeSeriesCompactionLevelThreshold():{}",
+                            timeSeriesCompactionLevelThreshold,
+                            olapTable.getTimeSeriesCompactionLevelThreshold());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.timeSeriesCompactionLevelThreshold = timeSeriesCompactionLevelThreshold;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
+            boolean disableAutoCompaction = Boolean.parseBoolean(properties.get(PropertyAnalyzer
+                    .PROPERTIES_DISABLE_AUTO_COMPACTION));
+            olapTable.readLock();
+            try {
+                if (disableAutoCompaction
+                        == olapTable.disableAutoCompaction()) {
+                    LOG.info("disableAutoCompaction:{} is equal with"
+                                    + " olapTable.disableAutoCompaction():{}",
+                            disableAutoCompaction,
+                            olapTable.disableAutoCompaction());
+                    return;
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.disableAutoCompaction = disableAutoCompaction;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.DISABLE_AUTO_COMPACTION;
         } else {
             LOG.warn("invalid properties:{}", properties);
             throw new UserException("invalid properties");
@@ -173,6 +316,13 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             TTL_SECONDS,
             GROUP_COMMIT_INTERVAL_MS,
             GROUP_COMMIT_DATA_BYTES,
+            COMPACTION_POLICY,
+            TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
+            TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
+            TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
+            TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+            TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+            DISABLE_AUTO_COMPACTION,
         }
 
         TabletMetaType type;
@@ -181,6 +331,13 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         long ttlSeconds = 0;
         long groupCommitIntervalMs = 0;
         long groupCommitDataBytes = 0;
+        String compactionPolicy;
+        long timeSeriesCompactionGoalSizeMbytes = 0;
+        long timeSeriesCompactionFileCountThreshold = 0;
+        long timeSeriesCompactionTimeThresholdSeconds = 0;
+        long timeSeriesCompactionEmptyRowsetsThreshold = 0;
+        long timeSeriesCompactionLevelThreshold = 0;
+        boolean disableAutoCompaction = false;
     }
 
     public void updateCloudPartitionMeta(Database db,
@@ -227,6 +384,33 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                         break;
                     case GROUP_COMMIT_DATA_BYTES:
                         infoBuilder.setGroupCommitDataBytes(param.groupCommitDataBytes);
+                        break;
+                    case COMPACTION_POLICY:
+                        infoBuilder.setCompactionPolicy(param.compactionPolicy);
+                        break;
+                    case TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES:
+                        infoBuilder.setTimeSeriesCompactionGoalSizeMbytes(
+                                param.timeSeriesCompactionGoalSizeMbytes);
+                        break;
+                    case TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD:
+                        infoBuilder.setTimeSeriesCompactionFileCountThreshold(
+                                param.timeSeriesCompactionFileCountThreshold);
+                        break;
+                    case TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS:
+                        infoBuilder.setTimeSeriesCompactionTimeThresholdSeconds(
+                                param.timeSeriesCompactionTimeThresholdSeconds);
+                        break;
+                    case TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD:
+                        infoBuilder.setTimeSeriesCompactionEmptyRowsetsThreshold(
+                                param.timeSeriesCompactionEmptyRowsetsThreshold);
+                        break;
+                    case TIME_SERIES_COMPACTION_LEVEL_THRESHOLD:
+                        infoBuilder.setTimeSeriesCompactionLevelThreshold(
+                                param.timeSeriesCompactionLevelThreshold);
+                        break;
+                    case DISABLE_AUTO_COMPACTION:
+                        infoBuilder.setDisableAutoCompaction(
+                                param.disableAutoCompaction);
                         break;
                     default:
                         throw new UserException("Unknown TabletMetaType");

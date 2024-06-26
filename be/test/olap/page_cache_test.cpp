@@ -29,8 +29,8 @@ static int kNumShards = StoragePageCache::kDefaultNumShards;
 class StoragePageCacheTest : public testing::Test {
 public:
     StoragePageCacheTest() {
-        mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL,
-                                                          "StoragePageCacheTest");
+        mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL,
+                                                       "StoragePageCacheTest");
     }
     ~StoragePageCacheTest() override = default;
 
@@ -49,7 +49,7 @@ TEST_F(StoragePageCacheTest, data_page_only) {
     {
         // insert normal page
         PageCacheHandle handle;
-        auto* data = new DataPage(1024, mem_tracker);
+        auto* data = new DataPage(1024, true, page_type);
         cache.insert(key, data, &handle, page_type, false);
 
         EXPECT_EQ(handle.data().data, data->data());
@@ -62,7 +62,7 @@ TEST_F(StoragePageCacheTest, data_page_only) {
     {
         // insert in_memory page
         PageCacheHandle handle;
-        auto* data = new DataPage(1024, mem_tracker);
+        auto* data = new DataPage(1024, true, page_type);
         cache.insert(memory_key, data, &handle, page_type, true);
 
         EXPECT_EQ(handle.data().data, data->data());
@@ -75,7 +75,7 @@ TEST_F(StoragePageCacheTest, data_page_only) {
     for (int i = 0; i < 10 * kNumShards; ++i) {
         StoragePageCache::CacheKey key("bcd", 0, i);
         PageCacheHandle handle;
-        auto* data = new DataPage(1024, mem_tracker);
+        auto* data = new DataPage(1024, true, page_type);
         cache.insert(key, data, &handle, page_type, false);
     }
 
@@ -115,7 +115,7 @@ TEST_F(StoragePageCacheTest, index_page_only) {
     {
         // insert normal page
         PageCacheHandle handle;
-        auto* data = new DataPage(1024, mem_tracker);
+        auto* data = new DataPage(1024, true, page_type);
         cache.insert(key, data, &handle, page_type, false);
 
         EXPECT_EQ(handle.data().data, data->data());
@@ -128,7 +128,7 @@ TEST_F(StoragePageCacheTest, index_page_only) {
     {
         // insert in_memory page
         PageCacheHandle handle;
-        auto* data = new DataPage(1024, mem_tracker);
+        auto* data = new DataPage(1024, true, page_type);
         cache.insert(memory_key, data, &handle, page_type, true);
 
         EXPECT_EQ(handle.data().data, data->data());
@@ -141,7 +141,7 @@ TEST_F(StoragePageCacheTest, index_page_only) {
     for (int i = 0; i < 10 * kNumShards; ++i) {
         StoragePageCache::CacheKey key("bcd", 0, i);
         PageCacheHandle handle;
-        auto* data = new DataPage(1024, mem_tracker);
+        auto* data = new DataPage(1024, true, page_type);
         cache.insert(key, data, &handle, page_type, false);
     }
 
@@ -184,8 +184,8 @@ TEST_F(StoragePageCacheTest, mixed_pages) {
     {
         // insert both normal pages
         PageCacheHandle data_handle, index_handle;
-        auto* data = new DataPage(1024, mem_tracker);
-        auto* index = new DataPage(1024, mem_tracker);
+        auto* data = new DataPage(1024, true, page_type_data);
+        auto* index = new DataPage(1024, true, page_type_index);
         cache.insert(data_key, data, &data_handle, page_type_data, false);
         cache.insert(index_key, index, &index_handle, page_type_index, false);
 
@@ -203,8 +203,8 @@ TEST_F(StoragePageCacheTest, mixed_pages) {
     {
         // insert both in_memory pages
         PageCacheHandle data_handle, index_handle;
-        auto* data = new DataPage(1024, mem_tracker);
-        auto* index = new DataPage(1024, mem_tracker);
+        auto* data = new DataPage(1024, true, page_type_data);
+        auto* index = new DataPage(1024, true, page_type_index);
         cache.insert(data_key_mem, data, &data_handle, page_type_data, true);
         cache.insert(index_key_mem, index, &index_handle, page_type_index, true);
 
@@ -221,8 +221,8 @@ TEST_F(StoragePageCacheTest, mixed_pages) {
     for (int i = 0; i < 10 * kNumShards; ++i) {
         StoragePageCache::CacheKey key("bcd", 0, i);
         PageCacheHandle handle;
-        std::unique_ptr<DataPage> data = std::make_unique<DataPage>(1024, mem_tracker);
-        std::unique_ptr<DataPage> index = std::make_unique<DataPage>(1024, mem_tracker);
+        std::unique_ptr<DataPage> data = std::make_unique<DataPage>(1024, true, page_type_data);
+        std::unique_ptr<DataPage> index = std::make_unique<DataPage>(1024, true, page_type_index);
         cache.insert(key, data.release(), &handle, page_type_data, false);
         cache.insert(key, index.release(), &handle, page_type_index, false);
     }
@@ -242,8 +242,8 @@ TEST_F(StoragePageCacheTest, mixed_pages) {
         PageCacheHandle data_handle, index_handle;
         StoragePageCache::CacheKey miss_key_data("data_miss", 0, 1);
         StoragePageCache::CacheKey miss_key_index("index_miss", 0, 1);
-        std::unique_ptr<DataPage> data = std::make_unique<DataPage>(1024, mem_tracker);
-        std::unique_ptr<DataPage> index = std::make_unique<DataPage>(1024, mem_tracker);
+        std::unique_ptr<DataPage> data = std::make_unique<DataPage>(1024, true, page_type_data);
+        std::unique_ptr<DataPage> index = std::make_unique<DataPage>(1024, true, page_type_index);
         cache.insert(miss_key_data, data.release(), &data_handle, page_type_data, false);
         cache.insert(miss_key_index, index.release(), &index_handle, page_type_index, false);
 

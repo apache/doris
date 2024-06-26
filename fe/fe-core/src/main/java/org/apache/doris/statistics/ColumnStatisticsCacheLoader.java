@@ -44,9 +44,8 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
                     columnStatistic = table.getColumnStatistic(key.colName);
                 } catch (Exception e) {
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug(String.format("Exception to get column statistics by metadata."
-                                + "[Catalog:{}, DB:{}, Table:{}]",
-                                key.catalogId, key.dbId, key.tableId), e);
+                        LOG.debug("Exception to get column statistics by metadata. [Catalog:{}, DB:{}, Table:{}]",
+                                key.catalogId, key.dbId, key.tableId, e);
                     }
                 }
             }
@@ -69,9 +68,10 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
     }
 
     private Optional<ColumnStatistic> loadFromStatsTable(StatisticsCacheKey key) {
-        List<ResultRow> columnResults = null;
+        List<ResultRow> columnResults;
         try {
-            columnResults = StatisticsRepository.loadColStats(key.tableId, key.idxId, key.colName);
+            columnResults = StatisticsRepository.loadColStats(
+                    key.catalogId, key.dbId, key.tableId, key.idxId, key.colName);
         } catch (InternalQueryExecutionException e) {
             LOG.info("Failed to load stats for table {} column {}. Reason:{}",
                     key.tableId, key.colName, e.getMessage());

@@ -171,13 +171,13 @@ TEST_F(WalManagerTest, TestDynamicWalSpaceLimt) {
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "5%";
     EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
-    wal_limit_bytes = available_bytes * 0.05;
+    wal_limit_bytes = size_t(available_bytes * 0.05);
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "50%";
     EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
-    wal_limit_bytes = available_bytes * 0.5;
+    wal_limit_bytes = size_t(available_bytes * 0.5);
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;

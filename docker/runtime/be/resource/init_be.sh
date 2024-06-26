@@ -161,7 +161,7 @@ _main() {
     fi
     check_be_status
     doris_note "Ready to start BE！"
-    start_be.sh --console &
+    ${DORIS_HOME}/be/bin/start_be.sh --console &
     child_pid=$!
     wait $child_pid
     exec "$@"

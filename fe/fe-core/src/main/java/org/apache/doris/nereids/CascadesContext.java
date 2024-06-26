@@ -50,7 +50,6 @@ import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -76,6 +75,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -134,6 +134,11 @@ public class CascadesContext implements ScheduleContext {
     // trigger by rule and show by `explain plan process` statement
     private final List<PlanProcess> planProcesses = new ArrayList<>();
 
+    // this field is modified by FoldConstantRuleOnFE, it matters current traverse
+    // into AggregateFunction with distinct, we can not fold constant in this case
+    private int distinctAggLevel;
+    private final boolean isEnableExprTrace;
+
     /**
      * Constructor of OptimizerContext.
      *
@@ -156,6 +161,13 @@ public class CascadesContext implements ScheduleContext {
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
         this.materializationContexts = new ArrayList<>();
+        if (statementContext.getConnectContext() != null) {
+            ConnectContext connectContext = statementContext.getConnectContext();
+            SessionVariable sessionVariable = connectContext.getSessionVariable();
+            this.isEnableExprTrace = sessionVariable != null && sessionVariable.isEnableExprTrace();
+        } else {
+            this.isEnableExprTrace = false;
+        }
     }
 
     /**
@@ -252,11 +264,15 @@ public class CascadesContext implements ScheduleContext {
         return memo;
     }
 
+    public void releaseMemo() {
+        this.memo = null;
+    }
+
     public void setTables(List<TableIf> tables) {
         this.tables = tables.stream().collect(Collectors.toMap(TableIf::getId, t -> t, (t1, t2) -> t1));
     }
 
-    public ConnectContext getConnectContext() {
+    public final ConnectContext getConnectContext() {
         return statementContext.getConnectContext();
     }
 
@@ -366,12 +382,18 @@ public class CascadesContext implements ScheduleContext {
             return defaultValue;
         }
 
-        StatementContext statementContext = getStatementContext();
-        if (statementContext == null) {
-            return defaultValue;
-        }
-        return statementContext.getOrRegisterCache(cacheName,
+        return getStatementContext().getOrRegisterCache(cacheName,
                 () -> variableSupplier.apply(connectContext.getSessionVariable()));
+    }
+
+    /** getAndCacheDisableRules */
+    public final BitSet getAndCacheDisableRules() {
+        ConnectContext connectContext = getConnectContext();
+        StatementContext statementContext = getStatementContext();
+        if (connectContext == null || statementContext == null) {
+            return new BitSet();
+        }
+        return statementContext.getOrCacheDisableRules(connectContext.getSessionVariable());
     }
 
     private CascadesContext execute(Job job) {
@@ -593,16 +615,6 @@ public class CascadesContext implements ScheduleContext {
         consumers.add(cteConsumer);
     }
 
-    public void putCTEIdToProject(CTEId cteId, NamedExpression p) {
-        Set<NamedExpression> projects = this.statementContext.getCteIdToProjects()
-                .computeIfAbsent(cteId, k -> new HashSet<>());
-        projects.add(p);
-    }
-
-    public Set<NamedExpression> getProjectForProducer(CTEId cteId) {
-        return this.statementContext.getCteIdToProjects().get(cteId);
-    }
-
     public Map<CTEId, Set<LogicalCTEConsumer>> getCteIdToConsumers() {
         return this.statementContext.getCteIdToConsumers();
     }
@@ -614,17 +626,6 @@ public class CascadesContext implements ScheduleContext {
 
     public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
         return this.statementContext.getConsumerIdToFilters();
-    }
-
-    public void markConsumerUnderProject(LogicalCTEConsumer cteConsumer) {
-        Set<RelationId> consumerIds = this.statementContext.getCteIdToConsumerUnderProjects()
-                .computeIfAbsent(cteConsumer.getCteId(), k -> new HashSet<>());
-        consumerIds.add(cteConsumer.getRelationId());
-    }
-
-    public boolean couldPruneColumnOnProducer(CTEId cteId) {
-        Set<RelationId> consumerIds = this.statementContext.getCteIdToConsumerUnderProjects().get(cteId);
-        return consumerIds.size() == this.statementContext.getCteIdToConsumers().get(cteId).size();
     }
 
     public void addCTEConsumerGroup(CTEId cteId, Group g, Map<Slot, Slot> producerSlotToConsumerSlot) {
@@ -718,8 +719,28 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void printPlanProcess() {
+        printPlanProcess(this.planProcesses);
+    }
+
+    public static void printPlanProcess(List<PlanProcess> planProcesses) {
         for (PlanProcess row : planProcesses) {
-            LOG.info("RULE: " + row.ruleName + "\nBEFORE:\n" + row.beforeShape + "\nafter:\n" + row.afterShape);
+            LOG.info("RULE: {}\nBEFORE:\n{}\nafter:\n{}", row.ruleName, row.beforeShape, row.afterShape);
         }
+    }
+
+    public void incrementDistinctAggLevel() {
+        this.distinctAggLevel++;
+    }
+
+    public void decrementDistinctAggLevel() {
+        this.distinctAggLevel--;
+    }
+
+    public int getDistinctAggLevel() {
+        return distinctAggLevel;
+    }
+
+    public boolean isEnableExprTrace() {
+        return isEnableExprTrace;
     }
 }

@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -34,17 +34,31 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+
 /**
  * F: a DateTime or DateTimeV2 column
  * Date(F) > 2020-01-01 => F > 2020-01-02 00:00:00
  * Date(F) >= 2020-01-01 => F > 2020-01-01 00:00:00
  *
  */
-public class DateFunctionRewrite extends AbstractExpressionRewriteRule {
+public class DateFunctionRewrite implements ExpressionPatternRuleFactory {
     public static DateFunctionRewrite INSTANCE = new DateFunctionRewrite();
 
     @Override
-    public Expression visitEqualTo(EqualTo equalTo, ExpressionRewriteContext context) {
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(EqualTo.class).then(DateFunctionRewrite::rewriteEqualTo),
+                matchesType(GreaterThan.class).then(DateFunctionRewrite::rewriteGreaterThan),
+                matchesType(GreaterThanEqual.class).then(DateFunctionRewrite::rewriteGreaterThanEqual),
+                matchesType(LessThan.class).then(DateFunctionRewrite::rewriteLessThan),
+                matchesType(LessThanEqual.class).then(DateFunctionRewrite::rewriteLessThanEqual)
+        );
+    }
+
+    private static Expression rewriteEqualTo(EqualTo equalTo) {
         if (equalTo.left() instanceof Date) {
             // V1
             if (equalTo.left().child(0).getDataType() instanceof DateTimeType
@@ -70,8 +84,7 @@ public class DateFunctionRewrite extends AbstractExpressionRewriteRule {
         return equalTo;
     }
 
-    @Override
-    public Expression visitGreaterThan(GreaterThan greaterThan, ExpressionRewriteContext context) {
+    private static Expression rewriteGreaterThan(GreaterThan greaterThan) {
         if (greaterThan.left() instanceof Date) {
             // V1
             if (greaterThan.left().child(0).getDataType() instanceof DateTimeType
@@ -91,8 +104,7 @@ public class DateFunctionRewrite extends AbstractExpressionRewriteRule {
         return greaterThan;
     }
 
-    @Override
-    public Expression visitGreaterThanEqual(GreaterThanEqual greaterThanEqual, ExpressionRewriteContext context) {
+    private static Expression rewriteGreaterThanEqual(GreaterThanEqual greaterThanEqual) {
         if (greaterThanEqual.left() instanceof Date) {
             // V1
             if (greaterThanEqual.left().child(0).getDataType() instanceof DateTimeType
@@ -111,8 +123,7 @@ public class DateFunctionRewrite extends AbstractExpressionRewriteRule {
         return greaterThanEqual;
     }
 
-    @Override
-    public Expression visitLessThan(LessThan lessThan, ExpressionRewriteContext context) {
+    private static Expression rewriteLessThan(LessThan lessThan) {
         if (lessThan.left() instanceof Date) {
             // V1
             if (lessThan.left().child(0).getDataType() instanceof DateTimeType
@@ -131,8 +142,7 @@ public class DateFunctionRewrite extends AbstractExpressionRewriteRule {
         return lessThan;
     }
 
-    @Override
-    public Expression visitLessThanEqual(LessThanEqual lessThanEqual, ExpressionRewriteContext context) {
+    private static Expression rewriteLessThanEqual(LessThanEqual lessThanEqual) {
         if (lessThanEqual.left() instanceof Date) {
             // V1
             if (lessThanEqual.left().child(0).getDataType() instanceof DateTimeType

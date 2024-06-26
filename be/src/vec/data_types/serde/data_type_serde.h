@@ -261,8 +261,8 @@ public:
 
     // Arrow serializer and deserializer
     virtual void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                       arrow::ArrayBuilder* array_builder, int start,
-                                       int end) const = 0;
+                                       arrow::ArrayBuilder* array_builder, int start, int end,
+                                       const cctz::time_zone& ctz) const = 0;
     virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                         int end, const cctz::time_zone& ctz) const = 0;
 
@@ -276,10 +276,10 @@ public:
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 
     // rapidjson
-    virtual void write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                        rapidjson::Document::AllocatorType& allocator,
-                                        int row_num) const;
-    virtual void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
+    virtual Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                          rapidjson::Document::AllocatorType& allocator,
+                                          Arena& mem_pool, int row_num) const;
+    virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
 
 protected:
     bool _return_object_as_string = false;
@@ -303,9 +303,11 @@ inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start,
         return res;
     }
 
-    res.reserve(end - start);
-    for (size_t i = start; i < end; ++i) {
-        res.emplace_back(!(*null_bytemap)[i]);
+    res.resize(end - start);
+    auto* __restrict src_data = (*null_bytemap).data();
+    auto* __restrict res_data = res.data();
+    for (size_t i = 0; i < res.size(); ++i) {
+        res_data[i] = !src_data[i + start];
     }
     return res;
 }

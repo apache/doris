@@ -134,7 +134,7 @@ public:
         float compression = 2048;
         if (compression_arg) {
             auto compression_arg_val = compression_arg->get_value<Float32>();
-            if (compression_arg_val && compression_arg_val >= QUANTILE_STATE_COMPRESSION_MIN &&
+            if (compression_arg_val >= QUANTILE_STATE_COMPRESSION_MIN &&
                 compression_arg_val <= QUANTILE_STATE_COMPRESSION_MAX) {
                 compression = compression_arg_val;
             }

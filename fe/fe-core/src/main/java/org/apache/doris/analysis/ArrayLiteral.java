@@ -27,7 +27,6 @@ import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -99,7 +98,14 @@ public class ArrayLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        return 0;
+        int size = Math.min(expr.getChildren().size(), this.children.size());
+        for (int i = 0; i < size; i++) {
+            if (((LiteralExpr) (this.getChild(i))).compareTo((LiteralExpr) (expr.getChild(i))) != 0) {
+                return ((LiteralExpr) (this.getChild(i))).compareTo((LiteralExpr) (expr.getChild(i)));
+            }
+        }
+        return this.children.size() > expr.getChildren().size() ? 1 :
+                (this.children.size() == expr.getChildren().size() ? 0 : -1);
     }
 
     @Override
@@ -185,15 +191,6 @@ public class ArrayLiteral extends LiteralExpr {
         }
         ArrayLiteral that = (ArrayLiteral) o;
         return Objects.equals(children, that.children);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(children.size());
-        for (Expr e : children) {
-            Expr.writeTo(e, out);
-        }
     }
 
     @Override

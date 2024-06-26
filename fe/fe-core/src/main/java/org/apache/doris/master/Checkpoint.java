@@ -58,6 +58,7 @@ public class Checkpoint extends MasterDaemon {
     private Env env;
     private String imageDir;
     private EditLog editLog;
+    private int memoryNotEnoughCount = 0;
 
     public Checkpoint(EditLog editLog) {
         super("leaderCheckpointer", FeConstants.checkpoint_interval_second * 1000L);
@@ -323,13 +324,23 @@ public class Checkpoint extends MasterDaemon {
         long memUsedPercent = getMemoryUsedPercent();
         LOG.info("get jvm memory used percent: {} %", memUsedPercent);
 
-        if (memUsedPercent > Config.metadata_checkpoint_memory_threshold && !Config.force_do_metadata_checkpoint) {
-            LOG.warn("the memory used percent {} exceed the checkpoint memory threshold: {}",
-                    memUsedPercent, Config.metadata_checkpoint_memory_threshold);
+        if (memUsedPercent <= Config.metadata_checkpoint_memory_threshold || Config.force_do_metadata_checkpoint) {
+            memoryNotEnoughCount = 0;
+            return true;
+        }
+
+        LOG.warn("the memory used percent {} exceed the checkpoint memory threshold: {}, exceeded count: {}",
+                memUsedPercent, Config.metadata_checkpoint_memory_threshold, memoryNotEnoughCount);
+
+        memoryNotEnoughCount += 1;
+        if (memoryNotEnoughCount != Config.checkpoint_manual_gc_threshold) {
             return false;
         }
 
-        return true;
+        LOG.warn("the not enough memory count has reached the manual gc threshold {}",
+                Config.checkpoint_manual_gc_threshold);
+        System.gc();
+        return checkMemoryEnoughToDoCheckpoint();
     }
 
     /*

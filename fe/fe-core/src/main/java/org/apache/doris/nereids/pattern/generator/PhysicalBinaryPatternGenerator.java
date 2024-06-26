@@ -23,9 +23,9 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /** used to generate pattern for PhysicalBinary. */
-public class PhysicalBinaryPatternGenerator extends PatternGenerator {
+public class PhysicalBinaryPatternGenerator extends PlanPatternGenerator {
 
-    public PhysicalBinaryPatternGenerator(PatternGeneratorAnalyzer analyzer,
+    public PhysicalBinaryPatternGenerator(PlanPatternGeneratorAnalyzer analyzer,
             ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
         super(analyzer, opType, parentClass, isMemoPattern);
     }

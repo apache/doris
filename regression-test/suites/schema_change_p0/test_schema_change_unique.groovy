@@ -204,6 +204,14 @@ suite("test_schema_change_unique", "p0") {
 
     sql """ alter table ${tableName3} drop column v14 """
 
+    sql """ alter table ${tableName3} add column v14 bitmap after k13 """
+
+    sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.8,
+    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', to_bitmap(243)) """
+
+    sql """ alter table ${tableName3} drop column v14 """
+
+
     List<List<Object>> result  = sql """ select * from ${tableName3} """
     for (row : result) {
         assertEquals(2, row[1]);
@@ -211,5 +219,9 @@ suite("test_schema_change_unique", "p0") {
         assertEquals("4", row[3]);
         assertEquals("5", row[4]);
     }
+
+    List<List<Object>> cnt = sql """ select k1,k2,k3,count(*) a  from ${tableName3} group by k1,k2,k3 having a > 1; """
+    log.info("ensure there are no duplicated keys")
+    assertEquals(0, cnt.size())
 }
 

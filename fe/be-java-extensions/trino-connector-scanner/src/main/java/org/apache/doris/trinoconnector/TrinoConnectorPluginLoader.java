@@ -30,11 +30,22 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.util.Arrays;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.FileHandler;
+import java.util.logging.Level;
+import java.util.logging.SimpleFormatter;
 
+// Noninstancetiable utility class
 public class TrinoConnectorPluginLoader {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorPluginLoader.class);
 
     private static String pluginsDir = EnvUtils.getDorisHome() + "/connectors";
+
+    // Suppress default constructor for noninstantiability
+    private TrinoConnectorPluginLoader() {
+        throw new AssertionError();
+    }
 
     private static class TrinoConnectorPluginLoad {
         private static FeaturesConfig featuresConfig = new FeaturesConfig();
@@ -42,6 +53,20 @@ public class TrinoConnectorPluginLoader {
 
         static {
             try {
+                // Trino uses jul as its own log system, so the attributes of JUL are configured here
+                System.setProperty("java.util.logging.SimpleFormatter.format",
+                        "%1$tY-%1$tm-%1$td %1$tH:%1$tM:%1$tS %4$s: %5$s%6$s%n");
+                java.util.logging.Logger logger = java.util.logging.Logger.getLogger("");
+                logger.setUseParentHandlers(false);
+                Arrays.stream(logger.getHandlers())
+                        .filter(handler -> handler instanceof ConsoleHandler)
+                        .forEach(handler -> handler.setLevel(Level.OFF));
+                FileHandler fileHandler = new FileHandler(EnvUtils.getDorisHome() + "/log/trinoconnector%g.log",
+                        500000000, 10, true);
+                fileHandler.setLevel(Level.INFO);
+                fileHandler.setFormatter(new SimpleFormatter());
+                logger.addHandler(fileHandler);
+
                 TypeOperators typeOperators = new TypeOperators();
                 featuresConfig = new FeaturesConfig();
                 TypeRegistry typeRegistry = new TypeRegistry(typeOperators, featuresConfig);

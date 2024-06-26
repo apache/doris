@@ -132,6 +132,12 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
+        if (tablet->tablet_state() == TABLET_SHUTDOWN) {
+            tablet->clear_cache();
+            return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more",
+                                                 tablet->tablet_id());
+        }
+
         // Read one block from block reader
         RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
                                        "failed to read next block when merging rowsets of tablet " +
@@ -207,16 +213,25 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
         column_groups->emplace_back(std::move(key_columns));
     }
     auto&& cluster_key_idxes = tablet_schema.cluster_key_idxes();
+
+    std::vector<uint32_t> value_columns;
     for (uint32_t i = num_key_cols; i < total_cols; ++i) {
         if (i == sequence_col_idx || i == delete_sign_idx ||
             cluster_key_idxes.end() !=
                     std::find(cluster_key_idxes.begin(), cluster_key_idxes.end(), i)) {
             continue;
         }
-        if ((i - num_key_cols) % config::vertical_compaction_num_columns_per_group == 0) {
-            column_groups->emplace_back();
+
+        if (!value_columns.empty() &&
+            value_columns.size() % config::vertical_compaction_num_columns_per_group == 0) {
+            column_groups->push_back(value_columns);
+            value_columns.clear();
         }
-        column_groups->back().emplace_back(i);
+        value_columns.push_back(i);
+    }
+
+    if (!value_columns.empty()) {
+        column_groups->push_back(value_columns);
     }
 }
 
@@ -388,8 +403,8 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
     _generate_key_group_cluster_key_idxes(tablet_schema, column_groups,
                                           key_group_cluster_key_idxes);
 
-    vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
-                                                 reader_type);
+    vectorized::RowSourcesBuffer row_sources_buf(
+            tablet->tablet_id(), dst_rowset_writer->context().tablet_path, reader_type);
     // compact group one by one
     for (auto i = 0; i < column_groups.size(); ++i) {
         VLOG_NOTICE << "row source size: " << row_sources_buf.total_size();

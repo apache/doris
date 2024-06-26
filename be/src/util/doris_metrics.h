@@ -17,11 +17,14 @@
 
 #pragma once
 
+#include <jni.h>
+
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "util/jvm_metrics.h"
 #include "util/metrics.h"
 #include "util/system_metrics.h"
 
@@ -81,6 +84,9 @@ public:
     IntCounter* base_compaction_request_failed = nullptr;
     IntCounter* cumulative_compaction_request_total = nullptr;
     IntCounter* cumulative_compaction_request_failed = nullptr;
+    IntCounter* single_compaction_request_total = nullptr;
+    IntCounter* single_compaction_request_failed = nullptr;
+    IntCounter* single_compaction_request_cancelled = nullptr;
 
     IntCounter* base_compaction_deltas_total = nullptr;
     IntCounter* base_compaction_bytes_total = nullptr;
@@ -223,6 +229,10 @@ public:
     UIntGauge* group_local_scan_thread_pool_queue_size = nullptr;
     UIntGauge* group_local_scan_thread_pool_thread_num = nullptr;
 
+    IntAtomicCounter* num_io_bytes_read_total = nullptr;
+    IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
+    IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
+
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;
@@ -237,6 +247,8 @@ public:
     MetricRegistry* metric_registry() { return &_metric_registry; }
     SystemMetrics* system_metrics() { return _system_metrics.get(); }
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
+    JvmMetrics* jvm_metrics() { return _jvm_metrics.get(); }
+    void init_jvm_metrics(JNIEnv* env);
 
 private:
     // Don't allow constructor
@@ -253,6 +265,7 @@ private:
     MetricRegistry _metric_registry;
 
     std::unique_ptr<SystemMetrics> _system_metrics;
+    std::unique_ptr<JvmMetrics> _jvm_metrics;
 
     std::shared_ptr<MetricEntity> _server_metric_entity;
 };

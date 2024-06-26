@@ -220,10 +220,16 @@ echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
 echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
 
+if [[ "${CMAKE_BUILD_TYPE}" = "ASAN" ]]; then
+    BUILD_TYPE="ASAN_UT"
+else
+    BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+fi
+
 cd "${CMAKE_BUILD_DIR}"
 "${CMAKE_CMD}" -G "${GENERATOR}" \
     -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
-    -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+    -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DMAKE_TEST=ON \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
     -DUSE_LIBCPP="${USE_LIBCPP}" \
@@ -276,7 +282,41 @@ rm -f "${UDF_RUNTIME_DIR}"/*
 # clean all gcda file
 while read -r gcda_file; do
     rm "${gcda_file}"
-done < <(find "${DORIS_TEST_BINARY_DIR}" -name "*gcda")
+done < <(find "${CMAKE_BUILD_DIR}" -name "*gcda")
+
+setup_java_env() {
+    local java_version
+
+    echo "JAVA_HOME: ${JAVA_HOME}"
+    if [[ -z "${JAVA_HOME}" ]]; then
+        return 1
+    fi
+
+    local jvm_arch='amd64'
+    if [[ "$(uname -m)" == 'aarch64' ]]; then
+        jvm_arch='aarch64'
+    fi
+    java_version="$(
+        set -e
+        jdk_version "${JAVA_HOME}/bin/java"
+    )"
+    if [[ "${java_version}" -gt 8 ]]; then
+        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${LD_LIBRARY_PATH}"
+        # JAVA_HOME is jdk
+    elif [[ -d "${JAVA_HOME}/jre" ]]; then
+        export LD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+        # JAVA_HOME is jre
+    else
+        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
+    fi
+
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        export DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${DYLD_LIBRARY_PATH}"
+    fi
+}
+
+# prepare jvm if needed
+setup_java_env || true
 
 # prepare gtest output dir
 GTEST_OUTPUT_DIR="${CMAKE_BUILD_DIR}/gtest_output"
@@ -405,7 +445,8 @@ export ORC_EXAMPLE_DIR="${DORIS_HOME}/be/src/apache-orc/examples"
 
 # set asan and ubsan env to generate core file
 export DORIS_HOME="${DORIS_TEST_BINARY_DIR}/"
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
+## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0
 export UBSAN_OPTIONS=print_stacktrace=1
 export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000"
 

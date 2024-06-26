@@ -41,9 +41,15 @@ suite ("unique") {
         sql """create materialized view k12s3m as select k1,sum(k2),max(k2) from u_table group by k1;"""
         exception "must not has grouping columns"
     }
+
     test {
         sql """create materialized view kadj as select k4 from u_table"""
         exception "The materialized view need key column"
+    }
+
+    test {
+        sql """create materialized view kadj as select k4,k1 from u_table"""
+        exception "The materialized view not support value column before key column"
     }
 
     createMV("create materialized view kadj as select k3,k2,k1,k4 from u_table;")

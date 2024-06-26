@@ -24,9 +24,9 @@ import org.apache.doris.mtmv.MTMVUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,9 +35,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class ListPartitionItem extends PartitionItem {
-    public static ListPartitionItem DUMMY_ITEM = new ListPartitionItem(Lists.newArrayList());
+    public static final ListPartitionItem DUMMY_ITEM = new ListPartitionItem(Lists.newArrayList());
 
+    @SerializedName(value = "partitionKeys")
     private final List<PartitionKey> partitionKeys;
+    @SerializedName(value = "idp")
     private boolean isDefaultPartition = false;
 
     public ListPartitionItem(List<PartitionKey> partitionKeys) {
@@ -118,14 +120,6 @@ public class ListPartitionItem extends PartitionItem {
             }
         }
         return false;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(partitionKeys.size());
-        for (PartitionKey partitionKey : partitionKeys) {
-            partitionKey.write(out);
-        }
     }
 
     @Override

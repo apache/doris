@@ -48,14 +48,14 @@ Status HdfsFileHandle::init(int64_t file_size) {
         if (_err_msg.find("No such file or directory") != std::string::npos) {
             return Status::NotFound(_err_msg);
         }
-        return Status::IOError("failed to open {}: {}", _fname, _err_msg);
+        return Status::InternalError("failed to open {}: {}", _fname, _err_msg);
     }
 
     _file_size = file_size;
     if (_file_size <= 0) {
         hdfsFileInfo* file_info = hdfsGetPathInfo(_fs, _fname.c_str());
         if (file_info == nullptr) {
-            return Status::IOError("failed to get file size of {}: {}", _fname, hdfs_error());
+            return Status::InternalError("failed to get file size of {}: {}", _fname, hdfs_error());
         }
         _file_size = file_info->mSize;
         hdfsFreeFileInfo(file_info, 1);

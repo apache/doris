@@ -18,7 +18,6 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 #include "sort_sink_operator.h"
 
 namespace doris::pipeline {
@@ -35,7 +34,6 @@ public:
     ~SpillSortSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     Dependency* finishdependency() override { return _finish_dependency.get(); }
 
@@ -57,18 +55,15 @@ private:
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
 
     bool _eos = false;
-    bool _is_spilling = false;
     vectorized::SpillStreamSPtr _spilling_stream;
     std::shared_ptr<Dependency> _finish_dependency;
-    std::mutex _spill_lock;
-    std::condition_variable _spill_cv;
 };
 
 class SpillSortSinkOperatorX final : public DataSinkOperatorX<SpillSortSinkLocalState> {
 public:
     using LocalStateType = SpillSortSinkLocalState;
     SpillSortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                           const DescriptorTbl& descs);
+                           const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<SpillSortSinkLocalState>::_name);
@@ -78,10 +73,12 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status close(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         return _sort_sink_operator->required_data_distribution();
+    }
+    bool require_data_distribution() const override {
+        return _sort_sink_operator->require_data_distribution();
     }
     Status set_child(OperatorXPtr child) override {
         RETURN_IF_ERROR(DataSinkOperatorX<SpillSortSinkLocalState>::set_child(child));
@@ -92,7 +89,7 @@ public:
 
     Status revoke_memory(RuntimeState* state) override;
 
-    using DataSinkOperatorX<LocalStateType>::id;
+    using DataSinkOperatorX<LocalStateType>::node_id;
     using DataSinkOperatorX<LocalStateType>::operator_id;
     using DataSinkOperatorX<LocalStateType>::get_local_state;
 

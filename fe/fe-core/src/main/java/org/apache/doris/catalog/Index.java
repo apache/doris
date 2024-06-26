@@ -23,12 +23,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TIndexType;
 import org.apache.doris.thrift.TOlapTableIndex;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -63,13 +65,21 @@ public class Index implements Writable {
     private String comment;
 
     public Index(long indexId, String indexName, List<String> columns,
-                 IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
+            IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
         this.indexId = indexId;
         this.indexName = indexName;
         this.columns = columns;
         this.indexType = indexType;
         this.properties = properties;
         this.comment = comment;
+        if (indexType == IndexDef.IndexType.INVERTED) {
+            if (this.properties != null && !this.properties.isEmpty()) {
+                String key = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
+                if (!properties.containsKey(key)) {
+                    this.properties.put(key, "true");
+                }
+            }
+        }
     }
 
     public Index() {
@@ -140,8 +150,19 @@ public class Index implements Writable {
         return InvertedIndexUtil.getInvertedIndexCharFilter(properties);
     }
 
+    public boolean isLightIndexChangeSupported() {
+        return indexType == IndexDef.IndexType.INVERTED;
+    }
+
     public String getComment() {
-        return comment;
+        return getComment(false);
+    }
+
+    public String getComment(boolean escapeQuota) {
+        if (!escapeQuota) {
+            return comment;
+        }
+        return SqlUtils.escapeQuota(comment);
     }
 
     public void setComment(String comment) {
@@ -165,7 +186,7 @@ public class Index implements Writable {
 
     public Index clone() {
         return new Index(indexId, indexName, new ArrayList<>(columns),
-                         indexType, new HashMap<>(properties), comment);
+                indexType, new HashMap<>(properties), comment);
     }
 
     @Override
@@ -194,8 +215,8 @@ public class Index implements Writable {
             sb.append(" PROPERTIES");
             sb.append(getPropertiesString());
         }
-        if (comment != null) {
-            sb.append(" COMMENT '" + comment + "'");
+        if (StringUtils.isNotBlank(comment)) {
+            sb.append(" COMMENT '").append(getComment(true)).append("'");
         }
         return sb.toString();
     }
@@ -264,7 +285,7 @@ public class Index implements Writable {
                     column = column.toLowerCase();
                     if (bfColumns.contains(column)) {
                         throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
-                            + "filter index");
+                                + "filter index");
                     }
                     bfColumns.add(column);
                 }
@@ -274,7 +295,7 @@ public class Index implements Writable {
             column = column.toLowerCase();
             if (bfColumns.contains(column)) {
                 throw new AnalysisException(column + " should have only one ngram bloom filter index or bloom "
-                    + "filter index");
+                        + "filter index");
             }
             bfColumns.add(column);
         }

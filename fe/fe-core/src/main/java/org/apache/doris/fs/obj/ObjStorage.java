@@ -23,16 +23,16 @@ import org.apache.doris.common.UserException;
 
 import org.apache.commons.lang3.tuple.Triple;
 import org.jetbrains.annotations.Nullable;
-import software.amazon.awssdk.core.sync.RequestBody;
 
 import java.io.File;
+import java.io.InputStream;
 
 /**
  * It is just used for reading remote object storage on cloud.
  * @param <C> cloud SDK Client
  */
 public interface ObjStorage<C> {
-    C getClient(String bucket) throws UserException;
+    C getClient() throws UserException;
 
     Triple<String, String, String> getStsToken() throws DdlException;
 
@@ -40,7 +40,7 @@ public interface ObjStorage<C> {
 
     Status getObject(String remoteFilePath, File localFile);
 
-    Status putObject(String remotePath, @Nullable RequestBody requestBody);
+    Status putObject(String remotePath, @Nullable InputStream content, long contentLenghth);
 
     Status deleteObject(String remotePath);
 

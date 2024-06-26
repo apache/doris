@@ -59,12 +59,23 @@ public:
     BlockFileCache* get_by_path(const std::string& cache_base_path);
     std::vector<BlockFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
             const TUniqueId& query_id);
-    void clear_file_caches(bool sync);
+
+    /**
+     * Clears data of all file cache instances
+     *
+     * @param sync wait until all data cleared
+     * @return summary message
+     */
+    std::string clear_file_caches(bool sync);
+
+    std::vector<std::string> get_base_paths();
+
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;
     FileCacheFactory(const FileCacheFactory&) = delete;
 
 private:
+    std::mutex _mtx;
     std::vector<std::unique_ptr<BlockFileCache>> _caches;
     std::unordered_map<std::string, BlockFileCache*> _path_to_cache;
     size_t _capacity = 0;

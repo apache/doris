@@ -51,39 +51,75 @@ public:
         return _type_converted_decoder->skip_values(num_values);
     }
 
-    template <tparquet::Type::type PhysicalType, bool has_filter>
+    template <bool has_filter>
     Status decode_byte_array(const std::vector<Slice>& decoded_vals, MutableColumnPtr& doris_column,
                              DataTypePtr& data_type, ColumnSelectVector& select_vector) {
-        if constexpr (PhysicalType == tparquet::Type::BYTE_ARRAY) {
-            ColumnSelectVector::DataReadType read_type;
-            while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
-                switch (read_type) {
-                case ColumnSelectVector::CONTENT: {
-                    std::vector<StringRef> string_values;
-                    string_values.reserve(run_length);
-                    for (size_t i = 0; i < run_length; ++i) {
-                        size_t length = decoded_vals[_current_value_idx].size;
-                        string_values.emplace_back(decoded_vals[_current_value_idx].data, length);
-                        _current_value_idx++;
-                    }
-                    doris_column->insert_many_strings(&string_values[0], run_length);
-                    break;
+        ColumnSelectVector::DataReadType read_type;
+        int value_idx = 0;
+        while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
+            switch (read_type) {
+            case ColumnSelectVector::CONTENT: {
+                std::vector<StringRef> string_values;
+                string_values.reserve(run_length);
+                for (size_t i = 0; i < run_length; ++i) {
+                    size_t length = decoded_vals[value_idx].size;
+                    string_values.emplace_back(decoded_vals[value_idx].data, length);
+                    value_idx++;
                 }
-                case ColumnSelectVector::NULL_DATA: {
-                    doris_column->insert_many_defaults(run_length);
-                    break;
-                }
-                case ColumnSelectVector::FILTERED_CONTENT: {
-                    _current_value_idx += run_length;
-                    break;
-                }
-                case ColumnSelectVector::FILTERED_NULL: {
-                    // do nothing
-                    break;
-                }
-                }
+                doris_column->insert_many_strings(&string_values[0], run_length);
+                break;
             }
-            _current_value_idx = 0;
+            case ColumnSelectVector::NULL_DATA: {
+                doris_column->insert_many_defaults(run_length);
+                break;
+            }
+            case ColumnSelectVector::FILTERED_CONTENT: {
+                value_idx += run_length;
+                break;
+            }
+            case ColumnSelectVector::FILTERED_NULL: {
+                // do nothing
+                break;
+            }
+            }
+        }
+        return Status::OK();
+    }
+
+    template <bool has_filter>
+    Status decode_fixed_byte_array(const std::vector<Slice>& decoded_vals,
+                                   MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                   ColumnSelectVector& select_vector) {
+        auto& column_data = reinterpret_cast<ColumnVector<Int8>&>(*doris_column).get_data();
+        size_t data_index = column_data.size();
+        column_data.resize(data_index + _type_length * (select_vector.num_values() -
+                                                        select_vector.num_filtered()));
+        auto* data = column_data.data();
+        ColumnSelectVector::DataReadType read_type;
+        int value_idx = 0;
+        while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
+            switch (read_type) {
+            case ColumnSelectVector::CONTENT: {
+                for (size_t i = 0; i < run_length; ++i) {
+                    memcpy(data + data_index, decoded_vals[value_idx].data, _type_length);
+                    data_index += _type_length;
+                    value_idx++;
+                }
+                break;
+            }
+            case ColumnSelectVector::NULL_DATA: {
+                data_index += run_length * _type_length;
+                break;
+            }
+            case ColumnSelectVector::FILTERED_CONTENT: {
+                value_idx += run_length;
+                break;
+            }
+            case ColumnSelectVector::FILTERED_NULL: {
+                // do nothing
+                break;
+            }
+            }
         }
         return Status::OK();
     }
@@ -95,7 +131,6 @@ protected:
     }
     // Convert decoded value to doris type value.
     std::unique_ptr<Decoder> _type_converted_decoder;
-    size_t _current_value_idx = 0;
 };
 
 /**
@@ -106,12 +141,12 @@ protected:
  *   Block
  *      [min delta] [list of bitwidths of the mini blocks] [miniblocks]
  */
-template <typename T, tparquet::Type::type PhysicalType>
+template <typename T>
 class DeltaBitPackDecoder final : public DeltaDecoder {
 public:
     using UT = std::make_unsigned_t<T>;
 
-    DeltaBitPackDecoder() : DeltaDecoder(new FixLengthPlainDecoder<PhysicalType>()) {}
+    DeltaBitPackDecoder() : DeltaDecoder(new FixLengthPlainDecoder()) {}
     ~DeltaBitPackDecoder() override = default;
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                          ColumnSelectVector& select_vector, bool is_dict_filter) override {
@@ -188,18 +223,16 @@ private:
     // _values_remaining_current_mini_block may greater than _total_values_remaining.
     uint32_t _values_remaining_current_mini_block;
 };
-//template class DeltaBitPackDecoder<int32_t>;
-//template class DeltaBitPackDecoder<int64_t>;
-template <tparquet::Type::type PhysicalType>
+
 class DeltaLengthByteArrayDecoder final : public DeltaDecoder {
 public:
     explicit DeltaLengthByteArrayDecoder()
             : DeltaDecoder(nullptr), _len_decoder(), _buffered_length(0), _buffered_data(0) {}
 
     Status skip_values(size_t num_values) override {
-        _current_value_idx += num_values;
-        RETURN_IF_ERROR(_len_decoder.skip_values(num_values));
-        return Status::OK();
+        _values.resize(num_values);
+        int num_valid_values;
+        return _get_internal(_values.data(), num_values, &num_valid_values);
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
@@ -225,8 +258,7 @@ public:
             return Status::IOError("Expected to decode {} values, but decoded {} values.",
                                    num_values - null_count, num_valid_values);
         }
-        return decode_byte_array<PhysicalType, has_filter>(_values, doris_column, data_type,
-                                                           select_vector);
+        return decode_byte_array<has_filter>(_values, doris_column, data_type, select_vector);
     }
 
     Status decode(Slice* buffer, int num_values, int* out_num_values) {
@@ -256,7 +288,7 @@ private:
 
     std::vector<Slice> _values;
     std::shared_ptr<BitReader> _bit_reader;
-    DeltaBitPackDecoder<int32_t, PhysicalType> _len_decoder;
+    DeltaBitPackDecoder<int32_t> _len_decoder;
 
     int _num_valid_values;
     uint32_t _length_idx;
@@ -264,17 +296,15 @@ private:
     std::vector<char> _buffered_data;
 };
 
-template <tparquet::Type::type PhysicalType>
 class DeltaByteArrayDecoder : public DeltaDecoder {
 public:
     explicit DeltaByteArrayDecoder()
             : DeltaDecoder(nullptr), _buffered_prefix_length(0), _buffered_data(0) {}
 
     Status skip_values(size_t num_values) override {
-        _current_value_idx += num_values;
-        RETURN_IF_ERROR(_prefix_len_decoder.skip_values(num_values));
-        RETURN_IF_ERROR(_suffix_decoder.skip_values(num_values));
-        return Status::OK();
+        _values.resize(num_values);
+        int num_valid_values;
+        return _get_internal(_values.data(), num_values, &num_valid_values);
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
@@ -295,8 +325,12 @@ public:
         int num_valid_values;
         RETURN_IF_ERROR(_get_internal(_values.data(), num_values - null_count, &num_valid_values));
         DCHECK_EQ(num_values - null_count, num_valid_values);
-        return decode_byte_array<PhysicalType, has_filter>(_values, doris_column, data_type,
-                                                           select_vector);
+        if (doris_column->is_column_string()) {
+            return decode_byte_array<has_filter>(_values, doris_column, data_type, select_vector);
+        } else {
+            return decode_fixed_byte_array<has_filter>(_values, doris_column, data_type,
+                                                       select_vector);
+        }
     }
 
     void set_data(Slice* slice) override {
@@ -334,8 +368,8 @@ private:
 
     std::vector<Slice> _values;
     std::shared_ptr<BitReader> _bit_reader;
-    DeltaBitPackDecoder<int32_t, PhysicalType> _prefix_len_decoder;
-    DeltaLengthByteArrayDecoder<PhysicalType> _suffix_decoder;
+    DeltaBitPackDecoder<int32_t> _prefix_len_decoder;
+    DeltaLengthByteArrayDecoder _suffix_decoder;
     std::string _last_value;
     // string buffer for last value in previous page
     std::string _last_value_in_previous_page;
@@ -348,8 +382,8 @@ private:
 
 namespace doris::vectorized {
 
-template <typename T, tparquet::Type::type PhysicalType>
-Status DeltaBitPackDecoder<T, PhysicalType>::_init_header() {
+template <typename T>
+Status DeltaBitPackDecoder<T>::_init_header() {
     if (!_bit_reader->GetVlqInt(&_values_per_block) ||
         !_bit_reader->GetVlqInt(&_mini_blocks_per_block) ||
         !_bit_reader->GetVlqInt(&_total_value_count) ||
@@ -384,8 +418,8 @@ Status DeltaBitPackDecoder<T, PhysicalType>::_init_header() {
     return Status::OK();
 }
 
-template <typename T, tparquet::Type::type PhysicalType>
-Status DeltaBitPackDecoder<T, PhysicalType>::_init_block() {
+template <typename T>
+Status DeltaBitPackDecoder<T>::_init_block() {
     DCHECK_GT(_total_values_remaining, 0) << "InitBlock called at EOF";
     if (!_bit_reader->GetZigZagVlqInt(&_min_delta)) {
         return Status::IOError("Init block eof");
@@ -407,8 +441,8 @@ Status DeltaBitPackDecoder<T, PhysicalType>::_init_block() {
     return Status::OK();
 }
 
-template <typename T, tparquet::Type::type PhysicalType>
-Status DeltaBitPackDecoder<T, PhysicalType>::_init_mini_block(int bit_width) {
+template <typename T>
+Status DeltaBitPackDecoder<T>::_init_mini_block(int bit_width) {
     if (PREDICT_FALSE(bit_width > kMaxDeltaBitWidth)) {
         return Status::InvalidArgument("delta bit width larger than integer bit width");
     }
@@ -417,9 +451,8 @@ Status DeltaBitPackDecoder<T, PhysicalType>::_init_mini_block(int bit_width) {
     return Status::OK();
 }
 
-template <typename T, tparquet::Type::type PhysicalType>
-Status DeltaBitPackDecoder<T, PhysicalType>::_get_internal(T* buffer, int num_values,
-                                                           int* out_num_values) {
+template <typename T>
+Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, int num_values, int* out_num_values) {
     num_values = static_cast<int>(std::min<int64_t>(num_values, _total_values_remaining));
     if (num_values == 0) {
         *out_num_values = 0;
@@ -483,8 +516,8 @@ Status DeltaBitPackDecoder<T, PhysicalType>::_get_internal(T* buffer, int num_va
     *out_num_values = num_values;
     return Status::OK();
 }
-template <tparquet::Type::type PhysicalType>
-void DeltaLengthByteArrayDecoder<PhysicalType>::_decode_lengths() {
+
+void DeltaLengthByteArrayDecoder::_decode_lengths() {
     _len_decoder.set_bit_reader(_bit_reader);
     // get the number of encoded lengths
     int num_length = _len_decoder.valid_values_count();
@@ -500,9 +533,9 @@ void DeltaLengthByteArrayDecoder<PhysicalType>::_decode_lengths() {
     _length_idx = 0;
     _num_valid_values = num_length;
 }
-template <tparquet::Type::type PhysicalType>
-Status DeltaLengthByteArrayDecoder<PhysicalType>::_get_internal(Slice* buffer, int max_values,
-                                                                int* out_num_values) {
+
+Status DeltaLengthByteArrayDecoder::_get_internal(Slice* buffer, int max_values,
+                                                  int* out_num_values) {
     // Decode up to `max_values` strings into an internal buffer
     // and reference them into `buffer`.
     max_values = std::min(max_values, _num_valid_values);
@@ -543,9 +576,7 @@ Status DeltaLengthByteArrayDecoder<PhysicalType>::_get_internal(Slice* buffer, i
     return Status::OK();
 }
 
-template <tparquet::Type::type PhysicalType>
-Status DeltaByteArrayDecoder<PhysicalType>::_get_internal(Slice* buffer, int max_values,
-                                                          int* out_num_values) {
+Status DeltaByteArrayDecoder::_get_internal(Slice* buffer, int max_values, int* out_num_values) {
     // Decode up to `max_values` strings into an internal buffer
     // and reference them into `buffer`.
     max_values = std::min(max_values, _num_valid_values);

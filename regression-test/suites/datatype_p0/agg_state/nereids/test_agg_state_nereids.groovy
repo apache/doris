@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_agg_state_nereids") {
-    sql "set global enable_agg_state=true"
+    sql "set enable_agg_state=true"
     sql "set enable_nereids_planner=true;"
     sql "set enable_fallback_to_original_planner=false;"
 
@@ -54,6 +54,8 @@ suite("test_agg_state_nereids") {
             distributed BY hash(k1) buckets 3
             properties("replication_num" = "1");
         """
+
+    qt_desc "desc a_table;"
 
     sql "explain insert into a_table select 1,max_by_state(1,3);"
 

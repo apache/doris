@@ -23,9 +23,9 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /** used to generate pattern for LogicalUnary. */
-public class LogicalUnaryPatternGenerator extends PatternGenerator {
+public class LogicalUnaryPatternGenerator extends PlanPatternGenerator {
 
-    public LogicalUnaryPatternGenerator(PatternGeneratorAnalyzer analyzer,
+    public LogicalUnaryPatternGenerator(PlanPatternGeneratorAnalyzer analyzer,
             ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
         super(analyzer, opType, parentClass, isMemoPattern);
     }

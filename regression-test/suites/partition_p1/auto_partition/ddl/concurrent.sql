@@ -10,7 +10,7 @@ CREATE TABLE `concurrent`(
   `col9` decimal(9, 3),
   `col10` char(128)
 ) duplicate KEY(`col1`)
-AUTO PARTITION BY range date_trunc(`col1`, 'day')
+auto partition by range (date_trunc(`col1`, 'day'))
 (
 )
 DISTRIBUTED BY HASH(`col1`) BUCKETS 10

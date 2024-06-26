@@ -72,11 +72,8 @@ public:
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start,
-                               int end) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_column_to_arrow with type " + column.get_name());
-    }
+                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               const cctz::time_zone& ctz) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -84,9 +81,7 @@ public:
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return Status::NotSupported("write_column_to_mysql with type " + column.get_name());
-    }
+                                 int row_idx, bool col_const) const override;
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
@@ -97,6 +92,11 @@ public:
                                std::vector<StringRef>& buffer_list) const override {
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());
     }
+
+private:
+    template <bool is_binary_format>
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
 };
 } // namespace vectorized
 } // namespace doris

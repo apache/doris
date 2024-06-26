@@ -18,9 +18,9 @@
 package org.apache.doris.datasource.hive;
 
 public class HivePartitionWithStatistics {
-    private String name;
-    private HivePartition partition;
-    private HivePartitionStatistics statistics;
+    private final String name;
+    private final HivePartition partition;
+    private final HivePartitionStatistics statistics;
 
     public HivePartitionWithStatistics(String name, HivePartition partition, HivePartitionStatistics statistics) {
         this.name = name;

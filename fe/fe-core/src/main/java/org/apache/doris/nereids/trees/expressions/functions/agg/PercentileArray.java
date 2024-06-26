@@ -26,6 +26,10 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -40,8 +44,15 @@ public class PercentileArray extends AggregateFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
-                    .args(BigIntType.INSTANCE, ArrayType.of(DoubleType.INSTANCE))
-    );
+                    .args(LargeIntType.INSTANCE, ArrayType.of(DoubleType.INSTANCE)),
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
+                    .args(BigIntType.INSTANCE, ArrayType.of(DoubleType.INSTANCE)),
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
+                    .args(IntegerType.INSTANCE, ArrayType.of(DoubleType.INSTANCE)),
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
+                    .args(SmallIntType.INSTANCE, ArrayType.of(DoubleType.INSTANCE)),
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
+                    .args(TinyIntType.INSTANCE, ArrayType.of(DoubleType.INSTANCE)));
 
     /**
      * constructor with 2 arguments.

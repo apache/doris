@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -41,7 +40,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Eliminate Predicate `is not null`, like
@@ -85,29 +83,34 @@ public class EliminateNotNull implements RewriteRuleFactory {
         // remove `name` (it's generated), remove `id` (because `id > 0` already contains it)
         Set<Expression> predicatesNotContainIsNotNull = Sets.newHashSet();
         List<Slot> slotsFromIsNotNull = Lists.newArrayList();
-        exprs.stream()
-                .filter(expr -> !(expr instanceof Not)
-                        || !((Not) expr).isGeneratedIsNotNull()) // remove generated `is not null`
-                .forEach(expr -> {
-                    Optional<Slot> notNullSlot = TypeUtils.isNotNull(expr);
-                    if (notNullSlot.isPresent()) {
-                        slotsFromIsNotNull.add(notNullSlot.get());
-                    } else {
-                        predicatesNotContainIsNotNull.add(expr);
-                    }
-                });
+
+        for (Expression expr : exprs) {
+            // remove generated `is not null`
+            if (!(expr instanceof Not) || !((Not) expr).isGeneratedIsNotNull()) {
+                Optional<Slot> notNullSlot = TypeUtils.isNotNull(expr);
+                if (notNullSlot.isPresent()) {
+                    slotsFromIsNotNull.add(notNullSlot.get());
+                } else {
+                    predicatesNotContainIsNotNull.add(expr);
+                }
+            }
+        }
+
         Set<Slot> inferNonNotSlots = ExpressionUtils.inferNotNullSlots(
                 predicatesNotContainIsNotNull, ctx);
 
-        Set<Expression> keepIsNotNull = slotsFromIsNotNull.stream()
-                .filter(ExpressionTrait::nullable)
-                .filter(slot -> !inferNonNotSlots.contains(slot))
-                .map(slot -> new Not(new IsNull(slot))).collect(Collectors.toSet());
+        ImmutableSet.Builder<Expression> keepIsNotNull
+                = ImmutableSet.builderWithExpectedSize(slotsFromIsNotNull.size());
+        for (Slot slot : slotsFromIsNotNull) {
+            if (slot.nullable() && !inferNonNotSlots.contains(slot)) {
+                keepIsNotNull.add(new Not(new IsNull(slot)));
+            }
+        }
 
         // merge predicatesNotContainIsNotNull and keepIsNotNull into a new List
         return ImmutableList.<Expression>builder()
                 .addAll(predicatesNotContainIsNotNull)
-                .addAll(keepIsNotNull)
+                .addAll(keepIsNotNull.build())
                 .build();
     }
 }

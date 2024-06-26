@@ -36,7 +36,7 @@ false
 false
 
 -- !desc_s3 --
-__binary_predicate_0	BOOLEAN	Yes	false	\N	NONE
+__greater_than_0	BOOLEAN	Yes	false	\N	NONE
 
 -- !select_base1 --
 10
@@ -72,7 +72,7 @@ __max_0	INT	Yes	false	\N	NONE
 9	id not exist
 
 -- !desc_s3 --
-__case_expr_1	TEXT	Yes	false	\N	NONE
+__case_when_1	TEXT	Yes	false	\N	NONE
 id	INT	Yes	false	\N	NONE
 
 -- !select_base1 --
@@ -100,10 +100,10 @@ id	INT	Yes	false	\N	NONE
 9	1	string	27	false	5	true	1
 
 -- !desc_s3 --
-__arithmetic_expr_5	INT	Yes	false	\N	NONE
-__arithmetic_expr_7	BIGINT	Yes	false	\N	NONE
-__binary_predicate_4	BOOLEAN	Yes	false	\N	NONE
-__cast_expr_3	BIGINT	Yes	false	\N	NONE
+__add_5	INT	Yes	false	\N	NONE
+__bit_or_7	INT	Yes	false	\N	NONE
+__cast_3	BIGINT	Yes	false	\N	NONE
+__greater_than_4	BOOLEAN	Yes	false	\N	NONE
 __in_predicate_6	BOOLEAN	Yes	false	\N	NONE
 __literal_1	INT	Yes	false	\N	NONE
 __literal_2	TEXT	Yes	false	\N	NONE
@@ -134,9 +134,9 @@ id	INT	Yes	false	\N	NONE
 2566	888	9999
 
 -- !desc_s3 --
-__cast_expr_0	TEXT	Yes	false	\N	NONE
-__cast_expr_1	BIGINT	Yes	false	\N	NONE
-__cast_expr_2	TEXT	Yes	false	\N	NONE
+__cast_0	TEXT	Yes	false	\N	NONE
+__cast_1	BIGINT	Yes	false	\N	NONE
+__cast_2	TEXT	Yes	false	\N	NONE
 
 -- !select_base1 --
 false
@@ -163,7 +163,7 @@ false
 false
 
 -- !desc_s3 --
-__binary_predicate_0	BOOLEAN	Yes	false	\N	NONE
+__greater_than_0	BOOLEAN	Yes	false	\N	NONE
 
 -- !select_base1 --
 10
@@ -199,7 +199,7 @@ __max_0	INT	Yes	false	\N	NONE
 9	id not exist
 
 -- !desc_s3 --
-__case_expr_1	TEXT	Yes	false	\N	NONE
+__case_when_1	TEXT	Yes	false	\N	NONE
 id	INT	Yes	false	\N	NONE
 
 -- !select_base1 --
@@ -227,13 +227,13 @@ id	INT	Yes	false	\N	NONE
 9	1	string	27	false	5	true	1
 
 -- !desc_s3 --
-__arithmetic_expr_5	SMALLINT	Yes	false	\N	NONE
-__arithmetic_expr_7	BIGINT	Yes	false	\N	NONE
-__binary_predicate_4	BOOLEAN	Yes	false	\N	NONE
-__cast_expr_3	BIGINT	Yes	false	\N	NONE
+__add_5	SMALLINT	Yes	false	\N	NONE
+__bit_or_7	TINYINT	Yes	false	\N	NONE
+__cast_3	BIGINT	Yes	false	\N	NONE
+__greater_than_4	BOOLEAN	Yes	false	\N	NONE
 __in_predicate_6	BOOLEAN	Yes	false	\N	NONE
 __literal_1	TINYINT	Yes	false	\N	NONE
-__literal_2	TEXT	Yes	false	\N	NONE
+__literal_2	VARCHAR(6)	Yes	false	\N	NONE
 id	INT	Yes	false	\N	NONE
 
 -- !select_base1 --
@@ -261,7 +261,7 @@ id	INT	Yes	false	\N	NONE
 2566	888	9999
 
 -- !desc_s3 --
-__cast_expr_0	TEXT	Yes	false	\N	NONE
-__cast_expr_1	BIGINT	Yes	false	\N	NONE
-__cast_expr_2	TEXT	Yes	false	\N	NONE
+__cast_0	TEXT	Yes	false	\N	NONE
+__cast_1	BIGINT	Yes	false	\N	NONE
+__cast_2	TEXT	Yes	false	\N	NONE
 

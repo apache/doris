@@ -28,7 +28,7 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
     }
 
     @Override
-    protected IcebergExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected IcebergExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
         return new IcebergExternalTable(tblId, tableName, name, (IcebergExternalCatalog) extCatalog);
     }
 }

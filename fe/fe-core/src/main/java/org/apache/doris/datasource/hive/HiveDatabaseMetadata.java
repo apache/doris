@@ -21,6 +21,7 @@ import org.apache.doris.datasource.DatabaseMetadata;
 
 import lombok.Data;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @Data
@@ -29,4 +30,12 @@ public class HiveDatabaseMetadata implements DatabaseMetadata {
     private String locationUri;
     private Map<String, String> properties;
     private String comment;
+
+    public Map<String, String> getProperties() {
+        return properties == null ? new HashMap<>() : properties;
+    }
+
+    public String getComment() {
+        return comment == null ? "" : comment;
+    }
 }

@@ -17,109 +17,65 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
-import org.apache.doris.planner.DataSink;
-import org.apache.doris.planner.HiveTableSink;
-import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.thrift.THivePartitionUpdate;
-import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionType;
 
-import com.google.common.base.Strings;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Optional;
 
 /**
- * Insert executor for olap table
+ * Insert executor for hive table
  */
-public class HiveInsertExecutor extends AbstractInsertExecutor {
+public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(HiveInsertExecutor.class);
-    private static final long INVALID_TXN_ID = -1L;
-    private long txnId = INVALID_TXN_ID;
-    private TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
     /**
      * constructor
      */
     public HiveInsertExecutor(ConnectContext ctx, HMSExternalTable table,
                               String labelName, NereidsPlanner planner,
-                              Optional<InsertCommandContext> insertCtx) {
-        super(ctx, table, labelName, planner, insertCtx);
-    }
-
-    public long getTxnId() {
-        return txnId;
+                              Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
     }
 
     @Override
-    public void beginTransaction() {
-        // TODO: use hive txn rather than internal txn
-    }
-
-    @Override
-    protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
-        HiveTableSink hiveTableSink = (HiveTableSink) sink;
-        PhysicalHiveTableSink<? extends Plan> physicalHiveSink = (PhysicalHiveTableSink<? extends Plan>) physicalSink;
-        try {
-            hiveTableSink.bindDataSink(physicalHiveSink.getCols(), insertCtx);
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
+    public void setCollectCommitInfoFunc() {
+        HMSTransaction transaction = (HMSTransaction) transactionManager.getTransaction(txnId);
+        coordinator.setHivePartitionUpdateFunc(transaction::updateHivePartitionUpdates);
     }
 
     @Override
     protected void beforeExec() {
         // check params
+        HMSTransaction transaction = (HMSTransaction) transactionManager.getTransaction(txnId);
+        Preconditions.checkArgument(insertCtx.isPresent(), "insert context must be present");
+        HiveInsertCommandContext ctx = (HiveInsertCommandContext) insertCtx.get();
+        TUniqueId tUniqueId = ConnectContext.get().queryId();
+        Preconditions.checkArgument(tUniqueId != null, "query id shouldn't be null");
+        ctx.setQueryId(DebugUtil.printId(tUniqueId));
+        transaction.beginInsertTable(ctx);
     }
 
     @Override
-    protected void onComplete() throws UserException {
-        if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
-            LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier());
-        } else {
-            // TODO use transaction
-            List<THivePartitionUpdate> ups = coordinator.getHivePartitionUpdates();
-            ExternalCatalog catalog = ((HMSExternalTable) table).getCatalog();
-            ExternalMetadataOps metadataOps = catalog.getMetadataOps();
-            ((HiveMetadataOps) metadataOps).commit(((HMSExternalTable) table).getDbName(), table.getName(), ups);
-            txnStatus = TransactionStatus.COMMITTED;
-        }
+    protected void doBeforeCommit() throws UserException {
+        HMSTransaction transaction = (HMSTransaction) transactionManager.getTransaction(txnId);
+        loadedRows = transaction.getUpdateCnt();
+        String dbName = ((HMSExternalTable) table).getDbName();
+        String tbName = table.getName();
+        transaction.finishInsertTable(dbName, tbName);
     }
 
     @Override
-    protected void onFail(Throwable t) {
-        errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
-        String queryId = DebugUtil.printId(ctx.queryId());
-        // if any throwable being thrown during insert operation, first we should abort this txn
-        LOG.warn("insert [{}] with query id {} failed", labelName, queryId, t);
-        if (txnId != INVALID_TXN_ID) {
-            LOG.warn("insert [{}] with query id {} abort txn {} failed", labelName, queryId, txnId);
-            StringBuilder sb = new StringBuilder(t.getMessage());
-            if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
-                sb.append(". url: ").append(coordinator.getTrackingUrl());
-            }
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
-        }
-    }
-
-    @Override
-    protected void afterExec(StmtExecutor executor) {
-        // TODO: set THivePartitionUpdate
+    protected TransactionType transactionType() {
+        return TransactionType.HMS;
     }
 }

@@ -223,4 +223,9 @@ public class Subquery extends Expr {
 
     @Override
     protected void toThrift(TExprNode msg) {}
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
+    }
 }

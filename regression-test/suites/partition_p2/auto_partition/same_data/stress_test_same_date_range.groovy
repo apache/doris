@@ -41,7 +41,7 @@ suite("stress_test_same_date_range", "p2,nonConcurrent") {
     def data_count = 1
     def cur_rows = 100000
 
-    // 用doris-dbgen生成数据文件
+    // use doris-dbgen product data file
     def doris_dbgen_create_data = { db_name, tb_name, part_type ->
         def rows = cur_rows  // total rows to load
         def bulkSize = rows
@@ -81,58 +81,36 @@ suite("stress_test_same_date_range", "p2,nonConcurrent") {
         }
     }
 
-    def write_to_file = { cur_path, content ->
-        File file = new File(cur_path)
-        file.write(content)
-    }
-
-    def cm1
-    def cm2
-    def doris_dbgen_load_data = { db_name, tb_name, part_type ->
-        def tableName = tb_name
-
-        def jdbcUrl = context.config.jdbcUrl
-        def urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
-        def sql_port_res = sql """show backends;"""
-        println(sql_port_res)
-        if (sql_port_res.size < 2) {
-            assert(false)
+    def load_result
+    def doris_dbgen_stream_load_data = { db_name, tb_name, part_type, i ->
+        def list = []
+        def dir = new File("""${context.file.parent}""" + "/" + part_type + "_" + i)
+        dir.eachFileRecurse (FileType.FILES) { file ->
+            list << file
         }
-        def be_http_1 = sql_port_res[0][1]
-        def be_http_2 = sql_port_res[1][1]
-        def be_port_1 = sql_port_res[0][4]
-        def be_port_2 = sql_port_res[1][4]
+        logger.info(list[0].toString())
 
-        String realDb = db_name
-        String user = context.config.jdbcUser
-        String password = context.config.jdbcPassword
+        streamLoad {
+            db "${db_name}"
+            table "${tb_name}"
 
-        for (int i = 1; i <= data_count; i++) {
-            def list = []
-            def dir = new File("""${context.file.parent}""" + "/" + part_type + "_" + i)
-            dir.eachFileRecurse (FileType.FILES) { file ->
-                list << file
+            set 'column_separator', '|'
+
+            file """${list[0].toString()}"""
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                if (json.Status.toLowerCase() != "success" || 0 != json.NumberFilteredRows) {
+                    load_result = result
+                }
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(0, json.NumberFilteredRows)
             }
-
-            if (password) {
-                cm1 = """curl --location-trusted -u ${user}:${password} -H "column_separator:|" -T ${list[0]} http://${be_http_1}:${be_port_1}/api/${realDb}/${tableName}/_stream_load"""
-                cm2 = """curl --location-trusted -u ${user}:${password} -H "column_separator:|" -T ${list[0]} http://${be_http_2}:${be_port_2}/api/${realDb}/${tableName}/_stream_load"""
-            } else {
-                cm1 = """curl --location-trusted -u root: -H "column_separator:|" -T ${list[0]} http://${be_http_1}:${be_port_1}/api/${realDb}/${tableName}/_stream_load"""
-                cm2 = """curl --location-trusted -u root: -H "column_separator:|" -T ${list[0]} http://${be_http_2}:${be_port_2}/api/${realDb}/${tableName}/_stream_load"""
-            }
-            logger.info("command is: " + cm1)
-            logger.info("command is: " + cm2)
-
-            def load_path_1 = """${context.file.parent}/thread_load_1.sh"""
-            write_to_file(load_path_1, cm1)
-            cm1 = "bash " + load_path_1
-
-            def load_path_2 = """${context.file.parent}/thread_load_2.sh"""
-            write_to_file(load_path_2, cm2)
-            cm2 = "bash " + load_path_2
-
         }
     }
 
@@ -165,26 +143,22 @@ suite("stress_test_same_date_range", "p2,nonConcurrent") {
 
     data_delete("range")
     doris_dbgen_create_data(database_name, tb_name1, "range")
-    doris_dbgen_load_data(database_name, tb_name2, "range")
 
     def thread1 = Thread.start {
-        logger.info("load1 start")
-        def proc = cm1.execute()
-        def sout = new StringBuilder(), serr = new StringBuilder()
-        proc.consumeProcessOutput(sout, serr)
-        proc.waitForOrKill(7200000)
-        logger.info("std out: " + sout + "std err: " + serr)
+        doris_dbgen_stream_load_data(database_name, tb_name2, "range", 1)
     }
     def thread2 = Thread.start {
-        logger.info("load2 start")
-        def proc = cm2.execute()
-        def sout = new StringBuilder(), serr = new StringBuilder()
-        proc.consumeProcessOutput(sout, serr)
-        proc.waitForOrKill(7200000)
-        logger.info("std out: " + sout + "std err: " + serr)
+        doris_dbgen_stream_load_data(database_name, tb_name2, "range", 1)
     }
     thread1.join()
     thread2.join()
+
+    if (load_result != null) {
+        def json = parseJson(load_result)
+        log.info("Stream load failed. ${load_result}".toString())
+        assertEquals("success", json.Status.toLowerCase())
+        assertEquals(0, json.NumberFilteredRows)
+    }
 
     def row_count_range = sql """select count(*) from ${tb_name2};"""
     def partition_res_range = sql """show partitions from ${tb_name2};"""

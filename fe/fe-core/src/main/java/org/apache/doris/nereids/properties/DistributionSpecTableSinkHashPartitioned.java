@@ -26,9 +26,6 @@ import java.util.List;
  */
 public class DistributionSpecTableSinkHashPartitioned extends DistributionSpec {
 
-    public static final DistributionSpecTableSinkHashPartitioned INSTANCE =
-            new DistributionSpecTableSinkHashPartitioned();
-
     private List<ExprId> outputColExprIds;
 
     public DistributionSpecTableSinkHashPartitioned() {

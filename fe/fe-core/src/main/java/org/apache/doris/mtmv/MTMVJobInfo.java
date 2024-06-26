@@ -56,8 +56,8 @@ public class MTMVJobInfo {
         return historyTasks;
     }
 
-    @Override
-    public String toString() {
+    // toString() is not easy to find where to call the method
+    public String toInfoString() {
         return "MTMVJobInfo{"
                 + "jobName='" + jobName + '\''
                 + ", historyTasks=" + historyTasks

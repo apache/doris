@@ -17,15 +17,17 @@
 
 suite("eliminate_gby_key") {
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+	sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    sql 'set be_number_for_test=3'
 
-    sql """DROP TABLE IF EXISTS t1;"""
+	sql """DROP TABLE IF EXISTS t1;"""
     sql """DROP TABLE IF EXISTS t2;"""
 
     sql """
     CREATE TABLE `t1` (
-      `c1` int(20) DEFAULT NULL,
-      `c2` int(20) DEFAULT NULL,
-      `c3` int(20) DEFAULT NULL
+      `c1` int(20) NOT NULL,
+      `c2` int(20) NOT NULL,
+      `c3` int(20) NOT NULL
     )
     DUPLICATE KEY (`c1`)
     DISTRIBUTED BY HASH(`c1`) BUCKETS 3 PROPERTIES("replication_num"="1");
@@ -33,9 +35,9 @@ suite("eliminate_gby_key") {
 
     sql """
     CREATE TABLE `t2` (
-      `c1` int(20)      DEFAULT NULL,
-      `c2` varchar(20)  DEFAULT NULL,
-      `c3` int(20)      DEFAULT NULL
+      `c1` int(20)      NOT NULL,
+      `c2` varchar(20)  NOT NULL,
+      `c3` int(20)      NOT NULL
     )
     DUPLICATE KEY (`c1`)
     DISTRIBUTED BY HASH(`c1`) BUCKETS 3 PROPERTIES("replication_num"="1");
@@ -45,8 +47,9 @@ suite("eliminate_gby_key") {
     alter table t2 add constraint t2_c1_pk primary key (c1);
     """
 
-    qt_1 """
-        explain physical plan
+    explain {
+    	sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1               t2_c1,
@@ -60,10 +63,13 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select t2_c1
         from   temp; 
-    """
+    	""")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18]")
+    }
 
-    qt_2 """
-        explain physical plan
+    explain {
+    	sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1               t2_c1,
@@ -77,10 +83,13 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select t2_c2
         from   temp;
-    """
+    	""")
+	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+    }
 
-    qt_3 """
-        explain physical plan
+    explain {
+        sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1                t2_c1,
@@ -94,10 +103,13 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select c3
         from   temp; 
-    """
+    	""")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18]")
+    }
 
-    qt_4 """
-        explain physical plan
+    explain {
+    	sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1                t2_c1,
@@ -111,10 +123,13 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select cnt
         from   temp; 
-    """
+    	""")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
+    }
 
-    qt_5 """
-        explain physical plan
+    explain {
+    	sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1                t2_c1,
@@ -128,10 +143,13 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select t2_c2, t2_c1
         from   temp; 
-    """
+    	""")
+	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+    }
 
-    qt_6 """
-        explain physical plan
+    explain {
+    	sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1                t2_c1,
@@ -145,10 +163,13 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select c3, t2_c1
         from   temp; 
-    """
+    	""")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18]")
+    }
 
-    qt_7 """
-        explain physical plan
+    explain {
+    	sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1                t2_c1,
@@ -162,10 +183,13 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select c3, t2_c2
         from   temp; 
-    """
+    	""")
+	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+    }	
 
-    qt_8 """
-        explain physical plan
+    explain {
+    	sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1                t2_c1,
@@ -179,10 +203,13 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select t2_c1, cnt
         from   temp; 
-    """
+    	""")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
+    }
 
-    qt_9 """
-        explain physical plan
+    explain {
+    	sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1                t2_c1,
@@ -196,10 +223,13 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select c3, cnt
         from   temp; 
-    """
+    	""")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
+    }
 
-    qt_10 """
-        explain physical plan
+    explain {
+    	sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1                t2_c1,
@@ -213,10 +243,13 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select t2_c1, c3, cnt
         from   temp; 
-    """
+    	""")
+	contains("groupByExpr=[c1#13, c3#18], outputExpr=[c1#13, c3#18")
+    }
 
-    qt_11 """
-        explain physical plan
+    explain {
+    	sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1                t2_c1,
@@ -230,10 +263,13 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select t2_c2, c3, t2_c1
         from   temp; 
-    """
+    	""")
+	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18]")
+    }
 
-    qt_12 """
-        explain physical plan
+    explain {
+    	sql("""
+        physical plan
         with temp
              as (select substr(t2.c2, 1, 3) t2_c2,
                         t2.c1                t2_c1,
@@ -247,5 +283,7 @@ suite("eliminate_gby_key") {
                            t1.c3)
         select t2_c2, c3, t2_c1, cnt
         from   temp; 
-    """
+    	""")
+	contains("groupByExpr=[t2_c2#19, c1#13, c3#18], outputExpr=[t2_c2#19, c1#13, c3#18,")
+    }
 }

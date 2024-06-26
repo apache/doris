@@ -17,7 +17,10 @@
 
 #pragma once
 
+// clang-format off
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
+#include "CLucene/search/PhraseQuery.h"
+// clang-format on
 
 CL_NS_USE(index)
 CL_NS_USE(search)
@@ -30,6 +33,7 @@ public:
                 const TQueryOptions& query_options);
     ~PhraseQuery() override;
 
+    void add(const InvertedIndexQueryInfo& query_info) override;
     void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
     void search(roaring::Roaring& roaring) override;
 
@@ -54,6 +58,9 @@ private:
     bool advance_position(PostingsAndPosition& posting, int32_t target);
     void reset();
 
+public:
+    static Status parser_slop(std::string& query, InvertedIndexQueryInfo& query_info);
+
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
 
@@ -65,6 +72,9 @@ private:
 
     std::vector<Term*> _terms;
     std::vector<TermDocs*> _term_docs;
+
+    std::unique_ptr<CL_NS(search)::PhraseQuery> _query;
+    int32_t _slop = 0;
 };
 
 } // namespace doris::segment_v2

@@ -1283,9 +1283,9 @@ public class TempPartitionTest {
         // 2. Read objects from file
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
-        OlapTable readTbl = (OlapTable) Table.read(in);
+        OlapTable readTbl = OlapTable.read(in);
         Assert.assertEquals(tbl.getId(), readTbl.getId());
-        Assert.assertEquals(tbl.getTempPartitions().size(), readTbl.getTempPartitions().size());
+        Assert.assertEquals(tbl.getAllTempPartitions().size(), readTbl.getAllTempPartitions().size());
         file.delete();
     }
 

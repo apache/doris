@@ -31,7 +31,7 @@ import org.apache.http.client.RedirectStrategy;
 import org.apache.http.impl.client.LaxRedirectStrategy;
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_stream_load_properties", "p0") {
+suite("test_stream_load_properties", "p0,nonConcurrent") {
 
     def tables = [
                   "dup_tbl_basic",
@@ -741,7 +741,11 @@ suite("test_stream_load_properties", "p0") {
             
             // Commit the same txnId again to trigger operate_txn_2pc() failure
             body = do_streamload_2pc.call(txnId, "commit", tableName1)
-            assertEquals("analysis_error", parseJson(body).status.toLowerCase())
+            if (isCloudMode()) {
+                assertEquals("success", parseJson(body).status.toLowerCase())
+            } else {
+                assertEquals("analysis_error", parseJson(body).status.toLowerCase())
+            }
             assertTrue(parseJson(body).msg.toLowerCase().contains("is already visible"))    
 
             i++

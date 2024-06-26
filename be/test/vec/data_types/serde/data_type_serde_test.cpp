@@ -107,7 +107,7 @@ inline void serialize_and_deserialize_pb_test() {
                               decimal_column.get())
                              ->get_data();
         for (int i = 0; i < 1024; ++i) {
-            __int128_t value = i * pow(10, 9) + i * pow(10, 8);
+            __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
         }
         check_pb_col(decimal_data_type, *decimal_column.get());

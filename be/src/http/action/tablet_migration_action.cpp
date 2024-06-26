@@ -224,6 +224,7 @@ Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
     int32_t schema_hash = tablet->schema_hash();
     string dest_disk = dest_store->path();
     EngineStorageMigrationTask engine_task(_engine, tablet, dest_store);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     Status res = engine_task.execute();
     if (!res.ok()) {
         LOG(WARNING) << "tablet migrate failed. tablet_id=" << tablet_id

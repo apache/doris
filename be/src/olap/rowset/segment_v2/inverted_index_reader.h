@@ -33,6 +33,7 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/tablet_schema.h"
+#include "runtime/primitive_type.h"
 #include "util/once.h"
 
 #define FINALIZE_INPUT(x) \
@@ -71,6 +72,7 @@ namespace segment_v2 {
 class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 class InvertedIndexFileReader;
+struct InvertedIndexQueryInfo;
 
 class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
@@ -97,7 +99,7 @@ public:
 
     virtual InvertedIndexReaderType type() = 0;
 
-    [[nodiscard]] uint32_t get_index_id() const { return _index_meta.index_id(); }
+    [[nodiscard]] uint64_t get_index_id() const { return _index_meta.index_id(); }
 
     [[nodiscard]] const std::map<string, string>& get_index_properties() const {
         return _index_meta.properties();
@@ -139,6 +141,8 @@ public:
                                         MemTracker* mem_tracker,
                                         InvertedIndexReaderType reader_type);
 
+    Status check_file_exist(const std::string& index_file_key);
+
 protected:
     friend class InvertedIndexIterator;
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
@@ -171,10 +175,15 @@ public:
 
     InvertedIndexReaderType type() override;
 
+    static void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
+                                         const std::map<string, string>& properties);
+    static void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
+                                             const std::map<string, string>& properties);
+
 private:
     Status match_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
-                              InvertedIndexQueryType query_type, const std::wstring& field_ws,
-                              const std::vector<std::string>& analyse_result,
+                              InvertedIndexQueryType query_type,
+                              const InvertedIndexQueryInfo& query_info,
                               const FulltextIndexSearcherPtr& index_searcher,
                               const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 };
@@ -274,6 +283,79 @@ public:
 private:
     const TypeInfo* _type_info {};
     const KeyCoder* _value_key_coder {};
+};
+
+/**
+ * @brief InvertedIndexQueryParamFactory is a factory class to create QueryValue object.
+ * we need a template function to make predict class like in_list_predict template class to use.
+ * also need a function with primitive type parameter to create inverted index query value. like some function expr: function_array_index
+ * Now we just mapping field value in query engine to storage field value
+ */
+class InvertedIndexQueryParamFactory {
+    ENABLE_FACTORY_CREATOR(InvertedIndexQueryParamFactory);
+
+public:
+    virtual ~InvertedIndexQueryParamFactory() = default;
+
+    template <PrimitiveType PT>
+    static Status create_query_value(const void* value,
+                                     std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+
+    static Status create_query_value(
+            const PrimitiveType& primitiveType, const void* value,
+            std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
+        switch (primitiveType) {
+#define M(TYPE)                                               \
+    case TYPE: {                                              \
+        return create_query_value<TYPE>(value, result_param); \
+    }
+            M(PrimitiveType::TYPE_BOOLEAN)
+            M(PrimitiveType::TYPE_TINYINT)
+            M(PrimitiveType::TYPE_SMALLINT)
+            M(PrimitiveType::TYPE_INT)
+            M(PrimitiveType::TYPE_BIGINT)
+            M(PrimitiveType::TYPE_LARGEINT)
+            M(PrimitiveType::TYPE_FLOAT)
+            M(PrimitiveType::TYPE_DOUBLE)
+            M(PrimitiveType::TYPE_DECIMALV2)
+            M(PrimitiveType::TYPE_DECIMAL32)
+            M(PrimitiveType::TYPE_DECIMAL64)
+            M(PrimitiveType::TYPE_DECIMAL128I)
+            M(PrimitiveType::TYPE_DECIMAL256)
+            M(PrimitiveType::TYPE_DATE)
+            M(PrimitiveType::TYPE_DATETIME)
+            M(PrimitiveType::TYPE_CHAR)
+            M(PrimitiveType::TYPE_VARCHAR)
+            M(PrimitiveType::TYPE_STRING)
+#undef M
+        default:
+            return Status::NotSupported("Unsupported primitive type {} for inverted index reader",
+                                        primitiveType);
+        }
+    };
+
+    virtual const void* get_value() const {
+        LOG_FATAL(
+                "Execution reached an undefined behavior code path in "
+                "InvertedIndexQueryParamFactory");
+        __builtin_unreachable();
+    };
+};
+
+template <PrimitiveType PT>
+class InvertedIndexQueryParam : public InvertedIndexQueryParamFactory {
+    ENABLE_FACTORY_CREATOR(InvertedIndexQueryParam);
+    using storage_val = typename PrimitiveTypeTraits<PT>::StorageFieldType;
+
+public:
+    void set_value(const storage_val* value) {
+        _value = *reinterpret_cast<const storage_val*>(value);
+    }
+
+    const void* get_value() const override { return &_value; }
+
+private:
+    storage_val _value;
 };
 
 class InvertedIndexIterator {

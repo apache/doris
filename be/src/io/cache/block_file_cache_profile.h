@@ -42,8 +42,7 @@ struct AtomicStatistics {
 struct FileCacheProfile;
 
 struct FileCacheMetric {
-    FileCacheMetric(int64_t table_id, FileCacheProfile* profile)
-            : profile(profile), table_id(table_id) {}
+    FileCacheMetric(FileCacheProfile* profile) : profile(profile) {}
 
     void register_entity();
     void update_table_metrics() const;
@@ -51,11 +50,6 @@ struct FileCacheMetric {
     FileCacheMetric& operator=(const FileCacheMetric&) = delete;
     FileCacheMetric(const FileCacheMetric&) = delete;
     FileCacheProfile* profile = nullptr;
-    int64_t table_id = -1;
-    std::shared_ptr<MetricEntity> entity;
-    IntAtomicCounter* num_io_bytes_read_total = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
 };
 
 struct FileCacheProfile {
@@ -66,16 +60,16 @@ struct FileCacheProfile {
 
     FileCacheProfile() {
         FileCacheStatistics stats;
-        update(0, &stats);
+        update(&stats);
     }
 
-    void update(int64_t table_id, FileCacheStatistics* stats);
+    void update(FileCacheStatistics* stats);
 
     std::mutex _mtx;
     // use shared_ptr for concurrent
-    std::unordered_map<int64_t, std::shared_ptr<AtomicStatistics>> _profile;
-    std::unordered_map<int64_t, std::shared_ptr<FileCacheMetric>> _table_metrics;
-    std::shared_ptr<AtomicStatistics> report(int64_t table_id);
+    std::shared_ptr<AtomicStatistics> _profile;
+    std::shared_ptr<FileCacheMetric> _file_cache_metric;
+    std::shared_ptr<AtomicStatistics> report();
 };
 
 struct FileCacheProfileReporter {

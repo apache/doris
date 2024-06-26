@@ -21,12 +21,14 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * HDFS resource
@@ -37,26 +39,36 @@ import java.util.Map;
  * (
  * "type" = "hdfs",
  * "fs.defaultFS" = "hdfs://10.220.147.151:8020",
- * "fs.prefix" = "",
+ * "path_prefix" = "/path/to/data",
  * "hadoop.username" = "root"
  * );
  */
 public class HdfsStorageVault extends StorageVault {
     private static final Logger LOG = LogManager.getLogger(HdfsStorageVault.class);
+
+    public static final String VAULT_TYPE = "type";
     public static final String HADOOP_FS_PREFIX = "dfs.";
     public static String HADOOP_FS_NAME = "fs.defaultFS";
-    public static String HADOOP_PREFIX = "fs.prefix";
+    public static String VAULT_PATH_PREFIX = "path_prefix";
     public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
     public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
     public static String DSF_NAMESERVICES = "dfs.nameservices";
     public static final String HDFS_PREFIX = "hdfs:";
     public static final String HDFS_FILE_PREFIX = "hdfs://";
 
+    /**
+     * Property keys used by Doris, and should not be put in HDFS client configs,
+     * such as `type`, `path_prefix`, etc.
+     */
+    private static final Set<String> nonHdfsConfPropertyKeys = ImmutableSet.of(VAULT_TYPE, VAULT_PATH_PREFIX)
+            .stream().map(String::toLowerCase)
+            .collect(ImmutableSet.toImmutableSet());
+
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    public HdfsStorageVault(String name, boolean ifNotExists) {
-        super(name, StorageVault.StorageVaultType.HDFS, ifNotExists);
+    public HdfsStorageVault(String name, boolean ifNotExists, boolean setAsDefault) {
+        super(name, StorageVault.StorageVaultType.HDFS, ifNotExists, setAsDefault);
         properties = Maps.newHashMap();
     }
 
@@ -68,23 +80,8 @@ public class HdfsStorageVault extends StorageVault {
     }
 
     @Override
-    protected void setProperties(Map<String, String> properties) throws DdlException {
-        // `dfs.client.read.shortcircuit` and `dfs.domain.socket.path` should be both set to enable short circuit read.
-        // We should disable short circuit read if they are not both set because it will cause performance down.
-        if (!(enableShortCircuitRead(properties))) {
-            properties.put(HADOOP_SHORT_CIRCUIT, "false");
-        }
-        this.properties = properties;
-    }
-
-    @Override
     public Map<String, String> getCopiedProperties() {
         return Maps.newHashMap(properties);
-    }
-
-    public static boolean enableShortCircuitRead(Map<String, String> properties) {
-        return "true".equalsIgnoreCase(properties.getOrDefault(HADOOP_SHORT_CIRCUIT, "false"))
-                    && properties.containsKey(HADOOP_SOCKET_PATH);
     }
 
     public static Cloud.HdfsVaultInfo generateHdfsParam(Map<String, String> properties) {
@@ -94,7 +91,7 @@ public class HdfsStorageVault extends StorageVault {
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
                 hdfsConfBuilder.setFsName(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HADOOP_PREFIX)) {
+            } else if (property.getKey().equalsIgnoreCase(VAULT_PATH_PREFIX)) {
                 hdfsVaultInfoBuilder.setPrefix(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_USER_NAME)) {
                 hdfsConfBuilder.setUser(property.getValue());
@@ -103,10 +100,12 @@ public class HdfsStorageVault extends StorageVault {
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB)) {
                 hdfsConfBuilder.setHdfsKerberosKeytab(property.getValue());
             } else {
-                Cloud.HdfsBuildConf.HdfsConfKVPair.Builder conf = Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder();
-                conf.setKey(property.getKey());
-                conf.setValue(property.getValue());
-                hdfsConfBuilder.addHdfsConfs(conf.build());
+                if (!nonHdfsConfPropertyKeys.contains(property.getKey().toLowerCase())) {
+                    Cloud.HdfsBuildConf.HdfsConfKVPair.Builder conf = Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder();
+                    conf.setKey(property.getKey());
+                    conf.setValue(property.getValue());
+                    hdfsConfBuilder.addHdfsConfs(conf.build());
+                }
             }
         }
         return hdfsVaultInfoBuilder.setBuildConf(hdfsConfBuilder.build()).build();

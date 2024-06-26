@@ -44,7 +44,6 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
-#include "vec/exec/scan/vmeta_scan_node.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -55,15 +54,6 @@ class VScanNode;
 } // namespace doris
 
 namespace doris::vectorized {
-
-VMetaScanner::VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
-                           const TScanRangeParams& scan_range, int64_t limit,
-                           RuntimeProfile* profile, TUserIdentity user_identity)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
-          _meta_eos(false),
-          _tuple_id(tuple_id),
-          _user_identity(user_identity),
-          _scan_range(scan_range.scan_range) {}
 
 VMetaScanner::VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
                            int64_t tuple_id, const TScanRangeParams& scan_range, int64_t limit,
@@ -77,6 +67,7 @@ VMetaScanner::VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* lo
 Status VMetaScanner::open(RuntimeState* state) {
     VLOG_CRITICAL << "VMetaScanner::open";
     RETURN_IF_ERROR(VScanner::open(state));
+    RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
 }
 
@@ -94,8 +85,6 @@ Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
         // from a NULL value.
         return Status::InternalError("Logical error, VMetaScanner do not allow ColumnNullable");
     }
-
-    RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
 }
 

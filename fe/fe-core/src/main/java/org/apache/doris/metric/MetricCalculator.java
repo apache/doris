@@ -17,7 +17,11 @@
 
 package org.apache.doris.metric;
 
+import org.apache.doris.common.Config;
+
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.TimerTask;
 
 /*
@@ -29,6 +33,10 @@ public class MetricCalculator extends TimerTask {
     private long lastQueryCounter = -1;
     private long lastRequestCounter = -1;
     private long lastQueryErrCounter = -1;
+
+    private Map<String, Long> clusterLastRequestCounter = new HashMap<>();
+    private Map<String, Long> clusterLastQueryCounter = new HashMap<>();
+    private Map<String, Long> clusterLastQueryErrCounter = new HashMap<>();
 
     @Override
     public void run() {
@@ -42,6 +50,7 @@ public class MetricCalculator extends TimerTask {
             lastQueryCounter = MetricRepo.COUNTER_QUERY_ALL.getValue();
             lastRequestCounter = MetricRepo.COUNTER_REQUEST_ALL.getValue();
             lastQueryErrCounter = MetricRepo.COUNTER_QUERY_ERR.getValue();
+            initCloudMetrics();
             return;
         }
 
@@ -65,6 +74,7 @@ public class MetricCalculator extends TimerTask {
         MetricRepo.GAUGE_QUERY_ERR_RATE.setValue(errRate < 0 ? 0.0 : errRate);
         lastQueryErrCounter = currentErrCounter;
 
+        updateCloudMetrics(interval);
         lastTs = currentTs;
 
         // max tablet compaction score of all backends
@@ -76,5 +86,76 @@ public class MetricCalculator extends TimerTask {
             }
         }
         MetricRepo.GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(maxCompactionScore);
+    }
+
+    private void initCloudMetrics() {
+        if (!Config.isCloudMode()) {
+            return;
+        }
+        Map<String, LongCounterMetric> requsetAllMetrics = CloudMetrics.CLUSTER_REQUEST_ALL_COUNTER.getMetrics();
+        if (requsetAllMetrics != null) {
+            requsetAllMetrics.forEach((clusterId, metric) -> {
+                clusterLastRequestCounter.put(clusterId, metric.getValue());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
+            });
+        }
+
+        Map<String, LongCounterMetric> queryAllMetrics = CloudMetrics.CLUSTER_QUERY_ALL_COUNTER.getMetrics();
+        if (queryAllMetrics != null) {
+            queryAllMetrics.forEach((clusterId, metric) -> {
+                clusterLastQueryCounter.put(clusterId, metric.getValue());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
+            });
+        }
+
+        Map<String, LongCounterMetric> queryErrMetrics = CloudMetrics.CLUSTER_QUERY_ERR_COUNTER.getMetrics();
+        if (queryErrMetrics != null) {
+            queryErrMetrics.forEach((clusterId, metric) -> {
+                clusterLastQueryErrCounter.put(clusterId, metric.getValue());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
+            });
+        }
+    }
+
+    private void updateCloudMetrics(long interval) {
+        if (!Config.isCloudMode()) {
+            return;
+        }
+
+        Map<String, LongCounterMetric> requsetAllMetrics = CloudMetrics.CLUSTER_REQUEST_ALL_COUNTER.getMetrics();
+        if (requsetAllMetrics != null) {
+            requsetAllMetrics.forEach((clusterId, metric) -> {
+                double rps = (double) (metric.getValue() - clusterLastRequestCounter.getOrDefault(clusterId, 0L))
+                        / interval;
+                rps = Double.max(rps, 0);
+                MetricRepo.updateClusterRequestPerSecond(clusterId, rps,  metric.getLabels());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
+                clusterLastRequestCounter.replace(clusterId, metric.getValue());
+            });
+        }
+
+        Map<String, LongCounterMetric> queryAllMetrics = CloudMetrics.CLUSTER_QUERY_ALL_COUNTER.getMetrics();
+        if (queryAllMetrics != null) {
+            queryAllMetrics.forEach((clusterId, metric) -> {
+                double rps = (double) (metric.getValue() - clusterLastQueryCounter.getOrDefault(clusterId, 0L))
+                        / interval;
+                rps = Double.max(rps, 0);
+                MetricRepo.updateClusterQueryPerSecond(clusterId, rps,  metric.getLabels());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
+                clusterLastQueryCounter.replace(clusterId, metric.getValue());
+            });
+        }
+
+        Map<String, LongCounterMetric> queryErrMetrics = CloudMetrics.CLUSTER_QUERY_ERR_COUNTER.getMetrics();
+        if (queryErrMetrics != null) {
+            queryErrMetrics.forEach((clusterId, metric) -> {
+                double rps = (double) (metric.getValue() - clusterLastQueryErrCounter.getOrDefault(clusterId, 0L))
+                        / interval;
+                rps = Double.max(rps, 0);
+                MetricRepo.updateClusterQueryErrRate(clusterId, rps, metric.getLabels());
+                MetricRepo.DORIS_METRIC_REGISTER.addMetrics(metric);
+                clusterLastQueryCounter.replace(clusterId, metric.getValue());
+            });
+        }
     }
 }

@@ -56,21 +56,44 @@ public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
             RewriteJobContext newRewriteJobContext = rewriteJobContext.withChildrenVisited(true);
             pushJob(new PlanTreeRewriteTopDownJob(newRewriteJobContext, context, rules));
 
-            List<Plan> children = newRewriteJobContext.plan.children();
-            for (int i = children.size() - 1; i >= 0; i--) {
-                RewriteJobContext childRewriteJobContext = new RewriteJobContext(
-                        children.get(i), newRewriteJobContext, i, false);
-                // NOTICE: this relay on pull up cte anchor
-                if (!(rewriteJobContext.plan instanceof LogicalCTEAnchor)) {
-                    pushJob(new PlanTreeRewriteTopDownJob(childRewriteJobContext, context, rules));
-                }
+            // NOTICE: this relay on pull up cte anchor
+            if (!(this.rewriteJobContext.plan instanceof LogicalCTEAnchor)) {
+                pushChildrenJobs(newRewriteJobContext);
             }
         } else {
             // All the children part are already visited. Just link the children plan to the current node.
-            Plan result = linkChildrenAndParent(rewriteJobContext.plan, rewriteJobContext);
+            Plan result = linkChildren(rewriteJobContext.plan, rewriteJobContext.childrenContext);
+            rewriteJobContext.setResult(result);
             if (rewriteJobContext.parentContext == null) {
                 context.getCascadesContext().setRewritePlan(result);
             }
+        }
+    }
+
+    private void pushChildrenJobs(RewriteJobContext rewriteJobContext) {
+        List<Plan> children = rewriteJobContext.plan.children();
+        switch (children.size()) {
+            case 0: return;
+            case 1:
+                RewriteJobContext childRewriteJobContext = new RewriteJobContext(
+                        children.get(0), rewriteJobContext, 0, false, this.rewriteJobContext.batchId);
+                pushJob(new PlanTreeRewriteTopDownJob(childRewriteJobContext, context, rules));
+                return;
+            case 2:
+                RewriteJobContext rightRewriteJobContext = new RewriteJobContext(
+                        children.get(1), rewriteJobContext, 1, false, this.rewriteJobContext.batchId);
+                pushJob(new PlanTreeRewriteTopDownJob(rightRewriteJobContext, context, rules));
+
+                RewriteJobContext leftRewriteJobContext = new RewriteJobContext(
+                        children.get(0), rewriteJobContext, 0, false, this.rewriteJobContext.batchId);
+                pushJob(new PlanTreeRewriteTopDownJob(leftRewriteJobContext, context, rules));
+                return;
+            default:
+                for (int i = children.size() - 1; i >= 0; i--) {
+                    childRewriteJobContext = new RewriteJobContext(
+                            children.get(i), rewriteJobContext, i, false, this.rewriteJobContext.batchId);
+                    pushJob(new PlanTreeRewriteTopDownJob(childRewriteJobContext, context, rules));
+                }
         }
     }
 }

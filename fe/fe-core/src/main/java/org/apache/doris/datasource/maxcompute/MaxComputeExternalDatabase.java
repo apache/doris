@@ -37,7 +37,7 @@ public class MaxComputeExternalDatabase extends ExternalDatabase<MaxComputeExter
     }
 
     @Override
-    protected MaxComputeExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected MaxComputeExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
         return new MaxComputeExternalTable(tblId, tableName, name, (MaxComputeExternalCatalog) extCatalog);
     }
 }

@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -132,6 +131,8 @@ public class RuntimeFilterContext {
 
     private final List<ExpandRF> expandedRF = Lists.newArrayList();
 
+    private final Map<Plan, Set<PhysicalRelation>> relationsUsedByPlan = Maps.newHashMap();
+
     /**
      * info about expand rf by inner join
      */
@@ -157,6 +158,23 @@ public class RuntimeFilterContext {
     public RuntimeFilterContext(SessionVariable sessionVariable) {
         this.sessionVariable = sessionVariable;
         this.limits = new FilterSizeLimits(sessionVariable);
+    }
+
+    public void setRelationsUsedByPlan(Plan plan, Set<PhysicalRelation> relations) {
+        relationsUsedByPlan.put(plan, relations);
+    }
+
+    /**
+     * return true, if the relation is in the subtree
+     */
+    public boolean isRelationUseByPlan(Plan plan, PhysicalRelation relation) {
+        Set<PhysicalRelation> relations = relationsUsedByPlan.get(plan);
+        if (relations == null) {
+            relations = Sets.newHashSet();
+            RuntimeFilterGenerator.getAllScanInfo(plan, relations);
+            relationsUsedByPlan.put(plan, relations);
+        }
+        return relations.contains(relation);
     }
 
     public SessionVariable getSessionVariable() {
@@ -272,10 +290,6 @@ public class RuntimeFilterContext {
         return aliasTransferMap;
     }
 
-    public Pair<PhysicalRelation, Slot> aliasTransferMapRemove(NamedExpression slot) {
-        return aliasTransferMap.remove(slot);
-    }
-
     public Pair<PhysicalRelation, Slot> getAliasTransferPair(NamedExpression slot) {
         return aliasTransferMap.get(slot);
     }
@@ -353,15 +367,7 @@ public class RuntimeFilterContext {
     }
 
     public List<ExprId> getTargetExprIdByFilterJoin(AbstractPhysicalJoin join) {
-        return joinToTargetExprId.get(join);
-    }
-
-    public SlotReference getCorrespondingOlapSlotReference(SlotReference slot) {
-        SlotReference olapSlot = slot;
-        if (aliasTransferMap.containsKey(olapSlot)) {
-            olapSlot = (SlotReference) aliasTransferMap.get(olapSlot).second;
-        }
-        return olapSlot;
+        return joinToTargetExprId.getOrDefault(join, Lists.newArrayList());
     }
 
     /**

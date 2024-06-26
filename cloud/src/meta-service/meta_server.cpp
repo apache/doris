@@ -30,6 +30,7 @@
 
 #include "common/config.h"
 #include "common/metric.h"
+#include "common/network_util.h"
 #include "common/sync_point.h"
 #include "common/util.h"
 #include "meta-service/keys.h"
@@ -79,7 +80,8 @@ int MetaServer::start(brpc::Server* server) {
     brpc::ServiceOptions options;
     options.ownership = brpc::SERVER_OWNS_SERVICE;
     if (!config::secondary_package_name.empty()) {
-        LOG(INFO) << "Add MetaService with secondary package name " << config::secondary_package_name;
+        LOG(INFO) << "Add MetaService with secondary package name "
+                  << config::secondary_package_name;
         options.secondary_package_name = config::secondary_package_name;
     }
     server->AddService(meta_service_proxy, options);
@@ -95,7 +97,7 @@ void MetaServer::stop() {
 void MetaServerRegister::prepare_registry(ServiceRegistryPB* reg) {
     using namespace std::chrono;
     auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-    std::string ip = butil::my_ip_cstr();
+    std::string ip = get_local_ip(config::priority_networks);
     int32_t port = config::brpc_listen_port;
     std::string id = ip + ":" + std::to_string(port);
     ServiceRegistryPB::Item item;

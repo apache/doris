@@ -87,6 +87,19 @@ stop_cloud() {
     bash bin/stop.sh
 }
 
+wait_process() {
+    pid=""
+    for ((i = 0; i < 5; i++)); do
+        sleep 1s
+        pid=$(pgrep _cloud)
+        if [ -n "$pid" ]; then
+            break
+        fi
+    done
+
+    wait_pid $pid
+}
+
 main() {
     trap stop_cloud SIGTERM
 
@@ -98,7 +111,9 @@ main() {
 
     health_log "input args: $ARGS"
 
-    bash bin/start.sh $ARGS
+    bash bin/start.sh $ARGS --daemon
+
+    wait_process
 }
 
 main

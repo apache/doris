@@ -46,7 +46,6 @@ class RuntimeProfile;
 class RuntimeState;
 
 namespace io {
-class FileSystem;
 struct IOContext;
 } // namespace io
 struct TypeDescriptor;
@@ -204,6 +203,7 @@ private:
     Status _create_decompressor();
     Status _fill_dest_columns(const Slice& line, Block* block,
                               std::vector<MutableColumnPtr>& columns, size_t* rows);
+    Status _fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
     Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
@@ -256,7 +256,6 @@ private:
     // True if this is a load task
     bool _is_load = false;
 
-    std::shared_ptr<io::FileSystem> _file_system;
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _line_reader_eof;

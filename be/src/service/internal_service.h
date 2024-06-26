@@ -36,7 +36,6 @@ class StorageEngine;
 class ExecEnv;
 class PHandShakeRequest;
 class PHandShakeResponse;
-class LoadStreamMgr;
 class RuntimeState;
 
 template <typename T>
@@ -96,6 +95,11 @@ public:
     void fetch_data(google::protobuf::RpcController* controller, const PFetchDataRequest* request,
                     PFetchDataResult* result, google::protobuf::Closure* done) override;
 
+    void outfile_write_success(google::protobuf::RpcController* controller,
+                               const POutfileWriteSuccessRequest* request,
+                               POutfileWriteSuccessResult* result,
+                               google::protobuf::Closure* done) override;
+
     void fetch_table_schema(google::protobuf::RpcController* controller,
                             const PFetchTableSchemaRequest* request,
                             PFetchTableSchemaResult* result,
@@ -148,10 +152,15 @@ public:
                       ::doris::PMergeFilterResponse* response,
                       ::google::protobuf::Closure* done) override;
 
-    void apply_filter(::google::protobuf::RpcController* controller,
-                      const ::doris::PPublishFilterRequest* request,
-                      ::doris::PPublishFilterResponse* response,
-                      ::google::protobuf::Closure* done) override;
+    void send_filter_size(::google::protobuf::RpcController* controller,
+                          const ::doris::PSendFilterSizeRequest* request,
+                          ::doris::PSendFilterSizeResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
+    void sync_filter_size(::google::protobuf::RpcController* controller,
+                          const ::doris::PSyncFilterSizeRequest* request,
+                          ::doris::PSyncFilterSizeResponse* response,
+                          ::google::protobuf::Closure* done) override;
     void apply_filterv2(::google::protobuf::RpcController* controller,
                         const ::doris::PPublishFilterRequestV2* request,
                         ::doris::PPublishFilterResponse* response,
@@ -251,8 +260,6 @@ protected:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
-
-    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
 };
 
 // `StorageEngine` mixin for `PInternalService`

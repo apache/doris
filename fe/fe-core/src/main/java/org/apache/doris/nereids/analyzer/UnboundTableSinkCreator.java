@@ -22,12 +22,17 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -49,6 +54,8 @@ public class UnboundTableSinkCreator {
             return new UnboundTableSink<>(nameParts, colNames, hints, partitions, query);
         } else if (curCatalog instanceof HMSExternalCatalog) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions, query);
+        } else if (curCatalog instanceof IcebergExternalCatalog) {
+            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions, query);
         }
         throw new UserException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
     }
@@ -68,7 +75,54 @@ public class UnboundTableSinkCreator {
         } else if (curCatalog instanceof HMSExternalCatalog) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
+        } else if (curCatalog instanceof IcebergExternalCatalog) {
+            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
         }
         throw new RuntimeException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
+    }
+
+    /**
+     * create unbound sink for DML plan with auto detect overwrite partition enable.
+     */
+    public static LogicalSink<? extends Plan> createUnboundTableSinkMaybeOverwrite(List<String> nameParts,
+            List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
+            boolean isAutoDetectPartition, boolean isOverwrite, boolean isPartialUpdate, DMLCommandType dmlCommandType,
+            LogicalPlan plan) {
+        if (isAutoDetectPartition) { // partitions is null
+            if (!isOverwrite) {
+                throw new ParseException("ASTERISK is only supported in overwrite partition for OLAP table");
+            }
+            temporaryPartition = false;
+            partitions = ImmutableList.of();
+        }
+
+        String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
+        CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (curCatalog instanceof InternalCatalog) {
+            return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
+                    isAutoDetectPartition,
+                    isPartialUpdate, dmlCommandType, Optional.empty(),
+                    Optional.empty(), plan);
+        } else if (curCatalog instanceof HMSExternalCatalog && !isAutoDetectPartition) {
+            return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
+        } else if (curCatalog instanceof IcebergExternalCatalog && !isAutoDetectPartition) {
+            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
+                dmlCommandType, Optional.empty(), Optional.empty(), plan);
+        }
+        // TODO: we need to support insert into other catalog
+        try {
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            }
+        } catch (Exception e) {
+            // ignore this.
+        }
+        throw new AnalysisException(
+                (isOverwrite ? "insert overwrite" : "insert") + " data to " + curCatalog.getClass().getSimpleName()
+                        + " is not supported."
+                        + (isAutoDetectPartition
+                                ? " PARTITION(*) is only supported in overwrite partition for OLAP table" : ""));
     }
 }

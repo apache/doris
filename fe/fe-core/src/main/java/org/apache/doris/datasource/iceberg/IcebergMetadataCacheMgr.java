@@ -17,11 +17,14 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import java.util.concurrent.ExecutorService;
+
 public class IcebergMetadataCacheMgr {
 
-    private final IcebergMetadataCache icebergMetadataCache = new IcebergMetadataCache();
+    private IcebergMetadataCache icebergMetadataCache;
 
-    public IcebergMetadataCacheMgr() {
+    public IcebergMetadataCacheMgr(ExecutorService executor) {
+        this.icebergMetadataCache = new IcebergMetadataCache(executor);
     }
 
     public IcebergMetadataCache getIcebergMetadataCache() {

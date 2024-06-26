@@ -31,8 +31,6 @@ public interface QeProcessor {
 
     TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr);
 
-    void registerQuery(TUniqueId queryId, Coordinator coord) throws UserException;
-
     void registerQuery(TUniqueId queryId, QeProcessorImpl.QueryInfo info) throws UserException;
 
     void registerInstances(TUniqueId queryId, Integer instancesNum) throws UserException;

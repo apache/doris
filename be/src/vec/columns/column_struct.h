@@ -88,10 +88,11 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
 
+    bool is_variable_length() const override { return true; }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 
-    bool is_default_at(size_t n) const override;
     [[noreturn]] StringRef get_data_at(size_t n) const override {
         LOG(FATAL) << "Method get_data_at is not supported for " + get_name();
         __builtin_unreachable();
@@ -123,40 +124,29 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not implemented";
-    }
     void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
         return append_data_by_selector_impl<ColumnStruct>(res, selector);
     }
-    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnStruct&>(rhs);
-
-        for (size_t idx = 0; idx < columns.size(); ++idx) {
-            columns[idx]->replace_column_data(r.get_column(idx), row, self_row);
-        }
+    void append_data_by_selector(MutableColumnPtr& res, const Selector& selector, size_t begin,
+                                 size_t end) const override {
+        return append_data_by_selector_impl<ColumnStruct>(res, selector, begin, end);
     }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        for (size_t idx = 0; idx < columns.size(); ++idx) {
-            columns[idx]->replace_column_data_default(self_row);
-        }
+    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
+        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
+    void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                           size_t length) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
-    MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
 
-    // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
     MutableColumnPtr get_shrinked_column() override;
+    bool could_shrinked_column() override;
 
     void reserve(size_t n) override;
     void resize(size_t n) override;
@@ -177,9 +167,16 @@ public:
     ColumnPtr& get_column_ptr(size_t idx) { return columns[idx]; }
 
     void clear() override {
-        for (auto col : columns) {
+        for (auto& col : columns) {
             col->clear();
         }
+    }
+
+    ColumnPtr convert_column_if_overflow() override {
+        for (auto& col : columns) {
+            col = col->convert_column_if_overflow();
+        }
+        return IColumn::convert_column_if_overflow();
     }
 };
 

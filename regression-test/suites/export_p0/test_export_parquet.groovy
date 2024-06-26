@@ -55,7 +55,9 @@ suite("test_export_parquet", "p0") {
         `float_col` float COMMENT "",
         `double_col` double COMMENT "",
         `char_col` CHAR(10) COMMENT "",
-        `decimal_col` decimal COMMENT ""
+        `decimal_col` decimal COMMENT "",
+        `ipv4_col` ipv4 COMMENT "",
+        `ipv6_col` ipv6 COMMENT ""
         )
         DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
     """
@@ -63,11 +65,11 @@ suite("test_export_parquet", "p0") {
     int i = 1
     for (; i < 100; i ++) {
         sb.append("""
-            (${i}, '2017-10-01', '2017-10-01 00:00:00', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i}),
+            (${i}, '2017-10-01', '2017-10-01 00:00:00', 'Beijing', ${i}, ${i % 128}, true, ${i}, ${i}, ${i}, ${i}.${i}, ${i}.${i}, 'char${i}', ${i}, '0.0.0.${i}', '::${i}'),
         """)
     }
     sb.append("""
-            (${i}, '2017-10-01', '2017-10-01 00:00:00', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+            (${i}, '2017-10-01', '2017-10-01 00:00:00', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
         """)
     sql """ INSERT INTO ${table_export_name} VALUES
             ${sb.toString()}
@@ -106,22 +108,24 @@ suite("test_export_parquet", "p0") {
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "parquet",
-                'columns' = 'user_id, date, datetime, city, age, sex, bool_col, int_col, bigint_col, float_col, double_col, char_col, decimal_col, largeint_col'
+                'columns' = 'user_id, date, datetime, city, age, sex, bool_col, int_col, bigint_col, float_col, double_col, char_col, decimal_col, largeint_col, ipv4_col, ipv6_col'
             )
             WITH S3(
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
                 "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                "s3.access_key" = "${ak}",
+                "provider" = "${getS3Provider()}"
             );
         """
         def outfile_url = waiting_export.call(label)
         
         order_qt_select_load1 """ select * from s3(
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
                 "format" = "parquet",
+                "provider" = "${getS3Provider()}",
                 "region" = "${region}"
             ) ORDER BY user_id;
             """

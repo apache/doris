@@ -63,9 +63,15 @@ void WorkloadschedPolicyListener::handle_topic_info(const std::vector<TopicInfo>
             continue;
         }
 
+        std::set<int64_t> wg_id_set;
+        for (int64_t wg_id : tpolicy.wg_id_list) {
+            wg_id_set.insert(wg_id);
+        }
+
         std::shared_ptr<WorkloadSchedPolicy> policy_ptr = std::make_shared<WorkloadSchedPolicy>();
         policy_ptr->init(tpolicy.id, tpolicy.name, tpolicy.version, tpolicy.enabled,
-                         tpolicy.priority, std::move(cond_ptr_list), std::move(action_ptr_list));
+                         tpolicy.priority, wg_id_set, std::move(cond_ptr_list),
+                         std::move(action_ptr_list));
         policy_map.emplace(tpolicy.id, std::move(policy_ptr));
     }
     size_t new_policy_size = policy_map.size();

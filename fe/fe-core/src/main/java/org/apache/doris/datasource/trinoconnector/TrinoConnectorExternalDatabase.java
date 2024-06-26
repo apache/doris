@@ -27,7 +27,7 @@ public class TrinoConnectorExternalDatabase extends ExternalDatabase<TrinoConnec
     }
 
     @Override
-    protected TrinoConnectorExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected TrinoConnectorExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
         return new TrinoConnectorExternalTable(tblId, tableName, name, (TrinoConnectorExternalCatalog) extCatalog);
     }
 }

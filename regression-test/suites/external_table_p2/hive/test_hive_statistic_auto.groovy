@@ -32,7 +32,7 @@ suite("test_hive_statistic_auto", "p2,external,hive,external_remote,external_rem
         logger.info("catalog " + catalog_name + " created")
 
         // Test analyze table without init.
-        sql """analyze database ${catalog_name}.statistics PROPERTIES("use.auto.analyzer"="true")"""
+        sql """analyze table ${catalog_name}.statistics.statistics PROPERTIES("use.auto.analyzer"="true")"""
         sql """use ${catalog_name}.statistics"""
 
         for (int i = 0; i < 10; i++) {

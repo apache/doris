@@ -51,6 +51,17 @@ public interface NormalizeToSlot {
             this.normalizeToSlotMap = normalizeToSlotMap;
         }
 
+        public Map<Expression, NormalizeToSlotTriplet> getNormalizeToSlotMap() {
+            return normalizeToSlotMap;
+        }
+
+        public NormalizeToSlotContext mergeContext(NormalizeToSlotContext context) {
+            Map<Expression, NormalizeToSlotTriplet> newMap = Maps.newHashMap();
+            newMap.putAll(this.normalizeToSlotMap);
+            newMap.putAll(context.getNormalizeToSlotMap());
+            return new NormalizeToSlotContext(newMap);
+        }
+
         /**
          * build normalization context by follow step.
          * 1. collect all exists alias by input parameters existsAliases build a reverted map: expr -> alias
@@ -104,15 +115,19 @@ public interface NormalizeToSlot {
          */
         public <E extends Expression> List<E> normalizeToUseSlotRef(Collection<E> expressions,
                 BiFunction<NormalizeToSlotContext, Expression, Expression> customNormalize) {
-            return expressions.stream()
-                    .map(expr -> (E) expr.rewriteDownShortCircuit(child -> {
-                        Expression newChild = customNormalize.apply(this, child);
-                        if (newChild != null && newChild != child) {
-                            return newChild;
-                        }
-                        NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(child);
-                        return normalizeToSlotTriplet == null ? child : normalizeToSlotTriplet.remainExpr;
-                    })).collect(ImmutableList.toImmutableList());
+            ImmutableList.Builder<E> result = ImmutableList.builderWithExpectedSize(expressions.size());
+            for (E expr : expressions) {
+                Expression rewriteExpr = expr.rewriteDownShortCircuit(child -> {
+                    Expression newChild = customNormalize.apply(this, child);
+                    if (newChild != null && newChild != child) {
+                        return newChild;
+                    }
+                    NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(child);
+                    return normalizeToSlotTriplet == null ? child : normalizeToSlotTriplet.remainExpr;
+                });
+                result.add((E) rewriteExpr);
+            }
+            return result.build();
         }
 
         public <E extends Expression> List<E> normalizeToUseSlotRefWithoutWindowFunction(
@@ -131,13 +146,20 @@ public interface NormalizeToSlot {
          * bottom: k1#0, (k2#1 + 1) AS (k2 + 1)#2;
          */
         public Set<NamedExpression> pushDownToNamedExpression(Collection<? extends Expression> needToPushExpressions) {
-            return needToPushExpressions.stream()
-                    .map(expr -> {
-                        NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(expr);
-                        return normalizeToSlotTriplet == null
-                                ? (NamedExpression) expr
-                                : normalizeToSlotTriplet.pushedExpr;
-                    }).collect(ImmutableSet.toImmutableSet());
+            ImmutableSet.Builder<NamedExpression> result
+                    = ImmutableSet.builderWithExpectedSize(needToPushExpressions.size());
+            for (Expression expr : needToPushExpressions) {
+                NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(expr);
+                result.add(normalizeToSlotTriplet == null
+                        ? (NamedExpression) expr
+                        : normalizeToSlotTriplet.pushedExpr);
+            }
+            return result.build();
+        }
+
+        public NamedExpression pushDownToNamedExpression(Expression expr) {
+            NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(expr);
+            return normalizeToSlotTriplet == null ? (NamedExpression) expr : normalizeToSlotTriplet.pushedExpr;
         }
     }
 

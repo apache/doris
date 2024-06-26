@@ -18,17 +18,17 @@
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-if [[ ! -d bin || ! -d conf || ! -d lib ]]; then
-    echo "$0 must be invoked at the directory which contains bin, conf and lib"
-    exit 1
-fi
-
 DORIS_HOME="$(
     cd "${curdir}/.." || exit 1
     pwd
 )"
 
 cd "${DORIS_HOME}" || exit 1
+
+if [[ ! -d bin || ! -d conf || ! -d lib ]]; then
+    echo "$0 must be invoked at the directory which contains bin, conf and lib"
+    exit 1
+fi
 
 daemonized=0
 for arg; do
@@ -66,6 +66,41 @@ if ldd "${bin}" | grep -Ei 'libfdb_c.*not found' &>/dev/null; then
 fi
 
 chmod 550 "${DORIS_HOME}/lib/doris_cloud"
+
+if [[ -z "${JAVA_HOME}" ]]; then
+    echo "The JAVA_HOME environment variable is not defined correctly"
+    echo "This environment variable is needed to run this program"
+    echo "NB: JAVA_HOME should point to a JDK not a JRE"
+    echo "You can set it in be.conf"
+    exit 1
+fi
+
+if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
+    # add hadoop libs
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common/lib"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
+export CLASSPATH="${DORIS_CLASSPATH}"
+
+export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${LD_LIBRARY_PATH}"
+
+## set libhdfs3 conf
+if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
+    export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
+fi
+
+echo "LIBHDFS3_CONF=${LIBHDFS3_CONF}"
 
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:true,prof_prefix:jeprof.out"
 

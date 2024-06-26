@@ -121,7 +121,8 @@ public class PlsqlResult implements ResultListener, Console {
     @Override
     public void onFinalize() {
         // If metadata not null, it means that mysql channel sent query results.
-        if (metadata == null) {
+        // If selectByFe, send result in handleQueryStmt.
+        if (metadata == null && !processor.isHandleQueryInFe()) {
             return;
         }
         finalizeCommand();

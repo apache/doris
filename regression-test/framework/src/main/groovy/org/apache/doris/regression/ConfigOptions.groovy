@@ -55,6 +55,7 @@ class ConfigOptions {
     static Option pluginOpt
     static Option sslCertificateOpt
     static Option imageOpt
+    static Option noKillDockerOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
     static Option groupsOpt
@@ -207,6 +208,12 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("image")
                 .desc("the docker image")
+                .build()
+
+        noKillDockerOpt = Option.builder("noKillDocker")
+                .required(false)
+                .hasArg(false)
+                .desc("don't kill docker containers")
                 .build()
 
         suiteOpt = Option.builder("s")
@@ -574,6 +581,7 @@ class ConfigOptions {
                 .addOption(pluginOpt)
                 .addOption(sslCertificateOpt)
                 .addOption(imageOpt)
+                .addOption(noKillDockerOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(excludeSuiteOpt)

@@ -47,9 +47,7 @@ public:
 
     Status init(RuntimeState* state) override;
 
-    Status write(Block& block) override;
-
-    bool can_sink() override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status status) override;
 
@@ -89,8 +87,6 @@ private:
     bool _is_dry_run = false;
 
     uint64_t _bytes_sent = 0;
-
-    bool _enable_faster_float_convert = false;
 };
 } // namespace vectorized
 } // namespace doris

@@ -80,4 +80,51 @@ suite("regression_test_variant_github_events_p0", "nonConcurrent"){
     // TODO fix compaction issue, this case could be stable
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
+
+    sql """DROP TABLE IF EXISTS github_events_2"""
+    sql """
+        CREATE TABLE IF NOT EXISTS `github_events_2` (
+        `k` BIGINT NULL,
+        `v` text NULL,
+        INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
+        ) ENGINE = OLAP DUPLICATE KEY(`k`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`k`) BUCKETS 4 PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into github_events_2 select 1, cast(v["repo"]["name"] as string) FROM github_events;
+    """
+    // insert batches of nulls
+    for(int t = 0; t <= 10; t += 1){ 
+        long k = 9223372036854775107 + t
+        sql """INSERT INTO github_events VALUES (${k}, NULL)"""
+    }
+    sql """ALTER TABLE github_events SET("bloom_filter_columns" = "v")"""
+    // wait for add bloom filter finished
+    def getJobState = { tableName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='github_events' ORDER BY createtime DESC LIMIT 1 """
+         return jobStateResult[0][9]
+    }
+    int max_try_time = 200
+    while (max_try_time--){
+        String result = getJobState("github_events")
+        if (result == "FINISHED") {
+            break
+        } else {
+            sleep(2000)
+            if (max_try_time < 1){
+                assertEquals(1,2)
+            }
+        }
+    }
+    sql """ALTER TABLE github_events ADD COLUMN v2 variant DEFAULT NULL"""
+    for(int t = 0; t <= 10; t += 1){ 
+        long k = 9223372036854775107 + t
+        sql """INSERT INTO github_events VALUES (${k}, '{"aaaa" : 1234, "bbbb" : "11ssss"}', '{"xxxx" : 1234, "yyyy" : [1.111]}')"""
+    }
+    sql """ALTER TABLE github_events DROP COLUMN v2"""
+    sql """DELETE FROM github_events where k >= 9223372036854775107"""
+
+    qt_sql_select_count """ select count(*) from github_events_2; """
 }

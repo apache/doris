@@ -34,13 +34,13 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
     }
 
     /** rewriteChildren */
-    public static final <C> Expression rewriteChildren(
-            ExpressionVisitor<Expression, C> rewriter, Expression expr, C context) {
+    public static final <E extends Expression, C> E rewriteChildren(
+            ExpressionVisitor<Expression, C> rewriter, E expr, C context) {
         switch (expr.arity()) {
             case 1: {
                 Expression originChild = expr.child(0);
                 Expression newChild = originChild.accept(rewriter, context);
-                return (originChild != newChild) ? expr.withChildren(ImmutableList.of(newChild)) : expr;
+                return (originChild != newChild) ? (E) expr.withChildren(ImmutableList.of(newChild)) : expr;
             }
             case 2: {
                 Expression originLeft = expr.child(0);
@@ -48,7 +48,7 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
                 Expression originRight = expr.child(1);
                 Expression newRight = originRight.accept(rewriter, context);
                 return (originLeft != newLeft || originRight != newRight)
-                        ? expr.withChildren(ImmutableList.of(newLeft, newRight))
+                        ? (E) expr.withChildren(ImmutableList.of(newLeft, newRight))
                         : expr;
             }
             case 0: {
@@ -64,7 +64,7 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
                     }
                     newChildren.add(newChild);
                 }
-                return hasNewChildren ? expr.withChildren(newChildren.build()) : expr;
+                return hasNewChildren ? (E) expr.withChildren(newChildren.build()) : expr;
             }
         }
     }

@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_table_sample") {
-    sql "SET enable_nereids_planner=false"
-    sql "SET enable_fallback_to_original_planner=false"
     sql """DROP TABLE IF EXISTS test_table_sample_tbl"""
     sql """
         CREATE TABLE `test_table_sample_tbl` (

@@ -111,7 +111,6 @@ rm -f custom_env.sh
 cp "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/custom_env.sh .
 if [[ "${target_branch}" == "master" ]]; then
     echo "export JAVA_HOME=/usr/lib/jvm/jdk-17.0.2" >>custom_env.sh
-    jdk17_str="&& cd /usr/lib/jvm/ && wget --continue -t3 https://download.java.net/java/GA/jdk17.0.2/dfd4a8d0985749f896bed50d7138ee7f/8/GPL/openjdk-17.0.2_linux-x64_bin.tar.gz && yum install -y pigz  && tar -I pigz -xf openjdk-17.0.2_linux-x64_bin.tar.gz && cd -"
 fi
 rm -rf "${teamcity_build_checkoutDir}"/output
 set -x
@@ -129,13 +128,13 @@ sudo docker run -i --rm \
     -v "${teamcity_build_checkoutDir}":/root/doris \
     "${docker_image}" \
     /bin/bash -c "mkdir -p ${git_storage_path} \
-    				&& cp -r /root/git/* ${git_storage_path}/ \
+                    && cp -r /root/git/* ${git_storage_path}/ \
                     && cd /root/doris \
                     && export CCACHE_LOGFILE=/tmp/cache.debug \
                     && export CCACHE_REMOTE_STORAGE=file:///root/ccache \
                     && export EXTRA_CXX_FLAGS=-O3 \
                     && export USE_JEMALLOC='ON' \
-					&& export ENABLE_PCH=OFF ${jdk17_str}\
+                    && export ENABLE_PCH=OFF \
                     && export CUSTOM_NPM_REGISTRY=https://registry.npmjs.org \
                     && bash build.sh --fe --be --clean 2>&1 | tee build.log"
 set +x

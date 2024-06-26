@@ -20,22 +20,16 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_compaction_extract_root", "nonConcurrent") {
     def tableName = "test_t"
 
-    def set_be_config = { key, value ->
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-    }
-    
-    String backend_id;
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
+    def set_be_config = { key, value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+    }
+    String backend_id;
     backend_id = backendId_to_backendIP.keySet()[0]
     def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
     logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
@@ -66,6 +60,7 @@ suite("test_compaction_extract_root", "nonConcurrent") {
     """
 
     set_be_config.call("enable_vertical_segment_writer", "true")
+    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     sql """insert into ${tableName}  select 0, '{"a": 11245, "b" : {"state" : "open", "code" : 2}}'  as json_str
         union  all select 8, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "aaaaa"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
@@ -90,8 +85,10 @@ suite("test_compaction_extract_root", "nonConcurrent") {
         union  all select 5, '{"a": 1123}' as json_str union all select 5, '{"a": 11245, "b" : 42005}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
     // // fix cast to string tobe {}
-    qt_select_b_1 """ SELECT count(cast(v['b'] as string)) FROM ${tableName};"""
-    qt_select_b_2 """ SELECT count(cast(v['b'] as int)) FROM ${tableName};"""
+    qt_select_b_1 """ SELECT count(cast(v['b'] as string)) FROM test_t"""
+    qt_select_b_2 """ SELECT count(cast(v['b'] as int)) FROM test_t"""
+    // TODO, sparse columns with v['b'] will not be merged in hierachical_data_reader with sparse columns
+    // qt_select_b_2 """ select v['b'] from test_t where  cast(v['b'] as string) != '42005' and  cast(v['b'] as string) != '42004' and  cast(v['b'] as string) != '42003' order by cast(v['b'] as string); """
 
     qt_select_1_bfcompact """select v['b'] from test_t where k = 0 and cast(v['a'] as int) = 11245;"""
 
@@ -145,8 +142,11 @@ suite("test_compaction_extract_root", "nonConcurrent") {
     }
     assert (rowCount <= 8)
     // fix cast to string tobe {}
-    qt_select_b_3 """ SELECT count(cast(v['b'] as string)) FROM ${tableName};"""
-    qt_select_b_4 """ SELECT count(cast(v['b'] as int)) FROM ${tableName};"""
+    qt_select_b_3 """ SELECT count(cast(v['b'] as string)) FROM test_t"""
+    qt_select_b_4 """ SELECT count(cast(v['b'] as int)) FROM test_t"""
+    // TODO, sparse columns with v['b'] will not be merged in hierachical_data_reader with sparse columns
+    // qt_select_b_5 """ select v['b'] from test_t where  cast(v['b'] as string) != '42005' and  cast(v['b'] as string) != '42004' and  cast(v['b'] as string) != '42003' order by cast(v['b'] as string); """
 
     qt_select_1 """select v['b'] from test_t where k = 0 and cast(v['a'] as int) = 11245;"""
+    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
 }

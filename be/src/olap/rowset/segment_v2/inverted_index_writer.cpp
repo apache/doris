@@ -26,7 +26,10 @@
 #include <memory>
 #include <ostream>
 #include <roaring/roaring.hh>
+#include <string>
 #include <vector>
+
+#include "io/fs/local_file_system.h"
 
 #ifdef __clang__
 #pragma clang diagnostic push
@@ -47,11 +50,9 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
-#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/collection_value.h"
@@ -80,15 +81,22 @@ public:
 
     explicit InvertedIndexColumnWriterImpl(const std::string& field_name,
                                            InvertedIndexFileWriter* index_file_writer,
-                                           const TabletIndex* index_meta)
-            : _index_meta(index_meta), _index_file_writer(index_file_writer) {
+                                           const TabletIndex* index_meta,
+                                           const bool single_field = true)
+            : _single_field(single_field),
+              _index_meta(index_meta),
+              _index_file_writer(index_file_writer) {
         _parser_type = get_inverted_index_parser_type_from_string(
                 get_parser_string_from_properties(_index_meta->properties()));
         _value_key_coder = get_key_coder(field_type);
-        _field_name = std::wstring(field_name.begin(), field_name.end());
+        _field_name = StringUtil::string_to_wstring(field_name);
     }
 
-    ~InvertedIndexColumnWriterImpl() override = default;
+    ~InvertedIndexColumnWriterImpl() override {
+        if (_index_writer != nullptr) {
+            close_on_error();
+        }
+    }
 
     Status init() override {
         try {
@@ -109,27 +117,7 @@ public:
     void close() {
         if (_index_writer) {
             _index_writer->close();
-            if (config::enable_write_index_searcher_cache) {
-                // open index searcher into cache
-                auto mem_tracker =
-                        std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
-                auto index_file_path = _index_file_writer->get_index_file_path(_index_meta);
-                auto index_tmp_dir = _dir->getDirName();
-                InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_path);
-
-                auto* dir = DorisFSDirectoryFactory::getDirectory(_index_file_writer->get_fs(),
-                                                                  index_tmp_dir.c_str());
-                IndexSearcherPtr searcher;
-                auto st = InvertedIndexReader::create_index_searcher(
-                        dir, &searcher, mem_tracker.get(), InvertedIndexReaderType::FULLTEXT);
-                if (UNLIKELY(!st.ok())) {
-                    LOG(ERROR) << "insert inverted index searcher cache error:" << st;
-                    return;
-                }
-                auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
-                        std::move(searcher), mem_tracker->consumption(), UnixMillis());
-                InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value);
-            }
+            _index_writer.reset();
         }
     }
 
@@ -237,6 +225,7 @@ public:
                 break;
             }
             setup_analyzer_lowercase(analyzer);
+            setup_analyzer_use_stopwords(analyzer);
             return Status::OK();
         } catch (CLuceneError& e) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
@@ -245,11 +234,20 @@ public:
     }
 
     void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
-        auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
-        if (lowercase == "true") {
+        auto lowercase = get_parser_lowercase_from_properties<true>(_index_meta->properties());
+        if (lowercase == INVERTED_INDEX_PARSER_TRUE) {
             analyzer->set_lowercase(true);
-        } else if (lowercase == "false") {
+        } else if (lowercase == INVERTED_INDEX_PARSER_FALSE) {
             analyzer->set_lowercase(false);
+        }
+    }
+
+    void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
+        auto stop_words = get_parser_stopwords_from_properties(_index_meta->properties());
+        if (stop_words == "none") {
+            analyzer->set_stopwords(nullptr);
+        } else {
+            analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
         }
     }
 
@@ -258,9 +256,17 @@ public:
         RETURN_IF_ERROR(create_char_string_reader(_char_string_reader));
         RETURN_IF_ERROR(create_analyzer(_analyzer));
         RETURN_IF_ERROR(create_index_writer(_index_writer));
-        RETURN_IF_ERROR(create_field(&_field));
         _doc = std::make_unique<lucene::document::Document>();
-        _doc->add(*_field);
+        if (_single_field) {
+            RETURN_IF_ERROR(create_field(&_field));
+            _doc->add(*_field);
+        } else {
+            // array's inverted index do need create field first
+            _doc->setNeedResetFieldData(true);
+        }
+        auto ignore_above_value =
+                get_parser_ignore_above_value_from_properties(_index_meta->properties());
+        _ignore_above = std::stoi(ignore_above_value);
         return Status::OK();
     }
 
@@ -303,11 +309,9 @@ public:
         return Status::OK();
     }
 
-    void new_fulltext_field(const char* field_value_data, size_t field_value_size) {
-        if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
-            _parser_type == InvertedIndexParserType::PARSER_CHINESE ||
-            _parser_type == InvertedIndexParserType::PARSER_UNICODE ||
-            _parser_type == InvertedIndexParserType::PARSER_STANDARD) {
+    void new_inverted_index_field(const char* field_value_data, size_t field_value_size) {
+        if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+            _parser_type != InvertedIndexParserType::PARSER_NONE) {
             new_char_token_stream(field_value_data, field_value_size, _field);
         } else {
             new_field_char_value(field_value_data, field_value_size, _field);
@@ -339,17 +343,14 @@ public:
                         "field or index writer is null in inverted index writer");
             }
             auto* v = (Slice*)values;
-            auto ignore_above_value =
-                    get_parser_ignore_above_value_from_properties(_index_meta->properties());
-            auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
                 // only ignore_above UNTOKENIZED strings and empty strings not tokenized
                 if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                     v->get_size() > ignore_above) ||
+                     v->get_size() > _ignore_above) ||
                     (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
                     RETURN_IF_ERROR(add_null_document());
                 } else {
-                    new_fulltext_field(v->get_data(), v->get_size());
+                    new_inverted_index_field(v->get_data(), v->get_size());
                     RETURN_IF_ERROR(add_document());
                 }
                 ++v;
@@ -369,46 +370,82 @@ public:
         }
         const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
         if constexpr (field_is_slice_type(field_type)) {
-            if (_field == nullptr || _index_writer == nullptr) {
-                LOG(ERROR) << "field or index writer is null in inverted index writer.";
-                return Status::InternalError(
-                        "field or index writer is null in inverted index writer");
+            if (_index_writer == nullptr) {
+                LOG(ERROR) << "index writer is null in inverted index writer.";
+                return Status::InternalError("index writer is null in inverted index writer");
             }
-            auto ignore_above_value =
-                    get_parser_ignore_above_value_from_properties(_index_meta->properties());
-            auto ignore_above = std::stoi(ignore_above_value);
+            size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                // offsets[i+1] is now row element count
-                std::vector<std::string> strings;
-                // [0, 3, 6]
-                // [10,20,30] [20,30,40], [30,40,50]
-                auto start_off = offsets[i];
-                auto end_off = offsets[i + 1];
-                for (auto j = start_off; j < end_off; ++j) {
+                // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
+                // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
+                auto array_elem_size = offsets[i + 1] - offsets[i];
+                // TODO(Amory).later we use object pool to avoid field creation
+                lucene::document::Field* new_field = nullptr;
+                CL_NS(analysis)::TokenStream* ts = nullptr;
+                for (auto j = start_off; j < start_off + array_elem_size; ++j) {
                     if (null_map[j] == 1) {
                         continue;
                     }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
-                    strings.emplace_back(v->get_data(), v->get_size());
+                    if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                         v->get_size() > _ignore_above) ||
+                        (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                        // is here a null value?
+                        // TODO. Maybe here has performance problem for large size string.
+                        continue;
+                    } else {
+                        // now we temp create field . later make a pool
+                        if (Status st = create_field(&new_field); st != Status::OK()) {
+                            LOG(ERROR) << "create field "
+                                       << string(_field_name.begin(), _field_name.end())
+                                       << " error:" << st;
+                            return st;
+                        }
+                        if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+                            _parser_type != InvertedIndexParserType::PARSER_NONE) {
+                            // in this case stream need to delete after add_document, because the
+                            // stream can not reuse for different field
+                            bool own_token_stream = true;
+                            bool own_reader = true;
+                            std::unique_ptr<lucene::util::Reader> char_string_reader = nullptr;
+                            RETURN_IF_ERROR(create_char_string_reader(char_string_reader));
+                            char_string_reader->init(v->get_data(), v->get_size(), false);
+                            _analyzer->set_ownReader(own_reader);
+                            ts = _analyzer->tokenStream(new_field->name(),
+                                                        char_string_reader.release());
+                            new_field->setValue(ts, own_token_stream);
+                        } else {
+                            new_field_char_value(v->get_data(), v->get_size(), new_field);
+                        }
+                        _doc->add(*new_field);
+                    }
                 }
-
-                auto value = join(strings, " ");
-                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
-                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                     value.length() > ignore_above) ||
-                    (_parser_type != InvertedIndexParserType::PARSER_NONE && value.empty())) {
-                    RETURN_IF_ERROR(add_null_document());
-                } else {
-                    new_fulltext_field(value.c_str(), value.length());
+                start_off += array_elem_size;
+                if (!_doc->getFields()->empty()) {
+                    // if this array is null, we just ignore to write inverted index
                     RETURN_IF_ERROR(add_document());
+                    _doc->clear();
+                } else {
+                    // avoid to add doc which without any field which may make threadState init skip
+                    // init fieldDataArray, then will make error with next doc with fields in
+                    // resetCurrentFieldData
+                    if (Status st = create_field(&new_field); st != Status::OK()) {
+                        LOG(ERROR)
+                                << "create field " << string(_field_name.begin(), _field_name.end())
+                                << " error:" << st;
+                        return st;
+                    }
+                    _doc->add(*new_field);
+                    RETURN_IF_ERROR(add_null_document());
+                    _doc->clear();
                 }
                 _rid++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
+            size_t start_off = 0;
             for (int i = 0; i < count; ++i) {
-                auto start_off = offsets[i];
-                auto end_off = offsets[i + 1];
-                for (size_t j = start_off; j < end_off; ++j) {
+                auto array_elem_size = offsets[i + 1] - offsets[i];
+                for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
                     if (null_map[j] == 1) {
                         continue;
                     }
@@ -419,6 +456,7 @@ public:
                     _value_key_coder->full_encode_ascending(p, &new_value);
                     _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
                 }
+                start_off += array_elem_size;
                 _row_ids_seen_for_bkd++;
                 _rid++;
             }
@@ -447,7 +485,7 @@ public:
                     item_data_ptr = (uint8_t*)item_data_ptr + field_size;
                 }
                 auto value = join(strings, " ");
-                new_fulltext_field(value.c_str(), value.length());
+                new_inverted_index_field(value.c_str(), value.length());
                 _rid++;
                 RETURN_IF_ERROR(add_document());
                 values++;
@@ -501,8 +539,6 @@ public:
         return 0;
     }
 
-    int64_t file_size() const override { return _dir->getCompoundFileSize(); }
-
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out) {
         // write null_bitmap file
         _null_bitmap.runOptimize();
@@ -527,18 +563,15 @@ public:
                 if constexpr (field_is_numeric_type(field_type)) {
                     _bkd_writer->max_doc_ = _rid;
                     _bkd_writer->docs_seen_ = _row_ids_seen_for_bkd;
-                    null_bitmap_out =
-                            std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                                    InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()
-                                            .c_str()));
+                    null_bitmap_out = std::unique_ptr<
+                            lucene::store::IndexOutput>(_dir->createOutput(
+                            InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()));
                     data_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                            InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name()
-                                    .c_str()));
+                            InvertedIndexDescriptor::get_temporary_bkd_index_data_file_name()));
                     meta_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                            InvertedIndexDescriptor::get_temporary_bkd_index_meta_file_name()
-                                    .c_str()));
+                            InvertedIndexDescriptor::get_temporary_bkd_index_meta_file_name()));
                     index_out = std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                            InvertedIndexDescriptor::get_temporary_bkd_index_file_name().c_str()));
+                            InvertedIndexDescriptor::get_temporary_bkd_index_file_name()));
                     write_null_bitmap(null_bitmap_out.get());
 
                     DBUG_EXECUTE_IF("InvertedIndexWriter._set_bkd_data_out_nullptr",
@@ -558,10 +591,9 @@ public:
                     index_out->close();
                     _dir->close();
                 } else if constexpr (field_is_slice_type(field_type)) {
-                    null_bitmap_out =
-                            std::unique_ptr<lucene::store::IndexOutput>(_dir->createOutput(
-                                    InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()
-                                            .c_str()));
+                    null_bitmap_out = std::unique_ptr<
+                            lucene::store::IndexOutput>(_dir->createOutput(
+                            InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()));
                     write_null_bitmap(null_bitmap_out.get());
                     close();
                     DBUG_EXECUTE_IF(
@@ -600,6 +632,7 @@ private:
 
     std::unique_ptr<lucene::document::Document> _doc = nullptr;
     lucene::document::Field* _field = nullptr;
+    bool _single_field = true;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
@@ -610,6 +643,7 @@ private:
     InvertedIndexParserType _parser_type;
     std::wstring _field_name;
     InvertedIndexFileWriter* _index_file_writer;
+    uint32_t _ignore_above;
 };
 
 Status InvertedIndexColumnWriter::create(const Field* field,
@@ -618,12 +652,26 @@ Status InvertedIndexColumnWriter::create(const Field* field,
                                          const TabletIndex* index_meta) {
     const auto* typeinfo = field->type_info();
     FieldType type = typeinfo->type();
-    std::string field_name = field->name();
+    std::string field_name;
+    auto storage_format = index_file_writer->get_storage_format();
+    if (storage_format == InvertedIndexStorageFormatPB::V1) {
+        field_name = field->name();
+    } else {
+        if (field->is_extracted_column()) {
+            // variant sub col
+            // field_name format: parent_unique_id.sub_col_name
+            field_name = std::to_string(field->parent_unique_id()) + "." + field->name();
+        } else {
+            field_name = std::to_string(field->unique_id());
+        }
+    }
+    bool single_field = true;
     if (type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         const auto* array_typeinfo = dynamic_cast<const ArrayTypeInfo*>(typeinfo);
         if (array_typeinfo != nullptr) {
             typeinfo = array_typeinfo->item_type_info();
             type = typeinfo->type();
+            single_field = false;
         } else {
             return Status::NotSupported("unsupported array type for inverted index: " +
                                         std::to_string(int(type)));
@@ -631,10 +679,10 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     }
 
     switch (type) {
-#define M(TYPE)                                                       \
-    case TYPE:                                                        \
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<TYPE>>( \
-                field_name, index_file_writer, index_meta);           \
+#define M(TYPE)                                                           \
+    case TYPE:                                                            \
+        *res = std::make_unique<InvertedIndexColumnWriterImpl<TYPE>>(     \
+                field_name, index_file_writer, index_meta, single_field); \
         break;
         M(FieldType::OLAP_FIELD_TYPE_TINYINT)
         M(FieldType::OLAP_FIELD_TYPE_SMALLINT)
@@ -655,8 +703,8 @@ Status InvertedIndexColumnWriter::create(const Field* field,
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL256)
         M(FieldType::OLAP_FIELD_TYPE_BOOL)
-        M(FieldType::OLAP_FIELD_TYPE_DOUBLE)
-        M(FieldType::OLAP_FIELD_TYPE_FLOAT)
+        M(FieldType::OLAP_FIELD_TYPE_IPV4)
+        M(FieldType::OLAP_FIELD_TYPE_IPV6)
 #undef M
     default:
         return Status::NotSupported("unsupported type for inverted index: " +

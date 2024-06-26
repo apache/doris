@@ -121,7 +121,7 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
 
         ImmutableList<Expression> arguments = ImmutableList.of(Literal.of(1));
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder("foo", arguments);
-        Expression function = functionBuilder.build("foo", arguments);
+        Expression function = functionBuilder.build("foo", arguments).first;
         Assertions.assertEquals(function.getClass(), ExtendFunction.class);
         Assertions.assertEquals(arguments, function.getArguments());
     }

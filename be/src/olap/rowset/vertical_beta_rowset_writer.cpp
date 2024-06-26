@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <string>
@@ -167,13 +168,20 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     auto& context = this->_context;
 
     int seg_id = this->_num_segment.fetch_add(1, std::memory_order_relaxed);
-    auto path = BetaRowset::segment_file_path(context.rowset_dir, context.rowset_id, seg_id);
-    auto fs = this->_rowset_meta->fs();
-    if (!fs) {
-        return Status::Error<INIT_FAILED>("get fs failed");
-    }
+
     io::FileWriterPtr file_writer;
-    Status st = fs->create_file(path, &file_writer);
+    io::FileWriterOptions opts {
+            .write_file_cache = this->_context.write_file_cache,
+            .is_cold_data = this->_context.is_hot_data,
+            .file_cache_expiration = this->_context.file_cache_ttl_sec > 0 &&
+                                                     this->_context.newest_write_timestamp > 0
+                                             ? this->_context.newest_write_timestamp +
+                                                       this->_context.file_cache_ttl_sec
+                                             : 0};
+
+    auto path = context.segment_path(seg_id);
+    auto& fs = context.fs_ref();
+    Status st = fs.create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;

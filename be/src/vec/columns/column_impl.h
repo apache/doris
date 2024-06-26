@@ -33,34 +33,8 @@
 namespace doris::vectorized {
 
 template <typename Derived>
-std::vector<IColumn::MutablePtr> IColumn::scatter_impl(ColumnIndex num_columns,
-                                                       const Selector& selector) const {
-    size_t num_rows = size();
-
-    if (num_rows != selector.size()) {
-        LOG(FATAL) << fmt::format("Size of selector: {}, doesn't match size of column:{}",
-                                  selector.size(), num_rows);
-    }
-
-    std::vector<MutablePtr> columns(num_columns);
-    for (auto& column : columns) column = clone_empty();
-
-    {
-        size_t reserve_size =
-                num_rows * 1.1 / num_columns; /// 1.1 is just a guess. Better to use n-sigma rule.
-
-        if (reserve_size > 1)
-            for (auto& column : columns) column->reserve(reserve_size);
-    }
-
-    for (size_t i = 0; i < num_rows; ++i)
-        static_cast<Derived&>(*columns[selector[i]]).insert_from(*this, i);
-
-    return columns;
-}
-
-template <typename Derived>
-void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
+void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,
+                                           size_t end) const {
     size_t num_rows = size();
 
     if (num_rows < selector.size()) {
@@ -70,49 +44,13 @@ void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& sele
 
     res->reserve(num_rows);
 
-    for (size_t i = 0; i < selector.size(); ++i)
+    for (size_t i = begin; i < end; ++i) {
         static_cast<Derived&>(*res).insert_from(*this, selector[i]);
-}
-
-template <typename Derived>
-void IColumn::get_indices_of_non_default_rows_impl(IColumn::Offsets64& indices, size_t from,
-                                                   size_t limit) const {
-    size_t to = limit && from + limit < size() ? from + limit : size();
-    indices.reserve(indices.size() + to - from);
-    for (size_t i = from; i < to; ++i) {
-        if (!static_cast<const Derived&>(*this).is_default_at(i)) {
-            indices.push_back(i);
-        }
     }
 }
-
 template <typename Derived>
-double IColumn::get_ratio_of_default_rows_impl(double sample_ratio) const {
-    if (sample_ratio <= 0.0 || sample_ratio > 1.0) {
-        LOG(FATAL) << "Value of 'sample_ratio' must be in interval (0.0; 1.0], but got: "
-                   << sample_ratio;
-    }
-    static constexpr auto max_number_of_rows_for_full_search = 1000;
-    size_t num_rows = size();
-    size_t num_sampled_rows = std::min(static_cast<size_t>(num_rows * sample_ratio), num_rows);
-    size_t num_checked_rows = 0;
-    size_t res = 0;
-    if (num_sampled_rows == num_rows || num_rows <= max_number_of_rows_for_full_search) {
-        for (size_t i = 0; i < num_rows; ++i)
-            res += static_cast<const Derived&>(*this).is_default_at(i);
-        num_checked_rows = num_rows;
-    } else if (num_sampled_rows != 0) {
-        for (size_t i = 0; i < num_rows; ++i) {
-            if (num_checked_rows * num_rows <= i * num_sampled_rows) {
-                res += static_cast<const Derived&>(*this).is_default_at(i);
-                ++num_checked_rows;
-            }
-        }
-    }
-    if (num_checked_rows == 0) {
-        return 0.0;
-    }
-    return static_cast<double>(res) / num_checked_rows;
+void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
+    append_data_by_selector_impl<Derived>(res, selector, 0, selector.size());
 }
 
 } // namespace doris::vectorized

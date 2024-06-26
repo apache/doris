@@ -45,7 +45,6 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -117,14 +116,16 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         if (unexpectedExpressionTypes.isEmpty()) {
             return;
         }
-        plan.getExpressions().forEach(c -> c.foreachUp(e -> {
-            for (Class<? extends Expression> type : unexpectedExpressionTypes) {
-                if (type.isInstance(e)) {
-                    throw new AnalysisException(plan.getType() + " can not contains "
-                            + type.getSimpleName() + " expression: " + ((Expression) e).toSql());
+        for (Expression expr : plan.getExpressions()) {
+            expr.foreachUp(e -> {
+                for (Class<? extends Expression> type : unexpectedExpressionTypes) {
+                    if (type.isInstance(e)) {
+                        throw new AnalysisException(plan.getType() + " can not contains "
+                                + type.getSimpleName() + " expression: " + ((Expression) e).toSql());
+                    }
                 }
-            }
-        }));
+            });
+        }
     }
 
     private void checkExpressionInputTypes(Plan plan) {
@@ -157,20 +158,21 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 break;
             }
         }
-        long distinctFunctionNum = aggregateFunctions.stream()
-                .filter(AggregateFunction::isDistinct)
-                .count();
+
+        long distinctFunctionNum = 0;
+        for (AggregateFunction aggregateFunction : aggregateFunctions) {
+            distinctFunctionNum += aggregateFunction.isDistinct() ? 1 : 0;
+        }
 
         if (distinctMultiColumns && distinctFunctionNum > 1) {
             throw new AnalysisException(
                     "The query contains multi count distinct or sum distinct, each can't have multi columns");
         }
-        Optional<Expression> expr = aggregate.getGroupByExpressions().stream()
-                .filter(expression -> expression.containsType(AggregateFunction.class)).findFirst();
-        if (expr.isPresent()) {
-            throw new AnalysisException(
-                    "GROUP BY expression must not contain aggregate functions: "
-                            + expr.get().toSql());
+        for (Expression expr : aggregate.getGroupByExpressions()) {
+            if (expr.anyMatch(AggregateFunction.class::isInstance)) {
+                throw new AnalysisException(
+                        "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
+            }
         }
     }
 }

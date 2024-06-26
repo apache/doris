@@ -66,6 +66,7 @@ private:
     // Records the current status of the calc delete bitmap job.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
     Status _status;
+    QueryThreadContext _query_thread_context;
 };
 
 // CalcDeleteBitmapExecutor is responsible for calc delete bitmap concurrently.

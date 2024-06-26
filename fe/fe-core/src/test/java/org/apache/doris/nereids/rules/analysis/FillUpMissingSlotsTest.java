@@ -87,10 +87,9 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalFilter(
-                                logicalProject(
-                                        logicalAggregate(
-                                                logicalProject(logicalOlapScan())
-                                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1))))));
+                                    logicalAggregate(
+                                            logicalProject(logicalOlapScan())
+                                    ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1)))));
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING a1 > 0";
         SlotReference value = new SlotReference(new ExprId(3), "value", TinyIntType.INSTANCE, true,
@@ -134,10 +133,9 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject(
-                                                logicalAggregate(
-                                                        logicalProject(logicalOlapScan())
-                                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2))))
+                                            logicalAggregate(
+                                                    logicalProject(logicalOlapScan())
+                                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(a1, new TinyIntLiteral((byte) 0)))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(sumA2.toSlot()))));
     }
@@ -158,10 +156,9 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject(
-                                                logicalAggregate(
-                                                        logicalProject(logicalOlapScan())
-                                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2))))
+                                            logicalAggregate(
+                                                    logicalProject(logicalOlapScan())
+                                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(sumA2.toSlot(), Literal.of(0L)))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
 
@@ -171,13 +168,12 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject(
-                                                logicalAggregate(
-                                                        logicalProject(
-                                                                logicalOlapScan()
-                                                        )
-                                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2))))
-                                ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(sumA2.toSlot(), Literal.of(0L)))))));
+                                            logicalAggregate(
+                                                    logicalProject(
+                                                            logicalOlapScan()
+                                                    )
+                                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2))))
+                                .when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(sumA2.toSlot(), Literal.of(0L)))))));
 
         sql = "SELECT a1, sum(a2) as value FROM t1 GROUP BY a1 HAVING sum(a2) > 0";
         a1 = new SlotReference(
@@ -193,22 +189,20 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject(
-                                                logicalAggregate(
-                                                        logicalProject(
-                                                                logicalOlapScan())
-                                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value))))
+                                            logicalAggregate(
+                                                    logicalProject(
+                                                            logicalOlapScan())
+                                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), Literal.of(0L)))))));
 
         sql = "SELECT a1, sum(a2) as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalFilter(
-                                logicalProject(
-                                        logicalAggregate(
-                                                logicalProject(
-                                                        logicalOlapScan())
-                                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value))))
+                                    logicalAggregate(
+                                            logicalProject(
+                                                    logicalOlapScan())
+                                    ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
                         ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), Literal.of(0L))))));
 
         sql = "SELECT a1, sum(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0";
@@ -230,10 +224,9 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject(
-                                                logicalAggregate(
-                                                        logicalProject(logicalOlapScan())
-                                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2, minPK))))
+                                            logicalAggregate(
+                                                    logicalProject(logicalOlapScan())
+                                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2, minPK)))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(minPK.toSlot(), Literal.of((byte) 0)))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
 
@@ -243,10 +236,9 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject(
-                                                logicalAggregate(
-                                                        logicalProject(logicalOlapScan())
-                                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2))))
+                                            logicalAggregate(
+                                                    logicalProject(logicalOlapScan())
+                                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2)))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(sumA1A2.toSlot(), Literal.of(0L)))))));
 
         sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 HAVING sum(a1 + a2 + 3) > 0";
@@ -256,10 +248,9 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject(
-                                                logicalAggregate(
-                                                        logicalProject(logicalOlapScan())
-                                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2, sumA1A23))))
+                                            logicalAggregate(
+                                                    logicalProject(logicalOlapScan())
+                                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2, sumA1A23)))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(sumA1A23.toSlot(), Literal.of(0L)))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA1A2.toSlot()))));
 
@@ -269,10 +260,9 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject(
-                                                logicalAggregate(
-                                                        logicalProject(logicalOlapScan())
-                                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, countStar))))
+                                            logicalAggregate(
+                                                    logicalProject(logicalOlapScan())
+                                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, countStar)))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(countStar.toSlot(), Literal.of(0L)))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
     }
@@ -298,17 +288,16 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject(
-                                                logicalAggregate(
-                                                        logicalProject(
-                                                                logicalFilter(
-                                                                        logicalJoin(
-                                                                                logicalOlapScan(),
-                                                                                logicalOlapScan()
-                                                                        )
-                                                                ))
-                                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2, sumB1)))
-                                        )).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(new Cast(a1, BigIntType.INSTANCE),
+                                            logicalAggregate(
+                                                    logicalProject(
+                                                            logicalFilter(
+                                                                    logicalJoin(
+                                                                            logicalOlapScan(),
+                                                                            logicalOlapScan()
+                                                                    )
+                                                            ))
+                                            ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2, sumB1)))
+                                        ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(new Cast(a1, BigIntType.INSTANCE),
                                         sumB1.toSlot()))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
     }
@@ -317,7 +306,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
     void testInvalidHaving() {
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
-                "a2 in having clause should be grouped by.",
+                "a2 should be grouped by.",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING a2 > 0"
                 ));

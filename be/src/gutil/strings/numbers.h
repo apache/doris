@@ -21,7 +21,6 @@ using std::string;
 
 using std::vector;
 
-#include "gutil/int128.h"
 #include "gutil/integral_types.h"
 // IWYU pragma: no_include <butil/macros.h>
 #include "gutil/macros.h" // IWYU pragma: keep
@@ -34,9 +33,6 @@ using std::vector;
 
 // Convert a fingerprint to 16 hex digits.
 string Uint64ToString(uint64 fp);
-
-// Formats a uint128 as a 32-digit hex string.
-string Uint128ToHexString(uint128 ui128);
 
 // Convert strings to numeric values, with strict error checking.
 // Leading and trailing spaces are allowed.
@@ -443,8 +439,8 @@ int FloatToBuffer(float i, int width, char* buffer);
 char* DoubleToBuffer(double i, char* buffer);
 char* FloatToBuffer(float i, char* buffer);
 
-int FastDoubleToBuffer(double i, char* buffer, bool faster_float_convert = false);
-int FastFloatToBuffer(float i, char* buffer, bool faster_float_convert = false);
+int FastDoubleToBuffer(double i, char* buffer);
+int FastFloatToBuffer(float i, char* buffer);
 // In practice, doubles should never need more than 24 bytes and floats
 // should never need more than 14 (including null terminators), but we
 // overestimate to be safe.

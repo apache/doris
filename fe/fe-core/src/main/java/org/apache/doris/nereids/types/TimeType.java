@@ -19,11 +19,12 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.nereids.types.coercion.RangeScalable;
 
 /**
  * Datetime type in Nereids.
  */
-public class TimeType extends PrimitiveType {
+public class TimeType extends PrimitiveType implements RangeScalable {
 
     public static final TimeType INSTANCE = new TimeType();
 

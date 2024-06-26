@@ -150,8 +150,7 @@ suite("test_export_data_consistency", "p0") {
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator" = ",",
-                "parallelism" = "10",
-                "data_consistency" = "partition"
+                "parallelism" = "10"
             );
         """
         // do insert in parallel

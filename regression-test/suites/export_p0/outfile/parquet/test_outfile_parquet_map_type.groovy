@@ -33,7 +33,6 @@ suite("test_outfile_parquet_map_type", "p0") {
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
     def export_table_name = "outfile_parquet_map_type_export_test"
-    def load_table_name = "outfile_parquet_map_type_load_test"
     def outFilePath = "${bucket}/outfile/parquet/map_type/exp_"
 
 
@@ -73,9 +72,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<STRING, LARGEINT> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'a': 100, 'b': 111}), (2, 'doris2', {'a': 200, 'b': 222}); """
@@ -92,7 +88,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load1 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -108,8 +104,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<LARGEINT, STRING> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {100: 'null', 111:'b'}), (2, 'doris2', {200:'a', 222:'b'}); """
@@ -128,7 +122,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load2 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -144,9 +138,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<INT, DECIMAL(15,5)> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
+        
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {100: 0.123, 111:1.2345}), (2, 'doris2', {200:8738931.12312, 222:999.999}); """
         sql """ insert into ${export_table_name} values (3, 'doris3', {111: 1111034.123, 333:7771.1231, 399:0.441241, 39999:0.441241}); """
@@ -164,7 +156,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load3 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -180,9 +172,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<INT, DOUBLE> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
+        
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {100: ${Double.MIN_VALUE}, 111:${Double.MAX_VALUE}}), (2, 'doris2', {200: 123.123, 222:0.9999999}); """
         sql """ insert into ${export_table_name} values (3, 'doris3', {111: 187.123, 333:555.6767, 399:129312.113, 3999:123.12314}); """
@@ -199,7 +189,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load4 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -215,9 +205,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<STRING, DECIMAL(15,5)> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'k1': 0.123, '111':1.2345}), (2, 'doris2', {'200':8738931.12312, 'doris':999.999}); """
@@ -237,7 +224,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load5 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -253,9 +240,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<STRING, DOUBLE> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'100': ${Double.MIN_VALUE}, 'doris':${Double.MAX_VALUE}}), (2, 'doris2', {'nereids': 123.123, '222':0.9999999}); """
@@ -273,7 +257,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load6 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -289,9 +273,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<STRING, BIGINT> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'a': 100, 'b': 111}), (2, 'doris2', {'a': 200, 'b': 222}); """
@@ -308,7 +289,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load7 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -324,9 +305,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<STRING, BOOLEAN> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'a': true, 'b': false}), (2, 'doris2', {'a': false, 'b': false}); """
@@ -343,7 +321,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load8 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -359,9 +337,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<INT, BOOLEAN> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {100: true, 111:true}), (2, 'doris2', {200: false, 222:false}); """
@@ -379,7 +354,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load9 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -395,8 +370,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<DATETIME, STRING> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'2023-04-20 01:02:03': 'null', '2018-04-20 10:40:35':'b'}), (2, 'doris2', {'2000-04-20 00:00:00':'a', '1967-12-31 12:24:56':'b'}); """
@@ -415,7 +388,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load10 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -431,9 +404,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<DATETIME, INT> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'2023-04-20 01:02:03': null, '2018-04-20 10:40:35': 123}), (2, 'doris2', {'2000-04-20 00:00:00':${Integer.MIN_VALUE}, '1967-12-31 12:24:56':${Integer.MAX_VALUE}}); """
@@ -450,7 +420,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load11 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -466,9 +436,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<DATE, INT> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'2023-04-20': null, '2018-04-20': 123}), (2, 'doris2', {'2000-04-20':${Integer.MIN_VALUE}, '1967-12-31':${Integer.MAX_VALUE}}); """
@@ -485,7 +452,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load12 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -501,9 +468,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<DATE, STRING> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'2023-04-20': 'null', '2018-04-20': null}), (2, 'doris2', {'2000-04-20':'${Integer.MIN_VALUE}', '1967-12-31':'${Integer.MAX_VALUE}'}); """
@@ -520,7 +484,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load13 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -536,9 +500,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<DATETIME, STRING> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'2023-04-20 12:20:03': 'null', '2018-04-20 12:59:59': null}), (2, 'doris2', {'2000-04-20 23:59:59':'${Integer.MIN_VALUE}', '1967-12-31 00:00:00':'${Integer.MAX_VALUE}'}); """
@@ -555,7 +516,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load14 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -571,9 +532,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<BIGINT, VARCHAR(20)> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {100: 'null', 111:'b'}), (2, 'doris2', {200:'a', 222:'b'}); """
@@ -592,7 +550,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load15 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -608,9 +566,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<BOOLEAN, VARCHAR(20)> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, "doris1", {true:"null",false:"b"}), (2, "doris2", {true:"a", true:"b"}); """
@@ -629,7 +584,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load16 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -644,9 +599,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<BOOLEAN, STRING> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
-
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {1: 'xxx', 0:'b'}), (2, 'doris2', {1:'a', 1:'b'}); """
@@ -665,7 +617,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load17 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -681,8 +633,6 @@ suite("test_outfile_parquet_map_type", "p0") {
         def map_field_define = "`m_info` Map<STRING, STRING> NULL"
         // create table to export data
         create_table(export_table_name, map_field_define)
-        // create table to load data
-        create_table(load_table_name, map_field_define)
 
         // insert data
         sql """ insert into ${export_table_name} values (1, 'doris1', {'doris': 'null', 'nereids':'b'}), (2, 'doris2', {'ftw':'a', 'cyx':'b'}); """
@@ -701,7 +651,7 @@ suite("test_outfile_parquet_map_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load18 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.parquet",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "parquet",
@@ -710,5 +660,4 @@ suite("test_outfile_parquet_map_type", "p0") {
             """
     } finally {
     }
-
 }

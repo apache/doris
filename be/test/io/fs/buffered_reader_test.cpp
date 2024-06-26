@@ -66,8 +66,6 @@ public:
 
     bool closed() const override { return _reader->closed(); }
 
-    std::shared_ptr<io::FileSystem> fs() const override { return _reader->fs(); }
-
 private:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const io::IOContext* io_ctx) override {
@@ -95,8 +93,6 @@ public:
     size_t size() const override { return _size; }
 
     bool closed() const override { return _closed; }
-
-    std::shared_ptr<io::FileSystem> fs() const override { return nullptr; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -286,8 +282,8 @@ TEST_F(BufferedReaderTest, test_read_amplify) {
     random_access_ranges.emplace_back(512 * kb, 2048 * kb); // column4
 
     io::MergeRangeFileReader merge_reader(nullptr, offset_reader, random_access_ranges);
-    char data[2048 * kb]; // 2MB
-    Slice result(data, 2048 * kb);
+    std::vector<char> data(2048 * kb); // 2MB
+    Slice result(data.data(), 2048 * kb);
     size_t bytes_read = 0;
 
     // read column4

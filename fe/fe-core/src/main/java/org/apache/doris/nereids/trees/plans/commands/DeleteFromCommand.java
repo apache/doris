@@ -109,13 +109,13 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
             return;
         }
         Optional<PhysicalFilter<?>> optFilter = (planner.getPhysicalPlan()
-                .<Set<PhysicalFilter<?>>>collect(PhysicalFilter.class::isInstance)).stream()
+                .<PhysicalFilter<?>>collect(PhysicalFilter.class::isInstance)).stream()
                 .findAny();
         Optional<PhysicalOlapScan> optScan = (planner.getPhysicalPlan()
-                .<Set<PhysicalOlapScan>>collect(PhysicalOlapScan.class::isInstance)).stream()
+                .<PhysicalOlapScan>collect(PhysicalOlapScan.class::isInstance)).stream()
                 .findAny();
         Optional<UnboundRelation> optRelation = (logicalQuery
-                .<Set<UnboundRelation>>collect(UnboundRelation.class::isInstance)).stream()
+                .<UnboundRelation>collect(UnboundRelation.class::isInstance)).stream()
                 .findAny();
         Preconditions.checkArgument(optFilter.isPresent(), "delete command must contain filter");
         Preconditions.checkArgument(optScan.isPresent(), "delete command could be only used on olap table");
@@ -124,8 +124,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
         UnboundRelation relation = optRelation.get();
         PhysicalFilter<?> filter = optFilter.get();
 
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), scan.getDatabase().getFullName(),
-                scan.getTable().getName(), PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), scan.getDatabase().getCatalog().getName(),
+                        scan.getDatabase().getFullName(),
+                        scan.getTable().getName(), PrivPredicate.LOAD)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     scan.getDatabase().getFullName() + ": " + scan.getTable().getName());
@@ -139,7 +141,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
             Plan plan = planner.getPhysicalPlan();
             checkSubQuery(plan);
             for (Expression conjunct : filter.getConjuncts()) {
-                conjunct.<Set<SlotReference>>collect(SlotReference.class::isInstance)
+                conjunct.<SlotReference>collect(SlotReference.class::isInstance)
                         .forEach(s -> checkColumn(columns, s, olapTable));
                 checkPredicate(conjunct);
             }
@@ -222,7 +224,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
         // TODO(Now we can not push down non-scala type like array/map/struct to storage layer because of
         //  predict_column in be not support non-scala type, so we just should ban this type in delete predict, when
         //  we delete predict_column in be we should delete this ban)
-        if (!column.getType().isScalarType()) {
+        if (!column.getType().isScalarType()
+                || (column.getType().isOnlyMetricType() && !column.getType().isJsonbType())) {
             throw new AnalysisException(String.format("Can not apply delete condition to column type: "
                     + column.getType()));
         }
@@ -324,6 +327,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
                 checkIsNull((IsNull) child);
             } else if (child instanceof ComparisonPredicate) {
                 checkComparisonPredicate((ComparisonPredicate) child);
+            } else if (child instanceof InPredicate) {
+                checkInPredicate((InPredicate) child);
             } else {
                 throw new AnalysisException("Where clause only supports compound predicate,"
                         + " binary predicate, is_null predicate or in predicate. But we meet "

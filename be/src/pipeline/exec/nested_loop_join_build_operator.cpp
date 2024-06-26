@@ -19,11 +19,39 @@
 
 #include <string>
 
+#include "exprs/runtime_filter_slots_cross.h"
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(NestLoopJoinBuildOperator, StreamingOperator)
+struct RuntimeFilterBuild {
+    RuntimeFilterBuild(NestedLoopJoinBuildSinkLocalState* parent) : _parent(parent) {}
+    Status operator()(RuntimeState* state) {
+        if (_parent->runtime_filters().empty()) {
+            return Status::OK();
+        }
+        VRuntimeFilterSlotsCross runtime_filter_slots(_parent->runtime_filters(),
+                                                      _parent->filter_src_expr_ctxs());
+
+        RETURN_IF_ERROR(runtime_filter_slots.init(state));
+
+        if (!runtime_filter_slots.empty() && !_parent->build_blocks().empty()) {
+            SCOPED_TIMER(_parent->runtime_filter_compute_timer());
+            for (auto& build_block : _parent->build_blocks()) {
+                RETURN_IF_ERROR(runtime_filter_slots.insert(&build_block));
+            }
+        }
+        {
+            SCOPED_TIMER(_parent->publish_runtime_filter_timer());
+            RETURN_IF_ERROR(runtime_filter_slots.publish());
+        }
+
+        return Status::OK();
+    }
+
+private:
+    NestedLoopJoinBuildSinkLocalState* _parent = nullptr;
+};
 
 NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                                      RuntimeState* state)
@@ -36,14 +64,22 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
+    _runtime_filters.resize(p._runtime_filter_descs.size());
+    for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
+        RETURN_IF_ERROR(state->register_producer_runtime_filter(
+                p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i], false));
+    }
+    return Status::OK();
+}
+
+Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
+    auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
     _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
     for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
-    }
-    _runtime_filters.resize(p._runtime_filter_descs.size());
-    for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i], false,
-                                                                &_runtime_filters[i], false));
     }
     return Status::OK();
 }
@@ -51,9 +87,11 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
                                                                    int operator_id,
                                                                    const TPlanNode& tnode,
-                                                                   const DescriptorTbl& descs)
+                                                                   const DescriptorTbl& descs,
+                                                                   bool need_local_merge)
         : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, tnode,
                                                                     descs),
+          _need_local_merge(need_local_merge),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
@@ -106,7 +144,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
 
     if (eos) {
         COUNTER_UPDATE(local_state._build_rows_counter, local_state._build_rows);
-        vectorized::RuntimeFilterBuild<NestedLoopJoinBuildSinkLocalState> rf_ctx(&local_state);
+        RuntimeFilterBuild rf_ctx(&local_state);
         RETURN_IF_ERROR(rf_ctx(state));
 
         // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338

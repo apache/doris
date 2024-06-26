@@ -23,6 +23,7 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
         String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
         String catalog_name = "test_external_catalog_hive"
 
+        sql """set enable_fallback_to_original_planner=false"""
         sql """drop catalog if exists ${catalog_name};"""
 
         sql """
@@ -47,8 +48,8 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
         sql """switch ${catalog_name};"""
         // test small table(text format)
         def q01 = {
-            qt_q01 """ select name, count(1) as c from student group by name order by c desc;"""
-            qt_q02 """ select lo_orderkey, count(1) as c from lineorder group by lo_orderkey order by c desc;"""
+            qt_q01 """ select name, count(1) as c from student group by name order by name desc;"""
+            qt_q02 """ select lo_orderkey, count(1) as c from lineorder group by lo_orderkey order by lo_orderkey asc;"""
             qt_q03 """ select * from test1 order by col_1;"""
             qt_q04 """ select * from string_table order by p_partkey desc;"""
             qt_q05 """ select * from account_fund order by batchno;"""
@@ -109,6 +110,9 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
         qt_par_fields_in_file_orc5 """ select * from multi_catalog.par_fields_in_file_orc where month = 8 and year = 2022 order by id; """
         qt_par_fields_in_file_parquet5 """ select * from multi_catalog.par_fields_in_file_parquet where month = 8 and year = 2022 order by id; """
 
+        // timestamp with isAdjustedToUTC=true
+        qt_parquet_adjusted_utc """select * from multi_catalog.timestamp_with_time_zone order by date_col;"""
+
         // test unsupported input format query
         try {
             sql """ select * from multi_catalog.unsupported_input_format_empty; """
@@ -145,7 +149,7 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
                     'type'='hms',
                     'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
                     'access_controller.properties.ranger.service.name' = 'hive_wrong',
-                    'access_controller.class' = 'org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory'
+                    'access_controller.class' = 'org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory'
                 );
             """
             exception "Failed to init access controller: bound must be positive"

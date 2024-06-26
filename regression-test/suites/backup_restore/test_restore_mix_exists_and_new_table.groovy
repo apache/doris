@@ -60,9 +60,7 @@ suite("test_restore_mix_exists_and_new_table", "backup_restore") {
         ON (${tables.join(",")})
     """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -83,9 +81,7 @@ suite("test_restore_mix_exists_and_new_table", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     for (def tableName in tables) {
         result = sql "SELECT * FROM ${dbName}.${tableName}"

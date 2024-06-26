@@ -34,6 +34,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
@@ -119,15 +120,20 @@ public class PartitionTableInfo {
             && partitionDefs.stream().allMatch(p -> p instanceof InPartition);
     }
 
-    private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx, boolean isEnableMergeOnWrite) {
-        if (!column.isKey()
-                && (!column.getAggType().equals(AggregateType.NONE) || isEnableMergeOnWrite)) {
-            throw new AnalysisException("The partition column could not be aggregated column");
+    private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx,
+                                         boolean isEnableMergeOnWrite, boolean isExternal) {
+        if (!column.isKey()) { // value column
+            if (!column.getAggType().equals(AggregateType.NONE)) { // agg column
+                throw new AnalysisException("The partition column could not be aggregated column");
+            }
+            if (isEnableMergeOnWrite) { // MoW table
+                throw new AnalysisException("Merge-on-Write table's partition column must be KEY column");
+            }
         }
         if (column.getType().isFloatLikeType()) {
             throw new AnalysisException("Floating point type column can not be partition column");
         }
-        if (column.getType().isStringType()) {
+        if (column.getType().isStringType() && !isExternal) {
             throw new AnalysisException("String Type should not be used in partition column["
                 + column.getName() + "].");
         }
@@ -135,13 +141,14 @@ public class PartitionTableInfo {
             throw new AnalysisException("Complex type column can't be partition column: "
                 + column.getType().toString());
         }
-        // prohibit to create auto partition with null column anyhow
-        if (this.isAutoPartition && column.isNullable()) {
-            throw new AnalysisException("The auto partition column must be NOT NULL");
-        }
         if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
             throw new AnalysisException(
                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
+        }
+        if (partitionType.equalsIgnoreCase(PartitionType.RANGE.name()) && isAutoPartition) {
+            if (column.isNullable()) {
+                throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
+            }
         }
     }
 
@@ -154,6 +161,8 @@ public class PartitionTableInfo {
      * @param isEnableMergeOnWrite whether enable merge on write
      */
     public void validatePartitionInfo(
+            String engineName,
+            List<ColumnDefinition> columns,
             Map<String, ColumnDefinition> columnMap,
             Map<String, String> properties,
             ConnectContext ctx,
@@ -174,7 +183,7 @@ public class PartitionTableInfo {
                     throw new AnalysisException(
                             String.format("partition key %s is not exists", p));
                 }
-                validatePartitionColumn(columnMap.get(p), ctx, isEnableMergeOnWrite);
+                validatePartitionColumn(columnMap.get(p), ctx, isEnableMergeOnWrite, isExternal);
             });
 
             Set<String> partitionColumnSets = Sets.newHashSet();
@@ -183,6 +192,27 @@ public class PartitionTableInfo {
             if (!duplicatesKeys.isEmpty()) {
                 throw new AnalysisException(
                         "Duplicated partition column " + duplicatesKeys.get(0));
+            }
+
+            if (engineName.equals(CreateTableInfo.ENGINE_HIVE)) {
+                // 1. Cannot set all columns as partitioning columns
+                // 2. The partition field must be at the end of the schema
+                // 3. The order of partition fields in the schema
+                //    must be consistent with the order defined in `PARTITIONED BY LIST()`
+                if (partitionColumns.size() == columns.size()) {
+                    throw new AnalysisException("Cannot set all columns as partitioning columns.");
+                }
+                List<ColumnDefinition> partitionInSchema = columns.subList(
+                        columns.size() - partitionColumns.size(), columns.size());
+                if (partitionInSchema.stream().anyMatch(p -> !partitionColumns.contains(p.getName()))) {
+                    throw new AnalysisException("The partition field must be at the end of the schema.");
+                }
+                for (int i = 0; i < partitionInSchema.size(); i++) {
+                    if (!partitionInSchema.get(i).getName().equals(partitionColumns.get(i))) {
+                        throw new AnalysisException("The order of partition fields in the schema "
+                            + "must be consistent with the order defined in `PARTITIONED BY LIST()`");
+                    }
+                }
             }
 
             if (partitionDefs != null) {
@@ -238,19 +268,17 @@ public class PartitionTableInfo {
             }
 
             try {
+                ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
+                // here we have already extracted partitionColumns
                 if (partitionType.equals(PartitionType.RANGE.name())) {
                     if (isAutoPartition) {
-                        partitionDesc = new RangePartitionDesc(
-                            convertToLegacyAutoPartitionExprs(partitionList),
-                            partitionColumns, partitionDescs);
+                        partitionDesc = new RangePartitionDesc(exprs, partitionColumns, partitionDescs);
                     } else {
                         partitionDesc = new RangePartitionDesc(partitionColumns, partitionDescs);
                     }
                 } else {
                     if (isAutoPartition) {
-                        partitionDesc = new ListPartitionDesc(
-                            convertToLegacyAutoPartitionExprs(partitionList),
-                            partitionColumns, partitionDescs);
+                        partitionDesc = new ListPartitionDesc(exprs, partitionColumns, partitionDescs);
                     } else {
                         partitionDesc = new ListPartitionDesc(partitionColumns, partitionDescs);
                     }
@@ -288,5 +316,21 @@ public class PartitionTableInfo {
                 throw new AnalysisException("unsupported argument " + child.toString());
             }
         }).collect(Collectors.toList());
+    }
+
+    /**
+     *  Get column names and put in partitionColumns
+     */
+    public void extractPartitionColumns() throws AnalysisException {
+        if (partitionList == null) {
+            return;
+        }
+        ArrayList<Expr> exprs = convertToLegacyAutoPartitionExprs(partitionList);
+        try {
+            partitionColumns = PartitionDesc.getColNamesFromExpr(exprs,
+                    partitionType.equalsIgnoreCase(PartitionType.LIST.name()), isAutoPartition);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
     }
 }

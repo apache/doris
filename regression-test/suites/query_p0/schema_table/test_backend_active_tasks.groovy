@@ -17,7 +17,7 @@
 
 suite("test_backend_active_tasks") {
     def thread1 = new Thread({
-        while(true) {
+        for (int i = 0; i <= 300; i++) {
             // non-pipeline
             sql "set experimental_enable_pipeline_engine=false"
             sql "set experimental_enable_pipeline_x_engine=false"

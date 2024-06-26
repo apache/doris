@@ -38,7 +38,11 @@ class VExprContext;
 namespace doris::vectorized {
 
 VSlotRef::VSlotRef(const doris::TExprNode& node)
-        : VExpr(node), _slot_id(node.slot_ref.slot_id), _column_id(-1), _column_name(nullptr) {}
+        : VExpr(node),
+          _slot_id(node.slot_ref.slot_id),
+          _column_id(-1),
+          _column_name(nullptr),
+          _column_label(node.label) {}
 
 VSlotRef::VSlotRef(const SlotDescriptor* desc)
         : VExpr(desc->type(), true, desc->is_nullable()),
@@ -99,6 +103,10 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
 const std::string& VSlotRef::expr_name() const {
     return *_column_name;
 }
+std::string VSlotRef::expr_label() {
+    return _column_label;
+}
+
 std::string VSlotRef::debug_string() const {
     std::stringstream out;
     out << "SlotRef(slot_id=" << _slot_id << VExpr::debug_string() << ")";

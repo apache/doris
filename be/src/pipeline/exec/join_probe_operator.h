@@ -18,12 +18,8 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/join/vjoin_node_base.h"
 
-namespace doris {
-
-namespace pipeline {
+namespace doris::pipeline {
 template <typename LocalStateType>
 class JoinProbeOperatorX;
 template <typename SharedStateArg, typename Derived>
@@ -31,6 +27,7 @@ class JoinProbeLocalState : public PipelineXLocalState<SharedStateArg> {
 public:
     using Base = PipelineXLocalState<SharedStateArg>;
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     virtual void add_tuple_is_null_column(vectorized::Block* block) = 0;
 
@@ -70,7 +67,12 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status open(doris::RuntimeState* state) override;
-    [[nodiscard]] const RowDescriptor& row_desc() const override { return *_output_row_desc; }
+    [[nodiscard]] const RowDescriptor& row_desc() const override {
+        if (Base::_output_row_descriptor) {
+            return *Base::_output_row_descriptor;
+        }
+        return *_output_row_desc;
+    }
 
     [[nodiscard]] const RowDescriptor& intermediate_row_desc() const override {
         return *_intermediate_row_desc;
@@ -114,7 +116,11 @@ protected:
     vectorized::VExprContextSPtrs _output_expr_ctxs;
     OperatorXPtr _build_side_child = nullptr;
     const bool _short_circuit_for_null_in_build_side;
+    // In the Old planner, there is a plan for two columns of tuple is null,
+    // but in the Nereids planner, this logic does not exist.
+    // Therefore, we should not insert these two columns under the Nereids optimizer.
+    // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+    const bool _use_specific_projections;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

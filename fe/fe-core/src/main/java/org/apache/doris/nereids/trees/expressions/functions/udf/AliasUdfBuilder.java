@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,7 +33,6 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -48,6 +48,11 @@ public class AliasUdfBuilder extends UdfBuilder {
     @Override
     public List<DataType> getArgTypes() {
         return aliasUdf.getArgTypes();
+    }
+
+    @Override
+    public Class<? extends BoundFunction> functionClass() {
+        return AliasUdf.class;
     }
 
     @Override
@@ -67,7 +72,7 @@ public class AliasUdfBuilder extends UdfBuilder {
     }
 
     @Override
-    public Expression build(String name, List<?> arguments) {
+    public Pair<Expression, BoundFunction> build(String name, List<?> arguments) {
         // use AliasFunction to process TypeCoercion
         BoundFunction boundAliasFunction = ((BoundFunction) aliasUdf.withChildren(arguments.stream()
                 .map(Expression.class::cast).collect(Collectors.toList())));
@@ -79,8 +84,8 @@ public class AliasUdfBuilder extends UdfBuilder {
 
         // replace the placeholder slot to the input expressions.
         // adjust input, parameter and replaceMap to be corresponding.
-        Map<String, SlotReference> slots = ((Set<SlotReference>) boundFunction
-                .collect(SlotReference.class::isInstance))
+        Map<String, SlotReference> slots = (boundFunction
+                .<SlotReference>collect(SlotReference.class::isInstance))
                 .stream().collect(Collectors.toMap(SlotReference::getName, k -> k, (v1, v2) -> v2));
 
         Map<SlotReference, Expression> replaceMap = Maps.newHashMap();
@@ -90,7 +95,7 @@ public class AliasUdfBuilder extends UdfBuilder {
             replaceMap.put(slots.get(parameter), inputs.get(i));
         }
 
-        return SlotReplacer.INSTANCE.replace(boundFunction, replaceMap);
+        return Pair.of(SlotReplacer.INSTANCE.replace(boundFunction, replaceMap), boundAliasFunction);
     }
 
     private static class SlotReplacer extends DefaultExpressionRewriter<Map<SlotReference, Expression>> {

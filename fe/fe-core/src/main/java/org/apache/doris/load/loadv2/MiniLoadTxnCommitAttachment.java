@@ -21,14 +21,19 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class MiniLoadTxnCommitAttachment extends TxnCommitAttachment {
+    @SerializedName(value = "lr")
     private long loadedRows;
+    @SerializedName(value = "fr")
     private long filteredRows;
     // optional
+    @SerializedName(value = "elr")
     private String errorLogUrl;
 
     public MiniLoadTxnCommitAttachment() {

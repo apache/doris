@@ -45,6 +45,8 @@ struct TTabletSchema {
     17: optional bool enable_single_replica_compaction = false
     18: optional bool skip_write_index_on_load = false
     19: optional list<i32> cluster_key_idxes
+    // col unique id for row store column
+    20: optional list<i32> row_store_col_cids
 }
 
 // this enum stands for different storage format in src_backends
@@ -61,6 +63,16 @@ enum TTabletType {
     TABLET_TYPE_MEMORY = 1
 }
 
+enum TObjStorageType {
+    UNKNOWN = 0,
+    AWS = 1,
+    AZURE = 2,
+    BOS = 3,
+    COS = 4,
+    OBS = 5,
+    OSS = 6,
+    GCP = 7
+}
 
 struct TS3StorageParam {
     1: optional string endpoint
@@ -73,6 +85,8 @@ struct TS3StorageParam {
     8: optional string root_path
     9: optional string bucket
     10: optional bool use_path_style = false
+    11: optional string token
+    12: optional TObjStorageType provider
 }
 
 struct TStoragePolicy {
@@ -98,6 +112,8 @@ struct TPushStoragePolicyReq {
     2: optional list<TStorageResource> resource
     3: optional list<i64> dropped_storage_policy
 }
+
+struct TCleanTrashReq {}
 
 enum TCompressionType {
     UNKNOWN_COMPRESSION = 0,
@@ -210,6 +226,7 @@ struct TAlterTabletReqV2 {
     // For cloud
     1000: optional i64 job_id
     1001: optional i64 expiration
+    1002: optional string storage_vault_id
 }
 
 struct TAlterInvertedIndexReq {
@@ -268,6 +285,8 @@ struct TPushReq {
     14: optional PlanNodes.TBrokerScanRange broker_scan_range
     15: optional Descriptors.TDescriptorTable desc_tbl
     16: optional list<Descriptors.TColumn> columns_desc
+    17: optional string storage_vault_id
+    18: optional i32 schema_version
 }
 
 struct TCloneReq {
@@ -395,6 +414,12 @@ struct TPublishVersionRequest {
     2: required list<TPartitionVersionInfo> partition_version_infos
     // strict mode means BE will check tablet missing version
     3: optional bool strict_mode = false
+    // for delta rows statistics to exclude rollup tablets
+    4: optional set<Types.TTabletId> base_tablet_ids
+}
+
+struct TVisibleVersionReq {
+    1: required map<Types.TPartitionId, Types.TVersion> partition_version
 }
 
 struct TCalcDeleteBitmapPartitionInfo {
@@ -508,6 +533,8 @@ struct TAgentTaskRequest {
     31: optional TPushStoragePolicyReq push_storage_policy_req
     32: optional TAlterInvertedIndexReq alter_inverted_index_req
     33: optional TGcBinlogReq gc_binlog_req
+    34: optional TCleanTrashReq clean_trash_req
+    35: optional TVisibleVersionReq visible_version_req
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req

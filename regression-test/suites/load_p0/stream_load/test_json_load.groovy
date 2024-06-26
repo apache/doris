@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_json_load", "p0") { 
+suite("test_json_load", "p0,nonConcurrent") { 
 
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -823,6 +823,32 @@ suite("test_json_load", "p0") {
                 assertEquals("${reason}", "${out}")
             }
         }
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // add something like $.tag. [a.b] key's json case
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable} 
+            (
+                `k1` varchar(1024) NULL,
+                `k2` varchar(1024) NULL
+            )
+            DUPLICATE KEY(`k1`)
+            COMMENT ''
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+        load_json_data.call("${testTable}", "${testTable}_case28_1", 'false', '', 'json', '', '[\"$.tags.\\\"a.b\\\"\",\"$.tags.k2\"]',
+                             '', '', '', 'test_special_key_json.json')
+        
+        sql "sync"
+        sleep(1000)
+        qt_select28 "select * from ${testTable}"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")

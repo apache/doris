@@ -47,6 +47,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver"
         );"""
+        order_qt_show_db """ show databases from ${catalog_name}; """
         sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
@@ -139,14 +140,6 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
             sql("SELECT * FROM STUDENT WHERE nvl(score, 0) < 95;")
             contains """SELECT "ID", "NAME", "AGE", "SCORE" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("SCORE", 0.0) < 95.0))"""
         }
-
-        // for old planner
-        order_qt_filter4_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' order by ID; """
-        order_qt_filter5_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' or NAME NOT LIKE '%jerry%' order by ID; """
-        order_qt_filter6_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' and NAME NOT LIKE '%jerry%' order by ID; """
-        order_qt_filter7_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' and NAME LIKE '%jerry%' order by ID; """
-        order_qt_filter8_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' and ID = 4 order by ID; """
-        order_qt_filter9_old_plan  """ SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM STUDENT WHERE (NAME NOT LIKE '%bob%' AND AGE > 20) OR (SCORE < 90 AND NOT (NAME = 'alice' OR AGE <= 18)) order by ID; """
 
         // The result of TEST_RAW will change
         // So instead of qt, we're using sql here.

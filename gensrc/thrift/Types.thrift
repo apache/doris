@@ -114,7 +114,8 @@ enum TStorageBackendType {
     HDFS,
     JFS,
     LOCAL,
-    OFS
+    OFS,
+    AZURE
 }
 
 struct TScalarType {
@@ -167,6 +168,7 @@ struct TTypeDesc {
     4: optional list<TTypeDesc> sub_types
     5: optional bool result_is_nullable
     6: optional string function_name
+    7: optional i32 be_exec_version
 }
 
 enum TAggregationType {
@@ -223,6 +225,8 @@ enum TTaskType {
     PUSH_STORAGE_POLICY,
     ALTER_INVERTED_INDEX,
     GC_BINLOG,
+    CLEAN_TRASH,
+    UPDATE_VISIBLE_VERSION,
 
     // CLOUD
     CALCULATE_DELETE_BITMAP = 1000
@@ -381,6 +385,7 @@ struct TFunction {
   11: optional i64 id
   12: optional string checksum
   13: optional bool vectorized = false
+  14: optional bool is_udtf_function = false
 }
 
 enum TJdbcOperation {
@@ -401,7 +406,7 @@ enum TOdbcTableType {
     PRESTO,
     OCEANBASE,
     OCEANBASE_ORACLE,
-    NEBULA,
+    NEBULA, // Deprecated
     DB2
 }
 
@@ -615,6 +620,7 @@ enum TTableType {
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
     MAX_COMPUTE_TABLE,
+    LAKESOUL_TABLE,
     TRINO_CONNECTOR_TABLE
 }
 

@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_table_function") {
-    sql """set enable_nereids_planner=false"""
     sql """
         drop table if exists t_table_function;
     """
@@ -26,7 +25,7 @@ suite("test_table_function") {
         `tag_id` varchar(128) NOT NULL, 
         `tag_value` varchar(128) NULL , 
         `case_id_offset` bigint(20) NULL , 
-        `case_id_bitmap` bitmap BITMAP_UNION NULL ) 
+        `case_id_bitmap` bitmap BITMAP_UNION  ) 
         ENGINE=OLAP AGGREGATE KEY(`tag_id`, `tag_value`, `case_id_offset`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`case_id_offset`)
         BUCKETS 128 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "storage_format" = "V2", "light_schema_change" = "true", "disable_auto_compaction" = "false" );
     """

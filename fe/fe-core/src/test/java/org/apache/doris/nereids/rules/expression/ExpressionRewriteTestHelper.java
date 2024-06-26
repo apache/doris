@@ -46,7 +46,7 @@ import org.junit.jupiter.api.Assertions;
 import java.util.List;
 import java.util.Map;
 
-public abstract class ExpressionRewriteTestHelper {
+public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
     protected static final NereidsParser PARSER = new NereidsParser();
     protected ExpressionRuleExecutor executor;
 
@@ -76,6 +76,12 @@ public abstract class ExpressionRewriteTestHelper {
         expression = typeCoercion(expression);
         Expression rewrittenExpression = executor.rewrite(expression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
+    }
+
+    protected void assertNotRewrite(Expression expression, Expression expectedExpression) {
+        expression = typeCoercion(expression);
+        Expression rewrittenExpression = executor.rewrite(expression, context);
+        Assertions.assertNotEquals(expectedExpression, rewrittenExpression);
     }
 
     protected void assertRewriteAfterTypeCoercion(String expression, String expected) {

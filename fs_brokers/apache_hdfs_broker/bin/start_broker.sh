@@ -63,7 +63,7 @@ PID_DIR="$(
 )"
 export PID_DIR
 
-export JAVA_OPTS="-Xmx1024m -Dfile.encoding=UTF-8"
+export JAVA_OPTS="-Xmx1024m -Dfile.encoding=UTF-8 --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens java.base/jdk.internal.ref=ALL-UNNAMED"
 export BROKER_LOG_DIR="${BROKER_HOME}/log"
 # java
 if [[ -z "${JAVA_HOME}" ]]; then

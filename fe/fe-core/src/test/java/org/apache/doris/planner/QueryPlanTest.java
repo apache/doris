@@ -67,6 +67,7 @@ public class QueryPlanTest extends TestWithFeService {
         // create database
         createDatabase("test");
         connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+        connectContext.getSessionVariable().setEnableFoldConstantByBe(false);
         Config.enable_odbc_mysql_broker_table = true;
 
         createTable("create table test.test1\n"
@@ -100,7 +101,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         createTable("CREATE TABLE test.bitmap_table (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
-                + "  `id2` bitmap bitmap_union NULL\n"
+                + "  `id2` bitmap bitmap_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
@@ -136,8 +137,8 @@ public class QueryPlanTest extends TestWithFeService {
 
         createTable("CREATE TABLE test.bitmap_table_2 (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
-                + "  `id2` bitmap bitmap_union NULL,\n"
-                + "  `id3` bitmap bitmap_union NULL\n"
+                + "  `id2` bitmap bitmap_union ,\n"
+                + "  `id3` bitmap bitmap_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
@@ -147,7 +148,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         createTable("CREATE TABLE test.hll_table (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
-                + "  `id2` hll hll_union NULL\n"
+                + "  `id2` hll hll_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"
@@ -1100,7 +1101,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1114,7 +1115,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1198,7 +1199,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1228,7 +1229,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0, 0);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1248,7 +1249,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -1277,7 +1278,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0, 0);
+                        replica.updateVersion(2);
                     }
                 }
             }
@@ -2178,7 +2179,7 @@ public class QueryPlanTest extends TestWithFeService {
         createTable("CREATE TABLE test.bitmap_tb (\n"
                 + "  `id` int(11) NULL COMMENT \"\",\n"
                 + "  `id2` int(11) NULL COMMENT \"\",\n"
-                + "  `id3` bitmap bitmap_union NULL\n"
+                + "  `id3` bitmap bitmap_union \n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`id`,`id2`)\n"
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n"

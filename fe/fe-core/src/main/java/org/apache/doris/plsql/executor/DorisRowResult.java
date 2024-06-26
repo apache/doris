@@ -59,7 +59,7 @@ public class DorisRowResult implements RowResult {
 
     @Override
     public boolean next() {
-        if (eof) {
+        if (eof || coord == null) {
             return false;
         }
         try {

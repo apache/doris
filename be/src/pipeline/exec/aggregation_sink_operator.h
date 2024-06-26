@@ -19,30 +19,10 @@
 
 #include <stdint.h>
 
-#include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "runtime/block_spill_manager.h"
+#include "pipeline/exec/operator.h"
 #include "runtime/exec_env.h"
-#include "vec/exec/vaggregation_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class AggSinkOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
-public:
-    AggSinkOperatorBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-    bool is_sink() const override { return true; }
-};
-
-class AggSinkOperator final : public StreamingOperator<vectorized::AggregationNode> {
-public:
-    AggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-    bool can_write() override { return true; }
-};
+namespace doris::pipeline {
 
 class AggSinkOperatorX;
 
@@ -94,7 +74,7 @@ protected:
     Status _execute_without_key(vectorized::Block* block);
     Status _merge_without_key(vectorized::Block* block);
     void _update_memusage_without_key();
-    void _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
+    Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
     Status _execute_with_serialized_key(vectorized::Block* block);
     Status _merge_with_serialized_key(vectorized::Block* block);
     void _update_memusage_with_serialized_key();
@@ -104,6 +84,9 @@ protected:
                              vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                   vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+    bool _emplace_into_hash_table_limit(vectorized::AggregateDataPtr* places,
+                                        vectorized::Block* block, const std::vector<int>& key_locs,
+                                        vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
     size_t _get_hash_table_size() const;
 
     template <bool limit, bool for_spill = false>
@@ -115,6 +98,7 @@ protected:
 
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_limit_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
@@ -124,17 +108,17 @@ protected:
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
     RuntimeProfile::Counter* _max_row_size_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
 
     bool _should_limit_output = false;
-    bool _reach_limit = false;
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
 
     vectorized::Block _preagg_block = vectorized::Block();
 
-    vectorized::AggregatedDataVariants* _agg_data = nullptr;
+    AggregatedDataVariants* _agg_data = nullptr;
     vectorized::Arena* _agg_arena_pool = nullptr;
 
     std::unique_ptr<ExecutorBase> _executor = nullptr;
@@ -143,7 +127,7 @@ protected:
 class AggSinkOperatorX final : public DataSinkOperatorX<AggSinkLocalState> {
 public:
     AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                     const DescriptorTbl& descs);
+                     const DescriptorTbl& descs, bool require_bucket_distribution);
     ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -164,19 +148,21 @@ public:
                            ? DataDistribution(ExchangeType::PASSTHROUGH)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
         }
-        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return _is_colocate && _require_bucket_distribution
+                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                       : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
+    bool require_data_distribution() const override { return _is_colocate; }
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
-    vectorized::AggregatedDataVariants* get_agg_data(RuntimeState* state) {
+    AggregatedDataVariants* get_agg_data(RuntimeState* state) {
         auto& local_state = get_local_state(state);
         return local_state._agg_data;
     }
 
     Status reset_hash_table(RuntimeState* state);
 
-    using DataSinkOperatorX<AggSinkLocalState>::id;
+    using DataSinkOperatorX<AggSinkLocalState>::node_id;
     using DataSinkOperatorX<AggSinkLocalState>::operator_id;
     using DataSinkOperatorX<AggSinkLocalState>::get_local_state;
 
@@ -209,11 +195,17 @@ protected:
     ObjectPool* _pool = nullptr;
     std::vector<size_t> _make_nullable_keys;
     int64_t _limit; // -1: no limit
-    bool _have_conjuncts;
+    // do sort limit and directions
+    bool _do_sort_limit = false;
+    std::vector<int> _order_directions;
+    std::vector<int> _null_directions;
 
+    bool _have_conjuncts;
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
+    const bool _require_bucket_distribution;
+
+    RowDescriptor _agg_fn_output_row_descriptor;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

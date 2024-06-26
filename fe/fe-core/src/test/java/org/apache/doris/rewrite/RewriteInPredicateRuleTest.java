@@ -131,7 +131,7 @@ public class RewriteInPredicateRuleTest extends TestWithFeService {
         List<String> list = Lists.newArrayList();
         Lists.newArrayList(literals).forEach(e -> list.add("%s"));
         list.remove(list.size() - 1);
-        String queryFormat = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from %s where id in (" + Joiner.on(", ").join(list) + ");";
+        String queryFormat = "select /*+ SET_VAR(enable_nereids_planner=false,enable_fold_constant_by_be=false) */ * from %s where id in (" + Joiner.on(", ").join(list) + ");";
         String query = String.format(queryFormat, literals);
         StmtExecutor executor1 = getSqlStmtExecutor(query);
         Expr expr1 = ((SelectStmt) executor1.getParsedStmt()).getWhereClause();

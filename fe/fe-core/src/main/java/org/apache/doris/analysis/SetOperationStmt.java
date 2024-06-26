@@ -234,6 +234,13 @@ public class SetOperationStmt extends QueryStmt {
         }
     }
 
+    public void forbiddenMVRewrite() {
+        super.forbiddenMVRewrite();
+        for (SetOperand op : operands) {
+            op.getQueryStmt().forbiddenMVRewrite();
+        }
+    }
+
     /**
      * Propagates DISTINCT from left to right, and checks that all
      * set operands are set compatible, adding implicit casts if necessary.

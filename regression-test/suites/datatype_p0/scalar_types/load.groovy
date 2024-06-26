@@ -448,7 +448,7 @@ suite("test_scalar_types_load", "p0") {
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
-        PROPERTIES("replication_num" = "1", "skip_write_index_on_load" = "true");
+        PROPERTIES("replication_num" = "1", "skip_write_index_on_load" = "false");
         """
 
     // insert data into dup table with index

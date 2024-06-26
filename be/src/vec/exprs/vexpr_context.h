@@ -25,6 +25,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
 #include "vec/core/block.h"
@@ -68,6 +69,21 @@ public:
         }
         return _fn_contexts[i].get();
     }
+
+    // execute expr with inverted index which column a, b has inverted indexes
+    //  but some situation although column b has indexes, but apply index is not useful, we should
+    //  skip this expr, just do not apply index anymore.
+    /**
+     * @param colid_to_inverted_index_iter contains all column id to inverted index iterator mapping from segmentIterator
+     * @param num_rows number of rows in one segment.
+     * @param bitmap roaring bitmap to store the result. 0 is present filed by index.
+     * @return status not ok means execute failed.
+     */
+    [[nodiscard]] Status eval_inverted_index(
+            const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
+                                                         segment_v2::InvertedIndexIterator*>>&
+                    colid_to_inverted_index_iter,
+            uint32_t num_rows, roaring::Roaring* bitmap);
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
                                              int column_to_keep);

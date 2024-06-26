@@ -63,7 +63,7 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20380101"))
 
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     def jobName = getJobName(dbName, mvName);
     log.info(jobName)
@@ -114,7 +114,7 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20380101"))
 
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
@@ -164,7 +164,7 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20380101"))
 
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
@@ -213,7 +213,7 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20380101_20380103"))
 
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
@@ -226,7 +226,7 @@ suite("test_limit_partition_mtmv") {
             alter Materialized View ${mvName} set("partition_sync_limit"="");
         """
     sql """
-            REFRESH MATERIALIZED VIEW ${mvName}
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     jobName = getJobName(dbName, mvName);
     log.info(jobName)

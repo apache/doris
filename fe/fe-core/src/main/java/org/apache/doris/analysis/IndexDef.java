@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -220,7 +221,7 @@ public class IndexDef {
             }
             if (!(colType.isDateType() || colType.isDecimalV2Type() || colType.isDecimalV3Type()
                     || colType.isFixedPointType() || colType.isStringType() || colType == PrimitiveType.BOOLEAN
-                    || colType.isVariantType())) {
+                    || colType.isVariantType()) || colType.isIPType()) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid index: " + indexName);
             }
@@ -237,6 +238,9 @@ public class IndexDef {
             }
 
             if (indexType == IndexType.INVERTED) {
+                if (!Config.enable_create_inverted_index_for_array && colType.isArrayType()) {
+                    throw new AnalysisException("inverted index does not support array type column:" + indexColName);
+                }
                 InvertedIndexUtil.checkInvertedIndexParser(indexColName, colType, properties);
             } else if (indexType == IndexType.NGRAM_BF) {
                 if (colType != PrimitiveType.CHAR && colType != PrimitiveType.VARCHAR

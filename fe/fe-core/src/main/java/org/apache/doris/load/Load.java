@@ -37,6 +37,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -61,8 +62,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ExprUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -76,7 +79,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -353,6 +355,11 @@ public class Load {
         for (Column column : tbl.getBaseSchema()) {
             String columnName = column.getName();
             colToType.put(columnName, column.getType());
+            if (column.getGeneratedColumnInfo() != null) {
+                GeneratedColumnInfo info = column.getGeneratedColumnInfo();
+                exprsByName.put(column.getName(), info.getExpandExprForLoad());
+                continue;
+            }
             if (columnExprMap.containsKey(columnName)) {
                 continue;
             }
@@ -550,11 +557,11 @@ public class Load {
                 }
             }
 
-            // Array type do not support cast now
+            // Array/Map/Struct type do not support cast now
             Type exprReturnType = expr.getType();
-            if (exprReturnType.isArrayType()) {
+            if (exprReturnType.isComplexType()) {
                 Type schemaType = tbl.getColumn(entry.getKey()).getType();
-                if (exprReturnType != schemaType) {
+                if (!exprReturnType.matchesType(schemaType)) {
                     throw new AnalysisException("Don't support load from type:" + exprReturnType + " to type:"
                             + schemaType + " for column:" + entry.getKey());
                 }
@@ -570,8 +577,13 @@ public class Load {
             for (SlotRef slot : slots) {
                 if (exprsByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
-                    smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
-                            exprsByName.get(slot.getColumnName())));
+                    if (tbl.getColumn(slot.getColumnName()).getType()
+                            .equals(exprsByName.get(slot.getColumnName()).getType())) {
+                        smap.getRhs().add(exprsByName.get(slot.getColumnName()));
+                    } else {
+                        smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
+                                exprsByName.get(slot.getColumnName())));
+                    }
                 } else if (slotDescByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(
@@ -611,30 +623,13 @@ public class Load {
                         importColumnDesc.setExpr(derivativeColumns.get(columnName));
                     }
                 } else {
-                    recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns);
+                    ExprUtil.recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns);
                 }
                 derivativeColumns.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
             }
         }
 
         columnDescs.isColumnDescsRewrited = true;
-    }
-
-    private static void recursiveRewrite(Expr expr, Map<String, Expr> derivativeColumns) {
-        if (CollectionUtils.isEmpty(expr.getChildren())) {
-            return;
-        }
-        for (int i = 0; i < expr.getChildren().size(); i++) {
-            Expr e = expr.getChild(i);
-            if (e instanceof SlotRef) {
-                String columnName = ((SlotRef) e).getColumnName();
-                if (derivativeColumns.containsKey(columnName)) {
-                    expr.setChild(i, derivativeColumns.get(columnName));
-                }
-            } else {
-                recursiveRewrite(e, derivativeColumns);
-            }
-        }
     }
 
     /**
@@ -1007,6 +1002,7 @@ public class Load {
             List<LoadJob> loadJobs = new ArrayList<>();
             for (Long dbId : dbToLoadJobs.keySet()) {
                 if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
                         Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
                         PrivPredicate.LOAD)) {
                     continue;
@@ -1042,6 +1038,7 @@ public class Load {
             List<LoadJob> loadJobs = new ArrayList<>();
             for (Long dbId : dbToLoadJobs.keySet()) {
                 if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
                         Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
                         PrivPredicate.LOAD)) {
                     continue;
@@ -1065,8 +1062,9 @@ public class Load {
                 Set<String> tableNames = loadJob.getTableNames();
                 boolean auth = true;
                 for (String tblName : tableNames) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                            tblName, PrivPredicate.LOAD)) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                    tblName, PrivPredicate.LOAD)) {
                         auth = false;
                         break;
                     }
@@ -1231,15 +1229,17 @@ public class Load {
                 Set<String> tableNames = loadJob.getTableNames();
                 if (tableNames.isEmpty()) {
                     // forward compatibility
-                    if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
-                            PrivPredicate.LOAD)) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                    PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
-                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                                tblName, PrivPredicate.LOAD)) {
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                        tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;
                         }

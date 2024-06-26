@@ -29,7 +29,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
     def s3Uri = "https://${bucket}.${s3_endpoint}/regression/datalake/pipeline_data/tvf/${all_type_file}";
 
     // hdfs config
-    String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+    String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     def hdfsUserName = "doris"
     def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
@@ -51,6 +51,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 
@@ -60,6 +61,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 
@@ -69,6 +71,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 
@@ -78,6 +81,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 
@@ -87,6 +91,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 
@@ -96,6 +101,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 
@@ -105,6 +111,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 
@@ -114,6 +121,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 
@@ -123,6 +131,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 
@@ -132,6 +141,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 
@@ -141,6 +151,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 
@@ -150,6 +161,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
+            "provider" = "${getS3Provider()}",
             "FORMAT" = "${format}");
         """
 

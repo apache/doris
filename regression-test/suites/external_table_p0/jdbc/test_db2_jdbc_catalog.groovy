@@ -202,7 +202,7 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
                 "type"="jdbc",
                 "user"="db2inst1",
                 "password"="123456",
-                "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/doris",
+                "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/doris:allowNextOnExhaustedResultSet=1;resultSetHoldability=1",
                 "driver_url" = "${driver_url}",
                 "driver_class" = "com.ibm.db2.jcc.DB2Driver"
             );"""
@@ -261,7 +261,7 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
 
             order_qt_desc_db "show databases from ${catalog_name};"
 
-            order_qt_select_xml "select * from db2.TEST.BOOKS;"
+            order_qt_select_xml "select * from TEST.BOOKS;"
 
             sql """ drop catalog if exists ${catalog_name} """
 

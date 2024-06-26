@@ -38,6 +38,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -167,7 +170,7 @@ public class EditLog {
         short opCode = journal.getOpCode();
         if (opCode != OperationType.OP_SAVE_NEXTID && opCode != OperationType.OP_TIMESTAMP) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("replay journal op code: {}", opCode);
+                LOG.debug("replay journal op code: {}, log id: {}", opCode, logId);
             }
         }
         try {
@@ -398,6 +401,11 @@ public class EditLog {
                     env.replayUpdateReplica(info);
                     break;
                 }
+                case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
+                    CloudWarmUpJob cloudWarmUpJob = (CloudWarmUpJob) journal.getData();
+                    ((CloudEnv) env).getCacheHotspotMgr().replayCloudWarmUpJob(cloudWarmUpJob);
+                    break;
+                }
                 case OperationType.OP_DELETE_REPLICA: {
                     ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
                     env.replayDeleteReplica(info);
@@ -438,8 +446,7 @@ public class EditLog {
                     Frontend fe = (Frontend) journal.getData();
                     env.replayDropFrontend(fe);
                     if (fe.getNodeName().equals(Env.getCurrentEnv().getNodeName())) {
-                        System.out.println("current fe " + fe + " is removed. will exit");
-                        LOG.info("current fe " + fe + " is removed. will exit");
+                        LOG.warn("current fe {} is removed. will exit", fe);
                         System.exit(-1);
                     }
                     break;
@@ -477,6 +484,11 @@ public class EditLog {
                 case OperationType.OP_CREATE_ROLE: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     env.getAuth().replayCreateRole(privInfo);
+                    break;
+                }
+                case OperationType.OP_ALTER_ROLE: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    env.getAuth().replayAlterRole(privInfo);
                     break;
                 }
                 case OperationType.OP_DROP_ROLE: {
@@ -801,7 +813,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DYNAMIC_PARTITION:
-                case OperationType.OP_MODIFY_IN_MEMORY:
+                case OperationType.OP_MODIFY_TABLE_PROPERTIES:
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
@@ -943,7 +955,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshCatalog(log);
+                    env.getRefreshManager().replayRefreshCatalog(log);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
@@ -1002,14 +1014,15 @@ public class EditLog {
                     env.getAuth().replayAlterUser(log);
                     break;
                 }
-                case OperationType.OP_INIT_CATALOG: {
+                case OperationType.OP_INIT_CATALOG:
+                case OperationType.OP_INIT_CATALOG_COMP: {
                     final InitCatalogLog log = (InitCatalogLog) journal.getData();
                     env.getCatalogMgr().replayInitCatalog(log);
                     break;
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_DB: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalDb(log);
+                    env.getRefreshManager().replayRefreshDb(log);
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_DB: {
@@ -1019,7 +1032,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalTable(log);
+                    env.getRefreshManager().replayRefreshTable(log);
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_TABLE: {
@@ -1195,9 +1208,14 @@ public class EditLog {
                     // TODO: implement this while statistics finished related work.
                     break;
                 }
+                case OperationType.OP_UPDATE_CLOUD_REPLICA: {
+                    UpdateCloudReplicaInfo info = (UpdateCloudReplicaInfo) journal.getData();
+                    ((CloudEnv) env).replayUpdateCloudReplica(info);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
-                    LOG.error("UNKNOWN Operation Type {}", opCode, e);
+                    LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
                     throw e;
                 }
             }
@@ -1221,9 +1239,9 @@ public class EditLog {
              * log a warning here to debug when happens. This could happen to other meta
              * like DB.
              */
-            LOG.warn("[INCONSISTENT META] replay failed {}: {}", journal, e.getMessage(), e);
+            LOG.warn("[INCONSISTENT META] replay log {} failed, journal {}: {}", logId, journal, e.getMessage(), e);
         } catch (Exception e) {
-            LOG.error("Operation Type {}", opCode, e);
+            LOG.error("replay Operation Type {}, log id: {}", opCode, logId, e);
             System.exit(-1);
         }
     }
@@ -1504,6 +1522,10 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_ROLE, info);
     }
 
+    public void logAlterRole(PrivInfo info) {
+        logEdit(OperationType.OP_ALTER_ROLE, info);
+    }
+
     public void logDropRole(PrivInfo info) {
         logEdit(OperationType.OP_DROP_ROLE, info);
     }
@@ -1546,6 +1568,10 @@ public class EditLog {
 
     public void logExportCreate(ExportJob job) {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
+    }
+
+    public void logUpdateCloudReplica(UpdateCloudReplicaInfo info) {
+        logEdit(OperationType.OP_UPDATE_CLOUD_REPLICA, info);
     }
 
     public void logExportUpdateState(long jobId, ExportJobState newState) {
@@ -1798,6 +1824,10 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
     }
 
+    public void logModifyCloudWarmUpJob(CloudWarmUpJob cloudWarmUpJob) {
+        logEdit(OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB, cloudWarmUpJob);
+    }
+
     private long logModifyTableProperty(short op, ModifyTablePropertyOperationLog info) {
         long logId = logEdit(op, info);
         Env.getCurrentEnv().getBinlogManager().addModifyTableProperty(info, logId);
@@ -1816,8 +1846,8 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM, info);
     }
 
-    public long logModifyInMemory(ModifyTablePropertyOperationLog info) {
-        return logModifyTableProperty(OperationType.OP_MODIFY_IN_MEMORY, info);
+    public long logModifyTableProperties(ModifyTablePropertyOperationLog info) {
+        return logModifyTableProperty(OperationType.OP_MODIFY_TABLE_PROPERTIES, info);
     }
 
     public long logUpdateBinlogConfig(ModifyTablePropertyOperationLog info) {
@@ -2071,5 +2101,18 @@ public class EditLog {
             return ((BDBJEJournal) journal).getNotReadyReason();
         }
         return "";
+    }
+
+    public boolean exceedMaxJournalSize(BackupJob job) {
+        try {
+            return exceedMaxJournalSize(OperationType.OP_BACKUP_JOB, job);
+        } catch (Exception e) {
+            LOG.warn("exceedMaxJournalSize exception:", e);
+        }
+        return true;
+    }
+
+    private boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
+        return journal.exceedMaxJournalSize(op, writable);
     }
 }

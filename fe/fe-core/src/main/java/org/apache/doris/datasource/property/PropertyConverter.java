@@ -17,13 +17,14 @@
 
 package org.apache.doris.datasource.property;
 
+import org.apache.doris.common.credentials.CloudCredential;
+import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InitCatalogLog.Type;
-import org.apache.doris.datasource.credentials.CloudCredential;
-import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.DLFProperties;
 import org.apache.doris.datasource.property.constants.GCSProperties;
@@ -39,9 +40,9 @@ import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.CosFileSystem;
+import org.apache.hadoop.fs.CosNConfigKeys;
 import org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem;
-import org.apache.hadoop.fs.cosn.CosNConfigKeys;
-import org.apache.hadoop.fs.cosn.CosNFileSystem;
 import org.apache.hadoop.fs.obs.OBSConstants;
 import org.apache.hadoop.fs.obs.OBSFileSystem;
 import org.apache.hadoop.fs.s3a.Constants;
@@ -58,6 +59,9 @@ public class PropertyConverter {
 
     private static final Logger LOG = LogManager.getLogger(PropertyConverter.class);
     public static final String USE_PATH_STYLE = "use_path_style";
+    public static final String USE_PATH_STYLE_DEFAULT_VALUE = "false";
+    public static final String FORCE_PARSING_BY_STANDARD_URI = "force_parsing_by_standard_uri";
+    public static final String FORCE_PARSING_BY_STANDARD_URI_DEFAULT_VALUE = "false";
 
     /**
      * Convert properties defined at doris to metadata properties on Cloud
@@ -122,6 +126,8 @@ public class PropertyConverter {
             return convertToCOSProperties(props, CosProperties.getCredential(props));
         } else if (props.containsKey(MinioProperties.ENDPOINT)) {
             return convertToMinioProperties(props, MinioProperties.getCredential(props));
+        } else if (props.containsKey(AzureProperties.ENDPOINT)) {
+            return convertToAzureProperties(props, AzureProperties.getCredential(props));
         } else if (props.containsKey(S3Properties.ENDPOINT)) {
             CloudCredential s3Credential = S3Properties.getCredential(props);
             Map<String, String> s3Properties = convertToS3Properties(props, s3Credential);
@@ -136,6 +142,10 @@ public class PropertyConverter {
             return convertToCompatibleS3Properties(props, s3CliEndpoint, envCredentials, s3Properties);
         }
         return props;
+    }
+
+    private static Map<String, String> convertToAzureProperties(Map<String, String> props, CloudCredential credential) {
+        return null;
     }
 
     private static Map<String, String> convertToCompatibleS3Properties(Map<String, String> props,
@@ -186,7 +196,7 @@ public class PropertyConverter {
         } else if (fsScheme.equalsIgnoreCase("oss")) {
             return AliyunOSSFileSystem.class.getName();
         } else if (fsScheme.equalsIgnoreCase("cosn")) {
-            return CosNFileSystem.class.getName();
+            return CosFileSystem.class.getName();
         } else {
             return S3AFileSystem.class.getName();
         }
@@ -352,8 +362,8 @@ public class PropertyConverter {
         cosProperties.put("fs.cosn.impl.disable.cache", "true");
         cosProperties.put("fs.cosn.impl", getHadoopFSImplByScheme("cosn"));
         if (credential.isWhole()) {
-            cosProperties.put(CosNConfigKeys.COSN_SECRET_ID_KEY, credential.getAccessKey());
-            cosProperties.put(CosNConfigKeys.COSN_SECRET_KEY_KEY, credential.getSecretKey());
+            cosProperties.put(CosNConfigKeys.COSN_USERINFO_SECRET_ID_KEY, credential.getAccessKey());
+            cosProperties.put(CosNConfigKeys.COSN_USERINFO_SECRET_KEY_KEY, credential.getSecretKey());
         }
         // session token is unsupported
         for (Map.Entry<String, String> entry : props.entrySet()) {
@@ -490,7 +500,7 @@ public class PropertyConverter {
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {
-        String prefix = "http://oss-";
+        String prefix = "oss-";
         String suffix = ".aliyuncs.com";
         if (!publicAccess) {
             suffix = "-internal" + suffix;

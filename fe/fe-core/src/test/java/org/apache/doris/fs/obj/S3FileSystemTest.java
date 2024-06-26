@@ -98,17 +98,17 @@ public class S3FileSystemTest {
             mockedClient.setMockedData(content.getBytes());
             new MockUp<S3ObjStorage>(S3ObjStorage.class) {
                 @Mock
-                public S3Client getClient(String bucket) throws UserException {
+                public S3Client getClient() throws UserException {
                     return mockedClient;
                 }
             };
             S3ObjStorage mockedStorage = new S3ObjStorage(properties);
-            Assertions.assertTrue(mockedStorage.getClient("mocked") instanceof MockedS3Client);
+            Assertions.assertTrue(mockedStorage.getClient() instanceof MockedS3Client);
             // inject storage to file system.
             fileSystem = new S3FileSystem(mockedStorage);
             new MockUp<S3FileSystem>(S3FileSystem.class) {
                 @Mock
-                public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+                public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
                     try {
                         S3URI uri = S3URI.create(remotePath, false);
                         ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder().bucket(uri.getBucket());
@@ -225,7 +225,7 @@ public class S3FileSystemTest {
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".1"));
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".2"));
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, listPath + ".3"));
-        Assertions.assertEquals(Status.OK, fileSystem.list(bucket + basePath + "_list/*", result));
+        Assertions.assertEquals(Status.OK, fileSystem.globList(bucket + basePath + "_list/*", result));
         Assertions.assertEquals(3, result.size());
     }
 

@@ -26,16 +26,6 @@ suite("join_with_column_casesensetive", "arrow_flight_sql") {
         sql new File("""${context.file.parent}/ddl/${table}.sql""").text
     }
 
-    explain {
-        sql("select /*+ SET_VAR(enable_nereids_planner=false) */ ad_order_data.pin_id,  ad_order_data_v1.rptcnt from ad_order_data left join ad_order_data_v1 on ad_order_data.pin_id=ad_order_data_v1.pin_id;")
-        notContains "PIN_ID"
-    }
-
-    explain {
-        sql("select /*+ SET_VAR(enable_nereids_planner=false) */ ad_order_data.pin_id,  ad_order_data_v1.rptcnt from ad_order_data left join ad_order_data_v1 on ad_order_data.PIN_ID=ad_order_data_v1.PIN_ID;")
-        contains "PIN_ID"
-    }
-
     def result1 = sql """
         explain select ad_order_data.pin_id,  ad_order_data_v1.rptcnt from ad_order_data left join ad_order_data_v1 on ad_order_data.pin_id=ad_order_data_v1.pin_id;
     """

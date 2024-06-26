@@ -47,7 +47,8 @@ suite("test_etl_failed", "load_p0") {
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_REGION" = "ap-beijing",
+                "provider" = "${getS3Provider()}"
             )
             PROPERTIES(
                 "use_new_load_scan_node" = "true",
@@ -63,7 +64,7 @@ suite("test_etl_failed", "load_p0") {
             assertTrue(1 == 2, "etl should be failed")
             break;
         }
-        if (result[0][2].equals("CANCELLED")) {
+        if (result[0][2].equals("CANCELLED") && result[0][13].contains("_load_error_log")) {
             break;
         }
         Thread.sleep(1000)

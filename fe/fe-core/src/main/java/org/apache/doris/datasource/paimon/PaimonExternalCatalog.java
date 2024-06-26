@@ -23,6 +23,7 @@ import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 
 import com.google.common.collect.ImmutableList;
@@ -33,9 +34,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
-import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
-import org.apache.paimon.hive.HiveCatalog;
 import org.apache.paimon.options.Options;
 
 import java.util.ArrayList;
@@ -65,15 +64,9 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
         for (Map.Entry<String, String> propEntry : this.catalogProperty.getHadoopProperties().entrySet()) {
             conf.set(propEntry.getKey(), propEntry.getValue());
         }
-        if (catalog instanceof FileSystemCatalog) {
-            authConf = AuthenticationConfig.getKerberosConfig(conf,
-                    AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                    AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
-        } else if (catalog instanceof HiveCatalog) {
-            authConf = AuthenticationConfig.getKerberosConfig(conf,
-                    AuthenticationConfig.HIVE_KERBEROS_PRINCIPAL,
-                    AuthenticationConfig.HIVE_KERBEROS_KEYTAB);
-        }
+        authConf = AuthenticationConfig.getKerberosConfig(conf,
+                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
     }
 
     public String getCatalogType() {
@@ -127,12 +120,18 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
     }
 
     protected Catalog createCatalog() {
-        Options options = new Options();
-        Map<String, String> paimonOptionsMap = getPaimonOptionsMap();
-        for (Map.Entry<String, String> kv : paimonOptionsMap.entrySet()) {
-            options.set(kv.getKey(), kv.getValue());
-        }
-        CatalogContext context = CatalogContext.create(options, getConfiguration());
+        return HadoopUGI.ugiDoAs(authConf, () -> {
+            Options options = new Options();
+            Map<String, String> paimonOptionsMap = getPaimonOptionsMap();
+            for (Map.Entry<String, String> kv : paimonOptionsMap.entrySet()) {
+                options.set(kv.getKey(), kv.getValue());
+            }
+            CatalogContext context = CatalogContext.create(options, getConfiguration());
+            return createCatalogImpl(context);
+        });
+    }
+
+    protected Catalog createCatalogImpl(CatalogContext context) {
         return CatalogFactory.createCatalog(context);
     }
 
@@ -152,6 +151,13 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
             if (kv.getKey().startsWith(PaimonProperties.PAIMON_PREFIX)) {
                 options.put(kv.getKey().substring(PaimonProperties.PAIMON_PREFIX.length()), kv.getValue());
             }
+        }
+
+        // hive version.
+        // This property is used for both FE and BE, so it has no "paimon." prefix.
+        // We need to handle it separately.
+        if (properties.containsKey(HMSProperties.HIVE_VERSION)) {
+            options.put(HMSProperties.HIVE_VERSION, properties.get(HMSProperties.HIVE_VERSION));
         }
     }
 

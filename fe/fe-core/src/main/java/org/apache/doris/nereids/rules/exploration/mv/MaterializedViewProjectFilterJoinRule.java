@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
@@ -38,9 +39,10 @@ public class MaterializedViewProjectFilterJoinRule extends AbstractMaterializedV
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalProject(logicalFilter(logicalJoin(any(), any()))).thenApplyMultiNoThrow(ctx -> {
-                    LogicalProject<LogicalFilter<LogicalJoin<Plan, Plan>>> root = ctx.root;
-                    return rewrite(root, ctx.cascadesContext);
-                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_FILTER_JOIN));
+                logicalProject(logicalFilter(logicalJoin(any().when(LogicalPlan.class::isInstance),
+                        any().when(LogicalPlan.class::isInstance)))).thenApplyMultiNoThrow(ctx -> {
+                            LogicalProject<LogicalFilter<LogicalJoin<Plan, Plan>>> root = ctx.root;
+                            return rewrite(root, ctx.cascadesContext);
+                        }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_FILTER_JOIN));
     }
 }

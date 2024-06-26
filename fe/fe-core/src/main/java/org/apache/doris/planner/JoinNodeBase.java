@@ -44,7 +44,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -57,9 +56,13 @@ public abstract class JoinNodeBase extends PlanNode {
     protected final TableRef innerRef;
     protected final JoinOperator joinOp;
     protected final boolean isMark;
-    protected TupleDescriptor vOutputTupleDesc;
     protected ExprSubstitutionMap vSrcToOutputSMap;
     protected List<TupleDescriptor> vIntermediateTupleDescList;
+
+    // in thrift, every planNode denote its output tupelId and projections by output_tuple_id and projections
+    // but for legacy reasons, JoinNode has its specific representations: voutput_tuple_id and src_expr_list
+    // if useSpecificProjections true, set the output to its specific attributes.
+    protected boolean useSpecificProjections = true;
 
     public JoinNodeBase(PlanNodeId id, String planNodeName, StatisticalType statisticalType,
             PlanNode outer, PlanNode inner, TableRef innerRef) {
@@ -115,7 +118,7 @@ public abstract class JoinNodeBase extends PlanNode {
 
     protected void computeOutputTuple(Analyzer analyzer) throws UserException {
         // 1. create new tuple
-        vOutputTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
+        outputTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
         boolean copyLeft = false;
         boolean copyRight = false;
         boolean leftNullable = false;
@@ -168,8 +171,11 @@ public abstract class JoinNodeBase extends PlanNode {
                 boolean needSetToNullable =
                         getChild(0) instanceof JoinNodeBase && analyzer.isOuterJoined(leftTupleDesc.getId());
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
+                    if (!isMaterializedByChild(leftSlotDesc, getChild(0).getOutputSmap())) {
+                        continue;
+                    }
                     SlotDescriptor outputSlotDesc =
-                            analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, leftSlotDesc);
+                            analyzer.getDescTbl().copySlotDescriptor(outputTupleDesc, leftSlotDesc);
                     if (leftNullable) {
                         outputSlotDesc.setIsNullable(true);
                         leftNullableNumber++;
@@ -188,8 +194,11 @@ public abstract class JoinNodeBase extends PlanNode {
                 boolean needSetToNullable =
                         getChild(1) instanceof JoinNodeBase && analyzer.isOuterJoined(rightTupleDesc.getId());
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
+                    if (!isMaterializedByChild(rightSlotDesc, getChild(1).getOutputSmap())) {
+                        continue;
+                    }
                     SlotDescriptor outputSlotDesc =
-                            analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, rightSlotDesc);
+                            analyzer.getDescTbl().copySlotDescriptor(outputTupleDesc, rightSlotDesc);
                     if (rightNullable) {
                         outputSlotDesc.setIsNullable(true);
                         rightNullableNumber++;
@@ -206,7 +215,7 @@ public abstract class JoinNodeBase extends PlanNode {
         if (isMarkJoin() && analyzer.needPopUpMarkTuple(innerRef)) {
             SlotDescriptor markSlot = analyzer.getMarkTuple(innerRef).getSlots().get(0);
             SlotDescriptor outputSlotDesc =
-                    analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, markSlot);
+                    analyzer.getDescTbl().copySlotDescriptor(outputTupleDesc, markSlot);
             srcTblRefToOutputTupleSmap.put(new SlotRef(markSlot), new SlotRef(outputSlotDesc));
         }
 
@@ -224,7 +233,7 @@ public abstract class JoinNodeBase extends PlanNode {
             }
         }
 
-        vOutputTupleDesc.computeStatAndMemLayout();
+        outputTupleDesc.computeStatAndMemLayout();
         // 3. add tupleisnull in null-side
         Preconditions.checkState(srcTblRefToOutputTupleSmap.getLhs().size() == vSrcToOutputSMap.getLhs().size());
         // Condition1: the left child is null-side
@@ -265,8 +274,8 @@ public abstract class JoinNodeBase extends PlanNode {
     public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
         outputSlotIds = Lists.newArrayList();
         List<TupleDescriptor> outputTupleDescList = Lists.newArrayList();
-        if (vOutputTupleDesc != null) {
-            outputTupleDescList.add(vOutputTupleDesc);
+        if (outputTupleDesc != null) {
+            outputTupleDescList.add(outputTupleDesc);
         } else {
             for (TupleId tupleId : tupleIds) {
                 outputTupleDescList.add(analyzer.getTupleDesc(tupleId));
@@ -296,13 +305,13 @@ public abstract class JoinNodeBase extends PlanNode {
 
     @Override
     public void projectOutputTuple() {
-        if (vOutputTupleDesc == null) {
+        if (outputTupleDesc == null) {
             return;
         }
-        if (vOutputTupleDesc.getSlots().size() == outputSlotIds.size()) {
+        if (outputTupleDesc.getSlots().size() == outputSlotIds.size()) {
             return;
         }
-        Iterator<SlotDescriptor> iterator = vOutputTupleDesc.getSlots().iterator();
+        Iterator<SlotDescriptor> iterator = outputTupleDesc.getSlots().iterator();
         while (iterator.hasNext()) {
             SlotDescriptor slotDescriptor = iterator.next();
             boolean keep = false;
@@ -318,7 +327,7 @@ public abstract class JoinNodeBase extends PlanNode {
                 vSrcToOutputSMap.removeByRhsExpr(slotRef);
             }
         }
-        vOutputTupleDesc.computeStatAndMemLayout();
+        outputTupleDesc.computeStatAndMemLayout();
     }
 
     protected abstract Pair<Boolean, Boolean> needToCopyRightAndLeft();
@@ -404,14 +413,14 @@ public abstract class JoinNodeBase extends PlanNode {
         // 5. replace tuple is null expr
         TupleIsNullPredicate.substitueListForTupleIsNull(vSrcToOutputSMap.getLhs(), originTidsToIntermediateTidMap);
 
-        Preconditions.checkState(vSrcToOutputSMap.getLhs().size() == vOutputTupleDesc.getSlots().size());
+        Preconditions.checkState(vSrcToOutputSMap.getLhs().size() == outputTupleDesc.getSlots().size());
         List<Expr> exprs = vSrcToOutputSMap.getLhs();
-        ArrayList<SlotDescriptor> slots = vOutputTupleDesc.getSlots();
+        ArrayList<SlotDescriptor> slots = outputTupleDesc.getSlots();
         for (int i = 0; i < slots.size(); i++) {
             slots.get(i).setIsNullable(exprs.get(i).isNullable());
         }
         vSrcToOutputSMap.reCalculateNullableInfoForSlotInRhs();
-        vOutputTupleDesc.computeMemLayout();
+        outputTupleDesc.computeMemLayout();
     }
 
     protected abstract List<SlotId> computeSlotIdsForJoinConjuncts(Analyzer analyzer);
@@ -479,7 +488,7 @@ public abstract class JoinNodeBase extends PlanNode {
     /**
      * If parent wants to get join node tupleids,
      * it will call this function instead of read properties directly.
-     * The reason is that the tuple id of vOutputTupleDesc the real output tuple id for join node.
+     * The reason is that the tuple id of outputTupleDesc the real output tuple id for join node.
      * <p>
      * If you read the properties of @tupleids directly instead of this function,
      * it reads the input id of the current node.
@@ -487,16 +496,16 @@ public abstract class JoinNodeBase extends PlanNode {
     @Override
     public ArrayList<TupleId> getTupleIds() {
         Preconditions.checkState(tupleIds != null);
-        if (vOutputTupleDesc != null) {
-            return Lists.newArrayList(vOutputTupleDesc.getId());
+        if (outputTupleDesc != null) {
+            return Lists.newArrayList(outputTupleDesc.getId());
         }
         return tupleIds;
     }
 
     @Override
     public ArrayList<TupleId> getOutputTblRefIds() {
-        if (vOutputTupleDesc != null) {
-            return Lists.newArrayList(vOutputTupleDesc.getId());
+        if (outputTupleDesc != null) {
+            return Lists.newArrayList(outputTupleDesc.getId());
         }
         switch (joinOp) {
             case LEFT_SEMI_JOIN:
@@ -513,8 +522,8 @@ public abstract class JoinNodeBase extends PlanNode {
 
     @Override
     public List<TupleId> getOutputTupleIds() {
-        if (vOutputTupleDesc != null) {
-            return Lists.newArrayList(vOutputTupleDesc.getId());
+        if (outputTupleDesc != null) {
+            return Lists.newArrayList(outputTupleDesc.getId());
         }
         switch (joinOp) {
             case LEFT_SEMI_JOIN:
@@ -547,22 +556,8 @@ public abstract class JoinNodeBase extends PlanNode {
     /**
      * Used by nereids.
      */
-    public void setvOutputTupleDesc(TupleDescriptor vOutputTupleDesc) {
-        this.vOutputTupleDesc = vOutputTupleDesc;
-    }
-
-    /**
-     * Used by nereids.
-     */
     public void setvIntermediateTupleDescList(List<TupleDescriptor> vIntermediateTupleDescList) {
         this.vIntermediateTupleDescList = vIntermediateTupleDescList;
-    }
-
-    /**
-     * Used by nereids.
-     */
-    public void setvSrcToOutputSMap(List<Expr> lhs) {
-        this.vSrcToOutputSMap = new ExprSubstitutionMap(lhs, Collections.emptyList());
     }
 
     public void setOutputSmap(ExprSubstitutionMap smap, Analyzer analyzer) {
@@ -572,12 +567,12 @@ public abstract class JoinNodeBase extends PlanNode {
         List<Expr> newRhs = Lists.newArrayList();
         boolean bSmapChanged = false;
         for (Expr rhsExpr : smap.getRhs()) {
-            if (rhsExpr instanceof SlotRef || !rhsExpr.isBound(vOutputTupleDesc.getId())) {
+            if (rhsExpr instanceof SlotRef || !rhsExpr.isBound(outputTupleDesc.getId())) {
                 newRhs.add(rhsExpr);
             } else {
                 // we need do project in the join node
                 // add a new slot for projection result and add the project expr to vSrcToOutputSMap
-                SlotDescriptor slotDesc = analyzer.addSlotDescriptor(vOutputTupleDesc);
+                SlotDescriptor slotDesc = analyzer.addSlotDescriptor(outputTupleDesc);
                 slotDesc.initFromExpr(rhsExpr);
                 slotDesc.setIsMaterialized(true);
                 // the project expr is from smap, which use the slots of hash join node's output tuple
@@ -594,7 +589,16 @@ public abstract class JoinNodeBase extends PlanNode {
 
         if (bSmapChanged) {
             outputSmap.updateRhsExprs(newRhs);
-            vOutputTupleDesc.computeStatAndMemLayout();
+            outputTupleDesc.computeStatAndMemLayout();
         }
+    }
+
+    public void setUseSpecificProjections(boolean useSpecificProjections) {
+        this.useSpecificProjections = useSpecificProjections;
+    }
+
+
+    public boolean isUseSpecificProjections() {
+        return useSpecificProjections;
     }
 }

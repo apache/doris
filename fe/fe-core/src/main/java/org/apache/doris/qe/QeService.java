@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.mysql.MysqlServer;
+import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.service.arrowflight.DorisFlightSqlService;
 
 import org.apache.logging.log4j.LogManager;
@@ -54,8 +55,9 @@ public class QeService {
         try {
             HelpModule.getInstance().setUpModule(HelpModule.HELP_ZIP_FILE_NAME);
         } catch (Exception e) {
-            LOG.warn("Help module failed, because:", e);
-            throw e;
+            LOG.warn("Help module failed. ignore it.", e);
+            // TODO: ignore the help module failure temporarily.
+            // We should fix it in the future.
         }
 
         if (!mysqlServer.start()) {

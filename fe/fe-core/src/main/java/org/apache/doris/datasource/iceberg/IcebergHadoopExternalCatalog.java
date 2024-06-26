@@ -27,7 +27,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 
-import java.util.HashMap;
 import java.util.Map;
 
 public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
@@ -56,8 +55,8 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
         HadoopCatalog hadoopCatalog = new HadoopCatalog();
         Configuration conf = getConfiguration();
         initS3Param(conf);
-        // initialize hive catalog
-        Map<String, String> catalogProperties = new HashMap<>();
+        // initialize hadoop catalog
+        Map<String, String> catalogProperties = catalogProperty.getProperties();
         String warehouse = catalogProperty.getHadoopProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
         hadoopCatalog.setConf(conf);
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);

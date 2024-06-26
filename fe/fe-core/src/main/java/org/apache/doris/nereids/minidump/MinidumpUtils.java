@@ -247,7 +247,8 @@ public class MinidumpUtils {
     }
 
     private static Histogram getColumnHistogram(TableIf table, String colName) {
-        return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
+        return Env.getCurrentEnv().getStatisticsCache().getHistogram(
+                table.getDatabase().getCatalog().getId(), table.getDatabase().getId(), table.getId(), colName);
     }
 
     /**

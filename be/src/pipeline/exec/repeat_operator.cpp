@@ -22,7 +22,6 @@
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
 #include "vec/core/block.h"
-#include "vec/exec/vrepeat_node.h"
 
 namespace doris {
 class RuntimeState;
@@ -30,27 +29,15 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(RepeatOperator, StatefulOperator)
-
-Status RepeatOperator::prepare(doris::RuntimeState* state) {
-    // just for speed up, the way is dangerous
-    _child_block = _node->get_child_block();
-    return StatefulOperator::prepare(state);
-}
-
-Status RepeatOperator::close(doris::RuntimeState* state) {
-    return StatefulOperator::close(state);
-}
-
 RepeatLocalState::RepeatLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
           _child_block(vectorized::Block::create_unique()),
           _repeat_id_idx(0) {}
 
-Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(Base::init(state, info));
+Status RepeatLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<Parent>();
     _expr_ctxs.resize(p._expr_ctxs.size());
     for (size_t i = 0; i < _expr_ctxs.size(); i++) {
@@ -178,7 +165,7 @@ Status RepeatLocalState::add_grouping_id_column(std::size_t rows, std::size_t& c
         auto* column_ptr = columns[cur_col].get();
         DCHECK(!p._output_slots[cur_col]->is_nullable());
         auto* col = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column_ptr);
-        col->insert_raw_integers(val, rows);
+        col->insert_many_vals(val, rows);
         cur_col++;
     }
     return Status::OK();

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 
@@ -32,6 +33,7 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -61,22 +63,22 @@ public class RelationMapping extends Mapping {
      */
     public static List<RelationMapping> generate(List<CatalogRelation> sources, List<CatalogRelation> targets) {
         // Construct tmp map, key is the table qualifier, value is the corresponding catalog relations
-        HashMultimap<Long, MappedRelation> sourceTableRelationIdMap = HashMultimap.create();
+        HashMultimap<TableIdentifier, MappedRelation> sourceTableRelationIdMap = HashMultimap.create();
         for (CatalogRelation relation : sources) {
-            sourceTableRelationIdMap.put(getTableQualifier(relation.getTable()),
+            sourceTableRelationIdMap.put(getTableIdentifier(relation.getTable()),
                     MappedRelation.of(relation.getRelationId(), relation));
         }
-        HashMultimap<Long, MappedRelation> targetTableRelationIdMap = HashMultimap.create();
+        HashMultimap<TableIdentifier, MappedRelation> targetTableRelationIdMap = HashMultimap.create();
         for (CatalogRelation relation : targets) {
-            targetTableRelationIdMap.put(getTableQualifier(relation.getTable()),
+            targetTableRelationIdMap.put(getTableIdentifier(relation.getTable()),
                     MappedRelation.of(relation.getRelationId(), relation));
         }
-        Set<Long> sourceTableKeySet = sourceTableRelationIdMap.keySet();
+        Set<TableIdentifier> sourceTableKeySet = sourceTableRelationIdMap.keySet();
         List<List<BiMap<MappedRelation, MappedRelation>>> mappedRelations = new ArrayList<>();
 
-        for (Long sourceTableId : sourceTableKeySet) {
-            Set<MappedRelation> sourceMappedRelations = sourceTableRelationIdMap.get(sourceTableId);
-            Set<MappedRelation> targetMappedRelations = targetTableRelationIdMap.get(sourceTableId);
+        for (TableIdentifier tableIdentifier : sourceTableKeySet) {
+            Set<MappedRelation> sourceMappedRelations = sourceTableRelationIdMap.get(tableIdentifier);
+            Set<MappedRelation> targetMappedRelations = targetTableRelationIdMap.get(tableIdentifier);
             if (targetMappedRelations.isEmpty()) {
                 continue;
             }
@@ -140,7 +142,29 @@ public class RelationMapping extends Mapping {
         return RelationMapping.of(mappingBuilder.build());
     }
 
-    private static Long getTableQualifier(TableIf tableIf) {
-        return tableIf.getId();
+    private static TableIdentifier getTableIdentifier(TableIf tableIf) {
+        return new TableIdentifier(tableIf);
+    }
+
+    @Override
+    public String toString() {
+        return "RelationMapping { mappedRelationMap=" + mappedRelationMap + '}';
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        RelationMapping that = (RelationMapping) o;
+        return Objects.equals(mappedRelationMap, that.mappedRelationMap);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mappedRelationMap);
     }
 }

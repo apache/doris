@@ -43,22 +43,12 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
             decoder.reset(new ByteArrayPlainDecoder());
             break;
         case tparquet::Type::INT32:
-            decoder.reset(new FixLengthPlainDecoder<tparquet::Type::INT32>());
-            break;
         case tparquet::Type::INT64:
-            decoder.reset(new FixLengthPlainDecoder<tparquet::Type::INT64>());
-            break;
         case tparquet::Type::INT96:
-            decoder.reset(new FixLengthPlainDecoder<tparquet::Type::INT96>());
-            break;
         case tparquet::Type::FLOAT:
-            decoder.reset(new FixLengthPlainDecoder<tparquet::Type::FLOAT>());
-            break;
         case tparquet::Type::DOUBLE:
-            decoder.reset(new FixLengthPlainDecoder<tparquet::Type::DOUBLE>());
-            break;
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            decoder.reset(new FixLengthPlainDecoder<tparquet::Type::FIXED_LEN_BYTE_ARRAY>());
+            decoder.reset(new FixLengthPlainDecoder());
             break;
         default:
             return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
@@ -73,22 +63,12 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
             decoder.reset(new ByteArrayDictDecoder());
             break;
         case tparquet::Type::INT32:
-            decoder.reset(new FixLengthDictDecoder<tparquet::Type::INT32>());
-            break;
         case tparquet::Type::INT64:
-            decoder.reset(new FixLengthDictDecoder<tparquet::Type::INT64>());
-            break;
         case tparquet::Type::INT96:
-            decoder.reset(new FixLengthDictDecoder<tparquet::Type::INT96>());
-            break;
         case tparquet::Type::FLOAT:
-            decoder.reset(new FixLengthDictDecoder<tparquet::Type::FLOAT>());
-            break;
         case tparquet::Type::DOUBLE:
-            decoder.reset(new FixLengthDictDecoder<tparquet::Type::DOUBLE>());
-            break;
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            decoder.reset(new FixLengthDictDecoder<tparquet::Type::FIXED_LEN_BYTE_ARRAY>());
+            decoder.reset(new FixLengthDictDecoder());
             break;
         default:
             return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
@@ -109,10 +89,10 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
         // Supports only INT32 and INT64.
         switch (type) {
         case tparquet::Type::INT32:
-            decoder.reset(new DeltaBitPackDecoder<int32, tparquet::Type::INT32>());
+            decoder.reset(new DeltaBitPackDecoder<int32>());
             break;
         case tparquet::Type::INT64:
-            decoder.reset(new DeltaBitPackDecoder<int64, tparquet::Type::INT64>());
+            decoder.reset(new DeltaBitPackDecoder<int64>());
             break;
         default:
             return Status::InternalError("DELTA_BINARY_PACKED only supports INT32 and INT64");
@@ -121,20 +101,21 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
     case tparquet::Encoding::DELTA_BYTE_ARRAY:
         switch (type) {
         case tparquet::Type::BYTE_ARRAY:
-            decoder.reset(new DeltaByteArrayDecoder<tparquet::Type::BYTE_ARRAY>());
+        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+            decoder.reset(new DeltaByteArrayDecoder());
             break;
         default:
-            return Status::InternalError("DELTA_BYTE_ARRAY only supports BYTE_ARRAY.");
+            return Status::InternalError(
+                    "DELTA_BYTE_ARRAY only supports BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY.");
         }
         break;
     case tparquet::Encoding::DELTA_LENGTH_BYTE_ARRAY:
         switch (type) {
-        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            decoder.reset(new DeltaLengthByteArrayDecoder<tparquet::Type::FIXED_LEN_BYTE_ARRAY>());
+        case tparquet::Type::BYTE_ARRAY:
+            decoder.reset(new DeltaLengthByteArrayDecoder());
             break;
         default:
-            return Status::InternalError(
-                    "DELTA_LENGTH_BYTE_ARRAY only supports FIXED_LEN_BYTE_ARRAY.");
+            return Status::InternalError("DELTA_LENGTH_BYTE_ARRAY only supports BYTE_ARRAY.");
         }
         break;
     default:

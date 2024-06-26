@@ -69,7 +69,7 @@
 namespace doris {
 class DeltaWriterV2;
 class LoadStreamStub;
-class LoadStreams;
+class LoadStreamMap;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
@@ -106,9 +106,7 @@ public:
 
     ~VTabletWriterV2() override;
 
-    Status init_properties(ObjectPool* pool);
-
-    Status write(Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
@@ -116,14 +114,21 @@ public:
 
     Status on_partitions_created(TCreatePartitionResult* result);
 
+#ifndef BE_TEST
+private:
+#endif
+    static Status _create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
+                                      std::shared_ptr<LoadStreamMap> load_stream_map,
+                                      int num_replicas);
+
 private:
     Status _init_row_distribution();
 
     Status _init(RuntimeState* state, RuntimeProfile* profile);
 
-    Status _open_streams(int64_t src_id);
+    Status _open_streams();
 
-    Status _open_streams_to_backend(int64_t dst_id, LoadStreams& streams);
+    Status _open_streams_to_backend(int64_t dst_id, Streams& streams);
 
     Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
 
@@ -135,12 +140,14 @@ private:
                                    RowsForTablet& rows_for_tablet);
 
     Status _write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
-                           const Rows& rows, const Streams& streams);
+                           const Rows& rows);
 
     Status _select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                            Streams& streams);
 
-    Status _close_load(const Streams& streams);
+    void _calc_tablets_to_commit();
+
+    Status _close_wait(bool incremental);
 
     Status _cancel(Status status);
 
@@ -217,7 +224,7 @@ private:
     std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
 
-    std::unordered_map<int64_t, std::shared_ptr<LoadStreams>> _streams_for_node;
+    std::shared_ptr<LoadStreamMap> _load_stream_map;
 
     size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;

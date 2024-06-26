@@ -34,6 +34,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -245,8 +246,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     @Override
     public void checkPriv() throws AnalysisException {
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName, baseIndexName,
-                PrivPredicate.ALTER)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, baseIndexName,
+                        PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER");
         }
     }
@@ -270,10 +272,15 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             SelectListItem selectListItem = selectList.getItems().get(i);
 
             Expr selectListItemExpr = selectListItem.getExpr();
+            selectListItemExpr.setDisableTableName(true);
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
                     && !(selectListItemExpr instanceof ArithmeticExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
                         + "Error column: " + selectListItemExpr.toSql());
+            }
+
+            if (!isReplay && selectListItemExpr.hasAutoInc()) {
+                throw new AnalysisException("The materialized view can not involved auto increment column");
             }
 
             if (selectListItemExpr instanceof FunctionCallExpr
@@ -499,6 +506,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     private MVColumnItem buildMVColumnItem(Analyzer analyzer, FunctionCallExpr functionCallExpr)
             throws AnalysisException {
+        if (!isReplay && !functionCallExpr.getOrderByElements().isEmpty()) {
+            throw new AnalysisException("The materialized-view do not support aggregate with order by elements.");
+        }
         String functionName = functionCallExpr.getFnName().getFunction();
         Expr defineExpr = getAggfunctionSlot(functionCallExpr);
         Type baseType = defineExpr.getType();
@@ -665,7 +675,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     public static String mvColumnBreaker(String name) {
         if (name.startsWith(MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX)) {
-            // mva_SUM__k2 -> k2
+            // mva_SUM__`k2` -> `k2`;
             return mvColumnBreaker(name.substring(name.indexOf(MATERIALIZED_VIEW_AGGREGATE_NAME_LINK)
                     + MATERIALIZED_VIEW_AGGREGATE_NAME_LINK.length()));
         } else if (name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX)) {

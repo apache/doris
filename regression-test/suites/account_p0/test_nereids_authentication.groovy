@@ -60,22 +60,23 @@ suite("test_nereids_authentication", "query") {
     assertEquals(result.size(), 0)
 
     connect(user=user, password='Doris_123456', url=url) {
-        try {
+        test {
             sql "SELECT * FROM ${tableName2}"
-            fail()
-        } catch (Exception e) {
-            log.info(e.getMessage())
-            assertTrue(e.getMessage().contains('denied to user'))
+            exception "denied"
         }
     }
 
     connect(user=user, password='Doris_123456', url=url) {
-        try {
+        test {
+            sql "SELECT count(*) FROM ${tableName2}"
+            exception "denied"
+        }
+    }
+
+    connect(user=user, password='Doris_123456', url=url) {
+        test {
             sql "SELECT * FROM ${tableName1}, ${tableName2} WHERE ${tableName1}.`key` = ${tableName2}.`key`"
-            fail()
-        } catch (Exception e) {
-            log.info(e.getMessage())
-            assertTrue(e.getMessage().contains('denied to user'))
+            exception "denied"
         }
     }
 
@@ -84,6 +85,9 @@ suite("test_nereids_authentication", "query") {
         sql "SELECT * FROM ${tableName2}"
     }
     assertEquals(result.size(), 0)
+    connect(user=user, password='Doris_123456', url=url) {
+        sql "SELECT count(*) FROM ${tableName2}"
+    }
     connect(user=user, password='Doris_123456', url=url) {
         sql "SELECT * FROM ${tableName1}, ${tableName2} WHERE ${tableName1}.`key` = ${tableName2}.`key`"
     }

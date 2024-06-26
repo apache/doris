@@ -23,10 +23,10 @@ import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -36,8 +36,6 @@ import com.google.common.collect.Sets;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
  * Abstract class for all plan node.
@@ -100,16 +98,48 @@ public interface Plan extends TreeNode<Plan> {
     /**
      * Get output slot set of the plan.
      */
-    default Set<Slot> getOutputSet() {
-        return ImmutableSet.copyOf(getOutput());
-    }
+    Set<Slot> getOutputSet();
 
+    /** getOutputExprIds */
     default List<ExprId> getOutputExprIds() {
-        return getOutput().stream().map(NamedExpression::getExprId).collect(Collectors.toList());
+        List<Slot> output = getOutput();
+        ImmutableList.Builder<ExprId> exprIds = ImmutableList.builderWithExpectedSize(output.size());
+        for (Slot slot : output) {
+            exprIds.add(slot.getExprId());
+        }
+        return exprIds.build();
     }
 
+    /** getOutputExprIdSet */
     default Set<ExprId> getOutputExprIdSet() {
-        return getOutput().stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
+        List<Slot> output = getOutput();
+        ImmutableSet.Builder<ExprId> exprIds = ImmutableSet.builderWithExpectedSize(output.size());
+        for (Slot slot : output) {
+            exprIds.add(slot.getExprId());
+        }
+        return exprIds.build();
+    }
+
+    /** getChildrenOutputExprIdSet */
+    default Set<ExprId> getChildrenOutputExprIdSet() {
+        switch (arity()) {
+            case 0: return ImmutableSet.of();
+            case 1: return child(0).getOutputExprIdSet();
+            default: {
+                int exprIdSize = 0;
+                for (Plan child : children()) {
+                    exprIdSize += child.getOutput().size();
+                }
+
+                ImmutableSet.Builder<ExprId> exprIds = ImmutableSet.builderWithExpectedSize(exprIdSize);
+                for (Plan child : children()) {
+                    for (Slot slot : child.getOutput()) {
+                        exprIds.add(slot.getExprId());
+                    }
+                }
+                return exprIds.build();
+            }
+        }
     }
 
     /**
@@ -119,9 +149,7 @@ public interface Plan extends TreeNode<Plan> {
      * Note that the input slots of subquery's inner plan are not included.
      */
     default Set<Slot> getInputSlots() {
-        return getExpressions().stream()
-                .flatMap(expr -> expr.getInputSlots().stream())
-                .collect(ImmutableSet.toImmutableSet());
+        return PlanUtils.fastGetInputSlots(this.getExpressions());
     }
 
     default List<Slot> computeOutput() {
@@ -146,21 +174,6 @@ public interface Plan extends TreeNode<Plan> {
 
     Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children);
-
-    <T> Optional<T> getMutableState(String key);
-
-    /** getOrInitMutableState */
-    default <T> T getOrInitMutableState(String key, Supplier<T> initState) {
-        Optional<T> mutableState = getMutableState(key);
-        if (!mutableState.isPresent()) {
-            T state = initState.get();
-            setMutableState(key, state);
-            return state;
-        }
-        return mutableState.get();
-    }
-
-    void setMutableState(String key, Object value);
 
     /**
      * a simple version of explain, used to verify plan shape

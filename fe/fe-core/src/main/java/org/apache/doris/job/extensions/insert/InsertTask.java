@@ -37,6 +37,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
@@ -52,11 +53,12 @@ public class InsertTask extends AbstractTask {
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("TaskId", ScalarType.createStringType()),
             new Column("JobId", ScalarType.createStringType()),
+            new Column("JobName", ScalarType.createStringType()),
             new Column("Label", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
             new Column("ErrorMsg", ScalarType.createStringType()),
-            new Column("CreateTimeMs", ScalarType.createStringType()),
-            new Column("FinishTimeMs", ScalarType.createStringType()),
+            new Column("CreateTime", ScalarType.createStringType()),
+            new Column("FinishTime", ScalarType.createStringType()),
             new Column("TrackingUrl", ScalarType.createStringType()),
             new Column("LoadStatistic", ScalarType.createStringType()),
             new Column("User", ScalarType.createStringType()));
@@ -64,7 +66,7 @@ public class InsertTask extends AbstractTask {
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
     static {
-        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
         for (int i = 0; i < SCHEMA.size(); i++) {
             builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
         }
@@ -77,6 +79,7 @@ public class InsertTask extends AbstractTask {
     private ConnectContext ctx;
     private String sql;
     private String currentDb;
+    @SerializedName(value = "uif")
     private UserIdentity userIdentity;
     private LoadStatistic loadStatistic;
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
@@ -163,7 +166,19 @@ public class InsertTask extends AbstractTask {
         }
 
         super.before();
+    }
 
+    @Override
+    protected void closeOrReleaseResources() {
+        if (null != stmtExecutor) {
+            stmtExecutor = null;
+        }
+        if (null != command) {
+            command = null;
+        }
+        if (null != ctx) {
+            ctx = null;
+        }
     }
 
     protected TUniqueId generateQueryId(String taskIdString) {
@@ -199,7 +214,7 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    public void cancel() throws JobException {
+    protected void executeCancelLogic() {
         if (isFinished.get() || isCanceled.get()) {
             return;
         }
@@ -207,46 +222,54 @@ public class InsertTask extends AbstractTask {
         if (null != stmtExecutor) {
             stmtExecutor.cancel();
         }
-        super.cancel();
     }
 
     @Override
-    public TRow getTvfInfo() {
+    public TRow getTvfInfo(String jobName) {
         TRow trow = new TRow();
         if (jobInfo == null) {
             // if task not start, load job is null,return pending task show info
-            return getPendingTaskTVFInfo();
+            return getPendingTaskTVFInfo(jobName);
         }
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(jobInfo.getId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
-        trow.addToColumnValue(new TCell().setStringVal(labelName));
+        trow.addToColumnValue(new TCell().setStringVal(jobName));
+        trow.addToColumnValue(new TCell().setStringVal(getJobId() + LABEL_SPLITTER + getTaskId()));
         trow.addToColumnValue(new TCell().setStringVal(jobInfo.getState().name()));
         // err msg
-        String errMsg = "";
+        String errorMsg = "";
         if (failMsg != null) {
-            errMsg = "type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg();
+            errorMsg = failMsg.getMsg();
         }
-        trow.addToColumnValue(new TCell().setStringVal(errMsg));
+        if (StringUtils.isNotBlank(getErrMsg())) {
+            errorMsg = getErrMsg();
+        }
+        trow.addToColumnValue(new TCell().setStringVal(errorMsg));
         // create time
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(jobInfo.getCreateTimestamp())));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
         // load end time
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(jobInfo.getFinishTimestamp())));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getFinishTimeMs())));
         // tracking url
         trow.addToColumnValue(new TCell().setStringVal(trackingUrl));
-        if (null != loadStatistic) {
-            trow.addToColumnValue(new TCell().setStringVal(loadStatistic.toJson()));
+        if (null != jobInfo.getLoadStatistic()) {
+            trow.addToColumnValue(new TCell().setStringVal(jobInfo.getLoadStatistic().toJson()));
         } else {
             trow.addToColumnValue(new TCell().setStringVal(""));
         }
-        trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));
+        if (userIdentity == null) {
+            trow.addToColumnValue(new TCell().setStringVal(""));
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));
+        }
         return trow;
     }
 
     // if task not start, load job is null,return pending task show info
-    private TRow getPendingTaskTVFInfo() {
+    private TRow getPendingTaskTVFInfo(String jobName) {
         TRow trow = new TRow();
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getTaskId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
+        trow.addToColumnValue(new TCell().setStringVal(jobName));
         trow.addToColumnValue(new TCell().setStringVal(getJobId() + LABEL_SPLITTER + getTaskId()));
         trow.addToColumnValue(new TCell().setStringVal(getStatus().name()));
         trow.addToColumnValue(new TCell().setStringVal(""));

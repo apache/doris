@@ -18,9 +18,9 @@
 #include "pipeline/exec/set_sink_operator.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column.h"
-#include "vec/exec/vset_operation_node.h"
 
 namespace doris::vectorized {
+constexpr size_t CHECK_FRECUENCY = 65536;
 template <class HashTableContext, bool is_intersect>
 struct HashTableBuild {
     template <typename Parent>

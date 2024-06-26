@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
 suite ("dup_mv_year") {
     sql """ DROP TABLE IF EXISTS dup_mv_year; """
 
@@ -48,14 +46,8 @@ suite ("dup_mv_year") {
 
     createMV "create materialized view k13y as select k1,year(k3) from dup_mv_year;"
 
-    sql "SET experimental_enable_nereids_planner=false"
-
-
     sql "insert into dup_mv_year select 4,'2033-12-31','2033-12-31 01:02:03';"
     Thread.sleep(1000)
-
-    sql "SET experimental_enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
 
     order_qt_select_star "select * from dup_mv_year order by k1;"
 

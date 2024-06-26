@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_compaction_dup_keys", "nonConcurrent") {
+    def isCloudMode = isCloudMode()
     def tableName = "test_index_compaction_dup_keys"
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -185,7 +186,11 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (1 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         qt_sql """ select * from ${tableName} order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where name match "andy" order by id, name, hobbies, score """
@@ -206,8 +211,11 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
         qt_sql """ select * from ${tableName} where score < 100 order by id, name, hobbies, score """
 
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 7 * replicaNum)
-
+        if (isCloudMode) {
+            assert (rowsetCount == (7 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 7 * replicaNum)
+        }
         // trigger full compactions for all tablets in ${tableName}
         trigger_full_compaction_on_tablets.call(tablets)
 
@@ -216,7 +224,11 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (1 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         qt_sql """ select * from ${tableName} order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where name match "andy" order by id, name, hobbies, score """

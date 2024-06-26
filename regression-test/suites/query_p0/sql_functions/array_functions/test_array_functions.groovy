@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_array_functions") {
-    sql "SET enable_nereids_planner=false"
     def tableName = "tbl_test_array_functions"
     // array functions only supported in vectorized engine
     sql """DROP TABLE IF EXISTS ${tableName}"""
@@ -273,8 +272,11 @@ suite("test_array_functions") {
     sql """ insert into ${tableName3} values (10006,'bbbbb',[60002,60002,60003,null,60005]) """
     
     qt_select_union "select class_id, student_ids, array_union(student_ids,[1,2,3]) from ${tableName3} order by class_id;"
+    qt_select_union_left_const "select class_id, student_ids, array_union([1,2,3], student_ids,[1,2,3]) from ${tableName3} order by class_id;"
     qt_select_except "select class_id, student_ids, array_except(student_ids,[1,2,3]) from ${tableName3} order by class_id;"
+    qt_select_except_left_const "select class_id, student_ids, array_except([1,2,3], student_ids) from ${tableName3} order by class_id;"
     qt_select_intersect "select class_id, student_ids, array_intersect(student_ids,[1,2,3,null]) from ${tableName3} order by class_id;"
+    qt_select_intersect_left_const "select class_id, student_ids, array_intersect([1,2,3,null], student_ids) from ${tableName3} order by class_id;"
 
     def tableName4 = "tbl_test_array_datetimev2_functions"
 

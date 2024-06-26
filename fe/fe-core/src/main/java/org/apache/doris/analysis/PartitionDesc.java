@@ -102,7 +102,8 @@ public class PartitionDesc {
     // 1. partition by list (column) : now support one slotRef
     // 2. partition by range(column/function(column)) : support slotRef and some
     // special function eg: date_trunc, date_floor/ceil
-    public static List<String> getColNamesFromExpr(ArrayList<Expr> exprs, boolean isListPartition)
+    public static List<String> getColNamesFromExpr(ArrayList<Expr> exprs, boolean isListPartition,
+            boolean isAutoPartition)
             throws AnalysisException {
         List<String> colNames = new ArrayList<>();
         for (Expr expr : exprs) {
@@ -128,7 +129,7 @@ public class PartitionDesc {
                                     + expr.toSql());
                 }
             } else if (expr instanceof SlotRef) {
-                if (!colNames.isEmpty() && !isListPartition) {
+                if (isAutoPartition && !colNames.isEmpty() && !isListPartition) {
                     throw new AnalysisException(
                             "auto create partition only support one slotRef in expr of RANGE partition. "
                                     + expr.toSql());
@@ -184,9 +185,13 @@ public class PartitionDesc {
             boolean found = false;
             for (ColumnDef columnDef : columnDefs) {
                 if (columnDef.getName().equals(partitionCol)) {
-                    if (!columnDef.isKey() && (columnDef.getAggregateType() != AggregateType.NONE
-                            || enableUniqueKeyMergeOnWrite)) {
-                        throw new AnalysisException("The partition column could not be aggregated column");
+                    if (!columnDef.isKey()) {
+                        if (columnDef.getAggregateType() != AggregateType.NONE) {
+                            throw new AnalysisException("The partition column could not be aggregated column");
+                        }
+                        if (enableUniqueKeyMergeOnWrite) {
+                            throw new AnalysisException("Merge-on-Write table's partition column must be KEY column");
+                        }
                     }
                     if (columnDef.getType().isFloatingPointType()) {
                         throw new AnalysisException("Floating point type column can not be partition column");
@@ -199,22 +204,32 @@ public class PartitionDesc {
                         throw new AnalysisException("Complex type column can't be partition column: "
                                 + columnDef.getType().toString());
                     }
-                    // prohibit to create auto partition with null column anyhow
-                    if (this.isAutoCreatePartitions && columnDef.isAllowNull()) {
-                        throw new AnalysisException("The auto partition column must be NOT NULL");
-                    }
                     if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
                             && columnDef.isAllowNull()) {
                         throw new AnalysisException(
                                 "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
                     }
-                    if (this instanceof RangePartitionDesc && partitionExprs != null) {
-                        if (partitionExprs.get(0) instanceof FunctionCallExpr) {
-                            if (!columnDef.getType().isDateType()) {
-                                throw new AnalysisException(
-                                        "Auto range partition needs Date/DateV2/"
-                                                + "Datetime/DatetimeV2 column as partition column"
-                                                + partitionExprs.get(0).toSql());
+                    if (this instanceof RangePartitionDesc && isAutoCreatePartitions) {
+                        if (columnDef.isAllowNull()) {
+                            throw new AnalysisException("AUTO RANGE PARTITION doesn't support NULL column");
+                        }
+                        if (partitionExprs != null) {
+                            for (Expr expr : partitionExprs) {
+                                if (!(expr instanceof FunctionCallExpr) || !RANGE_PARTITION_FUNCTIONS
+                                        .contains(((FunctionCallExpr) expr).getFnName().getFunction())) {
+                                    throw new AnalysisException(
+                                            "auto create partition only support slotRef and "
+                                                    + "date_trunc/date_floor/date_ceil function in range partitions. "
+                                                    + expr.toSql());
+                                }
+                            }
+                            if (partitionExprs.get(0) instanceof FunctionCallExpr) {
+                                if (!columnDef.getType().isDateType()) {
+                                    throw new AnalysisException(
+                                            "Auto range partition needs Date/DateV2/"
+                                                    + "Datetime/DatetimeV2 column as partition column but got"
+                                                    + partitionExprs.get(0).toSql());
+                                }
                             }
                         }
                     }

@@ -100,6 +100,7 @@ public class SqlModeTest {
         }
 
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
+        analyzer.getContext().getSessionVariable().setEnableFoldConstantByBe(false);
         try {
             parsedStmt.analyze(analyzer);
             ExprRewriter rewriter = analyzer.getExprRewriter();

@@ -41,11 +41,10 @@ using namespace ErrorCode;
 static constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
 static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
 
-static std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer,
-                                                      bool sc_sorting) {
+std::unique_ptr<SchemaChange> get_sc_procedure(const BlockChanger& changer, bool sc_sorting,
+                                               int64_t mem_limit) {
     if (sc_sorting) {
-        return std::make_unique<VBaseSchemaChangeWithSorting>(
-                changer, config::memory_limitation_per_thread_for_schema_change_bytes);
+        return std::make_unique<VBaseSchemaChangeWithSorting>(changer, mem_limit);
     }
     // else sc_directly
     return std::make_unique<VSchemaChangeDirectly>(changer);
@@ -155,6 +154,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         sc_params.alter_tablet_type = AlterTabletType::MIGRATION;
         break;
     }
+    sc_params.vault_id = request.storage_vault_id;
     if (!request.__isset.materialized_view_params) {
         return _convert_historical_rowsets(sc_params);
     }
@@ -201,8 +201,14 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 "Don't support to add materialized view by linked schema change");
     }
 
+    LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
+              << ", sc_directly: " << sc_directly << ", base_tablet=" << _base_tablet->tablet_id()
+              << ", new_tablet=" << _new_tablet->tablet_id();
+
     // 2. Generate historical data converter
-    auto sc_procedure = get_sc_procedure(changer, sc_sorting);
+    auto sc_procedure = get_sc_procedure(
+            changer, sc_sorting,
+            _cloud_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
 
     cloud::TabletJobInfoPB job;
     auto* idx = job.mutable_idx();
@@ -247,7 +253,12 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        context.fs = _cloud_storage_engine.latest_fs();
+        context.storage_resource = _cloud_storage_engine.get_storage_resource(sc_params.vault_id);
+        if (!context.storage_resource) {
+            return Status::InternalError("vault id not found, maybe not sync, vault id {}",
+                                         sc_params.vault_id);
+        }
+
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
 
@@ -262,8 +273,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 DCHECK(existed_rs_meta != nullptr);
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
-                RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, _new_tablet->tablet_path(),
-                                                             existed_rs_meta, &rowset));
+                RETURN_IF_ERROR(
+                        RowsetFactory::create_rowset(nullptr, "", existed_rs_meta, &rowset));
                 _output_rowsets.push_back(std::move(rowset));
                 already_exist_any_version = true;
                 continue;
@@ -294,8 +305,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 DCHECK(existed_rs_meta != nullptr);
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
-                RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, _new_tablet->tablet_path(),
-                                                             existed_rs_meta, &rowset));
+                RETURN_IF_ERROR(
+                        RowsetFactory::create_rowset(nullptr, "", existed_rs_meta, &rowset));
                 _output_rowsets.push_back(std::move(rowset));
                 continue;
             } else {

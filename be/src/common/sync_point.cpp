@@ -44,7 +44,7 @@ public:
                                 const std::vector<SyncPointPair>& markers);
   bool predecessors_all_cleared(const std::string& point);
   void set_call_back(const std::string& point,
-                    const std::function<void(std::vector<std::any>&&)>& callback);
+                    const std::function<void(std::vector<std::any>&&)>& callback, CallbackGuard*);
   void clear_call_back(const std::string& point);
   void clear_all_call_backs();
   void enable_processing();
@@ -86,8 +86,8 @@ void SyncPoint::load_dependency_and_markers(
   impl_->load_dependency_and_markers(dependencies, markers);
 }
 void SyncPoint::set_call_back(const std::string& point,
-                              const std::function<void(std::vector<std::any>&&)>& callback) {
-  impl_->set_call_back(point, callback);
+                              const std::function<void(std::vector<std::any>&&)>& callback, CallbackGuard* guard) {
+  impl_->set_call_back(point, callback, guard);
 }
 void SyncPoint::clear_call_back(const std::string& point) {
   impl_->clear_call_back(point);
@@ -213,9 +213,15 @@ bool SyncPoint::Data::disable_by_marker(const std::string& point,
 }
 
 void SyncPoint::Data::set_call_back(const std::string& point,
-                                  const std::function<void(std::vector<std::any>&&)>& callback) {
-  std::lock_guard lock(mutex_);
-  callbacks_[point] = callback;
+                                  const std::function<void(std::vector<std::any>&&)>& callback, CallbackGuard* guard) {
+  {
+    std::lock_guard lock(mutex_);
+    callbacks_[point] = callback;
+  }
+
+  if (guard != nullptr) {
+    *guard = CallbackGuard(point);
+  }
 }
 
 void SyncPoint::Data::clear_trace() {

@@ -51,6 +51,7 @@ import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,7 +65,7 @@ import javax.annotation.Nullable;
  */
 public class HyperGraph {
     // record all edges that can be placed on the subgraph
-    private final Map<Long, BitSet> treeEdgesCache = new HashMap<>();
+    private final Map<Long, BitSet> treeEdgesCache = new LinkedHashMap<>();
     private final List<JoinEdge> joinEdges;
     private final List<FilterEdge> filterEdges;
     private final List<AbstractNode> nodes;
@@ -330,9 +331,9 @@ public class HyperGraph {
         private final List<AbstractNode> nodes = new ArrayList<>();
 
         // These hyperGraphs should be replaced nodes when building all
-        private final Map<Long, List<HyperGraph>> replacedHyperGraphs = new HashMap<>();
-        private final HashMap<Slot, Long> slotToNodeMap = new HashMap<>();
-        private final Map<Long, List<NamedExpression>> complexProject = new HashMap<>();
+        private final Map<Long, List<HyperGraph>> replacedHyperGraphs = new LinkedHashMap<>();
+        private final HashMap<Slot, Long> slotToNodeMap = new LinkedHashMap<>();
+        private final Map<Long, List<NamedExpression>> complexProject = new LinkedHashMap<>();
         private Set<Slot> finalOutputs;
 
         public List<AbstractNode> getNodes() {
@@ -353,10 +354,6 @@ public class HyperGraph {
 
         public HyperGraph build() {
             return new HyperGraph(finalOutputs, joinEdges, nodes, filterEdges, complexProject);
-        }
-
-        public List<HyperGraph> buildAll() {
-            return ImmutableList.of(build());
         }
 
         public void updateNode(int idx, Group group) {
@@ -522,7 +519,7 @@ public class HyperGraph {
          */
         private BitSet addJoin(LogicalJoin<?, ?> join,
                 Pair<BitSet, Long> leftEdgeNodes, Pair<BitSet, Long> rightEdgeNodes) {
-            HashMap<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new HashMap<>();
+            Map<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new LinkedHashMap<>();
             for (Expression expression : join.getHashJoinConjuncts()) {
                 // TODO: avoid calling calculateEnds if calNodeMap's results are same
                 Pair<Long, Long> ends = calculateEnds(calNodeMap(expression.getInputSlots()), leftEdgeNodes,
