@@ -1724,6 +1724,9 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
     _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
     _row_distribution_watch.stop();
 
+    // remove extra columns added by auto partition calc
+    block->erase_tail(_schema->tuple_desc()->slots().size());
+
     // Add block to node channel
     for (size_t i = 0; i < _channels.size(); i++) {
         for (const auto& entry : channel_to_payload[i]) {
