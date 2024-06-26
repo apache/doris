@@ -207,8 +207,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         try {
             visibleVersions = Partition.getVisibleVersions(partitions);
         } catch (RpcException e) {
-            LOG.info("autobucket use property's buckets get visible version fail, table name: {}, "
-                    + "table id: {}, partition name: {}, buckets num: {}, exception ",
+            LOG.warn("autobucket use property's buckets get visible version fail, table: [{}-{}], "
+                    + "partition: {}, buckets num: {}, exception: ",
                     table.getName(), table.getId(), partitionName, property.getBuckets(), e);
             return property.getBuckets();
         }
@@ -222,8 +222,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
         // no exist history partition data
         if (hasDataPartitions.isEmpty()) {
-            LOG.info("autobucket use property's buckets due to all partitions no data, table name: {}, "
-                    + "table id: {}, partition name: {}, buckets num: {}",
+            LOG.info("autobucket use property's buckets due to all partitions no data, table: [{}-{}], "
+                    + "partition: {}, buckets num: {}",
                     table.getName(), table.getId(), partitionName, property.getBuckets());
             return property.getBuckets();
         }
