@@ -146,6 +146,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
     };
 
+    /** analyzeFunction */
     public static Expression analyzeFunction(
             @Nullable LogicalPlan plan, @Nullable CascadesContext cascadesContext, Expression expression) {
         ExpressionAnalyzer analyzer = new ExpressionAnalyzer(plan, new Scope(ImmutableList.of()),
