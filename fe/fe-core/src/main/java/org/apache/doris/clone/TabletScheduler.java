@@ -1822,20 +1822,39 @@ public class TabletScheduler extends MasterDaemon {
      * If task is timeout, remove the tablet.
      */
     public void handleRunningTablets() {
+        Set<Long> aliveBeIds = Sets.newHashSet(Env.getCurrentSystemInfo().getAllBackendIds(true));
         // 1. remove the tablet ctx if timeout
-        List<TabletSchedCtx> timeoutTablets = Lists.newArrayList();
+        List<TabletSchedCtx> cancelTablets = Lists.newArrayList();
         synchronized (this) {
-            runningTablets.values().stream().filter(TabletSchedCtx::isTimeout).forEach(timeoutTablets::add);
+            for (TabletSchedCtx tabletCtx : runningTablets.values()) {
+                long srcBeId = tabletCtx.getSrcBackendId();
+                long destBeId = tabletCtx.getDestBackendId();
+                if (Config.disable_tablet_scheduler) {
+                    tabletCtx.setErrMsg("tablet scheduler is disabled");
+                    cancelTablets.add(tabletCtx);
+                } else if (Config.disable_balance && tabletCtx.getType() == Type.BALANCE) {
+                    tabletCtx.setErrMsg("balance is disabled");
+                    cancelTablets.add(tabletCtx);
+                } else if (tabletCtx.isTimeout()) {
+                    tabletCtx.setErrMsg("timeout");
+                    cancelTablets.add(tabletCtx);
+                    stat.counterCloneTaskTimeout.incrementAndGet();
+                } else if (destBeId > 0 && !aliveBeIds.contains(destBeId)) {
+                    tabletCtx.setErrMsg("dest be " + destBeId + " is dead");
+                    cancelTablets.add(tabletCtx);
+                } else if (srcBeId > 0 && !aliveBeIds.contains(srcBeId)) {
+                    tabletCtx.setErrMsg("src be " + srcBeId + " is dead");
+                    cancelTablets.add(tabletCtx);
+                }
+            }
         }
 
         // 2. release ctx
-        timeoutTablets.forEach(t -> {
+        cancelTablets.forEach(t -> {
             // Set "resetReplicaState" to true because
             // the timeout task should also be considered as UNRECOVERABLE,
             // so need to reset replica state.
-            t.setErrMsg("timeout");
-            finalizeTabletCtx(t, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, "timeout");
-            stat.counterCloneTaskTimeout.incrementAndGet();
+            finalizeTabletCtx(t, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, t.getErrMsg());
         });
     }
 
