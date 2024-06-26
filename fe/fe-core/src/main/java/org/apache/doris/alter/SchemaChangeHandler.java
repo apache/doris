@@ -98,7 +98,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTaskType;
@@ -1344,9 +1343,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
         TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
 
-        TInvertedIndexStorageFormat invertedIndexStorageFormat =
-                PropertyAnalyzer.analyzeInvertedIndexStorageFormat(propertyMap);
-
         // property store_row_column && row_store_columns
         // eg. "store_row_column" = "true"
         // eg. "row_store_columns" = "k1, k2"
@@ -1434,10 +1430,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 needAlter = true;
             } else if (storageFormat == TStorageFormat.V2) {
                 if (olapTable.getStorageFormat() != TStorageFormat.V2) {
-                    needAlter = true;
-                }
-            } else if (invertedIndexStorageFormat == TInvertedIndexStorageFormat.V2) {
-                if (olapTable.getInvertedIndexStorageFormat() != TInvertedIndexStorageFormat.V2) {
                     needAlter = true;
                 }
             }
