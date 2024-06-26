@@ -291,6 +291,10 @@ Status GroupCommitTable::get_first_block_load_queue(
                 _thread_pool->submit_func([&, be_exe_version, mem_tracker, dep = create_plan_dep] {
                     Defer defer {[&, dep = dep]() {
                         dep->set_ready();
+                        for (auto it : _create_plan_deps) {
+                            it->set_ready();
+                        }
+                        _create_plan_deps.clear();
                         std::unique_lock l(_lock);
                         _is_creating_plan_fragment = false;
                     }};
@@ -299,6 +303,9 @@ Status GroupCommitTable::get_first_block_load_queue(
                         LOG(WARNING) << "create group commit load error, st=" << st.to_string();
                     }
                 }));
+    } else {
+        create_plan_dep->block();
+        _create_plan_deps.push_back(create_plan_dep);
     }
     return try_to_get_matched_queue();
 }
