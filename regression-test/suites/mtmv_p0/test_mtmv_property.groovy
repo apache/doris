@@ -55,7 +55,7 @@ suite("test_mtmv_property","mtmv") {
         SELECT * from ${tableName};
         """
 
-    def showCreateTableResult = sql """show create table ${mvName}"""
+    def showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('tag.location.default: 1'))
     assertTrue(showCreateTableResult.toString().contains('"min_load_replica_num" = "-1"'))
@@ -77,7 +77,7 @@ suite("test_mtmv_property","mtmv") {
     sql """
         ALTER TABLE ${mvName} set ("replication_num" = "2");
         """
-    showCreateTableResult = sql """show create table ${mvName}"""
+    showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('tag.location.default: 2'))
 
@@ -85,7 +85,7 @@ suite("test_mtmv_property","mtmv") {
     sql """
         ALTER TABLE ${mvName} set ("replication_allocation" = "tag.location.default: 3");
         """
-    showCreateTableResult = sql """show create table ${mvName}"""
+    showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('tag.location.default: 3'))
 
@@ -93,7 +93,7 @@ suite("test_mtmv_property","mtmv") {
     sql """
         ALTER TABLE ${mvName} set ("min_load_replica_num" = "1");
         """
-    showCreateTableResult = sql """show create table ${mvName}"""
+    showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('"min_load_replica_num" = "1"'))
 
@@ -141,7 +141,7 @@ suite("test_mtmv_property","mtmv") {
     """
 
     sql """ALTER TABLE ${mvName} SET ("storage_policy" = "${policy_name}");"""
-    showCreateTableResult = sql """show create table ${mvName}"""
+    showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('"storage_policy" = "test_mtmv_storage_policy"'))
 
@@ -157,7 +157,7 @@ suite("test_mtmv_property","mtmv") {
     sql """
         ALTER TABLE ${mvName} set ("is_being_synced" = "true");
         """
-    showCreateTableResult = sql """show create table ${mvName}"""
+    showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('"is_being_synced" = "true"'))
 
@@ -187,13 +187,13 @@ suite("test_mtmv_property","mtmv") {
 
     // group_commit_interval_ms
     sql """ALTER TABLE ${mvName} SET ("group_commit_interval_ms" = "2000");"""
-    showCreateTableResult = sql """show create table ${mvName}"""
+    showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('"group_commit_interval_ms" = "2000"'))
 
     // group_commit_data_bytes
     sql """ALTER TABLE ${mvName} SET ("group_commit_data_bytes" = "234217728");"""
-    showCreateTableResult = sql """show create table ${mvName}"""
+    showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('"group_commit_data_bytes" = "234217728"'))
 
