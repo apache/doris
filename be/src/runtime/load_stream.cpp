@@ -30,6 +30,7 @@
 #include <memory>
 
 #include "common/signal_handler.h"
+#include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
 #include "olap/tablet_fwd.h"
@@ -178,6 +179,19 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     DCHECK(header.has_segment_statistics());
     SegmentStatistics stat(header.segment_statistics());
     TabletSchemaSPtr flush_schema;
+    DataDir* data_dir = nullptr;
+
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(header.tablet_id());
+    if (tablet != nullptr) {
+        data_dir = tablet->data_dir();				 
+    }
+
+    if (data_dir != nullptr &&
+        data_dir->reach_capacity_limit(stat.data_size + stat.index_size)) {
+        LOG(INFO) << "segment size is " << (stat.data_size + stat.index_size);
+        return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
+                                                        data_dir->path_hash());
+    }
     if (header.has_flush_schema()) {
         flush_schema = std::make_shared<TabletSchema>();
         flush_schema->init_from_pb(header.flush_schema());
