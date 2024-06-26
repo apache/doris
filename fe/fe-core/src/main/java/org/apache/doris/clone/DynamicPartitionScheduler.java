@@ -228,11 +228,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             return property.getBuckets();
         }
 
-        // plus 5 for uncompressed data
         ArrayList<Long> partitionSizeArray = hasDataPartitions.stream()
                 .map(partition -> partition.getAllDataSize(true))
                 .collect(Collectors.toCollection(ArrayList::new));
         long estimatePartitionSize = getNextPartitionSize(partitionSizeArray);
+        // plus 5 for uncompressed data
         long uncompressedPartitionSize = estimatePartitionSize * 5;
         int bucketsNum = AutoBucketUtils.getBucketsNum(uncompressedPartitionSize, Config.autobucket_min_buckets);
         LOG.info("autobucket calc with {} history partitions, table: [{}-{}], partition: {}, buckets num: {}, "
