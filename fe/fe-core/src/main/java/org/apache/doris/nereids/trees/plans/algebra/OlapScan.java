@@ -28,6 +28,12 @@ public interface OlapScan {
 
     long getSelectedIndexId();
 
+    /**
+     * if this is mv, return selectedIndexId, o.w -1
+     * @return -1 or selectedIndexId
+     */
+    long getSelectedIndexIdForMV();
+
     List<Long> getSelectedPartitionIds();
 
     List<Long> getSelectedTabletIds();
