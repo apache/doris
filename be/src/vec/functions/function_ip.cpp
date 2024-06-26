@@ -61,5 +61,8 @@ void register_function_ip(SimpleFunctionFactory& factory) {
 
     /// Convert between IPv4 and IPv6 part
     factory.register_function<FunctionIPv4ToIPv6>();
+
+    /// Cut IPv6 part
+    factory.register_function<FunctionCutIPv6>();
 }
 } // namespace doris::vectorized

@@ -132,6 +132,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalo
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -664,6 +665,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ToIpv6OrDefault.class, "to_ipv6_or_default"),
             scalar(ToIpv6OrNull.class, "to_ipv6_or_null"),
             scalar(Ipv4ToIpv6.class, "ipv4_to_ipv6"),
+            scalar(CutIpv6.class, "cut_ipv6"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),

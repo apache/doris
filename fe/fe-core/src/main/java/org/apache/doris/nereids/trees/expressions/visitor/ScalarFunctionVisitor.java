@@ -139,6 +139,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalo
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -1311,6 +1312,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv4ToIpv6(Ipv4ToIpv6 ipv4ToIpv6, C context) {
         return visitScalarFunction(ipv4ToIpv6, context);
+    }
+
+    default R visitCutIpv6(CutIpv6 cutIpv6, C context) {
+        return visitScalarFunction(cutIpv6, context);
     }
 
     default R visitJsonArray(JsonArray jsonArray, C context) {
