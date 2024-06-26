@@ -22,8 +22,8 @@
 namespace doris::simd {
 // Copy src_len bytes from src_void to desc in reverse order.
 // The first bytes of src_void will be copied to the last bytes of desc.
-inline void reverse_copy_bytes(vectorized::UInt8* __restrict desc, size_t desc_len, const void* src_void,
-                        size_t src_len) {
+inline void reverse_copy_bytes(vectorized::UInt8* __restrict desc, size_t desc_len,
+                               const void* src_void, size_t src_len) {
     if (src_len == 0) {
         return;
     }
