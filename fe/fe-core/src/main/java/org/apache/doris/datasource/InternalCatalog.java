@@ -1333,7 +1333,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             // String type can not be used in partition/distributed column
                             // so we replace it to varchar
                             if (resultType.getPrimitiveType() == PrimitiveType.STRING) {
-                                typeDef = new TypeDef(ScalarType.createVarchar(65533));
+                                typeDef = new TypeDef(ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH));
                             }
                         } else {
                             typeDef = new TypeDef(ScalarType.createStringType());
