@@ -61,6 +61,8 @@ import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.AggStateType;
+import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.AnyElementType;
 import org.apache.doris.catalog.AnyStructType;
 import org.apache.doris.catalog.AnyType;
@@ -71,6 +73,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -99,6 +102,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
+import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.SinglePartitionInfo;
@@ -486,6 +490,13 @@ public class GsonUtils {
             .registerSubtype(FrontendHbResponse.class, FrontendHbResponse.class.getSimpleName())
             .registerSubtype(BrokerHbResponse.class, BrokerHbResponse.class.getSimpleName());
 
+    // runtime adapter for class "Function"
+    private static RuntimeTypeAdapterFactory<Function> functionAdapterFactory
+            = RuntimeTypeAdapterFactory.of(Function.class, "clazz")
+            .registerSubtype(ScalarFunction.class, ScalarFunction.class.getSimpleName())
+            .registerSubtype(AggregateFunction.class, AggregateFunction.class.getSimpleName())
+            .registerSubtype(AliasFunction.class, AliasFunction.class.getSimpleName());
+
     // runtime adapter for class "CloudReplica".
     private static RuntimeTypeAdapterFactory<Replica> replicaTypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(Replica.class, "clazz")
@@ -585,6 +596,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(partitionTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
+            .registerTypeAdapterFactory(functionAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
             .registerTypeAdapterFactory(mtmvSnapshotTypeAdapterFactory)
