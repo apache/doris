@@ -336,7 +336,7 @@ public class CacheHotspotManager extends MasterDaemon {
                                         .getBackendsByClusterName(clusterName);
         Long totalFileCache = 0L;
         for (Backend backend : backends) {
-            Long fileCacheSize = 0l;
+            Long fileCacheSize = 0L;
             boolean ok = false;
             BackendService.Client client = null;
             TNetworkAddress address = null;
