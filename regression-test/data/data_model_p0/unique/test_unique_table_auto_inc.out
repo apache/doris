@@ -223,26 +223,32 @@ NNereids	9998
 3	C
 
 -- !sql --
-1	A
-2	B
-3	C
-4	b
-5	c
-6	a
+6	6
 
 -- !sql --
-1	A
-2	B
-3	C
-4	b
-5	c
-6	a
-7	Jack
-8	Jack
-9	Jack
-10	Jack
-11	Jack
-12	Jack
+A
+B
+C
+a
+b
+c
+
+-- !sql --
+12	12
+
+-- !sql --
+A
+B
+C
+Jack
+Jack
+Jack
+Jack
+Jack
+Jack
+a
+b
+c
 
 -- !ql --
 \N	Alice
@@ -252,21 +258,24 @@ NNereids	9998
 300	Bob
 
 -- !sql --
-1	A
-2	B
-3	C
-4	b
-5	c
-6	a
-7	Jack
-8	Jack
-9	Jack
-10	Jack
-11	Jack
-12	Jack
-13	Steve
-14	Alice
-15	Mick
-100	John
-300	Bob
+17	17
+
+-- !sql --
+A
+Alice
+B
+Bob
+C
+Jack
+Jack
+Jack
+Jack
+Jack
+Jack
+John
+Mick
+Steve
+a
+b
+c
 
