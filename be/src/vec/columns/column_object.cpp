@@ -269,7 +269,7 @@ public:
     }
     void get_scalar_type(TypeIndex* type) const {
         DataTypePtr data_type;
-        get_least_supertype<LeastSupertypeOnError::Jsonb>(type_indexes, &data_type);
+        get_least_supertype_jsonb(type_indexes, &data_type);
         *type = data_type->get_type_id();
     }
     bool contain_nulls() const { return have_nulls; }
@@ -389,7 +389,7 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
                                    << getTypeName(least_common_type.get_type_id());
             DataTypePtr base_data_type;
             TypeIndex base_data_type_id;
-            get_least_supertype<LeastSupertypeOnError::Jsonb>(
+            get_least_supertype_jsonb(
                     TypeIndexSet {base_type.idx, least_common_type.get_base_type_id()},
                     &base_data_type);
             type_changed = true;
@@ -421,9 +421,8 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
         add_new_column_part(src.get_least_common_type());
     } else if (!least_common_type.get()->equals(*src.get_least_common_type())) {
         DataTypePtr new_least_common_type;
-        get_least_supertype<LeastSupertypeOnError::Jsonb>(
-                DataTypes {least_common_type.get(), src.get_least_common_type()},
-                &new_least_common_type);
+        get_least_supertype_jsonb(DataTypes {least_common_type.get(), src.get_least_common_type()},
+                                  &new_least_common_type);
         if (!new_least_common_type->equals(*least_common_type.get())) {
             add_new_column_part(std::move(new_least_common_type));
         }
@@ -450,8 +449,7 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
             Status st = schema_util::cast_column({column, column_type, ""}, least_common_type.get(),
                                                  &casted_column);
             if (!st.ok()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       st.to_string() + ", real_code:{}", st.code());
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
             }
             data.back()->insert_range_from(*casted_column, from, n);
             return;
@@ -460,8 +458,7 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
         Status st = schema_util::cast_column({casted_column, column_type, ""},
                                              least_common_type.get(), &casted_column);
         if (!st.ok()) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string() + ", real_code:{}",
-                                   st.code());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
         }
         data.back()->insert_range_from(*casted_column, 0, n);
     };
@@ -554,8 +551,7 @@ void ColumnObject::Subcolumn::finalize() {
             ColumnPtr ptr;
             Status st = schema_util::cast_column({part, from_type, ""}, to_type, &ptr);
             if (!st.ok()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       st.to_string() + ", real_code:{}", st.code());
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
             }
             part = ptr->convert_to_full_column_if_const();
         }

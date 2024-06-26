@@ -79,9 +79,6 @@ struct ExtraInfo {
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
                                 const ExtraInfo& ext_info);
 
-TabletColumn get_least_type_column(const TabletColumn& original, const DataTypePtr& new_type,
-                                   const ExtraInfo& ext_info, bool* changed);
-
 struct ParseContext {
     // record an extract json column, used for encoding row store
     bool record_raw_json_column = false;
