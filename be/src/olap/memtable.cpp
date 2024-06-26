@@ -87,7 +87,6 @@ MemTable::MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                                   const TupleDescriptor* tuple_desc) {
     const auto& slots = tuple_desc->slots();
-    LOG(INFO) << "slot_descs size=" << slot_descs->size() << ", slots.size=" << slots.size();
     _column_match = (slot_descs->size() == slots.size());
     for (int i = 0; _column_match && i < slots.size(); i++) {
         _column_match = (*slot_descs)[i]->id() == slots[i]->id();
@@ -109,9 +108,6 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
 }
 
 void MemTable::_init_agg_functions(const vectorized::Block* block) {
-    LOG(INFO) << "block columns = " << block->columns()
-              << ", key columns = " << _tablet_schema->num_key_columns()
-              << ", num columns = " << _num_columns;
     for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
         vectorized::AggregateFunctionPtr function;
         if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow) {
@@ -193,7 +189,6 @@ Status MemTable::insert(const vectorized::Block* input_block,
                         const std::vector<uint32_t>& row_idxs) {
     std::unique_ptr<vectorized::Block> tmp_block;
     const vectorized::Block* target_block = input_block;
-    LOG(INFO) << "block columns = " << input_block->columns() << ", schema columns = " << _tablet_schema->num_columns();
     if (!_column_match) {
         tmp_block = vectorized::Block::create_unique(input_block->copy_block(_column_offset));
         target_block = tmp_block.get();
