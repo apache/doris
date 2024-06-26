@@ -89,7 +89,7 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
     try {
         try {
             client->finishTask(*result, request);
-        } catch (TTransportException& e) {
+        } catch ([[maybe_unused]] TTransportException& e) {
 #ifdef ADDRESS_SANITIZER
             LOG(WARNING) << "master client, retry finishTask: " << e.what();
 #endif
