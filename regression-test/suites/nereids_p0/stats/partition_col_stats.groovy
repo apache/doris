@@ -36,7 +36,7 @@ suite("partition_col_stats") {
     """
     //run this sql to make stats be cached
     sql "select * from pt where k1<3;"
-    sleep(10)
+    sleep(10000)
     explain{
         sql "physical plan select * from pt where k1<3;"
         contains("stats=4")
