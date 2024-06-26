@@ -2891,6 +2891,12 @@ public class Config extends ConfigBase {
             "Stream_Load When importing, the maximum length of label is limited"})
     public static int label_regex_length = 128;
 
+    @ConfField
+    public static boolean enable_java_udf_static_load = false;
+
+    @ConfField
+    public static long java_udf_load_expiration_time_min = 360;
+
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.IOUtils;
@@ -563,6 +564,8 @@ public class Function implements Writable {
             fn.setChecksum(checksum);
         }
         fn.setVectorized(vectorized);
+        fn.setIsStaticLoad(Config.enable_java_udf_static_load);
+        fn.setExpirationTime(Config.java_udf_load_expiration_time_min);
         return fn;
     }
 

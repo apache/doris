@@ -97,6 +97,9 @@ public class CreateFunctionStmt extends DdlStmt {
     public static final String STATE_CLASS_NAME = "State";
     // add for java udf check return type nullable mode, always_nullable or always_not_nullable
     public static final String IS_RETURN_NULL = "always_nullable";
+    // iff is static load, BE will be cache the udf class load, so only need load once
+    public static final String IS_STATIC_LOAD = "static_load";
+    public static final String EXPIRATION_TIME = "expiration_time";
     private static final Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
 
     private SetType type = SetType.DEFAULT;
@@ -262,18 +265,23 @@ public class CreateFunctionStmt extends DdlStmt {
         if (binaryType == TFunctionBinaryType.JAVA_UDF) {
             FunctionUtil.checkEnableJavaUdf();
 
-            String returnNullModeStr = properties.get(IS_RETURN_NULL);
-            if (returnNullModeStr == null) {
-                return;
-            }
-            if (!returnNullModeStr.equalsIgnoreCase("false") && !returnNullModeStr.equalsIgnoreCase("true")) {
-                throw new AnalysisException("'always_nullable' in properties, you should set it false or true");
-            }
-
-            if (!Boolean.parseBoolean(returnNullModeStr)) {
+            // always_nullable the default value is true, equal null means true
+            Boolean isReturnNull = parseBooleanFromProperties(IS_RETURN_NULL);
+            if (isReturnNull != null && !isReturnNull) {
                 returnNullMode = NullableMode.ALWAYS_NOT_NULLABLE;
             }
         }
+    }
+
+    private Boolean parseBooleanFromProperties(String propertyString) throws AnalysisException {
+        String valueOfString = properties.get(propertyString);
+        if (valueOfString == null) {
+            return null;
+        }
+        if (!valueOfString.equalsIgnoreCase("false") && !valueOfString.equalsIgnoreCase("true")) {
+            throw new AnalysisException(propertyString + " in properties, you should set it false or true");
+        }
+        return Boolean.parseBoolean(valueOfString);
     }
 
     private void computeObjectChecksum() throws IOException, NoSuchAlgorithmException {

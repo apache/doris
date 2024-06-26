@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.classloader;
 
+import org.apache.doris.common.jni.utils.ExpiringMap;
 import org.apache.doris.common.jni.utils.Log4jOutputStream;
 
 import com.google.common.collect.Streams;
@@ -45,7 +46,9 @@ import java.util.stream.Collectors;
  * BE will load scanners by JNI call, and then the JniConnector on BE will get scanner class by getLoadedClass.
  */
 public class ScannerLoader {
+    public static final Logger LOG = Logger.getLogger(ScannerLoader.class);
     private static final Map<String, Class<?>> loadedClasses = new HashMap<>();
+    private static final ExpiringMap<String, ClassLoader> udfLoadedClasses = new ExpiringMap<String, ClassLoader>();
     private static final String CLASS_SUFFIX = ".class";
     private static final String LOAD_PACKAGE = "org.apache.doris";
 
@@ -74,6 +77,21 @@ public class ScannerLoader {
         Logger errLogger = Logger.getLogger("stderr");
         PrintStream errorPrintStream = new PrintStream(new Log4jOutputStream(errLogger, Level.ERROR));
         System.setErr(errorPrintStream);
+    }
+
+    public static ClassLoader getUdfClassLoader(String functionSignature) {
+        return udfLoadedClasses.get(functionSignature);
+    }
+
+    public static synchronized void cacheClassLoader(String functionSignature, ClassLoader classLoader,
+            long expirationTime) {
+        LOG.info("cacheClassLoader for: " + functionSignature);
+        udfLoadedClasses.put(functionSignature, classLoader, expirationTime * 60 * 1000L);
+    }
+
+    public synchronized void cleanUdfClassLoader(String functionSignature) {
+        LOG.info("cleanUdfClassLoader for: " + functionSignature);
+        udfLoadedClasses.remove(functionSignature);
     }
 
     /**

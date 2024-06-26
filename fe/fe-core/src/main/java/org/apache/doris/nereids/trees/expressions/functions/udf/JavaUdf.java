@@ -104,7 +104,8 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     public JavaUdf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
         return new JavaUdf(getName(), functionId, dbName, binaryType, signature, nullableMode,
-                objectFile, symbol, prepareFn, closeFn, checkSum, children.toArray(new Expression[0]));
+                objectFile, symbol, prepareFn, closeFn, checkSum,
+                children.toArray(new Expression[0]));
     }
 
     /**

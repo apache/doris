@@ -167,6 +167,9 @@ void AgentServer::start_workers(ExecEnv* exec_env) {
     _update_visible_version_workers = std::make_unique<TaskWorkerPool>(
             "UPDATE_VISIBLE_VERSION", 1, [&engine](auto&& task) { return visible_version_callback(engine, task); });
 
+    _clean_udf_cache_workers = std::make_unique<TaskWorkerPool>(
+            "CLEAN_UDF_CACHE", 1, [](auto&& task) {return clean_udf_cache_callback(task); });
+
     // clang-format on
 }
 

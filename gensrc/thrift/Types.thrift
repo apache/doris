@@ -224,7 +224,8 @@ enum TTaskType {
     ALTER_INVERTED_INDEX,
     GC_BINLOG,
     CLEAN_TRASH,
-    UPDATE_VISIBLE_VERSION
+    UPDATE_VISIBLE_VERSION,
+    CLEAN_UDF_CACHE;
 }
 
 enum TStmtType {
@@ -380,6 +381,8 @@ struct TFunction {
   11: optional i64 id
   12: optional string checksum
   13: optional bool vectorized = false
+  15: optional bool is_static_load = false
+  16: optional i64 expiration_time //minutes
 }
 
 enum TJdbcOperation {
