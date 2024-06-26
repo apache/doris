@@ -16,7 +16,9 @@
 // under the License.
 
 suite("test_variant_index_format_v1", "p0") {
-
+    if (isCloudMode()) {
+        return;
+    }
     def calc_file_crc_on_tablet = { ip, port, tablet ->
         return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
     }
