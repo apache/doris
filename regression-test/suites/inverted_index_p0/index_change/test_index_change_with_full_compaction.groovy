@@ -17,8 +17,8 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_index_change_with_base_compaction") {
-    def tableName = "index_change_with_base_compaction_dup_keys"
+suite("test_index_change_with_full_compaction") {
+    def tableName = "index_change_with_full_compaction_dup_keys"
 
     def timeout = 60000
     def delta_time = 1000
@@ -94,7 +94,7 @@ suite("test_index_change_with_base_compaction") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             DUPLICATE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "1" );
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true" );
         """
 
         sql """ INSERT INTO ${tableName} VALUES
@@ -153,7 +153,7 @@ suite("test_index_change_with_base_compaction") {
             sb.append(backendId_to_backendHttpPort.get(backend_id))
             sb.append("/api/compaction/run?tablet_id=")
             sb.append(tablet_id)
-            sb.append("&compact_type=base")
+            sb.append("&compact_type=full")
 
             String command = sb.toString()
             process = command.execute()
