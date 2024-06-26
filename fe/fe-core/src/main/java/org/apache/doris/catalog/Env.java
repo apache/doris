@@ -2085,10 +2085,12 @@ public class Env {
     }
 
     public long loadBackends(DataInputStream dis, long checksum) throws IOException {
+        LOG.info("start loading backends from image");
         return systemInfo.loadBackends(dis, checksum);
     }
 
     public long loadDb(DataInputStream dis, long checksum) throws IOException, DdlException {
+        LOG.info("start loading db from image");
         return getInternalCatalog().loadDb(dis, checksum);
     }
 
@@ -2206,7 +2208,7 @@ public class Env {
     }
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
-        recycleBin.readFields(dis);
+        recycleBin = CatalogRecycleBin.read(dis);
         // add tablet in Recycle bin to TabletInvertedIndex
         recycleBin.addTabletToInvertedIndex();
         // create DatabaseTransactionMgr for db in recycle bin.
@@ -2315,6 +2317,7 @@ public class Env {
      * Load catalogs through file.
      **/
     public long loadCatalog(DataInputStream in, long checksum) throws IOException {
+        LOG.info("start loading catalog from image");
         CatalogMgr mgr = CatalogMgr.read(in);
         // When enable the multi catalog in the first time, the "mgr" will be a null value.
         // So ignore it to use default catalog manager.
@@ -4911,7 +4914,14 @@ public class Env {
             }
 
             // check if have materialized view on rename column
+            // and check whether colName is referenced by generated columns
             for (Column column : entry.getValue().getSchema()) {
+                if (column.getName().equals(colName) && !column.getGeneratedColumnsThatReferToThis().isEmpty()) {
+                    throw new DdlException(
+                            "Cannot rename column, because column '" + colName
+                                    + "' has a generated column dependency on :"
+                                    + column.getGeneratedColumnsThatReferToThis());
+                }
                 Expr expr = column.getDefineExpr();
                 if (expr == null) {
                     continue;

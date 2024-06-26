@@ -26,6 +26,7 @@ import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
+import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.thrift.TFileType;
@@ -55,6 +56,9 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
                     "ACCESS_KEY", "SECRET_KEY", "SESSION_TOKEN", "REGION");
 
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
+            throw new AnalysisException("Currently azure is not support");
+        }
         // 1. analyze common properties
         Map<String, String> otherProps = super.parseCommonProperties(properties);
 

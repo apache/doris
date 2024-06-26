@@ -59,6 +59,8 @@ public:
     void update_build_profile(RuntimeProfile* child_profile);
     void update_probe_profile(RuntimeProfile* child_profile);
 
+    std::string debug_string(int indentation_level = 0) const override;
+
     friend class PartitionedHashJoinProbeOperatorX;
 
 private:
@@ -82,7 +84,7 @@ private:
 
     std::vector<vectorized::SpillStreamSPtr> _probe_spilling_streams;
 
-    std::unique_ptr<PartitionerType> _partitioner;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
@@ -153,8 +155,6 @@ public:
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
                 bool* eos) const override;
 
-    std::string debug_string(RuntimeState* state, int indentation_level = 0) const override;
-
     bool need_more_input_data(RuntimeState* state) const override;
     DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
@@ -212,6 +212,7 @@ private:
     const DescriptorTbl _descriptor_tbl;
 
     const uint32_t _partition_count;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
 };
 
 } // namespace pipeline

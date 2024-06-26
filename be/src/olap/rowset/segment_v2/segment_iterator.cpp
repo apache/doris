@@ -1198,6 +1198,9 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_no_need_read_data_opt) {
+        return true;
+    }
     // only support DUP_KEYS and UNIQUE_KEYS with MOW
     if (!((_opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
            (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -2830,6 +2833,9 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
 
 bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
                                              size_t nrows_read) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_no_need_read_data_opt) {
+        return false;
+    }
     if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
         return false;
     }

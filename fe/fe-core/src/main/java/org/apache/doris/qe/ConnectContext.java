@@ -40,6 +40,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -395,12 +396,18 @@ public class ConnectContext {
         this.preparedStmtCtxs.put(stmtName, ctx);
     }
 
-    public void addPreparedStatementContext(String stmtName, PreparedStatementContext ctx) {
+    public void addPreparedStatementContext(String stmtName, PreparedStatementContext ctx) throws UserException {
+        if (this.preparedStatementContextMap.size() > sessionVariable.maxPreparedStmtCount) {
+            throw new UserException("Failed to create a server prepared statement"
+                    + "possibly because there are too many active prepared statements on server already."
+                    + "set max_prepared_stmt_count with larger number than " + sessionVariable.maxPreparedStmtCount);
+        }
         this.preparedStatementContextMap.put(stmtName, ctx);
     }
 
     public void removePrepareStmt(String stmtName) {
         this.preparedStmtCtxs.remove(stmtName);
+        this.preparedStatementContextMap.remove(stmtName);
     }
 
     public PrepareStmtContext getPreparedStmt(String stmtName) {

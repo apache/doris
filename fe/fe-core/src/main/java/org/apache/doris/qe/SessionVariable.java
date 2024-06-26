@@ -135,6 +135,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SPILLING = "enable_spilling";
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
+    public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
@@ -195,6 +196,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
 
     public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
+
+    public static final String READ_CSV_EMPTY_LINE_AS_NULL = "read_csv_empty_line_as_null";
 
     public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
 
@@ -404,6 +407,7 @@ public class SessionVariable implements Serializable, Writable {
             = "enable_common_expr_pushdown_for_inverted_index";
 
     public static final String ENABLE_PUSHDOWN_COUNT_ON_INDEX = "enable_count_on_index_pushdown";
+    public static final String ENABLE_NO_NEED_READ_DATA_OPT = "enable_no_need_read_data_opt";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
@@ -544,6 +548,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
+
+    public static final String ALLOW_MODIFY_MATERIALIZED_VIEW_DATA
+            = "allow_modify_materialized_view_data";
 
     public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
             = "materialized_view_rewrite_enable_contain_external_table";
@@ -1058,6 +1065,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
     private boolean enableParallelResultSink = true;
 
+    @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
+            description = {"在读取csv文件时是否读取csv的空行为null",
+                    "Determine whether to read empty rows in CSV files as NULL when reading CSV files."})
+    public boolean readCsvEmptyLineAsNull = false;
+
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
 
@@ -1399,7 +1411,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = {
             "是否启用开启服务端prepared statement", "Set whether to enable server side prepared statement."})
-    public boolean enableServeSidePreparedStatement = false;
+    public boolean enableServeSidePreparedStatement = true;
+
+    @VariableMgr.VarAttr(name = MAX_PREPARED_STMT_COUNT,  flag = VariableMgr.GLOBAL,
+            needForward = true, description = {
+                "服务端prepared statement最大个数", "the maximum prepared statements server holds."})
+    public int maxPreparedStmtCount = 100000;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
@@ -1440,6 +1457,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
             "是否启用count_on_index pushdown。", "Set whether to pushdown count_on_index."})
     public boolean enablePushDownCountOnIndex = true;
+
+    // Whether enable no need read data opt in segment_iterator.
+    @VariableMgr.VarAttr(name = ENABLE_NO_NEED_READ_DATA_OPT, needForward = true, description = {
+            "是否启用no_need_read_data opt。", "Set whether to enable no_need_read_data opt."})
+    public boolean enableNoNeedReadDataOpt = true;
 
     // Whether enable pushdown minmax to scan node of unique table.
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = {
@@ -1735,6 +1757,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否开启基于结构信息的物化视图透明改写",
                     "Whether to enable materialized view rewriting based on struct info"})
     public boolean enableMaterializedViewRewrite = true;
+
+    @VariableMgr.VarAttr(name = ALLOW_MODIFY_MATERIALIZED_VIEW_DATA, needForward = true,
+            description = {"是否允许修改物化视图的数据",
+                    "Is it allowed to modify the data of the materialized view"})
+    public boolean allowModifyMaterializedViewData = false;
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
             description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
@@ -3248,6 +3275,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePushDownCountOnIndex = enablePushDownCountOnIndex;
     }
 
+    public boolean isEnableNoNeedReadDataOpt() {
+        return enableNoNeedReadDataOpt;
+    }
+
+    public void setEnableNoNeedReadDataOpt(boolean enableNoNeedReadDataOpt) {
+        this.enableNoNeedReadDataOpt = enableNoNeedReadDataOpt;
+    }
+
     public int getMaxTableCountUseCascadesJoinReorder() {
         return this.maxTableCountUseCascadesJoinReorder;
     }
@@ -3383,6 +3418,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
         tResult.setEnableCommonExprPushdownForInvertedIndex(enableCommonExpPushDownForInvertedIndex);
+        tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
@@ -3421,6 +3457,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
+        tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         return tResult;
     }
 
@@ -3881,6 +3918,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableMaterializedViewRewrite(boolean enableMaterializedViewRewrite) {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
+    }
+
+    public boolean isAllowModifyMaterializedViewData() {
+        return allowModifyMaterializedViewData;
     }
 
     public boolean isMaterializedViewRewriteEnableContainExternalTable() {

@@ -112,7 +112,8 @@ suite("test_export_orc", "p0") {
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
                 "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                "s3.access_key" = "${ak}",
+                "provider" = "${getS3Provider()}"
             );
         """
         def outfile_url = waiting_export.call(label)
@@ -122,7 +123,8 @@ suite("test_export_orc", "p0") {
                                     "s3.access_key"= "${ak}",
                                     "s3.secret_key" = "${sk}",
                                     "format" = "${format}",
-                                    "region" = "${region}"
+                                    "region" = "${region}",
+                                    "provider" = "${getS3Provider()}"
                                 ) ORDER BY user_id;
                             """
     

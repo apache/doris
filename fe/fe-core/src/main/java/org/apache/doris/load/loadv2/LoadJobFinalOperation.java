@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.EtlStatus;
@@ -139,10 +140,12 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
             out.writeBoolean(true);
             failMsg.write(out);
         }
-        Text.writeString(out, copyId);
-        Text.writeString(out, loadFilePaths);
-        Gson gson = new Gson();
-        Text.writeString(out, properties == null ? "" : gson.toJson(properties));
+        if (Config.isCloudMode()) {
+            Text.writeString(out, copyId);
+            Text.writeString(out, loadFilePaths);
+            Gson gson = new Gson();
+            Text.writeString(out, properties == null ? "" : gson.toJson(properties));
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -157,12 +160,14 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
             failMsg = new FailMsg();
             failMsg.readFields(in);
         }
-        copyId = Text.readString(in);
-        loadFilePaths = Text.readString(in);
-        String property = Text.readString(in);
-        properties = property.isEmpty() ? new HashMap<>()
-                : (new Gson().fromJson(property, new TypeToken<Map<String, String>>() {
-                }.getType()));
+        if (Config.isCloudMode()) {
+            copyId = Text.readString(in);
+            loadFilePaths = Text.readString(in);
+            String property = Text.readString(in);
+            properties = property.isEmpty() ? new HashMap<>()
+                    : (new Gson().fromJson(property, new TypeToken<Map<String, String>>() {
+                    }.getType()));
+        }
     }
 
     @Override

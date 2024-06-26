@@ -80,7 +80,8 @@ suite("test_segcompaction_correctness", "nonConcurrent,p2") {
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "$endpoint",
-                "AWS_REGION" = "$region"
+                "AWS_REGION" = "$region",
+                "provider" = "${getS3Provider()}"
             )
             properties(
                 "use_new_load_scan_node" = "true"

@@ -371,6 +371,10 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         column->set_result_is_nullable(tcolumn.result_is_nullable);
     }
 
+    if (tcolumn.__isset.be_exec_version) {
+        column->set_be_exec_version(tcolumn.be_exec_version);
+    }
+
     if (tcolumn.column_type.type == TPrimitiveType::VARCHAR ||
         tcolumn.column_type.type == TPrimitiveType::STRING) {
         if (!tcolumn.column_type.__isset.index_len) {
