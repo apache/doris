@@ -108,6 +108,16 @@ import javax.annotation.Nullable;
 
 /** ExpressionAnalyzer */
 public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext> {
+    public static final ExpressionAnalyzer FUNCTION_ANALYZER = new ExpressionAnalyzer(
+            null, new Scope(ImmutableList.of()), null, false, false);
+
+    public static final AbstractExpressionRewriteRule FUNCTION_ANALYZER_RULE = new AbstractExpressionRewriteRule() {
+        @Override
+        public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
+            return FUNCTION_ANALYZER.analyze(expr, ctx);
+        }
+    };
+
     private final Plan currentPlan;
     /*
     bounded={table.a, a}
@@ -135,16 +145,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         this.wantToParseSqlFromSqlCache = cascadesContext != null
                 && CacheAnalyzer.canUseSqlCache(cascadesContext.getConnectContext().getSessionVariable());
     }
-
-    public static final ExpressionAnalyzer FUNCTION_ANALYZER = new ExpressionAnalyzer(
-            null, new Scope(ImmutableList.of()), null, false, false);
-
-    public static final AbstractExpressionRewriteRule FUNCTION_ANALYZER_RULE = new AbstractExpressionRewriteRule() {
-        @Override
-        public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-            return FUNCTION_ANALYZER.analyze(expr, ctx);
-        }
-    };
 
     /** analyzeFunction */
     public static Expression analyzeFunction(
