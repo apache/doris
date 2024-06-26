@@ -41,9 +41,9 @@ Status MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* blo
             pos_to_pull++;
             _multi_cast_blocks.pop_front();
         } else {
-            pos_to_pull->_used_count--;
             pos_to_pull->_block->create_same_struct_block(0)->swap(*block);
             RETURN_IF_ERROR(vectorized::MutableBlock(block).merge(*pos_to_pull->_block));
+            pos_to_pull->_used_count--;
             pos_to_pull++;
         }
     }
@@ -52,24 +52,6 @@ Status MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* blo
         _block_reading(sender_idx);
     }
     return Status::OK();
-}
-
-void MultiCastDataStreamer::close_sender(int sender_idx) {
-    std::lock_guard l(_mutex);
-    auto& pos_to_pull = _sender_pos_to_read[sender_idx];
-    while (pos_to_pull != _multi_cast_blocks.end()) {
-        if (pos_to_pull->_used_count == 1) {
-            DCHECK(pos_to_pull == _multi_cast_blocks.begin());
-            _cumulative_mem_size -= pos_to_pull->_mem_size;
-            pos_to_pull++;
-            _multi_cast_blocks.pop_front();
-        } else {
-            pos_to_pull->_used_count--;
-            pos_to_pull++;
-        }
-    }
-    _closed_sender_count++;
-    _block_reading(sender_idx);
 }
 
 Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block* block, bool eos) {
