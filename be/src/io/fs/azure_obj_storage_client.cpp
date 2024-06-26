@@ -86,7 +86,7 @@ ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOption
         LOG_WARNING(msg);
         return {.status = convert_to_obj_response(Status::InternalError<false>(std::move(msg)))};
     }
-    return {};
+    return ObjectStorageResponse::OK();
 }
 
 struct AzureBatchDeleter {
@@ -98,7 +98,7 @@ struct AzureBatchDeleter {
     }
     ObjectStorageResponse execute() {
         if (deferred_resps.empty()) {
-            return {};
+            return ObjectStorageResponse::OK();
         }
         auto resp = do_azure_client_call([&]() { _client->SubmitBatch(_batch); }, _opts);
         if (resp.status.code != ErrorCode::OK) {
@@ -119,7 +119,7 @@ struct AzureBatchDeleter {
             }
         }
 
-        return {};
+        return ObjectStorageResponse::OK();
     }
 
 private:
@@ -132,7 +132,9 @@ private:
 // Azure would do nothing
 ObjectStorageUploadResponse AzureObjStorageClient::create_multipart_upload(
         const ObjectStoragePathOptions& opts) {
-    return {};
+    return ObjectStorageUploadResponse {
+            .resp = ObjectStorageResponse::OK(),
+    };
 }
 
 ObjectStorageResponse AzureObjStorageClient::put_object(const ObjectStoragePathOptions& opts,
@@ -171,7 +173,9 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         };
         // clang-format on
     }
-    return {};
+    return ObjectStorageUploadResponse {
+            .resp = ObjectStorageResponse::OK(),
+    };
 }
 
 ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
@@ -273,7 +277,7 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects(const ObjectStorageP
             return resp;
         }
     }
-    return {};
+    return ObjectStorageResponse::OK();
 }
 
 ObjectStorageResponse AzureObjStorageClient::delete_object(const ObjectStoragePathOptions& opts) {
@@ -301,7 +305,7 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects_recursively(
         if (auto response = deleter.execute(); response.status.code != ErrorCode::OK) {
             return response;
         }
-        return {};
+        return ObjectStorageResponse::OK();
     };
     auto resp = _client->ListBlobs(list_opts);
     if (auto response = delete_func(resp.Blobs); response.status.code != ErrorCode::OK) {
@@ -316,7 +320,7 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects_recursively(
             return response;
         }
     }
-    return {};
+    return ObjectStorageResponse::OK();
 }
 
 std::string AzureObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
