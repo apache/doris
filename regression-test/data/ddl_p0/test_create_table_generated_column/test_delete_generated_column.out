@@ -20,7 +20,7 @@
 2	22	24
 
 -- !delete_where_gen_col_unique --
-0
+1
 
 -- !delete_where_gen_col_select_unique --
 2	22	24
@@ -34,7 +34,7 @@
 10	2	12
 
 -- !delete_where_gen_col_and_other_col_unique --
-0
+1
 
 -- !delete_where_gen_col_and_other_col_select_unique --
 2	22	24
