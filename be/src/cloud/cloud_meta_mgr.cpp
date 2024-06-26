@@ -847,6 +847,7 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
     req.set_is_2pc(is_2pc);
+    req.set_lazy_commit(config::cloud_txn_lazy_commit);
     auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {
