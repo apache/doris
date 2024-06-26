@@ -504,14 +504,14 @@ public class LoadManager implements Writable {
      **/
     public void processEtlStateJobs() {
         idToLoadJob.values().stream()
-                .filter(job -> ((job.jobType == EtlJobType.SPARK || job.jobType == EtlJobType.BUCKET)
+                .filter(job -> ((job.jobType == EtlJobType.SPARK || job.jobType == EtlJobType.INGESTION)
                         && job.state == JobState.ETL))
                 .forEach(job -> {
                     try {
                         if (job instanceof SparkLoadJob) {
                             ((SparkLoadJob) job).updateEtlStatus();
-                        } else if (job instanceof BucketLoadJob) {
-                            ((BucketLoadJob) job).updateEtlStatus();
+                        } else if (job instanceof IngestionLoadJob) {
+                            ((IngestionLoadJob) job).updateEtlStatus();
                         }
                     } catch (DataQualityException e) {
                         LOG.info("update load job etl status failed. job id: {}", job.getId(), e);
@@ -531,14 +531,14 @@ public class LoadManager implements Writable {
      **/
     public void processLoadingStateJobs() {
         idToLoadJob.values().stream()
-                .filter(job -> ((job.jobType == EtlJobType.SPARK || job.jobType == EtlJobType.BUCKET)
+                .filter(job -> ((job.jobType == EtlJobType.SPARK || job.jobType == EtlJobType.INGESTION)
                         && job.state == JobState.LOADING))
                 .forEach(job -> {
                     try {
                         if (job instanceof SparkLoadJob) {
                             ((SparkLoadJob) job).updateLoadingStatus();
-                        } else if (job instanceof BucketLoadJob) {
-                            ((BucketLoadJob) job).updateLoadingStatus();
+                        } else if (job instanceof IngestionLoadJob) {
+                            ((IngestionLoadJob) job).updateLoadingStatus();
                         }
                     } catch (UserException e) {
                         LOG.warn("update load job loading status failed. job id: {}", job.getId(), e);
@@ -1033,9 +1033,9 @@ public class LoadManager implements Writable {
         return loadJob.getId();
     }
 
-    public long createBucketLoadJob(String dbName, String label, List<String> tableNames,
-                                    Map<String, String> properties,
-                                    UserIdentity userInfo)
+    public long createIngestionLoadJob(String dbName, String label, List<String> tableNames,
+                                       Map<String, String> properties,
+                                       UserIdentity userInfo)
             throws DdlException, LoadException {
         Database db = checkDb(dbName);
         long dbId = db.getId();
@@ -1043,7 +1043,7 @@ public class LoadManager implements Writable {
         writeLock();
         try {
             checkLabelUsed(dbId, label);
-            loadJob = new BucketLoadJob(dbId, label, tableNames, userInfo);
+            loadJob = new IngestionLoadJob(dbId, label, tableNames, userInfo);
             loadJob.setJobProperties(properties);
             createLoadJob(loadJob);
         } finally {

@@ -37,7 +37,7 @@ import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.StreamLoadHandler;
-import org.apache.doris.load.loadv2.BucketLoadJob;
+import org.apache.doris.load.loadv2.IngestionLoadJob;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.mysql.privilege.Auth;
@@ -706,8 +706,8 @@ public class LoadAction extends RestBaseController {
         return backend;
     }
 
-    @RequestMapping(path = "/api/bucket_load/{" + DB_KEY + "}/_create", method = RequestMethod.POST)
-    public Object createBucketLoad(HttpServletRequest request, HttpServletResponse response,
+    @RequestMapping(path = "/api/ingestion_load/{" + DB_KEY + "}/_create", method = RequestMethod.POST)
+    public Object createIngestionLoad(HttpServletRequest request, HttpServletResponse response,
                                   @PathVariable(value = DB_KEY) String db) {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
@@ -742,7 +742,7 @@ public class LoadAction extends RestBaseController {
                         });
             }
 
-            executeCreateAndStartSparkLoad(fullDbName, label, tableNames, properties, tableToPartition, resultMap,
+            executeCreateAndStartIngestionLoad(fullDbName, label, tableNames, properties, tableToPartition, resultMap,
                     ConnectContext.get().getCurrentUserIdentity());
 
         } catch (Exception e) {
@@ -754,7 +754,7 @@ public class LoadAction extends RestBaseController {
 
     }
 
-    private void executeCreateAndStartSparkLoad(String dbName, String label, List<String> tableNames,
+    private void executeCreateAndStartIngestionLoad(String dbName, String label, List<String> tableNames,
                                                 Map<String, String> properties,
                                                 Map<String, List<String>> tableToPartition,
                                                 Map<String, Object> resultMap, UserIdentity userInfo)
@@ -765,8 +765,8 @@ public class LoadAction extends RestBaseController {
         try {
 
             LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
-            loadId = loadManager.createBucketLoadJob(dbName, label, tableNames, properties, userInfo);
-            BucketLoadJob loadJob = (BucketLoadJob) loadManager.getLoadJob(loadId);
+            loadId = loadManager.createIngestionLoadJob(dbName, label, tableNames, properties, userInfo);
+            IngestionLoadJob loadJob = (IngestionLoadJob) loadManager.getLoadJob(loadId);
             resultMap.put("loadId", loadId);
 
             long txnId = loadJob.beginTransaction();
@@ -794,8 +794,8 @@ public class LoadAction extends RestBaseController {
 
     }
 
-    @RequestMapping(path = "/api/bucket_load/{" + DB_KEY + "}/_update", method = RequestMethod.POST)
-    public Object updateBucketLoad(HttpServletRequest request, HttpServletResponse response,
+    @RequestMapping(path = "/api/ingestion_load/{" + DB_KEY + "}/_update", method = RequestMethod.POST)
+    public Object updateIngestionLoad(HttpServletRequest request, HttpServletResponse response,
                                   @PathVariable(value = DB_KEY) String db) {
         if (needRedirect(request.getScheme())) {
             return redirectToHttps(request);
@@ -821,15 +821,15 @@ public class LoadAction extends RestBaseController {
                 return ResponseEntityBuilder.okWithCommonError("load job not exists");
             }
 
-            BucketLoadJob sparkLoadJob = (BucketLoadJob) loadJob;
-            Set<String> tableNames = sparkLoadJob.getTableNames();
+            IngestionLoadJob ingestionLoadJob = (IngestionLoadJob) loadJob;
+            Set<String> tableNames = ingestionLoadJob.getTableNames();
             for (String tableName : tableNames) {
                 checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.LOAD);
             }
             Map<String, String> statusInfo = mapper.readValue(jsonNode.get("statusInfo").traverse(),
                     new TypeReference<HashMap<String, String>>() {
                     });
-            sparkLoadJob.updateJobStatus(statusInfo);
+            ingestionLoadJob.updateJobStatus(statusInfo);
         } catch (IOException | MetaNotFoundException | UnauthorizedException e) {
             return ResponseEntityBuilder.okWithCommonError(
                     String.format("cancel spark load failed, err: %s", e.getMessage()));
