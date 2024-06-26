@@ -103,6 +103,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /** ExpressionAnalyzer */
 public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext> {
@@ -125,25 +126,29 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private boolean hasNondeterministic;
 
     /** ExpressionAnalyzer */
-    public ExpressionAnalyzer(Plan currentPlan, Scope scope, CascadesContext cascadesContext,
-            boolean enableExactMatch, boolean bindSlotInOuterScope) {
+    public ExpressionAnalyzer(Plan currentPlan, Scope scope,
+            @Nullable CascadesContext cascadesContext, boolean enableExactMatch, boolean bindSlotInOuterScope) {
         super(scope, cascadesContext);
         this.currentPlan = currentPlan;
         this.enableExactMatch = enableExactMatch;
         this.bindSlotInOuterScope = bindSlotInOuterScope;
-        this.wantToParseSqlFromSqlCache = CacheAnalyzer.canUseSqlCache(
-                cascadesContext.getConnectContext().getSessionVariable());
+        this.wantToParseSqlFromSqlCache = cascadesContext != null
+                && CacheAnalyzer.canUseSqlCache(cascadesContext.getConnectContext().getSessionVariable());
     }
 
-    public static Expression analyzeFunction(LogicalPlan plan, CascadesContext cascadesContext, Expression expression) {
+    public static Expression analyzeFunction(
+            @Nullable LogicalPlan plan, @Nullable CascadesContext cascadesContext, Expression expression) {
         ExpressionAnalyzer analyzer = new ExpressionAnalyzer(plan, new Scope(ImmutableList.of()),
                 cascadesContext, false, false);
-        return analyzer.analyze(expression, new ExpressionRewriteContext(cascadesContext));
+        return analyzer.analyze(
+                expression,
+                cascadesContext == null ? null : new ExpressionRewriteContext(cascadesContext)
+        );
     }
 
-
     public Expression analyze(Expression expression) {
-        return analyze(expression, new ExpressionRewriteContext(getCascadesContext()));
+        CascadesContext cascadesContext = getCascadesContext();
+        return analyze(expression, cascadesContext == null ? null : new ExpressionRewriteContext(cascadesContext));
     }
 
     /** analyze */
@@ -310,10 +315,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     }
 
     protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
-        throw new AnalysisException("Unknown column '"
+        String message = "Unknown column '"
                 + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
-                + "' in '" + tableName + "' in "
-                + currentPlan.getType().toString().substring("LOGICAL_".length()) + " clause");
+                + "' in '" + tableName;
+        if (currentPlan != null) {
+            message += "' in " + currentPlan.getType().toString().substring("LOGICAL_".length()) + " clause";
+        }
+        throw new AnalysisException(message);
     }
 
     @Override
@@ -372,15 +380,18 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(
                 unboundFunction.getDbName(), functionName, arguments);
         Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
-        StatementContext statementContext = context.cascadesContext.getStatementContext();
-        if (buildResult.second instanceof Nondeterministic) {
-            hasNondeterministic = true;
-        }
-        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
-        if (builder instanceof AliasUdfBuilder
-                || buildResult.second instanceof JavaUdf || buildResult.second instanceof JavaUdaf) {
-            if (sqlCacheContext.isPresent()) {
-                sqlCacheContext.get().setCannotProcessExpression(true);
+        Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
+        if (wantToParseSqlFromSqlCache) {
+            StatementContext statementContext = context.cascadesContext.getStatementContext();
+            if (buildResult.second instanceof Nondeterministic) {
+                hasNondeterministic = true;
+            }
+            sqlCacheContext = statementContext.getSqlCacheContext();
+            if (builder instanceof AliasUdfBuilder
+                    || buildResult.second instanceof JavaUdf || buildResult.second instanceof JavaUdaf) {
+                if (sqlCacheContext.isPresent()) {
+                    sqlCacheContext.get().setCannotProcessExpression(true);
+                }
             }
         }
         if (builder instanceof AliasUdfBuilder) {
@@ -392,9 +403,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         } else {
             Expression castFunction = TypeCoercionUtils.processBoundFunction((BoundFunction) buildResult.first);
             if (castFunction instanceof Count
+                    && context != null
                     && context.cascadesContext.getOuterScope().isPresent()
-                    && !context.cascadesContext.getOuterScope().get().getCorrelatedSlots()
-                    .isEmpty()) {
+                    && !context.cascadesContext.getOuterScope().get().getCorrelatedSlots().isEmpty()) {
                 // consider sql: SELECT * FROM t1 WHERE t1.a <= (SELECT COUNT(t2.a) FROM t2 WHERE (t1.b = t2.b));
                 // when unnest correlated subquery, we create a left join node.
                 // outer query is left table and subquery is right one
@@ -504,6 +515,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitPlaceholder(Placeholder placeholder, ExpressionRewriteContext context) {
+        if (context == null) {
+            return super.visitPlaceholder(placeholder, context);
+        }
         Expression realExpr = context.cascadesContext.getStatementContext()
                     .getIdToPlaceholderRealExpr().get(placeholder.getPlaceholderId());
         return visit(realExpr, context);
@@ -747,7 +761,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 .collect(ImmutableList.toImmutableList());
 
         ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(boundedSlots),
-                context.cascadesContext, true, false) {
+                context == null ? null : context.cascadesContext, true, false) {
             @Override
             protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
                 throw new AnalysisException("Unknown lambda slot '"
@@ -755,8 +769,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                         + " in lambda arguments" + lambda.getLambdaArgumentNames());
             }
         };
-        lambdaFunction = lambdaAnalyzer.analyze(lambdaFunction,
-                new ExpressionRewriteContext(context.cascadesContext));
+        lambdaFunction = lambdaAnalyzer.analyze(lambdaFunction, context);
 
         Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
 

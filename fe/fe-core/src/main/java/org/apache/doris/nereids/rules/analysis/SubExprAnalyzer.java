@@ -173,6 +173,9 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
     }
 
     private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
+        if (cascadesContext == null) {
+            throw new IllegalStateException("Missing CascadesContext");
+        }
         CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
                 cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext());
         Scope subqueryScope = genScopeWithSubquery(expr);
