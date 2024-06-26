@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
-import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
 
@@ -30,7 +30,7 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
     void testSimplifyArithmetic() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(SimplifyArithmeticRule.INSTANCE),
-                FunctionBinder.INSTANCE,
+                ExpressionAnalyzer.FUNCTION_ANALYZER_RULE,
                 bottomUp(
                     FoldConstantRule.INSTANCE
                 )
@@ -102,7 +102,7 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
                     SimplifyArithmeticComparisonRule.INSTANCE,
                     SimplifyArithmeticRule.INSTANCE
                 ),
-                FunctionBinder.INSTANCE,
+                ExpressionAnalyzer.FUNCTION_ANALYZER_RULE,
                 bottomUp(
                     FoldConstantRule.INSTANCE
                 )
@@ -146,7 +146,7 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
                     SimplifyArithmeticComparisonRule.INSTANCE,
                     SimplifyArithmeticRule.INSTANCE
                 ),
-                FunctionBinder.INSTANCE,
+                ExpressionAnalyzer.FUNCTION_ANALYZER_RULE,
                 bottomUp(
                     FoldConstantRule.INSTANCE
                 )

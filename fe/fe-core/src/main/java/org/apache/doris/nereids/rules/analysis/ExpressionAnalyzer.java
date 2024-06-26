@@ -35,6 +35,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -107,7 +108,6 @@ import javax.annotation.Nullable;
 
 /** ExpressionAnalyzer */
 public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext> {
-
     private final Plan currentPlan;
     /*
     bounded={table.a, a}
@@ -135,6 +135,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         this.wantToParseSqlFromSqlCache = cascadesContext != null
                 && CacheAnalyzer.canUseSqlCache(cascadesContext.getConnectContext().getSessionVariable());
     }
+
+    public static final ExpressionAnalyzer FUNCTION_ANALYZER = new ExpressionAnalyzer(
+            null, new Scope(ImmutableList.of()), null, false, false);
+
+    public static final AbstractExpressionRewriteRule FUNCTION_ANALYZER_RULE = new AbstractExpressionRewriteRule() {
+        @Override
+        public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
+            return FUNCTION_ANALYZER.analyze(expr, ctx);
+        }
+    };
 
     public static Expression analyzeFunction(
             @Nullable LogicalPlan plan, @Nullable CascadesContext cascadesContext, Expression expression) {
