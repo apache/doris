@@ -20,6 +20,7 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include "meta-service/txn_kv.h"
+#include "meta-service/txn_lazy_committer.h"
 
 namespace doris::cloud {
 
@@ -28,7 +29,8 @@ class Checker;
 
 class RecyclerServiceImpl : public cloud::RecyclerService {
 public:
-    RecyclerServiceImpl(std::shared_ptr<TxnKv> txn_kv, Recycler* recycler, Checker* checker);
+    RecyclerServiceImpl(std::shared_ptr<TxnKv> txn_kv, Recycler* recycler, Checker* checker,
+                        std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
     ~RecyclerServiceImpl() override;
 
     void recycle_instance(::google::protobuf::RpcController* controller,
@@ -48,6 +50,7 @@ private:
     std::shared_ptr<TxnKv> txn_kv_;
     Recycler* recycler_; // Ref
     Checker* checker_;   // Ref
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
 } // namespace doris::cloud
