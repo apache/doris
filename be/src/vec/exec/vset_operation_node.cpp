@@ -121,6 +121,7 @@ Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
         RETURN_IF_ERROR(child(i)->open(state));
         eos = false;
 
+        _probe_block.clear();
         while (!eos) {
             release_block_memory(_probe_block, i);
             RETURN_IF_CANCELLED(state);
