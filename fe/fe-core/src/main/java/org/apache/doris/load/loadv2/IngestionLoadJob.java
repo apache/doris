@@ -108,6 +108,18 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * Ingestion Load
+ * </p>
+ * Load data file which has been pre-processed
+ * </p>
+ * There are 4 steps in IngestionLoadJob:
+ * Step1: Outside system execute ingestion etl job.
+ * Step2: LoadEtlChecker will check ingestion etl job status periodically
+ * and send push tasks to be when ingestion etl job is finished.
+ * Step3: LoadLoadingChecker will check loading status periodically and commit transaction when push tasks are finished.
+ * Step4: PublishVersionDaemon will send publish version tasks to be and finish transaction.
+ */
 public class IngestionLoadJob extends LoadJob {
 
     public static final Logger LOG = LogManager.getLogger(IngestionLoadJob.class);
@@ -799,8 +811,6 @@ public class IngestionLoadJob extends LoadJob {
         tBrokerRangeDesc.setSplittable(false);
         tBrokerRangeDesc.setStartOffset(0);
         tBrokerRangeDesc.setSize(-1);
-        // THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(properties);
-        // tBrokerRangeDesc.setHdfsParams(tHdfsParams);
         // path and file size updated for each replica
         brokerScanRange.setRanges(Collections.singletonList(tBrokerRangeDesc));
 
