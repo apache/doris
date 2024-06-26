@@ -627,12 +627,6 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     RETURN_IF_ERROR(new_tablet->create_rowset_writer(context, &rowset_writer));
-
-    Defer defer {[&]() {
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
-    }};
-
     RETURN_IF_ERROR(merger.merge(blocks, rowset_writer.get(), &merged_rows));
 
     _add_merged_rows(merged_rows);
@@ -1108,12 +1102,8 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first << "-"
                          << rs_reader->version().second << ", " << res.to_string();
-            new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                       rowset_writer->rowset_id().to_string());
             return process_alter_exit();
         }
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
         // Add the new version of the data to the header
         // In order to prevent the occurrence of deadlock, we must first lock the old table, and then lock the new table
         std::lock_guard<std::mutex> lock(sc_params.new_tablet->get_push_lock());

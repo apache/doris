@@ -129,11 +129,6 @@ DeltaWriter::~DeltaWriter() {
         _calc_delete_bitmap_token->cancel();
     }
 
-    if (_tablet != nullptr) {
-        _tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                _rowset_writer->rowset_id().to_string());
-    }
-
     _mem_table.reset();
 }
 
