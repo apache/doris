@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_remote_tvf") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
+suite("test_hdfs_tvf_compression", "p0,external,tvf,external_docker,hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
+        String nameNodeHost = context.config.otherConfigs.get("externalEnvIp")
+        String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
 
-        String baseUri = "hdfs://${nameNodeHost}:${hdfsPort}/usr/hive/warehouse/multi_catalog.db/test_compress_partitioned/"
+        String baseUri = "hdfs://${nameNodeHost}:${hdfsPort}/user/doris/suites/test_hive_compress_type/test_compress_partitioned/"
         String baseFs = "hdfs://${nameNodeHost}:${hdfsPort}"
 
         String select_field = "c1,c2,c3,c4,c5,c6,c7,c8,c9,c10";
