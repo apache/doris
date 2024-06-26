@@ -58,6 +58,7 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
@@ -152,6 +153,9 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _memory_used_counter(nullptr),
           _get_next_span(),
           _is_closed(false) {
+    if (_limit < -1) {
+        _limit = -1;
+    }
     if (tnode.__isset.output_tuple_id) {
         _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
     }
@@ -197,9 +201,6 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
                                                                    _vconjunct_ctx_ptr.get()));
     }
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
-        RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
-    }
 
     // create the projections expr
     if (tnode.__isset.projections) {
@@ -230,9 +231,6 @@ Status ExecNode::prepare(RuntimeState* state) {
     // For vectorized olap scan node, the conjuncts is prepared in _vconjunct_ctx_ptr.
     // And _conjunct_ctxs is useless.
     // TODO: Should be removed when non-vec engine is removed.
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
-        RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
-    }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
     for (int i = 0; i < _children.size(); ++i) {
@@ -247,11 +245,7 @@ Status ExecNode::open(RuntimeState* state) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
-        return Expr::open(_conjunct_ctxs, state);
-    } else {
-        return Status::OK();
-    }
+    return Status::OK();
 }
 
 Status ExecNode::reset(RuntimeState* state) {
@@ -290,9 +284,6 @@ Status ExecNode::close(RuntimeState* state) {
 
     if (_vconjunct_ctx_ptr) {
         (*_vconjunct_ctx_ptr)->close(state);
-    }
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
-        Expr::close(_conjunct_ctxs, state);
     }
     vectorized::VExpr::close(_projections, state);
 
@@ -832,7 +823,13 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
-            mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+
+            if (column_ptr->is_nullable() ^ mutable_columns[i]->is_nullable()) {
+                auto nullable_column = reinterpret_cast<ColumnNullable*>(mutable_columns[i].get());
+                nullable_column->insert_range_from_not_nullable(*column_ptr, 0, rows);
+            } else {
+                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+            }
         }
 
         if (!is_mem_reuse) output_block->swap(mutable_block.to_block());

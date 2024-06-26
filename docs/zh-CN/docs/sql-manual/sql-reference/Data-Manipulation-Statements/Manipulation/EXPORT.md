@@ -74,6 +74,7 @@ WITH BROKER
   - `exec_mem_limit`：导出在单个 BE 节点的内存使用上限，默认为 2GB，单位为字节。
   - `timeout`：导出作业的超时时间，默认为2小时，单位是秒。
   - `tablet_num_per_task`：每个子任务能分配扫描的最大 Tablet 数量。
+  - `format`:指定导出的格式，当前只支持csv、csv_with_names、csv_with_names_and_types。在不指定的情况下，默认为csv。
 
 - `WITH BROKER`
 

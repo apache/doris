@@ -300,12 +300,12 @@ TEST_F(TestTablet, pad_rowset) {
 
     Version version(5, 5);
     std::vector<RowsetReaderSharedPtr> readers;
-    ASSERT_FALSE(_tablet->capture_rs_readers(version, &readers).ok());
+    ASSERT_FALSE(_tablet->capture_rs_readers(version, &readers, false).ok());
     readers.clear();
 
     PadRowsetAction action;
     action._pad_rowset(_tablet, version);
-    ASSERT_TRUE(_tablet->capture_rs_readers(version, &readers).ok());
+    ASSERT_TRUE(_tablet->capture_rs_readers(version, &readers, false).ok());
 }
 
 TEST_F(TestTablet, cooldown_policy) {

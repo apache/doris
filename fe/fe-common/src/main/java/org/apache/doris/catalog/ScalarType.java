@@ -521,7 +521,7 @@ public class ScalarType extends Type {
             return "TIMEV2(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
-                return "VARCHAR(*)";
+                return "VARCHAR";
             }
             return "VARCHAR(" + len + ")";
         } else if (type == PrimitiveType.STRING) {
@@ -1015,13 +1015,17 @@ public class ScalarType extends Type {
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
             if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
-                return MAX_DECIMALV2_TYPE;
+                return Type.DOUBLE;
             }
             return t1.isDecimalV2() ? t1 : t2;
         }
 
-        if ((t1.isDecimalV3() && t2.isFixedPointType()) || (t2.isDecimalV3() && t1.isFixedPointType())) {
-            return t1.isDecimalV3() ? t1 : t2;
+        if (t1.isDecimalV3() || t2.isDecimalV3()) {
+            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
+                return t1.isFloatingPointType() ? t1 : t2;
+            } else if (t1.isBoolean() || t2.isBoolean()) {
+                return t1.isDecimalV3() ? t1 : t2;
+            }
         }
 
         if (t1.isDecimalV3() && t2.isDecimalV3()) {

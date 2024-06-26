@@ -139,6 +139,15 @@ std::string SchemaColumnsScanner::to_mysql_data_type_string(TColumnDesc& desc) {
     case TPrimitiveType::JSONB: {
         return "json";
     }
+    case TPrimitiveType::MAP: {
+        return "map";
+    }
+    case TPrimitiveType::ARRAY: {
+        return "array";
+    }
+    case TPrimitiveType::STRUCT: {
+        return "struct";
+    }
     default:
         return "unknown";
     }

@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
@@ -26,11 +27,13 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.ImmutableMap;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 import org.apache.thrift.transport.TTransportException;
 
 import java.nio.ByteBuffer;
@@ -63,24 +66,40 @@ public class MasterOpExecutor {
         this.shouldNotRetry = !isQuery;
     }
 
+    /**
+     * used for simply syncing journal with master under strong consistency mode
+     */
+    public MasterOpExecutor(ConnectContext ctx) {
+        this(null, ctx, RedirectStatus.FORWARD_WITH_SYNC, true);
+    }
+
     public void execute() throws Exception {
         Span forwardSpan =
                 ctx.getTracer().spanBuilder("forward").setParent(Context.current())
                         .startSpan();
-        try (Scope scope = forwardSpan.makeCurrent()) {
-            forward();
+        try (Scope ignored = forwardSpan.makeCurrent()) {
+            result = forward(buildStmtForwardParams());
         } catch (Exception e) {
             forwardSpan.recordException(e);
             throw e;
         } finally {
             forwardSpan.end();
         }
+        waitOnReplaying();
+    }
+
+    public void syncJournal() throws Exception {
+        result = forward(buildSyncJournalParmas());
+        waitOnReplaying();
+    }
+
+    private void waitOnReplaying() throws DdlException {
         LOG.info("forwarding to master get result max journal id: {}", result.maxJournalId);
         ctx.getEnv().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
     }
 
     // Send request to Master
-    private void forward() throws Exception {
+    private TMasterOpResult forward(TMasterOpRequest params) throws Exception {
         if (!ctx.getEnv().isReady()) {
             throw new Exception("Node catalog is not ready, please wait for a while.");
         }
@@ -95,7 +114,50 @@ public class MasterOpExecutor {
             // may throw NullPointerException. add err msg
             throw new Exception("Failed to get master client.", e);
         }
+        final StringBuilder forwardMsg = new StringBuilder("forward to master FE %s" + thriftAddress.toString());
+        if (!params.isSyncJournalOnly()) {
+            forwardMsg.append(", statement id: ").append(ctx.getStmtId());
+        }
+        LOG.info(forwardMsg.toString());
+
+        boolean isReturnToPool = false;
+        try {
+            final TMasterOpResult result = client.forward(params);
+            isReturnToPool = true;
+            return result;
+        } catch (TTransportException e) {
+            // wrap the raw exception.
+            forwardMsg.append(" : failed");
+            Exception exception = new ForwardToMasterException(forwardMsg.toString(), e);
+
+            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
+            if (!ok) {
+                throw exception;
+            }
+            if (shouldNotRetry || e.getType() == TTransportException.TIMED_OUT) {
+                throw exception;
+            } else {
+                LOG.warn(forwardMsg.append(" twice").toString(), e);
+                try {
+                    TMasterOpResult result = client.forward(params);
+                    isReturnToPool = true;
+                    return result;
+                } catch (TException ex) {
+                    throw exception;
+                }
+            }
+        } finally {
+            if (isReturnToPool) {
+                ClientPool.frontendPool.returnObject(thriftAddress, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(thriftAddress, client);
+            }
+        }
+    }
+
+    private TMasterOpRequest buildStmtForwardParams() {
         TMasterOpRequest params = new TMasterOpRequest();
+        //node ident
         params.setCluster(ctx.getClusterName());
         params.setSql(originStmt.originStmt);
         params.setStmtIdx(originStmt.idx);
@@ -122,32 +184,18 @@ public class MasterOpExecutor {
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
+        return params;
+    }
 
-        LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
-
-        boolean isReturnToPool = false;
-        try {
-            result = client.forward(params);
-            isReturnToPool = true;
-        } catch (TTransportException e) {
-            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
-            if (!ok) {
-                throw e;
-            }
-            if (shouldNotRetry || e.getType() == TTransportException.TIMED_OUT) {
-                throw e;
-            } else {
-                LOG.warn("Forward statement " + ctx.getStmtId() + " to Master " + thriftAddress + " twice", e);
-                result = client.forward(params);
-                isReturnToPool = true;
-            }
-        } finally {
-            if (isReturnToPool) {
-                ClientPool.frontendPool.returnObject(thriftAddress, client);
-            } else {
-                ClientPool.frontendPool.invalidateObject(thriftAddress, client);
-            }
-        }
+    private TMasterOpRequest buildSyncJournalParmas() {
+        final TMasterOpRequest params = new TMasterOpRequest();
+        //node ident
+        params.setSyncJournalOnly(true);
+        // just make the protocol happy
+        params.setDb("");
+        params.setUser("");
+        params.setSql("");
+        return params;
     }
 
     public ByteBuffer getOutputPacket() {
@@ -189,5 +237,29 @@ public class MasterOpExecutor {
 
     public void setResult(TMasterOpResult result) {
         this.result = result;
+    }
+
+    public static class ForwardToMasterException extends RuntimeException {
+
+        private static final Map<Integer, String> TYPE_MSG_MAP =
+                ImmutableMap.<Integer, String>builder()
+                        .put(TTransportException.UNKNOWN, "Unknown exception")
+                        .put(TTransportException.NOT_OPEN, "Connection is not open")
+                        .put(TTransportException.ALREADY_OPEN, "Connection has already opened up")
+                        .put(TTransportException.TIMED_OUT, "Connection timeout")
+                        .put(TTransportException.END_OF_FILE, "EOF")
+                        .put(TTransportException.CORRUPTED_DATA, "Corrupted data")
+                        .build();
+
+        private final String msg;
+
+        public ForwardToMasterException(String msg, TTransportException exception) {
+            this.msg = msg + ", cause: " + TYPE_MSG_MAP.get(exception.getType());
+        }
+
+        @Override
+        public String getMessage() {
+            return msg;
+        }
     }
 }

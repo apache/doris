@@ -243,7 +243,7 @@ public class ShowDataStmt extends ShowStmt {
                     long indexRowCount = 0;
                     for (Partition partition : olapTable.getAllPartitions()) {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
-                        indexSize += mIndex.getDataSize();
+                        indexSize += mIndex.getDataSize(false);
                         indexReplicaCount += mIndex.getReplicaCount();
                         indexRowCount += mIndex.getRowCount();
                     }

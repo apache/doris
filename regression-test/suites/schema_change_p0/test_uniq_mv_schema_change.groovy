@@ -20,6 +20,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite ("test_uniq_mv_schema_change") {
     def tableName = "schema_change_uniq_mv_regression_test"
 
+    def getJobColumnState = { tName ->
+        def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE TableName='${tName}' ORDER BY CreateTime DESC LIMIT 1; """
+        return jobStateResult[0][9]
+    }
+
     try {
         String[][] backends = sql """ show backends; """
         assertTrue(backends.size() > 0)
@@ -55,7 +60,7 @@ suite ("test_uniq_mv_schema_change") {
                 disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
             }
         }
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP TABLE IF EXISTS ${tableName} force"""
 
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -72,7 +77,7 @@ suite ("test_uniq_mv_schema_change") {
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
             BUCKETS 1
-            PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true");
+            PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false", 'enable_unique_key_merge_on_write' = 'false');
         """
 
     //add materialized view
@@ -86,7 +91,7 @@ suite ("test_uniq_mv_schema_change") {
         if(result.contains("CANCELLED")){
             return
         }
-        Thread.sleep(100)
+        Thread.sleep(1000)
     }
 
     sql """ INSERT INTO ${tableName} VALUES
@@ -110,8 +115,22 @@ suite ("test_uniq_mv_schema_change") {
 
     // add column
     sql """
-        ALTER table ${tableName} ADD COLUMN new_column INT default "1" 
+        ALTER TABLE ${tableName} ADD COLUMN new_column INT default "1" 
         """
+
+    def max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobColumnState(tableName)
+        if (res == "FINISHED") {
+            break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED", res)
+            }
+        }
+    }
 
     sql """ SELECT * FROM ${tableName} WHERE user_id=2 """
 
@@ -136,6 +155,20 @@ suite ("test_uniq_mv_schema_change") {
     sql """
           ALTER TABLE ${tableName} DROP COLUMN cost
           """
+
+    max_try_secs = 60
+    while (max_try_secs--) {
+        String res = getJobColumnState(tableName)
+        if (res == "FINISHED") {
+            break
+        } else {
+            Thread.sleep(2000)
+            if (max_try_secs < 1) {
+                println "test timeout," + "state:" + res
+                assertEquals("FINISHED", res)
+            }
+        }
+    }
 
     qt_sc """ select * from ${tableName} where user_id = 3 """
 

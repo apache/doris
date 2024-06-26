@@ -169,10 +169,12 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     return Status::OK();
 }
 
-void TxnManager::set_txn_related_delete_bitmap(
-        TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
-        SchemaHash schema_hash, TabletUid tablet_uid, bool unique_key_merge_on_write,
-        DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids, uint64_t num_keys) {
+void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
+                                               TTransactionId transaction_id, TTabletId tablet_id,
+                                               SchemaHash schema_hash, TabletUid tablet_uid,
+                                               bool unique_key_merge_on_write,
+                                               DeleteBitmapPtr delete_bitmap,
+                                               const RowsetIdUnorderedSet& rowset_ids) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
 
@@ -182,19 +184,22 @@ void TxnManager::set_txn_related_delete_bitmap(
         std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         auto it = txn_tablet_map.find(key);
-        DCHECK(it != txn_tablet_map.end());
         if (it == txn_tablet_map.end()) {
             LOG(WARNING) << "transaction_id: " << transaction_id
                          << " partition_id: " << partition_id << " may be cleared";
             return;
         }
         auto load_itr = it->second.find(tablet_info);
-        DCHECK(load_itr != it->second.end());
+        if (load_itr == it->second.end()) {
+            LOG(WARNING) << "transaction_id: " << transaction_id
+                         << " partition_id: " << partition_id << " tablet_id: " << tablet_id
+                         << " may be cleared";
+            return;
+        }
         TabletTxnInfo& load_info = load_itr->second;
         load_info.unique_key_merge_on_write = unique_key_merge_on_write;
         load_info.delete_bitmap = delete_bitmap;
         load_info.rowset_ids = rowset_ids;
-        load_info.num_keys = num_keys;
     }
 }
 
@@ -280,7 +285,6 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
             if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
                 load_info.unique_key_merge_on_write = true;
                 load_info.delete_bitmap.reset(new DeleteBitmap(tablet->tablet_id()));
-                load_info.num_keys = 0;
             }
         }
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);

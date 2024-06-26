@@ -58,6 +58,7 @@ class ConfigOptions {
     static Option stopWhenFailOpt
     static Option timesOpt
     static Option withOutLoadDataOpt
+    static Option caseNamePrefixOpt
     static Option dryRunOpt
 
     static CommandLine initCommands(String[] args) {
@@ -132,14 +133,7 @@ class ConfigOptions {
                 .longOpt("realDataPath")
                 .desc("the real data path")
                 .build()
-        sf1DataOpt = Option.builder("SD")
-                .argName("sf1DataPath")
-                .required(false)
-                .hasArg(true)
-                .type(String.class)
-                .longOpt("sf1DataPath")
-                .desc("the sf1 data path contains data file for ssb_sf1, tpcds_sf1 and tpch_sf1 cases")
-                .build()
+        
         cacheDataOpt = Option.builder("CD")
                 .argName("cacheDataPath")
                 .required(false)
@@ -311,6 +305,13 @@ class ConfigOptions {
                 .longOpt("withOutLoadData")
                 .desc("do not run load.groovy to reload data to Doris.")
                 .build()
+        caseNamePrefixOpt = Option.builder("cnp")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("caseNamePrefix")
+                .desc("add prefix to each case name")
+                .build()
         dryRunOpt = Option.builder("dryRun")
                 .required(false)
                 .hasArg(false)
@@ -346,6 +347,7 @@ class ConfigOptions {
                 .addOption(stopWhenFailOpt)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
+                .addOption(caseNamePrefixOpt)
                 .addOption(dryRunOpt)
 
         CommandLine cmd = new DefaultParser().parse(options, args, true)

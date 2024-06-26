@@ -56,6 +56,12 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
     if (scan_range.params.__isset.strict_mode) {
         _strict_mode = scan_range.params.strict_mode;
     }
+
+    // For load scanner, there are input and output tuple.
+    // For query scanner, there is only output tuple
+    _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
+    _real_tuple_desc = _input_tuple_desc == nullptr ? _output_tuple_desc : _input_tuple_desc;
+    _is_load = (_input_tuple_desc != nullptr);
 }
 
 Status VFileScanner::prepare(
@@ -73,6 +79,7 @@ Status VFileScanner::prepare(
     _pre_filter_timer = ADD_TIMER(_parent->_scanner_profile, "FileScannerPreFilterTimer");
     _convert_to_output_block_timer =
             ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
+    _file_counter = ADD_COUNTER(_parent->_scanner_profile, "FileReaderCounter", TUnit::UNIT);
 
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
@@ -373,7 +380,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        int dest_index = ctx_idx++;
+        int dest_index = ctx_idx;
 
         auto* ctx = _dest_vexpr_ctx[dest_index];
         int result_column_id = -1;
@@ -441,6 +448,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         block->insert(dest_index, vectorized::ColumnWithTypeAndName(std::move(column_ptr),
                                                                     slot_desc->get_data_type_ptr(),
                                                                     slot_desc->col_name()));
+        ctx_idx++;
     }
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
@@ -465,6 +473,7 @@ Status VFileScanner::_get_next_reader() {
             return Status::OK();
         }
         const TFileRangeDesc& range = _ranges[_next_range++];
+        COUNTER_UPDATE(_file_counter, 1);
 
         // create reader for specific format
         // TODO: add json, avro

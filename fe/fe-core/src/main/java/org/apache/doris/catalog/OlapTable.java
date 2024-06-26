@@ -1026,7 +1026,7 @@ public class OlapTable extends Table {
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
-            dataSize += entry.getValue().getBaseIndex().getDataSize();
+            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
         }
         if (rowCount > 0) {
             return dataSize / rowCount;
@@ -1039,7 +1039,7 @@ public class OlapTable extends Table {
     public long getDataLength() {
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            dataSize += entry.getValue().getBaseIndex().getDataSize();
+            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
         }
         return dataSize;
     }
@@ -1393,12 +1393,16 @@ public class OlapTable extends Table {
         return oldPartition;
     }
 
-    public long getDataSize() {
+    public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (Partition partition : getAllPartitions()) {
-            dataSize += partition.getDataSize();
+            dataSize += partition.getDataSize(singleReplica);
         }
         return dataSize;
+    }
+
+    public long getDataSize() {
+        return getDataSize(false);
     }
 
     public long getReplicaCount() {
@@ -1984,5 +1988,11 @@ public class OlapTable extends Table {
 
     public Set<Long> getPartitionKeys() {
         return idToPartition.keySet();
+    }
+
+    public boolean isDupKeysOrMergeOnWrite() {
+        return getKeysType() == KeysType.DUP_KEYS
+                || (getKeysType() == KeysType.UNIQUE_KEYS
+                && getEnableUniqueKeyMergeOnWrite());
     }
 }

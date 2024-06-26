@@ -56,9 +56,9 @@ public class RandomDistributionInfo extends DistributionInfo {
     public String toSql() {
         StringBuilder builder = new StringBuilder();
         if (autoBucket) {
-            builder.append("DISTRIBUTED BY RANDOM() BUCKETS AUTO");
+            builder.append("DISTRIBUTED BY RANDOM BUCKETS AUTO");
         } else {
-            builder.append("DISTRIBUTED BY RANDOM() BUCKETS ").append(bucketNum);
+            builder.append("DISTRIBUTED BY RANDOM BUCKETS ").append(bucketNum);
         }
         return builder.toString();
     }

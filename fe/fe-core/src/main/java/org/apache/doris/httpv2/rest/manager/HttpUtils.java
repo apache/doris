@@ -109,7 +109,8 @@ public class HttpUtils {
 
     private static String executeRequest(HttpRequestBase request) throws IOException {
         CloseableHttpClient client = HttpClientBuilder.create().build();
-        return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
+        return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity(), 
+				StandardCharsets.UTF_8));
     }
 
     static String parseResponse(String response) {

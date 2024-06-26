@@ -28,7 +28,6 @@
 namespace doris::vectorized {
 
 Status ScannerContext::init() {
-    _real_tuple_desc = _input_tuple_desc != nullptr ? _input_tuple_desc : _output_tuple_desc;
     // 1. Calculate max concurrency
     // TODO: now the max thread num <= config::doris_scanner_thread_pool_thread_num / 4
     // should find a more reasonable value.
@@ -93,7 +92,7 @@ vectorized::Block* ScannerContext::get_free_block(bool* get_free_block) {
     *get_free_block = false;
 
     COUNTER_UPDATE(_parent->_newly_create_free_blocks_num, 1);
-    return new vectorized::Block(_real_tuple_desc->slots(), _state->batch_size());
+    return new vectorized::Block(_output_tuple_desc->slots(), _state->batch_size());
 }
 
 void ScannerContext::return_free_block(vectorized::Block* block) {

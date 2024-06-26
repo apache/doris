@@ -492,7 +492,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(*) from test.bitmap_table where id2 = 1;",
-                "Bitmap type dose not support operand: `id2` = 1"
+                "Unsupported bitmap type in expression: `id2` = 1"
         );
 
     }
@@ -564,11 +564,11 @@ public class QueryPlanTest extends TestWithFeService {
         // disable cast hll/bitmap to string
         assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.hll_table;",
-                "Invalid type cast of `id2` from HLL to VARCHAR(*)"
+                "Invalid type cast of `id2` from HLL to VARCHAR"
         );
         assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.bitmap_table;",
-                "Invalid type cast of `id2` from BITMAP to VARCHAR(*)"
+                "Invalid type cast of `id2` from BITMAP to VARCHAR"
         );
         // disable implicit cast hll/bitmap to string
         assertSQLPlanOrErrorMsgContains(
@@ -746,7 +746,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: <slot 12> > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 12> <slot 0> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         /*
@@ -833,7 +833,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left anti join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: <slot 7> > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 7> <slot 0> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test semi join, left table join predicate, only push to left table
@@ -1523,7 +1523,6 @@ public class QueryPlanTest extends TestWithFeService {
     public void testEmptyNode() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String emptyNode = "EMPTYSET";
-        String denseRank = "dense_rank";
 
         List<String> sqls = Lists.newArrayList();
         sqls.add("explain select * from baseall limit 0");
@@ -1542,7 +1541,6 @@ public class QueryPlanTest extends TestWithFeService {
         for (String sql : sqls) {
             String explainString = getSQLPlanOrErrorMsg(sql);
             Assert.assertTrue(explainString.contains(emptyNode));
-            Assert.assertFalse(explainString.contains(denseRank));
         }
     }
 
@@ -1920,7 +1918,7 @@ public class QueryPlanTest extends TestWithFeService {
         String sql = "select * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2) a"
                 + " on t1.k1 = a.x where 1 = 0;";
         String explainStr = getSQLPlanOrErrorMsg(sql, true);
-        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 4, "EMPTYSET"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 5, "EMPTYSET"));
         Assert.assertTrue(explainStr.contains("tuple ids: 5"));
     }
 
@@ -2056,7 +2054,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains(
-                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> AS INT)\n" + "    CAST(<slot 5> AS INT)"));
+                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> <slot 2> 3 AS INT)\n" + "    CAST(<slot 5> <slot 3> 4 AS INT)"));
     }
 
     @Test

@@ -96,7 +96,7 @@ public class GrantStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (userIdent != null) {
             userIdent.analyze(analyzer.getClusterName());
@@ -191,14 +191,11 @@ public class GrantStmt extends DdlStmt {
 
     public static void checkResourcePrivileges(List<PaloPrivilege> privileges, String role,
             ResourcePattern resourcePattern) throws AnalysisException {
-        // Rule 1
-        if (privileges.contains(PaloPrivilege.NODE_PRIV)) {
-            throw new AnalysisException("Can not grant/revoke NODE_PRIV to/from any other users or roles");
-        }
-
-        // Rule 2
-        if (resourcePattern.getPrivLevel() != PrivLevel.GLOBAL && privileges.contains(PaloPrivilege.ADMIN_PRIV)) {
-            throw new AnalysisException("ADMIN_PRIV privilege can only be granted/revoked on/from resource *");
+        for (int i = 0; i < PaloPrivilege.notBelongToResourcePrivileges.length; i++) {
+            if (privileges.contains(PaloPrivilege.notBelongToResourcePrivileges[i])) {
+                throw new AnalysisException(String.format("Can not grant/revoke %s to/from any other users or roles",
+                        PaloPrivilege.notBelongToResourcePrivileges[i]));
+            }
         }
 
         if (role != null) {

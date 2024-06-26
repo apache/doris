@@ -43,6 +43,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -262,6 +263,7 @@ terminal String
     KW_BACKENDS,
     KW_BACKUP,
     KW_BEGIN,
+    KW_BELONG,
     KW_BETWEEN,
     KW_BIGINT,
     KW_BIN,
@@ -596,6 +598,7 @@ terminal String
     KW_VERBOSE,
     KW_VERSION,
     KW_VIEW,
+    KW_VIEWS,
     KW_WARNINGS,
     KW_WEEK,
     KW_WHEN,
@@ -683,7 +686,7 @@ nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal ArrayList<Expr> expr_pipe_list;
 nonterminal String select_alias, opt_table_alias, lock_alias, opt_alias;
-nonterminal ArrayList<String> ident_list;
+nonterminal ArrayList<String> ident_list, opt_ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
@@ -1737,7 +1740,7 @@ create_stmt ::=
         RESULT = new CreateFunctionStmt(ifNotExists, isAggregate, functionName, args, returnType, intermediateType, properties);
     :}
     | KW_CREATE KW_ALIAS KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_WITH KW_PARAMETER LPAREN ident_list:parameters RPAREN KW_AS expr:func
+            KW_WITH KW_PARAMETER LPAREN opt_ident_list:parameters RPAREN KW_AS expr:func
     {:
         RESULT = new CreateFunctionStmt(ifNotExists, functionName, args, parameters, func);
     :}
@@ -3144,7 +3147,7 @@ key_value_map ::=
 
 opt_properties ::=
     {:
-    RESULT = null;
+    RESULT = Maps.newHashMap();
     :}
     | properties:properties
     {:
@@ -3154,7 +3157,7 @@ opt_properties ::=
 
 opt_ext_properties ::=
     {:
-    RESULT = null;
+    RESULT = Maps.newHashMap();
     :}
     | KW_BROKER properties:properties
     {:
@@ -3383,6 +3386,16 @@ show_param ::=
     {:
         RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, parser.wild, parser.where);
     :}
+    /* show views */
+    | opt_full KW_VIEWS opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowTableStmt(db, null, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
+    :}
+    /* show views */
+    | opt_full KW_VIEWS from_or_in ident:ctl DOT ident:db opt_wild_where
+    {:
+        RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
+    :}
     /* show table id */
     | KW_TABLE INTEGER_LITERAL:tableId
     {:
@@ -3601,6 +3614,10 @@ show_param ::=
     | KW_TABLET INTEGER_LITERAL:tabletId
     {:
         RESULT = new ShowTabletStmt(null, tabletId);
+    :}
+    | KW_TABLETS KW_BELONG integer_list:tabletIds
+    {:
+        RESULT = new ShowTabletsBelongStmt(tabletIds);
     :}
     | KW_TABLETS KW_FROM table_name:dbTblName opt_partition_names:partitionNames opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
@@ -5378,6 +5395,16 @@ ident_list ::=
     :}
     ;
 
+opt_ident_list ::=
+    {:
+        RESULT = Lists.newArrayList();
+    :}
+    | ident_list:list
+    {:
+        RESULT = list;
+    :}
+    ;
+
 expr_list ::=
   expr:e
   {:
@@ -5675,7 +5702,11 @@ type_def_list ::=
   ;
 
 func_args_def ::=
-  type_def_list:argTypes
+  /* empty */
+  {:
+    RESULT = new FunctionArgsDef(Lists.newArrayList(), false);
+  :}
+  | type_def_list:argTypes
   {:
     RESULT = new FunctionArgsDef(argTypes, false);
   :}
@@ -6247,7 +6278,7 @@ column_subscript ::=
   {: ArrayList<Expr> list = new ArrayList<Expr>();
      list.add(e);
      list.add(index);
-     RESULT = new FunctionCallExpr("%element_extract%", list);
+     RESULT = new FunctionCallExpr("element_at", list);
   :}
   ;
 
@@ -6256,14 +6287,14 @@ column_slice ::=
   {: ArrayList<Expr> list = new ArrayList<Expr>();
        list.add(e);
        list.add(offset);
-       RESULT = new FunctionCallExpr("%element_slice%", list);
+       RESULT = new FunctionCallExpr("array_slice", list);
   :}
   | expr:e LBRACKET expr:offset COLON expr:length RBRACKET
   {: ArrayList<Expr> list = new ArrayList<Expr>();
      list.add(e);
      list.add(offset);
      list.add(length);
-     RESULT = new FunctionCallExpr("%element_slice%", list);
+     RESULT = new FunctionCallExpr("array_slice", list);
   :}
   ;
 
@@ -6833,6 +6864,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_VIEW:id
     {: RESULT = id; :}
+    | KW_VIEWS:id
+    {: RESULT = id; :}
     | KW_WARNINGS:id
     {: RESULT = id; :}
     | KW_WORK:id
@@ -6892,6 +6925,10 @@ keyword ::=
     | KW_RECYCLE:id
     {: RESULT = id; :}
     | KW_MTMV:id
+    {: RESULT = id; :}
+    | KW_PERCENT:id
+    {: RESULT = id; :}
+    | KW_BELONG:id
     {: RESULT = id; :}
     ;
 

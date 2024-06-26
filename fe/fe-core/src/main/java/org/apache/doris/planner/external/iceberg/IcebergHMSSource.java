@@ -18,7 +18,7 @@
 package org.apache.doris.planner.external.iceberg;
 
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
@@ -38,7 +38,7 @@ public class IcebergHMSSource implements IcebergSource {
 
     private final HMSExternalTable hmsTable;
     private final HiveScanProvider hiveScanProvider;
-
+    private final org.apache.iceberg.Table icebergTable;
     private final TupleDescriptor desc;
 
     public IcebergHMSSource(HMSExternalTable hmsTable, TupleDescriptor desc,
@@ -46,6 +46,8 @@ public class IcebergHMSSource implements IcebergSource {
         this.hiveScanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
         this.hmsTable = hmsTable;
         this.desc = desc;
+        this.icebergTable =
+            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(hmsTable);
     }
 
     @Override
@@ -60,12 +62,17 @@ public class IcebergHMSSource implements IcebergSource {
     }
 
     public org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
-        return HiveMetaStoreClientHelper.getIcebergTable(hmsTable);
+        return icebergTable;
     }
 
     @Override
     public ExternalFileScanNode.ParamCreateContext createContext() throws UserException {
         return hiveScanProvider.createContext(null);
+    }
+
+    @Override
+    public void updateRequiredSlots(ExternalFileScanNode.ParamCreateContext context) throws UserException {
+        hiveScanProvider.updateRequiredSlots(context);
     }
 
     @Override

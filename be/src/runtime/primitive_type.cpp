@@ -29,36 +29,10 @@ PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
     switch (type) {
     case FunctionContext::Type::INVALID_TYPE:
         return PrimitiveType::INVALID_TYPE;
-    case FunctionContext::Type::TYPE_DOUBLE:
-        return PrimitiveType::TYPE_DOUBLE;
     case FunctionContext::Type::TYPE_NULL:
         return PrimitiveType::TYPE_NULL;
-    case FunctionContext::Type::TYPE_CHAR:
-        return PrimitiveType::TYPE_CHAR;
-    case FunctionContext::Type::TYPE_VARCHAR:
-        return PrimitiveType::TYPE_VARCHAR;
-    case FunctionContext::Type::TYPE_STRING:
-        return PrimitiveType::TYPE_STRING;
-    case FunctionContext::Type::TYPE_DATETIME:
-        return PrimitiveType::TYPE_DATETIME;
-    case FunctionContext::Type::TYPE_DECIMALV2:
-        return PrimitiveType::TYPE_DECIMALV2;
-    case FunctionContext::Type::TYPE_DECIMAL32:
-        return PrimitiveType::TYPE_DECIMAL32;
-    case FunctionContext::Type::TYPE_DECIMAL64:
-        return PrimitiveType::TYPE_DECIMAL64;
-    case FunctionContext::Type::TYPE_DECIMAL128I:
-        return PrimitiveType::TYPE_DECIMAL128I;
     case FunctionContext::Type::TYPE_BOOLEAN:
         return PrimitiveType::TYPE_BOOLEAN;
-    case FunctionContext::Type::TYPE_ARRAY:
-        return PrimitiveType::TYPE_ARRAY;
-    case FunctionContext::Type::TYPE_OBJECT:
-        return PrimitiveType::TYPE_OBJECT;
-    case FunctionContext::Type::TYPE_HLL:
-        return PrimitiveType::TYPE_HLL;
-    case FunctionContext::Type::TYPE_QUANTILE_STATE:
-        return PrimitiveType::TYPE_QUANTILE_STATE;
     case FunctionContext::Type::TYPE_TINYINT:
         return PrimitiveType::TYPE_TINYINT;
     case FunctionContext::Type::TYPE_SMALLINT:
@@ -69,14 +43,42 @@ PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
         return PrimitiveType::TYPE_BIGINT;
     case FunctionContext::Type::TYPE_LARGEINT:
         return PrimitiveType::TYPE_LARGEINT;
+    case FunctionContext::Type::TYPE_FLOAT:
+        return PrimitiveType::TYPE_FLOAT;
+    case FunctionContext::Type::TYPE_DOUBLE:
+        return PrimitiveType::TYPE_DOUBLE;
     case FunctionContext::Type::TYPE_DATE:
         return PrimitiveType::TYPE_DATE;
+    case FunctionContext::Type::TYPE_DATETIME:
+        return PrimitiveType::TYPE_DATETIME;
+    case FunctionContext::Type::TYPE_CHAR:
+        return PrimitiveType::TYPE_CHAR;
+    case FunctionContext::Type::TYPE_VARCHAR:
+        return PrimitiveType::TYPE_VARCHAR;
+    case FunctionContext::Type::TYPE_HLL:
+        return PrimitiveType::TYPE_HLL;
+    case FunctionContext::Type::TYPE_STRING:
+        return PrimitiveType::TYPE_STRING;
+    case FunctionContext::Type::TYPE_DECIMALV2:
+        return PrimitiveType::TYPE_DECIMALV2;
+    case FunctionContext::Type::TYPE_OBJECT:
+        return PrimitiveType::TYPE_OBJECT;
+    case FunctionContext::Type::TYPE_ARRAY:
+        return PrimitiveType::TYPE_ARRAY;
+    case FunctionContext::Type::TYPE_QUANTILE_STATE:
+        return PrimitiveType::TYPE_QUANTILE_STATE;
     case FunctionContext::Type::TYPE_DATEV2:
         return PrimitiveType::TYPE_DATEV2;
     case FunctionContext::Type::TYPE_DATETIMEV2:
         return PrimitiveType::TYPE_DATETIMEV2;
     case FunctionContext::Type::TYPE_TIMEV2:
         return PrimitiveType::TYPE_TIMEV2;
+    case FunctionContext::Type::TYPE_DECIMAL32:
+        return PrimitiveType::TYPE_DECIMAL32;
+    case FunctionContext::Type::TYPE_DECIMAL64:
+        return PrimitiveType::TYPE_DECIMAL64;
+    case FunctionContext::Type::TYPE_DECIMAL128I:
+        return PrimitiveType::TYPE_DECIMAL128I;
     case FunctionContext::Type::TYPE_JSONB:
         return PrimitiveType::TYPE_JSONB;
     default:

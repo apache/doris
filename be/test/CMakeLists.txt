@@ -333,6 +333,7 @@ set(VEC_TEST_FILES
     vec/aggregate_functions/agg_collect_test.cpp
     vec/aggregate_functions/agg_test.cpp
     vec/aggregate_functions/agg_min_max_test.cpp
+    vec/aggregate_functions/agg_replace_test.cpp
     vec/aggregate_functions/vec_window_funnel_test.cpp
     vec/aggregate_functions/vec_retention_test.cpp
     vec/aggregate_functions/vec_sequence_match_test.cpp
@@ -343,6 +344,7 @@ set(VEC_TEST_FILES
     vec/core/column_array_test.cpp
     vec/core/column_complex_test.cpp
     vec/core/column_nullable_test.cpp
+    vec/core/column_string_test.cpp
     vec/core/column_vector_test.cpp
     vec/exec/vgeneric_iterators_test.cpp
     vec/exec/vbroker_scan_node_test.cpp

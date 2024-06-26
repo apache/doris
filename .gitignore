@@ -93,3 +93,4 @@ tools/**/tpch-data/
 
 # be-ut
 data_test
+/ui/dist

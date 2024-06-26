@@ -171,7 +171,7 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
             return Status::InternalError("Unknown expr node type: {}", texpr_node.node_type);
         }
     } catch (const Exception& e) {
-        return Status::Error(e.code());
+        return Status::Error(e.code(), e.message());
     }
     if (!(*expr)->data_type()) {
         return Status::InvalidArgument("Unknown expr type: {}", texpr_node.node_type);
@@ -399,10 +399,17 @@ Status VExpr::init_function_context(VExprContext* context,
 
 void VExpr::close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
                                    const FunctionBasePtr& function) const {
-    if (_fn_context_index != -1 && !context->_stale) {
+    if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
         function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
-        if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        // In doris 1.2-lts, the function state is managed by raw ptr, in master, it is already using shared ptr
+        // During runtime filter, scan node will clone function context and mark the expr context as stale.
+        // During clone function context, the clone function does not clone thread local state, so thread local state
+        // is not managed by the aim expr context.
+        // So we has to close the stale function context's thread local state here.
+        // Should not close stale's fragment local state, because the fragment local state is cloned during function
+        // context's clone method.
+        if (scope == FunctionContext::FRAGMENT_LOCAL && !context->_stale) {
             function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
         }
     }

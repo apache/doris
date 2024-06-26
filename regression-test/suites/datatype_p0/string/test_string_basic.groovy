@@ -45,5 +45,34 @@ suite("test_string_basic") {
          (2, repeat("test1111", 131072))
         """
     order_qt_select_str_tb "select k1, md5(v1), length(v1) from ${tbName}"
+
+    def table_too_long = "fail"
+    sql "drop table if exists char_table_too_long;"
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS char_table_too_long (k1 VARCHAR(10) NULL, v1 CHAR(300) NULL) 
+        UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
+        """
+        table_too_long = "success"
+    } catch(Exception e) {
+        logger.info(e.getMessage())
+        assertTrue(e.getMessage().contains("size must be <= 255"))
+    }
+    assertEquals(table_too_long, "fail")
+    sql "drop table if exists char_table_too_long;"
+
+    sql "drop table if exists varchar_table_too_long;"
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS varchar_table_too_long (k1 VARCHAR(10) NULL, v1 VARCHAR(65599) NULL) 
+        UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
+        """
+        table_too_long = "success"
+    } catch(Exception e) {
+        logger.info(e.getMessage())
+        assertTrue(e.getMessage().contains("size must be <= 65533"))
+    }
+    assertEquals(table_too_long, "fail")
+    sql "drop table if exists varchar_table_too_long;"
 }
 

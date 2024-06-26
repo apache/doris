@@ -934,7 +934,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             // being cast to a non-NULL type, the type doesn't matter and we can cast it
             // arbitrarily.
             Preconditions.checkState(this instanceof NullLiteral || this instanceof SlotRef);
-            return NullLiteral.create(ScalarType.BOOLEAN).treeToThrift();
+            type = ScalarType.BOOLEAN;
         }
         TExpr result = new TExpr();
         treeToThriftHelper(result);
@@ -963,6 +963,21 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         for (Expr child : children) {
             child.treeToThriftHelper(container);
         }
+    }
+
+    public static Type getAssignmentCompatibleType(List<Expr> children) {
+        Type assignmentCompatibleType = Type.INVALID;
+        for (int i = 0; i < children.size()
+                && (assignmentCompatibleType.isDecimalV3() || assignmentCompatibleType.isDatetimeV2()
+                || assignmentCompatibleType.isInvalid()); i++) {
+            if (children.get(i) instanceof NullLiteral) {
+                continue;
+            }
+            assignmentCompatibleType = assignmentCompatibleType.isInvalid() ? children.get(i).type
+                    : ScalarType.getAssignmentCompatibleType(assignmentCompatibleType, children.get(i).type,
+                    true);
+        }
+        return assignmentCompatibleType;
     }
 
     // Convert this expr into msg (excluding children), which requires setting
@@ -1316,6 +1331,17 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             throw new AnalysisException(
               String.format("%s%s requires return type 'BOOLEAN'. " + "Actual type is '%s'.", name,
                 (printExpr) ? " '" + toSql() + "'" : "", type.toString()));
+        }
+    }
+
+    /**
+     * Checks whether comparing predicates' children include bitmap type.
+     */
+    public void checkIncludeBitmap() throws AnalysisException {
+        for (int i = 0; i < children.size(); ++i) {
+            if (children.get(i).getType().isBitmapType()) {
+                throw new AnalysisException("Unsupported bitmap type in expression: " + toSql());
+            }
         }
     }
 

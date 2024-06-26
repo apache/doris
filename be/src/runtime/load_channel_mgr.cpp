@@ -228,12 +228,15 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     bool reducing_mem_on_hard_limit = false;
     std::vector<std::shared_ptr<LoadChannel>> channels_to_reduce_mem;
     {
+        MonotonicStopWatch timer;
+        timer.start();
         std::unique_lock<std::mutex> l(_lock);
         while (_should_wait_flush) {
-            LOG(INFO) << "Reached the load hard limit " << _load_hard_mem_limit
-                      << ", waiting for flush";
             _wait_flush_cond.wait(l);
         }
+        LOG(INFO) << "Reached the load hard limit " << _load_hard_mem_limit
+                  << ", waited for flush, time_ns:" << timer.elapsed_time();
+
         bool hard_limit_reached = _mem_tracker->consumption() >= _load_hard_mem_limit ||
                                   MemInfo::proc_mem_no_allocator_cache() >= process_mem_limit;
         // Some other thread is flushing data, and not reached hard limit now,

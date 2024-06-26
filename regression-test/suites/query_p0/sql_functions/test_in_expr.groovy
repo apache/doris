@@ -24,7 +24,8 @@ suite("test_in_expr", "query") {
             CREATE TABLE IF NOT EXISTS ${nullTableName} (
               `cid` int(11) NULL,
               `number` int(11) NULL,
-              `addr` varchar(256) NULL
+              `addr` varchar(256) NULL,
+              `fnum` float NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`cid`)
             COMMENT 'OLAP'
@@ -35,7 +36,7 @@ suite("test_in_expr", "query") {
             "storage_format" = "V2"
             )
         """
-    sql """ insert into ${nullTableName} values(100,1,'a'),(101,2,'b'),(102,3,'c'),(103,4,'d'),(104,null,'e'),(105,6, null) """
+    sql """ insert into ${nullTableName} values(100,1,'a', 1.1),(101,2,'b',1.2),(102,3,'c',1.3),(103,4,'d',1.4),(104,null,'e',1.5),(105,6, null,null) """
 
 
     sql """DROP TABLE IF EXISTS ${notNullTableName}"""
@@ -43,7 +44,8 @@ suite("test_in_expr", "query") {
             CREATE TABLE IF NOT EXISTS ${notNullTableName} (
               `cid` int(11) not NULL,
               `number` int(11) not NULL,
-              `addr` varchar(256) not NULL
+              `addr` varchar(256) not NULL,
+              `fnum` float not NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`cid`)
             COMMENT 'OLAP'
@@ -55,7 +57,7 @@ suite("test_in_expr", "query") {
             )
         """
 
-    sql """ insert into ${notNullTableName} values(100,1,'a'),(101,2,'b'),(102,3,'c'),(103,4,'d') """
+    sql """ insert into ${notNullTableName} values(100,1,'a', 1.1),(101,2,'b', 1.2),(102,3,'c',1.3),(103,4,'d',1.4) """
 
     sql """ set enable_vectorized_engine = true """
 
@@ -74,6 +76,13 @@ suite("test_in_expr", "query") {
     qt_select "select * from ${nullTableName} where addr in ('d', null)"
 
     qt_select "select * from ${nullTableName} where not(addr in ('d', null))"
+
+    qt_select_float_in """ select fnum,  fnum in (1.1, null) from ${nullTableName} order by cid"""
+    qt_select_float_in2 """ select fnum,  not (fnum in (1.1, null)) from ${nullTableName} order by cid"""
+    qt_select_float_in3 """ select fnum,  fnum not in (1.1, null) from ${nullTableName} order by cid"""
+    qt_select_float_in4 """ select fnum,  fnum in (null) from ${nullTableName} order by cid"""
+    qt_select_float_in5 """ select fnum,  not(fnum in (null)) from ${nullTableName} order by cid"""
+    qt_select_float_in6 """ select fnum,  fnum not in (null) from ${nullTableName} order by cid"""
 
     // 1.1.3 non-string
     qt_select "select t1.addr from ${nullTableName} t1 left join ${nullTableName} t2 on t1.cid=t2.cid where t2.number in (3)"
@@ -111,6 +120,23 @@ suite("test_in_expr", "query") {
 
     // 2.1.3 non-string
     qt_select "select t1.addr from ${notNullTableName} t1 left join ${notNullTableName} t2 on t1.cid=t2.cid where t2.number not in (3) order by t1.addr "
+
+    qt_select_not_null_in_null """ select cid, cid in (100, null) from ${notNullTableName} order by cid"""
+    qt_select_not_null_in_null2 """ select cid, cid in (null) from ${notNullTableName} order by cid"""
+    qt_select_not_null_in_null3 """ select addr, addr in ('a', null) from ${notNullTableName} order by addr"""
+    qt_select_not_null_in_null4 """ select addr, addr in (null) from ${notNullTableName} order by addr"""
+
+    qt_select_not_null_not_in_null """ select cid, cid not in (100, null) from ${notNullTableName} order by cid"""
+    qt_select_not_null_not_in_null2 """ select cid, cid not in (null) from ${notNullTableName} order by cid"""
+    qt_select_not_null_not_in_null3 """ select addr, addr not in ('a', null) from ${notNullTableName} order by addr"""
+    qt_select_not_null_not_in_null4 """ select addr, addr not in (null) from ${notNullTableName} order by addr"""
+
+    qt_select_not_null_float_in """ select fnum,  fnum in (1.1, null) from ${notNullTableName} order by cid"""
+    qt_select_not_null_float_in2 """ select fnum,  not (fnum in (1.1, null)) from ${notNullTableName} order by cid"""
+    qt_select_not_null_float_in3 """ select fnum,  fnum not in (1.1, null) from ${notNullTableName} order by cid"""
+    qt_select_not_null_float_in4 """ select fnum,  fnum in (null) from ${notNullTableName} order by cid"""
+    qt_select_not_null_float_in5 """ select fnum,  not(fnum in (null)) from ${notNullTableName} order by cid"""
+    qt_select_not_null_float_in6 """ select fnum,  fnum not in (null) from ${notNullTableName} order by cid"""
 
     sql """DROP TABLE IF EXISTS ${nullTableName}"""
     sql """DROP TABLE IF EXISTS ${notNullTableName}"""

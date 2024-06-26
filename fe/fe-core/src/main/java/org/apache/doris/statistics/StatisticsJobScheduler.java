@@ -330,7 +330,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
                 LOG.info("Partition {} not found in the table {}", partitionName, table.getName());
                 continue;
             }
-            if (partition.getDataSize() == 0) {
+            if (partition.getDataSize(false) == 0) {
                 LOG.info("Do not collect statistics for empty partition {} in the table {}",
                         partitionName, table.getName());
                 continue;

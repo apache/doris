@@ -38,12 +38,18 @@ suite("test_date_function") {
     sql """ insert into ${tableName} values ("2019-08-01 13:21:03") """
     // convert_tz
     qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'America/Los_Angeles') result from ${tableName}; """
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/SHANGHAI', 'america/Los_angeles') result from ${tableName}; """
     qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/Los_Angeles') result from ${tableName}; """
 
     qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'Europe/London') result from ${tableName}; """
     qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'Europe/London') result from ${tableName}; """
 
     qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/London') result from ${tableName}; """
+
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'Asia/Shanghai', 'UTC'); """
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'Asia/Shanghai', 'UTc'); """
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'America/Los_Angeles', 'CST'); """
+    qt_sql """ select convert_tz("2019-08-01 02:18:27",  'America/Los_Angeles', 'cSt'); """
 
     // some invalid date
     qt_sql """ SELECT convert_tz('2022-2-29 13:21:03', '+08:00', 'America/London') result; """
@@ -625,6 +631,9 @@ suite("test_date_function") {
         sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
         contains "`birth1` < '2022-01-01'"
     }
+    
+    def result = sql "explain select date_trunc('2021-01-01 00:00:12', 'month')"
+    assertFalse(result[0][0].contains("date_trunc"))
 
     sql """
         insert into ${tableName} values 
@@ -641,7 +650,7 @@ suite("test_date_function") {
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     test {
         sql"""select current_timestamp(7);"""
-        check{result, exception, startTime, endTime ->
+        check{ result2, exception, startTime, endTime ->
             assertTrue(exception != null)
             logger.info(exception.message)
         }

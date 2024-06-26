@@ -179,7 +179,10 @@ done
 # make sure the doris-fe.jar is at first order, so that some classed
 # with same qualified name can be loaded priority from doris-fe.jar
 CLASSPATH="${DORIS_FE_JAR}:${CLASSPATH}"
-export CLASSPATH="${CLASSPATH}:${DORIS_HOME}/lib:${DORIS_HOME}/conf"
+if [[ -n "${HADOOP_CONF_DIR}" ]]; then
+    CLASSPATH="${HADOOP_CONF_DIR}:${CLASSPATH}"
+fi
+export CLASSPATH="${DORIS_HOME}/conf:${CLASSPATH}:${DORIS_HOME}/lib"
 
 pidfile="${PID_DIR}/fe.pid"
 

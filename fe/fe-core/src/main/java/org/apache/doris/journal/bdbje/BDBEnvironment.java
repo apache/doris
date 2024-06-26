@@ -365,7 +365,6 @@ public class BDBEnvironment {
                 db.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing db {} will exit", db.getDatabaseName(), exception);
-                System.exit(-1);
             }
         }
         openedDatabases.clear();
@@ -375,7 +374,6 @@ public class BDBEnvironment {
                 epochDB.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing db {} will exit", epochDB.getDatabaseName(), exception);
-                System.exit(-1);
             }
         }
 
@@ -385,7 +383,6 @@ public class BDBEnvironment {
                 replicatedEnvironment.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing replicatedEnvironment", exception);
-                System.exit(-1);
             }
         }
     }
@@ -399,7 +396,6 @@ public class BDBEnvironment {
                 replicatedEnvironment.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing replicatedEnvironment", exception);
-                System.exit(-1);
             }
         }
     }

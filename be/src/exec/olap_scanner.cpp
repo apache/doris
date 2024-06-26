@@ -104,7 +104,8 @@ Status OlapScanner::prepare(
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
             Status acquire_reader_st =
-                    _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers);
+                    _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers,
+                                                _runtime_state->skip_missing_version());
             if (!acquire_reader_st.ok()) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
@@ -517,7 +518,8 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         case TYPE_OBJECT:
         case TYPE_QUANTILE_STATE:
         case TYPE_HLL:
-        case TYPE_STRING: {
+        case TYPE_STRING:
+        case TYPE_JSONB: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue* slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;

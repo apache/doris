@@ -20,15 +20,25 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.IcebergProperty;
 import org.apache.doris.catalog.IcebergTable;
+import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.planner.external.iceberg.IcebergApiSource;
+import org.apache.doris.planner.external.iceberg.IcebergHMSSource;
+import org.apache.doris.planner.external.iceberg.IcebergSource;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 
+import com.alibaba.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -39,34 +49,53 @@ import java.util.List;
 public class IcebergScanNode extends BrokerScanNode {
     private static final Logger LOG = LogManager.getLogger(IcebergScanNode.class);
 
-    private IcebergTable icebergTable;
+    private IcebergSource source;
+    private Table icebergTable;
     private final List<Expression> icebergPredicates = new ArrayList<>();
 
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
         super(id, desc, planNodeName, fileStatusesList, filesAdded, StatisticalType.ICEBERG_SCAN_NODE);
-        icebergTable = (IcebergTable) desc.getTable();
+
+        ExternalTable table = (ExternalTable) desc.getTable();
+        if (table instanceof HMSExternalTable) {
+            source = new IcebergHMSSource((HMSExternalTable) table, desc, columnNameToRange);
+        } else if (table instanceof IcebergExternalTable) {
+            String catalogType = ((IcebergExternalTable) table).getIcebergCatalogType();
+            switch (catalogType) {
+                case IcebergExternalCatalog.ICEBERG_HMS:
+                case IcebergExternalCatalog.ICEBERG_REST:
+                    source = new IcebergApiSource((IcebergExternalTable) table, desc, columnNameToRange);
+                    break;
+                default:
+                    Preconditions.checkState(false, "Unknown iceberg catalog type: " + catalogType);
+                    break;
+            }
+        }
+        Preconditions.checkNotNull(source);
     }
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
+        icebergTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(source);
         super.init(analyzer);
     }
 
     @Override
     protected void initFileGroup() throws UserException {
+        IcebergTable table = (IcebergTable) icebergTable;
         fileGroups = Lists.newArrayList(
-            new BrokerFileGroup(icebergTable.getId(),
+            new BrokerFileGroup(table.getId(),
                 null,
-                icebergTable.getFileFormat()));
-        brokerDesc = new BrokerDesc("IcebergTableDesc", icebergTable.getStorageType(),
-                icebergTable.getIcebergProperties());
-        targetTable = icebergTable;
+                table.getFileFormat()));
+        brokerDesc = new BrokerDesc("IcebergTableDesc", table.getStorageType(),
+            table.getIcebergProperties());
+        targetTable = table;
     }
 
     @Override
     public String getHostUri() throws UserException {
-        return icebergTable.getHostUri();
+        return ((IcebergTable) icebergTable).getHostUri();
     }
 
     @Override
@@ -78,9 +107,9 @@ public class IcebergScanNode extends BrokerScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
         if (!isLoad()) {
-            output.append(prefix).append("TABLE: ").append(icebergTable.getName()).append("\n");
+            output.append(prefix).append("TABLE: ").append(icebergTable.name()).append("\n");
             output.append(prefix).append("PATH: ")
-                    .append(icebergTable.getIcebergProperties().get(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS))
+                    .append(icebergTable.properties().get(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS))
                     .append("\n");
         }
         return output.toString();

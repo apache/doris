@@ -52,6 +52,11 @@ public class StructType extends Type {
     }
 
     @Override
+    public boolean isSupported() {
+        return false;
+    }
+
+    @Override
     public String toSql(int depth) {
         if (depth >= MAX_NESTING_DEPTH) {
             return "STRUCT<...>";

@@ -77,6 +77,12 @@ public class FileSystemManager {
     private static final String AFS_SCHEME = "afs";
     private static final String GFS_SCHEME = "gfs";
 
+    private static final String GCS_SCHEME = "gs";
+    
+    private static final String FS_PREFIX = "fs.";
+    
+    private static final String GCS_PROJECT_ID_KEY = "fs.gs.project.id";
+
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
     private static final String AUTHENTICATION_SIMPLE = "simple";
@@ -224,6 +230,8 @@ public class FileSystemManager {
             brokerFileSystem = getJuiceFileSystem(path, properties);
         } else if (scheme.equals(GFS_SCHEME)) {
             brokerFileSystem = getGooseFSFileSystem(path, properties);
+        } else if (scheme.equals(GCS_SCHEME)) {
+            brokerFileSystem = getGCSFileSystem(path, properties);
         } else {
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
                 "invalid path. scheme is not supported");
@@ -475,6 +483,44 @@ public class FileSystemManager {
         }
     }
 
+    /**
+     *  get GCS file system
+     * @param path gcs path
+     * @param properties See {@link https://github.com/GoogleCloudDataproc/hadoop-connectors/blob/branch-2.2.x/gcs/CONFIGURATION.md)}
+     * @return GcsBrokerFileSystem
+     */
+    public BrokerFileSystem getGCSFileSystem(String path, Map<String, String> properties) {
+        WildcardURI pathUri = new WildcardURI(path);
+        String projectId = properties.get(GCS_PROJECT_ID_KEY);
+        if (Strings.isNullOrEmpty(projectId)) {
+            throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                    "missed fs.gs.project.id configuration");
+        }
+        String ugi = "";
+        FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(projectId, ugi);
+        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
+        fileSystem.getLock().lock();
+        try {
+            if (fileSystem.getDFSFileSystem() == null) {
+                logger.info("create file system for new path " + path);
+                // create a new filesystem
+                Configuration conf = new Configuration();
+                properties.forEach((k, v) -> {
+                    if (Strings.isNullOrEmpty(v) && k.startsWith("fs.")) {
+                        conf.set(k, v);
+                    }
+                });
+                FileSystem gcsFileSystem = FileSystem.get(pathUri.getUri(), conf);
+                fileSystem.setFileSystem(gcsFileSystem);
+            }
+            return fileSystem;
+        } catch (Exception e) {
+            logger.error("errors while connect to " + path, e);
+            throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
+        } finally {
+            fileSystem.getLock().unlock();
+        }
+    }
 
     /**
      * file system handle is cached, the identity is endpoint + bucket + accessKey_secretKey
@@ -1232,16 +1278,24 @@ public class FileSystemManager {
                         "errors while get file pos from output stream");
             }
             if (currentStreamOffset != offset) {
-                throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_OFFSET,
+                // it's ok, it means that last pwrite succeed finally
+                if (currentStreamOffset == offset + data.length) {
+                    logger.warn("invalid offset, but current outputstream offset is "
+                        + currentStreamOffset + ", data length is " + data.length + ", the sum is equal to request offset "
+                        + offset + ", so just skip it");
+                } else {
+                    throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_OFFSET,
                         "current outputstream offset is {} not equal to request {}",
                         currentStreamOffset, offset);
-            }
-            try {
-                fsDataOutputStream.write(data);
-            } catch (IOException e) {
-                logger.error("errors while write data to output stream", e);
-                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                }
+            } else {
+                try {
+                    fsDataOutputStream.write(data);
+                } catch (IOException e) {
+                    logger.error("errors while write data to output stream", e);
+                    throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                         e, "errors while write data to output stream");
+                }
             }
         }
     }

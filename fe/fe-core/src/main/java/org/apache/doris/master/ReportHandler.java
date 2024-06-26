@@ -17,7 +17,8 @@
 
 package org.apache.doris.master;
 
-
+import org.apache.doris.catalog.ColocateGroupSchema;
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -72,6 +73,7 @@ import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
@@ -679,23 +681,17 @@ public class ReportHandler extends Daemon {
             TTablet backendTablet = backendTablets.get(tabletId);
             TTabletInfo backendTabletInfo = backendTablet.getTabletInfos().get(0);
             boolean needDelete = false;
-            TabletMeta tabletMeta = null;
+            TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
             if (!tabletFoundInMeta.contains(tabletId)) {
                 if (isBackendReplicaHealthy(backendTabletInfo)) {
                     // if this tablet meta is still in invertedIndex. try to add it.
                     // if add failed. delete this tablet from backend.
-                    try {
-                        tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                        if (tabletMeta != null) {
-                            addReplica(tabletId, tabletMeta, backendTabletInfo, backendId);
-                            // update counter
-                            ++addToMetaCounter;
-                        } else {
-                            needDelete = true;
-                        }
-                    } catch (MetaNotFoundException e) {
-                        LOG.debug("failed add to meta. tablet[{}], backend[{}]. {}",
-                                tabletId, backendId, e.getMessage());
+                    if (tabletMeta != null && addReplica(tabletId, tabletMeta, backendTabletInfo, backendId)) {
+                        // update counter
+                        ++addToMetaCounter;
+                        LOG.debug("add to meta. tablet[{}], backend[{}]", tabletId, backendId);
+                    } else {
+                        LOG.info("failed add to meta. tablet[{}], backend[{}]", tabletId, backendId);
                         needDelete = true;
                     }
                 } else {
@@ -710,7 +706,7 @@ public class ReportHandler extends Daemon {
                 DropReplicaTask task = new DropReplicaTask(backendId, tabletId, replicaId,
                         backendTabletInfo.getSchemaHash(), isDropTableOrPartition);
                 batchTask.addTask(task);
-                LOG.debug("delete tablet[{}] from backend[{}] because not found in meta", tabletId, backendId);
+                LOG.info("delete tablet[{}] from backend[{}] because not found in meta", tabletId, backendId);
                 ++deleteFromBackendCounter;
             }
         } // end for backendTabletIds
@@ -888,8 +884,8 @@ public class ReportHandler extends Daemon {
         AgentTaskExecutor.submit(batchTask);
     }
 
-    private static void addReplica(long tabletId, TabletMeta tabletMeta, TTabletInfo backendTabletInfo, long backendId)
-            throws MetaNotFoundException {
+    private static boolean addReplica(long tabletId, TabletMeta tabletMeta, TTabletInfo backendTabletInfo,
+            long backendId) {
         long dbId = tabletMeta.getDbId();
         long tableId = tabletMeta.getTableId();
         long partitionId = tabletMeta.getPartitionId();
@@ -901,44 +897,76 @@ public class ReportHandler extends Daemon {
         long remoteDataSize = backendTabletInfo.getRemoteDataSize();
         long rowCount = backendTabletInfo.getRowCount();
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
-        olapTable.writeLockOrMetaException();
+        Database db;
+        OlapTable olapTable;
+        try {
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+            olapTable.writeLockOrMetaException();
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e);
+            return false;
+        }
+
         try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
-                throw new MetaNotFoundException("partition[" + partitionId + "] does not exist");
+                LOG.warn("partition[{}] does not exist", partitionId);
+                return false;
             }
             ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
 
             MaterializedIndex materializedIndex = partition.getIndex(indexId);
             if (materializedIndex == null) {
-                throw new MetaNotFoundException("index[" + indexId + "] does not exist");
+                LOG.warn("index[{}] does not exist", indexId);
+                return false;
             }
 
             Tablet tablet = materializedIndex.getTablet(tabletId);
             if (tablet == null) {
-                throw new MetaNotFoundException("tablet[" + tabletId + "] does not exist");
+                LOG.warn("tablet[{}] does not exist", tabletId);
+                return false;
             }
 
             long visibleVersion = partition.getVisibleVersion();
 
             // check replica version
             if (version < visibleVersion) {
-                throw new MetaNotFoundException("version is invalid. tablet[" + version + "]"
-                        + ", visible[" + visibleVersion + "]");
+                LOG.warn("version is invalid. tablet[{}], visible[{}]", version, visibleVersion);
+                return false;
             }
 
             // check schema hash
             if (schemaHash != olapTable.getSchemaHashByIndexId(indexId)) {
-                throw new MetaNotFoundException("schema hash is diff[" + schemaHash + "-"
-                        + olapTable.getSchemaHashByIndexId(indexId) + "]");
+                LOG.warn("schema hash is diff[{}-{}]", schemaHash, olapTable.getSchemaHashByIndexId(indexId));
+                return false;
             }
 
             // colocate table will delete Replica in meta when balance
             // but we need to rely on MetaNotFoundException to decide whether delete the tablet in backend
-            if (Env.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-                return;
+            // if the tablet is healthy, delete it.
+            boolean isColocateBackend = false;
+            ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+            if (colocateTableIndex.isColocateTable(olapTable.getId())) {
+                ColocateTableIndex.GroupId groupId = colocateTableIndex.getGroup(tableId);
+                Preconditions.checkState(groupId != null,
+                        "can not get colocate group for %s", tableId);
+                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
+                if (groupSchema != null) {
+                    replicaAlloc = groupSchema.getReplicaAlloc();
+                }
+                int tabletOrderIdx = materializedIndex.getTabletOrderIdx(tabletId);
+                Preconditions.checkState(tabletOrderIdx != -1, "get tablet materializedIndex for %s fail", tabletId);
+                Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
+                TabletStatus status =
+                        tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, backendsSet);
+                if (status == TabletStatus.HEALTHY) {
+                    return false;
+                }
+
+                if (backendsSet.contains(backendId)) {
+                    isColocateBackend = true;
+                }
             }
 
             SystemInfoService infoService = Env.getCurrentSystemInfo();
@@ -947,7 +975,22 @@ public class ReportHandler extends Daemon {
                     db.getClusterName(), visibleVersion,
                     replicaAlloc, aliveBeIdsInCluster);
 
-            if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING
+            // FORCE_REDUNDANT is a specific missing case.
+            // So it can add replica when it's in FORCE_REDUNDANT.
+            // But must be careful to avoid: delete a replica then add it back, then repeat forever.
+            // If this replica is sched available and existing another replica is sched unavailable,
+            // it's safe to add this replica.
+            // Because if the tablet scheduler want to delete a replica, it will choose the sched
+            // unavailable replica and avoid the repeating loop as above.
+            boolean canAddForceRedundant = status.first == TabletStatus.FORCE_REDUNDANT
+                    && infoService.checkBackendScheduleAvailable(backendId)
+                    && tablet.getReplicas().stream().anyMatch(
+                            r -> !infoService.checkBackendScheduleAvailable(r.getBackendId()));
+
+            if (isColocateBackend
+                    || canAddForceRedundant
+                    || status.first == TabletStatus.VERSION_INCOMPLETE
+                    || status.first == TabletStatus.REPLICA_MISSING
                     || status.first == TabletStatus.UNRECOVERABLE) {
                 long lastFailedVersion = -1L;
 
@@ -959,13 +1002,17 @@ public class ReportHandler extends Daemon {
                 // just throw exception in this case
                 if (version > partition.getNextVersion() - 1) {
                     // this is a fatal error
-                    throw new MetaNotFoundException("version is invalid. tablet[" + version + "]"
-                            + ", partition's max version [" + (partition.getNextVersion() - 1) + "]");
+                    LOG.warn("version is invalid. tablet[{}], partition's max version [{}]", version,
+                            partition.getNextVersion() - 1);
+                    return false;
                 } else if (version < partition.getCommittedVersion()) {
                     lastFailedVersion = partition.getCommittedVersion();
                 }
 
-                long replicaId = Env.getCurrentEnv().getNextId();
+                long replicaId = backendTabletInfo.getReplicaId();
+                if (replicaId <= 0) {
+                    replicaId = Env.getCurrentEnv().getNextId();
+                }
                 Replica replica = new Replica(replicaId, backendId, version, schemaHash,
                         dataSize, remoteDataSize, rowCount, ReplicaState.NORMAL,
                         lastFailedVersion, version);
@@ -980,18 +1027,24 @@ public class ReportHandler extends Daemon {
 
                 Env.getCurrentEnv().getEditLog().logAddReplica(info);
 
-                LOG.info("add replica[{}-{}] to catalog. backend[{}]", tabletId, replicaId, backendId);
+                LOG.info("add replica[{}-{}] to catalog. backend[{}], tablet status {}, tablet size {}, "
+                        + "is colocate backend {}",
+                        tabletId, replicaId, backendId, status.first.name(), tablet.getReplicas().size(),
+                        isColocateBackend);
+                return true;
             } else {
                 // replica is enough. check if this tablet is already in meta
                 // (status changed between 'tabletReport()' and 'addReplica()')
                 for (Replica replica : tablet.getReplicas()) {
                     if (replica.getBackendId() == backendId) {
                         // tablet is already in meta. return true
-                        return;
+                        return true;
                     }
                 }
-                throw new MetaNotFoundException(
-                        "replica is enough[" + tablet.getReplicas().size() + "-" + replicaAlloc.toCreateStmt() + "]");
+                LOG.warn("no add replica [{}-{}] cause it is enough[{}-{}], tablet status {}",
+                        tabletId, backendTabletInfo.getReplicaId(), tablet.getReplicas().size(),
+                        replicaAlloc.toCreateStmt(), status.first.name());
+                return false;
             }
         } finally {
             olapTable.writeUnlock();

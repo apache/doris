@@ -267,6 +267,8 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         StringRef element(rb.position(), rb.count());
         bool has_quota = false;
         if (!next_element_from_string(rb, element, has_quota)) {
+            // we should do array element column revert if error
+            nested_column.pop_back(element_num);
             return Status::InvalidArgument("Cannot read array element from text '{}'",
                                            element.to_string());
         }
@@ -294,8 +296,8 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         ReadBuffer read_buffer(const_cast<char*>(element.data), element.size);
         auto st = nested->from_string(read_buffer, &nested_column);
         if (!st.ok()) {
-            // we should do revert if error
-            array_column->pop_back(element_num);
+            // we should do array element column revert if error
+            nested_column.pop_back(element_num);
             return st;
         }
         ++element_num;

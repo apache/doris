@@ -34,7 +34,6 @@ beHttpAddress = "172.19.0.2:8142"
 // e.g. java -DDORIS_HOME=./
 suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
-sf1DataPath = "/data"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group

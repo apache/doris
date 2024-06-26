@@ -44,6 +44,17 @@ public enum PaloPrivilege {
             USAGE_PRIV
     };
 
+    // only GRANT_PRIV and USAGE_PRIV can grant on resource
+    public static PaloPrivilege[] notBelongToResourcePrivileges = {
+            NODE_PRIV,
+            ADMIN_PRIV,
+            SELECT_PRIV,
+            LOAD_PRIV,
+            ALTER_PRIV,
+            CREATE_PRIV,
+            DROP_PRIV
+    };
+
     public static Map<PaloPrivilege, String> privInPaloToMysql =
             ImmutableMap.<PaloPrivilege, String>builder() // No NODE_PRIV and ADMIN_PRIV in the mysql
                     .put(SELECT_PRIV, "SELECT")

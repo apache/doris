@@ -38,7 +38,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Base class for all functions.
@@ -833,5 +835,22 @@ public class Function implements Writable {
         } catch (Throwable t) {
             throw new UserException("failed to serialize function: " + functionName(), t);
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Function function = (Function) o;
+        return id == function.id && hasVarArgs == function.hasVarArgs && userVisible == function.userVisible
+            && vectorized == function.vectorized && Objects.equals(name, function.name)
+            && Objects.equals(retType, function.retType) && Arrays.equals(argTypes,
+            function.argTypes) && Objects.equals(location, function.location)
+            && binaryType == function.binaryType && nullableMode == function.nullableMode && Objects.equals(
+            checksum, function.checksum);
     }
 }

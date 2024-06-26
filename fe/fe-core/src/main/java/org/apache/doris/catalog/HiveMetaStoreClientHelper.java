@@ -67,7 +67,6 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -78,7 +77,6 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -700,10 +698,7 @@ public class HiveMetaStoreClientHelper {
                 break;
         }
         if (lowerCaseType.startsWith("array")) {
-            if (lowerCaseType.indexOf("<") == 5 && lowerCaseType.lastIndexOf(">") == lowerCaseType.length() - 1) {
-                Type innerType = hiveTypeToDorisType(lowerCaseType.substring(6, lowerCaseType.length() - 1));
-                return ArrayType.create(innerType, true);
-            }
+            return Type.UNSUPPORTED;
         }
         if (lowerCaseType.startsWith("char")) {
             ScalarType type = ScalarType.createType(PrimitiveType.CHAR);
@@ -819,22 +814,8 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 
-    public static org.apache.iceberg.Table getIcebergTable(HMSExternalTable table) {
-        String metastoreUri = table.getMetastoreUri();
-        org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        Configuration conf = getConfiguration(table);
-        hiveCatalog.setConf(conf);
-        // initialize hive catalog
-        Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, metastoreUri);
-        catalogProperties.put("uri", metastoreUri);
-        hiveCatalog.initialize("hive", catalogProperties);
-
-        return hiveCatalog.loadTable(TableIdentifier.of(table.getDbName(), table.getName()));
-    }
-
     public static Configuration getConfiguration(HMSExternalTable table) {
-        Configuration conf = new HdfsConfiguration();
+        Configuration conf = new HdfsConfiguration(Config.load_default_conf_for_hms_client);
         for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }

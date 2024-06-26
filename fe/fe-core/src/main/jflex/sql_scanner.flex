@@ -113,6 +113,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("backends", new Integer(SqlParserSymbols.KW_BACKENDS));
         keywordMap.put("backup", new Integer(SqlParserSymbols.KW_BACKUP));
         keywordMap.put("begin", new Integer(SqlParserSymbols.KW_BEGIN));
+        keywordMap.put("belong", new Integer(SqlParserSymbols.KW_BELONG));
         keywordMap.put("between", new Integer(SqlParserSymbols.KW_BETWEEN));
         keywordMap.put("bigint", new Integer(SqlParserSymbols.KW_BIGINT));
         keywordMap.put("bin", new Integer(SqlParserSymbols.KW_BIN));
@@ -456,6 +457,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("verbose", new Integer(SqlParserSymbols.KW_VERBOSE));
         keywordMap.put("version", new Integer(SqlParserSymbols.KW_VERSION));
         keywordMap.put("view", new Integer(SqlParserSymbols.KW_VIEW));
+        keywordMap.put("views", new Integer(SqlParserSymbols.KW_VIEWS));
         keywordMap.put("warnings", new Integer(SqlParserSymbols.KW_WARNINGS));
         keywordMap.put("week", new Integer(SqlParserSymbols.KW_WEEK));
         keywordMap.put("when", new Integer(SqlParserSymbols.KW_WHEN));
@@ -597,7 +599,8 @@ FLit1 = [0-9]+ \. [0-9]*
 FLit2 = \. [0-9]+
 FLit3 = [0-9]+
 Exponent = [eE] [+-]? [0-9]+
-DoubleLiteral = ({FLit1}|{FLit2}|{FLit3}) {Exponent}?
+DoubleLiteral = ({FLit1}|{FLit2}|{FLit3})
+ExponentLiteral = ({FLit1}|{FLit2}|{FLit3}) {Exponent}
 
 EolHintBegin = "--" " "* "+"
 CommentedHintBegin = "/*" " "* "+"
@@ -655,6 +658,17 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 "\"" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
 "'" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
 "`" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
+
+{ExponentLiteral} {
+   BigDecimal decimal_val;
+   try {
+     decimal_val = new BigDecimal(yytext());
+   } catch (NumberFormatException e) {
+     return newToken(SqlParserSymbols.NUMERIC_OVERFLOW, yytext());
+   }
+
+   return newToken(SqlParserSymbols.DECIMAL_LITERAL, decimal_val);
+ }
 
 {QuotedIdentifier} {
     // Remove the quotes

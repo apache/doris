@@ -153,7 +153,9 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
                 child(_child_idx)->get_next_span(), _child_eos);
         SCOPED_TIMER(_materialize_exprs_evaluate_timer);
         if (child_block.rows() > 0) {
-            mblock.merge(materialize_block(&child_block));
+            Block res;
+            RETURN_IF_ERROR(materialize_block(&child_block, &res));
+            mblock.merge(res);
         }
         // It shouldn't be the case that we reached the limit because we shouldn't have
         // incremented '_num_rows_returned' yet.
@@ -169,9 +171,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
         }
     }
 
-    if (!mem_reuse) {
-        block->swap(mblock.to_block());
-    }
+    block->swap(mblock.to_block());
 
     DCHECK_LE(_child_idx, _children.size());
     return Status::OK();
@@ -202,9 +202,7 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
         }
     }
 
-    if (!mem_reuse) {
-        block->swap(mblock.to_block());
-    }
+    block->swap(mblock.to_block());
 
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we
@@ -275,17 +273,17 @@ void VUnionNode::debug_string(int indentation_level, std::stringstream* out) con
     *out << ")" << std::endl;
 }
 
-Block VUnionNode::materialize_block(Block* src_block) {
+Status VUnionNode::materialize_block(Block* src_block, Block* dst_block) {
     const std::vector<VExprContext*>& child_exprs = _child_expr_lists[_child_idx];
     ColumnsWithTypeAndName colunms;
     for (size_t i = 0; i < child_exprs.size(); ++i) {
         int result_column_id = -1;
-        auto state = child_exprs[i]->execute(src_block, &result_column_id);
-        CHECK(state.ok()) << state.to_string();
+        RETURN_IF_ERROR(child_exprs[i]->execute(src_block, &result_column_id));
         colunms.emplace_back(src_block->get_by_position(result_column_id));
     }
     _child_row_idx += src_block->rows();
-    return {colunms};
+    *dst_block = {colunms};
+    return Status::OK();
 }
 
 } // namespace vectorized

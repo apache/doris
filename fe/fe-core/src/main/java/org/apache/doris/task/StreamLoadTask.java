@@ -83,6 +83,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private String headerType = "";
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
+    private boolean enableProfile = false;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
             TFileCompressType compressType) {
@@ -257,6 +258,11 @@ public class StreamLoadTask implements LoadTaskInfo {
         return trimDoubleQuotes;
     }
 
+    @Override
+    public boolean getEnableProfile() {
+        return enableProfile;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
@@ -358,6 +364,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetTrimDoubleQuotes()) {
             trimDoubleQuotes = request.isTrimDoubleQuotes();
+        }
+        if (request.isSetEnableProfile()) {
+            enableProfile = request.isEnableProfile();
         }
     }
 

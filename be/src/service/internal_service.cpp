@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/signal_handler.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "http/http_client.h"
@@ -207,6 +208,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         VLOG_RPC << "tablet writer open, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
+        signal::set_signal_task_id(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->open(*request);
         if (!st.ok()) {
@@ -228,6 +230,20 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
                                               const PExecPlanFragmentRequest* request,
                                               PExecPlanFragmentResult* response,
                                               google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        _exec_plan_fragment_in_pthread(controller, request, response, done);
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
+}
+
+void PInternalServiceImpl::_exec_plan_fragment_in_pthread(
+        google::protobuf::RpcController* controller, const PExecPlanFragmentRequest* request,
+        PExecPlanFragmentResult* response, google::protobuf::Closure* done) {
     auto span = telemetry::start_rpc_server_span("exec_plan_fragment", controller);
     auto scope = OpentelemetryScope {span};
     brpc::ClosureGuard closure_guard(done);
@@ -235,7 +251,7 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     bool compact = request->has_compact() ? request->compact() : false;
     PFragmentRequestVersion version =
             request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
-    st = _exec_plan_fragment(request->request(), version, compact);
+    st = _exec_plan_fragment_impl(request->request(), version, compact);
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
     }
@@ -247,7 +263,7 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
-        exec_plan_fragment(controller, request, response, done);
+        _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";
@@ -331,6 +347,7 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
+            signal::set_signal_task_id(request->id());
             auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add block failed, message=" << st
@@ -424,6 +441,7 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     bool ret = _light_work_pool.try_offer([this, request, done]() {
         VLOG_RPC << "tablet writer cancel, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
+        signal::set_signal_task_id(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->cancel(*request);
         if (!st.ok()) {
@@ -438,8 +456,9 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     }
 }
 
-Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request,
-                                                 PFragmentRequestVersion version, bool compact) {
+Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_request,
+                                                      PFragmentRequestVersion version,
+                                                      bool compact) {
     if (version == PFragmentRequestVersion::VERSION_1) {
         // VERSION_1 should be removed in v1.2
         TExecPlanFragmentParams t_request;
@@ -1145,8 +1164,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                             << ", local_file_size=" << local_file_size;
                     return Status::InternalError("downloaded file size is not equal");
                 }
-                chmod(local_file_path.c_str(), S_IRUSR | S_IWUSR);
-                return Status::OK();
+                return io::global_local_filesystem()->permission(
+                        local_file_path, io::LocalFileSystem::PERMS_OWNER_RW);
             };
             auto st = HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb);
             if (!st.ok()) {

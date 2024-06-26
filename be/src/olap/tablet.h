@@ -62,6 +62,8 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_REMOTE, STORAGE_TYPE_REMOTE_AND_LOCAL };
 
+extern const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD;
+
 class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
@@ -146,9 +148,10 @@ public:
 
     // Given spec_version, find a continuous version path and store it in version_path.
     // If quiet is true, then only "does this path exist" is returned.
+    // If skip_missing_version is true, return ok even there are missing versions.
     Status capture_consistent_versions(const Version& spec_version,
                                        std::vector<Version>* version_path,
-                                       bool quiet = false) const;
+                                       bool skip_missing_version, bool quiet) const;
     // if quiet is true, no error log will be printed if there are missing versions
     Status check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
@@ -157,8 +160,10 @@ public:
 
     Status capture_consistent_rowsets(const Version& spec_version,
                                       std::vector<RowsetSharedPtr>* rowsets) const;
+    // If skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version,
-                              std::vector<RowsetReaderSharedPtr>* rs_readers) const;
+                              std::vector<RowsetReaderSharedPtr>* rs_readers,
+                              bool skip_missing_version) const;
 
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowsetReaderSharedPtr>* rs_readers) const;
@@ -383,6 +388,12 @@ public:
 
     int64_t get_table_id() { return _tablet_meta->table_id(); }
 
+    // MUST hold SHARED `_meta_lock`
+    const auto& rowset_map() const { return _rs_version_map; }
+
+    // MUST hold SHARED `_meta_lock`
+    const auto& stale_rowset_map() const { return _stale_rs_version_map; }
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -584,6 +595,7 @@ inline int Tablet::version_count() const {
 }
 
 inline Version Tablet::max_version() const {
+    std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->max_version();
 }
 

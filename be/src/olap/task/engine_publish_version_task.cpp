@@ -48,24 +48,16 @@ void EnginePublishVersionTask::add_succ_tablet_id(int64_t tablet_id) {
     _succ_tablet_ids->push_back(tablet_id);
 }
 
-void EnginePublishVersionTask::wait() {
-    std::unique_lock<std::mutex> lock(_tablet_finish_sleep_mutex);
-    _tablet_finish_sleep_cond.wait_for(lock, std::chrono::milliseconds(10));
-}
-
-void EnginePublishVersionTask::notify() {
-    std::unique_lock<std::mutex> lock(_tablet_finish_sleep_mutex);
-    _tablet_finish_sleep_cond.notify_one();
-}
-
 Status EnginePublishVersionTask::finish() {
     Status res = Status::OK();
     int64_t transaction_id = _publish_version_req.transaction_id;
     OlapStopWatch watch;
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
+    std::unique_ptr<ThreadPoolToken> token =
+            StorageEngine::instance()->tablet_publish_txn_thread_pool()->new_token(
+                    ThreadPool::ExecutionMode::CONCURRENT);
 
     // each partition
-    std::atomic<int64_t> total_task_num(0);
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
         int64_t partition_id = par_ver_info.partition_id;
         // get all partition related tablets and check whether the tablet have the related version
@@ -120,7 +112,7 @@ Status EnginePublishVersionTask::finish() {
                 TabletState tablet_state;
                 {
                     std::shared_lock rdlock(tablet->get_header_lock());
-                    max_version = tablet->max_version();
+                    max_version = tablet->max_version_unlocked();
                     tablet_state = tablet->tablet_state();
                 }
                 if (tablet_state == TabletState::TABLET_RUNNING &&
@@ -141,20 +133,13 @@ Status EnginePublishVersionTask::finish() {
                     continue;
                 }
             }
-            total_task_num.fetch_add(1);
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
-                    this, tablet, rowset, partition_id, transaction_id, version, tablet_info,
-                    &total_task_num);
-            auto submit_st =
-                    StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
-                            [=]() { tablet_publish_txn_ptr->handle(); });
+                    this, tablet, rowset, partition_id, transaction_id, version, tablet_info);
+            auto submit_st = token->submit_func([=]() { tablet_publish_txn_ptr->handle(); });
             CHECK(submit_st.ok()) << submit_st;
         }
     }
-    // wait for all publish txn finished
-    while (total_task_num.load() != 0) {
-        wait();
-    }
+    token->wait();
 
     // check if the related tablet remained all have the version
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
@@ -196,23 +181,16 @@ Status EnginePublishVersionTask::finish() {
 TabletPublishTxnTask::TabletPublishTxnTask(EnginePublishVersionTask* engine_task,
                                            TabletSharedPtr tablet, RowsetSharedPtr rowset,
                                            int64_t partition_id, int64_t transaction_id,
-                                           Version version, const TabletInfo& tablet_info,
-                                           std::atomic<int64_t>* total_task_num)
+                                           Version version, const TabletInfo& tablet_info)
         : _engine_publish_version_task(engine_task),
           _tablet(tablet),
           _rowset(rowset),
           _partition_id(partition_id),
           _transaction_id(transaction_id),
           _version(version),
-          _tablet_info(tablet_info),
-          _total_task_num(total_task_num) {}
+          _tablet_info(tablet_info) {}
 
 void TabletPublishTxnTask::handle() {
-    Defer defer {[&] {
-        if (_total_task_num->fetch_sub(1) == 1) {
-            _engine_publish_version_task->notify();
-        }
-    }};
     auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
             _partition_id, _tablet, _transaction_id, _version);
     if (publish_status != Status::OK()) {

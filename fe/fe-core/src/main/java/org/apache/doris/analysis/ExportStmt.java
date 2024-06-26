@@ -39,6 +39,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,6 +64,18 @@ public class ExportStmt extends StatementBase {
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_COLUMNS = "";
+
+    private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
+            .add(ExportStmt.LABEL)
+            .add(LoadStmt.EXEC_MEM_LIMIT)
+            .add(LoadStmt.TIMEOUT_PROPERTY)
+            .add(ExportStmt.TABLET_NUMBER_PER_TASK_PROP)
+            .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
+            .add("line_delimiter")
+            .add("column_separator")
+            .add("format")
+            .build();
+
     private TableName tblName;
     private List<String> partitions;
     private Expr whereExpr;
@@ -244,9 +257,10 @@ public class ExportStmt extends StatementBase {
                     && !schema.equalsIgnoreCase("oss")
                     && !schema.equalsIgnoreCase("s3a")
                     && !schema.equalsIgnoreCase("cosn")
-                    && !schema.equalsIgnoreCase("jfs"))) {
+                    && !schema.equalsIgnoreCase("jfs")
+                    && !schema.equalsIgnoreCase("gs"))) {
                 throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'afs://' , 'bos://',"
-                        + " 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://' or 'jfs://' path.");
+                        + " 'ofs://', 'obs://', 'oss://', 's3a://', 'cosn://', 'gs://' or 'jfs://' path.");
             }
         } else if (type == StorageBackend.StorageType.S3) {
             if (schema == null || !schema.equalsIgnoreCase("s3")) {
@@ -271,7 +285,6 @@ public class ExportStmt extends StatementBase {
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
                 properties, ExportStmt.DEFAULT_LINE_DELIMITER));
-        this.columns = properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
         // exec_mem_limit
         if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
             try {
@@ -315,6 +328,14 @@ public class ExportStmt extends StatementBase {
             String label = "export_" + UUID.randomUUID().toString();
             properties.put(LABEL, label);
         }
+
+        for (String key : properties.keySet()) {
+            if (!PROPERTIES_SET.contains(key)) {
+                throw new DdlException("Invalid property key: '" + key + "'");
+            }
+        }
+
+        this.columns = properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
     }
 
     @Override

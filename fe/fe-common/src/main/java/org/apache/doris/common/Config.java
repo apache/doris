@@ -72,6 +72,8 @@ public class Config extends ConfigBase {
     @ConfField public static String sys_log_delete_age = "7d";
     @Deprecated
     @ConfField public static String sys_log_roll_mode = "SIZE-MB-1024";
+    @ConfField
+    public static boolean sys_log_enable_compress = false;
 
     /**
      * audit_log_dir:
@@ -114,6 +116,8 @@ public class Config extends ConfigBase {
     @Deprecated
     @ConfField
     public static String audit_log_roll_mode = "TIME-DAY";
+    @ConfField
+    public static boolean audit_log_enable_compress = false;
 
     /**
      * plugin_dir:
@@ -1008,7 +1012,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int storage_high_watermark_usage_percent = 85;
     @ConfField(mutable = true, masterOnly = true)
-    public static long storage_min_left_capacity_bytes = 2 * 1024 * 1024 * 1024; // 2G
+    public static long storage_min_left_capacity_bytes = 2 * 1024 * 1024 * 1024L; // 2G
 
     /**
      * If capacity of disk reach the 'storage_flood_stage_usage_percent' and 'storage_flood_stage_left_capacity_bytes',
@@ -1171,6 +1175,10 @@ public class Config extends ConfigBase {
     // Valid only if use PartitionRebalancer
     @ConfField(mutable = true, masterOnly = true)
     public static int partition_rebalance_max_moves_num_per_selection = 10;
+
+    // 1 slot for reduce unnecessary balance task, provided a more accurate estimate of capacity
+    @ConfField(masterOnly = true, mutable = true)
+    public static int balance_slot_num_per_path = 1;
 
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
@@ -1399,20 +1407,6 @@ public class Config extends ConfigBase {
     public static boolean recover_with_empty_tablet = false;
 
     /**
-     * In some scenarios, there is an unrecoverable metadata problem in the cluster,
-     * and the visibleVersion of the data does not match be. In this case, it is still
-     * necessary to restore the remaining data (which may cause problems with the correctness of the data).
-     * This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
-     * This configuration has three values:
-     *   disable : If an exception occurs, an error will be reported normally.
-     *   ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
-     *   ignore_all: In addition to ignore_version, when encountering no queryable replica,
-     *   skip it directly instead of throwing an exception
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static String recover_with_skip_missing_version = "disable";
-
-    /**
      * Whether to add a delete sign column when create unique table
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1504,6 +1498,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_dynamic_partition_num = 500;
+
+    /**
+     * Use this parameter to set the partition name prefix for multi partition,
+     * Only multi partition takes effect, not dynamic partitions.
+     * The default prefix is "p_".
+     */
+     @ConfField(mutable = true, masterOnly = true)
+     public static String multi_partition_name_prefix = "p_";
 
     /**
      * Used to limit the maximum number of partitions that can be created when creating multi partition,
@@ -1874,6 +1876,12 @@ public class Config extends ConfigBase {
     public static long hive_metastore_client_timeout_second = 10;
 
     /**
+     * Whether to load default config files when creating hive metastore client.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean load_default_conf_for_hms_client = true;
+
+    /**
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
     @ConfField
@@ -1901,7 +1909,7 @@ public class Config extends ConfigBase {
     public static long max_hive_partition_cache_num = 100000;
 
     @ConfField(mutable = false, masterOnly = false)
-    public static long max_hive_table_catch_num = 1000;
+    public static long max_hive_table_cache_num = 1000;
 
     @ConfField(mutable = false, masterOnly = false)
     public static short max_hive_list_partition_num = -1;
@@ -1932,7 +1940,7 @@ public class Config extends ConfigBase {
      * For external schema cache and hive meta cache.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static long external_cache_expire_time_minutes_after_access = 24 * 60; // 1 day
+    public static long external_cache_expire_time_minutes_after_access = 10; // 10 mins
 
     /**
      * Set session variables randomly to check more issues in github workflow
@@ -1977,6 +1985,13 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_func_pushdown = true;
+
+    /**
+     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
+     * otherwise it will throw an AnalysisException.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_query_hive_views = false;
 
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
@@ -2029,5 +2044,26 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean infodb_support_ext_catalog = false;
+
+    @ConfField(mutable = true)
+    public static boolean use_mysql_bigint_for_largeint = false;
+
+    /** 
+    * the max package size fe thrift server can receive,avoid accepting error or too large package causing OOM,default 20M
+    */
+    @ConfField
+    public static int fe_thrift_max_pkg_bytes = 20000000;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int backup_upload_task_num_per_be = 3;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int restore_download_task_num_per_be = 3;
+
+    @ConfField(mutable = false, masterOnly = false)
+    public static int http_sql_submitter_max_worker_threads = 2;
+
+    @ConfField(mutable = false, masterOnly = false)
+    public static int http_load_submitter_max_worker_threads = 2;
 }
 

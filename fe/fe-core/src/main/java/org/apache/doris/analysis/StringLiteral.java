@@ -24,8 +24,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TExprNode;
@@ -249,27 +247,29 @@ public class StringLiteral extends LiteralExpr {
                     try {
                         return new FloatLiteral(Double.valueOf(value), targetType);
                     } catch (NumberFormatException e) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_NUMBER, value);
+                        // consistent with CastExpr's getResultValue() method
+                        return new NullLiteral();
                     }
-                    break;
                 case DECIMALV2:
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
-                    DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
-                    res.setType(targetType);
-                    return res;
+                    try {
+                        DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+                        res.setType(targetType);
+                        return res;
+                    } catch (Exception e) {
+                        throw new AnalysisException(String.format(
+                                "input value can't parse to decimal, value=%s", value));
+                    }
                 default:
                     break;
             }
         } else if (targetType.isDateType()) {
-            // FE only support 'yyyy-MM-dd hh:mm:ss' && 'yyyy-MM-dd' format
-            // so if FE unchecked cast fail, we also build CastExpr for BE
-            // BE support other format suck as 'yyyyMMdd'...
             try {
                 return convertToDate(targetType);
             } catch (AnalysisException e) {
-                // pass;
+                throw new AnalysisException(e.getMessage());
             }
         } else if (targetType.equals(type)) {
             return this;

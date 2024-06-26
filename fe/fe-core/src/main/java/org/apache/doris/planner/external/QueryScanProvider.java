@@ -113,8 +113,14 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             for (InputSplit split : inputSplits) {
                 FileSplit fileSplit = (FileSplit) split;
                 List<String> pathPartitionKeys = getPathPartitionKeys();
-                List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
+                List<String> partitionValuesFromPath;
+                // For hive split, use the partition value from metastore first.
+                if (fileSplit instanceof HiveSplit && ((HiveSplit) fileSplit).partitionValues != null) {
+                    partitionValuesFromPath = ((HiveSplit) fileSplit).partitionValues;
+                } else {
+                    partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
                         pathPartitionKeys, false);
+                }
 
                 TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys,
                         locationType);

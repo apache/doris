@@ -134,15 +134,21 @@ public class BrokerUtil {
         }
         String[] columns = new String[columnsFromPath.size()];
         int size = 0;
+        boolean skipOnce = true;
         for (int i = strings.length - 2; i >= 0; i--) {
             String str = strings[i];
             if (str != null && str.isEmpty()) {
                 continue;
             }
             if (str == null || !str.contains("=")) {
+                if (skipOnce) {
+                    skipOnce = false;
+                    continue;
+                }
                 throw new UserException("Fail to parse columnsFromPath, expected: "
                         + columnsFromPath + ", filePath: " + filePath);
             }
+            skipOnce = false;
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
                 throw new UserException("Fail to parse columnsFromPath, expected: "
@@ -261,7 +267,7 @@ public class BrokerUtil {
                         LOG.warn("Broker close reader failed. path={}, address={}", path, address, ex);
                     }
                 }
-                if (tOperationStatus == null || tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close reader failed. path={}, address={}, error={}", path, address,
                              tOperationStatus.getMessage());
                 } else {
@@ -562,7 +568,9 @@ public class BrokerUtil {
                         LOG.warn("Broker close writer failed. filePath={}, address={}", brokerFilePath, address, ex);
                     }
                 }
-                if (tOperationStatus == null || tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                if (tOperationStatus == null) {
+                    LOG.warn("Broker close reader failed. fd={}, address={}", fd.toString(), address);
+                } else if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close writer failed. filePath={}, address={}, error={}", brokerFilePath,
                              address, tOperationStatus.getMessage());
                 } else {

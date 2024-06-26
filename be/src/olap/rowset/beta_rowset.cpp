@@ -192,6 +192,8 @@ Status BetaRowset::remove() {
     if (!fs) {
         return Status::Error<INIT_FAILED>();
     }
+    // If the rowset was removed, it need to remove the fds in segment cache directly
+    SegmentLoader::instance()->erase_segments(SegmentLoader::CacheKey(rowset_id()));
     bool success = true;
     Status st;
     for (int i = 0; i < num_segments(); ++i) {

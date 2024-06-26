@@ -98,6 +98,8 @@ private:
     // Add more detail seek timer and counter profile
     // Read process is split into 3 stages: init, first read, lazy read
     RuntimeProfile::Counter* _block_init_timer = nullptr;
+    RuntimeProfile::Counter* _block_init_get_row_range_by_keys_timer = nullptr;
+    RuntimeProfile::Counter* _block_init_get_row_range_by_conditions_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;

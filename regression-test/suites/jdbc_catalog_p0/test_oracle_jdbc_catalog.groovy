@@ -22,6 +22,7 @@ suite("test_oracle_jdbc_catalog", "p0") {
         String catalog_name = "oracle_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "DORIS_TEST";
+        String ex_db_name_lower_case = ex_db_name.toLowerCase();
         String oracle_port = context.config.otherConfigs.get("oracle_11_port");
         String SID = "XE";
         String test_insert = "TEST_INSERT";
@@ -36,7 +37,7 @@ suite("test_oracle_jdbc_catalog", "p0") {
                     "user"="doris_test",
                     "password"="123456",
                     "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
-                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc6.jar",
+                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver"
         );"""
 
@@ -117,7 +118,7 @@ suite("test_oracle_jdbc_catalog", "p0") {
         );"""
         sql """ CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name} """
         sql """ switch ${catalog_name} """
-        sql """ use ${ex_db_name}"""
+        sql """ use ${ex_db_name_lower_case}"""
 
         qt_lower_case_table_names1  """ select * from test_num order by ID; """
         qt_lower_case_table_names2  """ select * from test_char order by ID; """

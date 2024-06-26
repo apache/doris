@@ -285,15 +285,22 @@ public class ExportJob implements Writable {
         return types;
     }
 
-    private String genHeader(Map<String, String> properties) {
+    private String genHeader(Map<String, String> properties) throws UserException {
         String header = "";
         if (properties.containsKey("format")) {
             String headerType = properties.get("format");
-            if (headerType.equals(FeConstants.csv_with_names)) {
-                header = genNames();
-            } else if (headerType.equals(FeConstants.csv_with_names_and_types)) {
-                header = genNames();
-                header += genTypes();
+            switch (headerType) {
+                case FeConstants.csv:
+                    break;
+                case FeConstants.csv_with_names:
+                    header = genNames();
+                    break;
+                case FeConstants.csv_with_names_and_types:
+                    header = genNames();
+                    header += genTypes();
+                    break;
+                default:
+                    throw new DdlException("Unknown format for export: " + headerType);
             }
         }
         return header;
@@ -448,7 +455,7 @@ public class ExportJob implements Writable {
         return olapScanNode;
     }
 
-    private PlanFragment genPlanFragment(Table.TableType type, ScanNode scanNode) throws UserException {
+   private PlanFragment genPlanFragment(Table.TableType type, ScanNode scanNode) throws UserException {
         PlanFragment fragment = null;
         switch (exportTable.getType()) {
             case OLAP:
@@ -462,7 +469,8 @@ public class ExportJob implements Writable {
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
                 break;
             default:
-                break;
+                LOG.info("Table Type unsupport export, ExportTable type : {}", exportTable.getType());
+                throw new UserException("Table Type unsupport export :" + exportTable.getType());
         }
         fragment.setOutputExprs(createOutputExprs());
 
@@ -476,7 +484,7 @@ public class ExportJob implements Writable {
         }
 
         return fragment;
-    }
+    }    
 
     private List<Expr> createOutputExprs() {
         List<Expr> outputExprs = Lists.newArrayList();

@@ -32,6 +32,7 @@
 #include "olap/wrapper_field.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/defer_op.h"
+#include "util/trace.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -1846,6 +1847,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         std::lock_guard<std::mutex> base_tablet_lock(base_tablet->get_push_lock());
         std::lock_guard<std::mutex> new_tablet_lock(new_tablet->get_push_lock());
         std::lock_guard<std::shared_mutex> base_tablet_wlock(base_tablet->get_header_lock());
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         std::lock_guard<std::shared_mutex> new_tablet_wlock(new_tablet->get_header_lock());
 
         do {
@@ -2064,7 +2066,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             // step 3
             std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
-            int64_t new_max_version = new_tablet->max_version().second;
+            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
+            int64_t new_max_version = new_tablet->max_version_unlocked().second;
             rowsets.clear();
             if (max_version < new_max_version) {
                 LOG(INFO)
@@ -2094,6 +2097,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         } else {
             // set state to ready
             std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
+            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
             res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
             if (!res) {
                 break;
@@ -2134,7 +2138,7 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
     *max_rowset = rowset;
 
     RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
-                                                           versions_to_be_changed));
+                                                           versions_to_be_changed, false, false));
 
     return Status::OK();
 }
@@ -2171,6 +2175,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         {
             // save tablet meta here because rowset meta is not saved during add rowset
             std::lock_guard<std::shared_mutex> new_wlock(sc_params.new_tablet->get_header_lock());
+            SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
             sc_params.new_tablet->save_meta();
         }
         if (res) {
@@ -2369,6 +2374,12 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         // is less, which means the data in new tablet should be more aggregated.
         // so we use sorting schema change to sort and merge the data.
         *sc_sorting = true;
+        return Status::OK();
+    }
+
+    if (new_tablet->enable_unique_key_merge_on_write() &&
+        new_tablet->num_key_columns() > base_tablet_schema->num_key_columns()) {
+        *sc_directly = true;
         return Status::OK();
     }
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -211,6 +212,12 @@ public class OlapTableSink extends DataSink {
             columns.addAll(indexMeta.getSchema().stream().map(Column::getNonShadowName).collect(Collectors.toList()));
             for (Column column : indexMeta.getSchema()) {
                 TColumn tColumn = column.toThrift();
+                // When schema change is doing, some modified column has prefix in name. Columns here
+                // is for the schema in rowset meta, which should be no column with shadow prefix.
+                // So we should remove the shadow prefix here.
+                if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                    tColumn.setColumnName(column.getNonShadowName());
+                }
                 column.setIndexFlag(tColumn, table);
                 columnsDesc.add(tColumn);
             }

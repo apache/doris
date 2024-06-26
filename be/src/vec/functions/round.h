@@ -25,6 +25,7 @@
 #else
 #include <fenv.h>
 #endif
+#include <algorithm>
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
@@ -146,6 +147,7 @@ private:
 public:
     static NO_INLINE void apply(const Container& in, UInt32 in_scale, Container& out,
                                 Int16 out_scale) {
+        constexpr bool is_decimalv2 = IsDecimalV2<T>;
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
             size_t scale = int_exp10(scale_arg);
@@ -155,15 +157,15 @@ public:
             NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
             if (out_scale < 0) {
-                size_t target_scale = int_exp10(-out_scale);
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, target_scale);
+                    Op::compute(p_in, scale, p_out,
+                                is_decimalv2 ? int_exp10(9 - out_scale) : int_exp10(-out_scale));
                     ++p_in;
                     ++p_out;
                 }
             } else {
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, 1);
+                    Op::compute(p_in, scale, p_out, is_decimalv2 ? scale : 1);
                     ++p_in;
                     ++p_out;
                 }
@@ -457,7 +459,10 @@ struct Dispatcher {
             const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(col_general);
             const auto& vec_src = decimal_col->get_data();
 
-            auto col_res = ColumnDecimal<T>::create(vec_src.size(), scale_arg);
+            UInt32 result_scale =
+                    std::min(static_cast<UInt32>(std::max(scale_arg, static_cast<Int16>(0))),
+                             decimal_col->get_scale());
+            auto col_res = ColumnDecimal<T>::create(vec_src.size(), result_scale);
             auto& vec_res = col_res->get_data();
 
             if (!vec_res.empty()) {

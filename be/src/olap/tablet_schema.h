@@ -58,7 +58,8 @@ public:
     bool is_length_variable_type() const {
         return _type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR ||
                _type == OLAP_FIELD_TYPE_STRING || _type == OLAP_FIELD_TYPE_HLL ||
-               _type == OLAP_FIELD_TYPE_OBJECT || _type == OLAP_FIELD_TYPE_QUANTILE_STATE;
+               _type == OLAP_FIELD_TYPE_OBJECT || _type == OLAP_FIELD_TYPE_QUANTILE_STATE ||
+               _type == OLAP_FIELD_TYPE_JSONB;
     }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }

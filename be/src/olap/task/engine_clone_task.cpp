@@ -34,6 +34,7 @@
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/thrift_rpc_helper.h"
+#include "util/trace.h"
 
 using std::set;
 using std::stringstream;
@@ -429,8 +430,8 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
             }
-            chmod(local_file_path.c_str(), S_IRUSR | S_IWUSR);
-            return Status::OK();
+            return io::global_local_filesystem()->permission(local_file_path,
+                                                             io::LocalFileSystem::PERMS_OWNER_RW);
         };
         RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, download_cb));
     } // Clone files from remote backend
@@ -466,6 +467,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
     std::lock_guard<std::mutex> rwlock(tablet->get_rowset_update_lock());
     std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     // check clone dir existed
     if (!FileUtils::check_exist(clone_dir)) {
         return Status::InternalError("clone dir not existed. clone_dir={}", clone_dir);

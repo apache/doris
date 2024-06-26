@@ -115,7 +115,7 @@ public class MetaStatisticsTask extends StatisticsTask {
                 break;
             case PARTITION:
                 Partition partition = getNotNullPartition(granularity, table);
-                long partitionSize = partition.getBaseIndex().getDataSize();
+                long partitionSize = partition.getBaseIndex().getDataSize(false);
                 result.getStatsTypeToValue().put(StatsType.DATA_SIZE, String.valueOf(partitionSize));
                 break;
             case TABLET:

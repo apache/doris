@@ -412,6 +412,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
+        this.checkIncludeBitmap();
 
         for (Expr expr : children) {
             if (expr instanceof Subquery) {

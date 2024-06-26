@@ -33,6 +33,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -229,7 +230,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
             LOG.info("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
             return null;
         }
-        return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
+
+        try {
+            return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
+        } catch (IllegalStateException e) {
+            // Need a fallback to handle this because this error state can not be recovered until restarting FE
+            if (HiveMetaStoreClient.REPL_EVENTS_MISSING_IN_METASTORE.equals(e.getMessage())) {
+                lastSyncedEventId = getCurrentEventId();
+                refreshCatalog(hmsExternalCatalog);
+                LOG.warn("Notification events are missing, maybe an event can not be handled "
+                        + "or processing rate is too low, fallback to refresh the catalog");
+                return null;
+            }
+            throw e;
+        }
     }
 
     private void refreshCatalog(HMSExternalCatalog hmsExternalCatalog) {

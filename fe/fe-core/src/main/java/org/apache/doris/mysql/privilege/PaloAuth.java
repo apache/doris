@@ -57,6 +57,7 @@ import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
@@ -430,16 +431,17 @@ public class PaloAuth implements Writable {
                     currentUser, db);
             return false;
         }
-
+        String qualifiedDb = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, db);
         PrivBitSet savedPrivs = PrivBitSet.of();
         if (checkGlobalInternal(currentUser, wanted, savedPrivs)
                 || checkCatalogInternal(currentUser, ctl, wanted, savedPrivs)
-                || checkDbInternal(currentUser, ctl, db, wanted, savedPrivs)) {
+                || checkDbInternal(currentUser, ctl, qualifiedDb, wanted, savedPrivs)) {
             return true;
         }
 
         // if user has any privs of table in this db, and the wanted priv is SHOW, return true
-        if (ctl != null && db != null && wanted == PrivPredicate.SHOW && checkAnyPrivWithinDb(currentUser, ctl, db)) {
+        if (ctl != null && qualifiedDb != null && wanted == PrivPredicate.SHOW && checkAnyPrivWithinDb(currentUser, ctl,
+                qualifiedDb)) {
             return true;
         }
 
@@ -496,12 +498,12 @@ public class PaloAuth implements Writable {
             LOG.debug("should check NODE priv in GLOBAL level. user: {}, db: {}, tbl: {}", currentUser, db, tbl);
             return false;
         }
-
+        String qualifiedDb = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, db);
         PrivBitSet savedPrivs = PrivBitSet.of();
         if (checkGlobalInternal(currentUser, wanted, savedPrivs)
                 || checkCatalogInternal(currentUser, ctl, wanted, savedPrivs)
-                || checkDbInternal(currentUser, ctl, db, wanted, savedPrivs)
-                || checkTblInternal(currentUser, ctl, db, tbl, wanted, savedPrivs)) {
+                || checkDbInternal(currentUser, ctl, qualifiedDb, wanted, savedPrivs)
+                || checkTblInternal(currentUser, ctl, qualifiedDb, tbl, wanted, savedPrivs)) {
             return true;
         }
 

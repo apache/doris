@@ -181,7 +181,8 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
-    _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
+    _parse_zone_map_skip_null(_zone_map_index_meta->segment_zone_map(), min_value.get(),
+                              max_value.get());
 
     dst->reserve(*n);
     bool is_string = is_olap_string_type(type);
@@ -243,6 +244,21 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
             // for compatible OlapCond's 'is not null'
             max_value_container->set_null();
         }
+    }
+}
+
+void ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
+                                             WrapperField* min_value_container,
+                                             WrapperField* max_value_container) const {
+    // min value and max value are valid if has_not_null is true
+    if (zone_map.has_not_null()) {
+        min_value_container->from_string(zone_map.min());
+        max_value_container->from_string(zone_map.max());
+    }
+
+    if (!zone_map.has_not_null()) {
+        min_value_container->set_null();
+        max_value_container->set_null();
     }
 }
 
@@ -625,7 +641,13 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (config::enable_low_cardinality_optimize &&
         _reader->encoding_info()->encoding() == DICT_ENCODING) {
         auto dict_encoding_type = _reader->get_dict_encoding_type();
-        if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING) {
+        // Only if the column is a predicate column, then we need check the all dict encoding flag
+        // because we could rewrite the predciate to accelarate query speed. But if it is not a
+        // predicate column, then it is useless. And it has a bad impact on cold read(first time read)
+        // because it will load the column's ordinal index and zonemap index and maybe other indices.
+        // it has bad impact on primary key query. For example, select * from table where pk = 1, and
+        // the table has 2000 columns.
+        if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
             seek_to_ordinal(_reader->num_rows() - 1);
             _is_all_dict_encoding = _page.is_dict_encoding;
             _reader->set_dict_encoding_type(_is_all_dict_encoding

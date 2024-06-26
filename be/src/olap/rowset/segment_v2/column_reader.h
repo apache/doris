@@ -77,6 +77,7 @@ struct ColumnIteratorOptions {
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
     IOContext io_ctx;
+    bool is_predicate_column = false;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
@@ -185,6 +186,9 @@ private:
 
     void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                          WrapperField* max_value_container) const;
+
+    void _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
+                                   WrapperField* max_value_container) const;
 
     Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
                                std::vector<const ColumnPredicate*>* delete_predicates,

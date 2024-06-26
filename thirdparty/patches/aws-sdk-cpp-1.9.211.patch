@@ -1,0 +1,169 @@
+diff --git a/aws-cpp-sdk-core/include/aws/core/Aws.h b/aws-cpp-sdk-core/include/aws/core/Aws.h
+index 419f5e14f6..dfbbb986a6 100644
+--- a/aws-cpp-sdk-core/include/aws/core/Aws.h
++++ b/aws-cpp-sdk-core/include/aws/core/Aws.h
+@@ -80,7 +80,7 @@ namespace Aws
+      */
+     struct HttpOptions
+     {
+-        HttpOptions() : initAndCleanupCurl(true), installSigPipeHandler(false)
++        HttpOptions() : initAndCleanupCurl(true), installSigPipeHandler(false), compliantRfc3986Encoding(false)
+         { }
+ 
+         /**
+@@ -100,6 +100,10 @@ namespace Aws
+          * NOTE: CURLOPT_NOSIGNAL is already being set.
+          */
+         bool installSigPipeHandler;
++        /**
++         * Disable legacy URL encoding that leaves `$&,:@=` unescaped for legacy purposes.
++         */
++        bool compliantRfc3986Encoding;
+     };
+ 
+     /**
+diff --git a/aws-cpp-sdk-core/include/aws/core/http/URI.h b/aws-cpp-sdk-core/include/aws/core/http/URI.h
+index 4cff72d4a8..b536926cb0 100644
+--- a/aws-cpp-sdk-core/include/aws/core/http/URI.h
++++ b/aws-cpp-sdk-core/include/aws/core/http/URI.h
+@@ -21,6 +21,9 @@ namespace Aws
+         static const uint16_t HTTP_DEFAULT_PORT = 80;
+         static const uint16_t HTTPS_DEFAULT_PORT = 443;
+ 
++        extern bool s_compliantRfc3986Encoding;
++        AWS_CORE_API void SetCompliantRfc3986Encoding(bool compliant);
++
+         //per https://tools.ietf.org/html/rfc3986#section-3.4 there is nothing preventing servers from allowing
+         //multiple values for the same key. So use a multimap instead of a map.
+         typedef Aws::MultiMap<Aws::String, Aws::String> QueryStringParameterCollection;
+diff --git a/aws-cpp-sdk-core/source/Aws.cpp b/aws-cpp-sdk-core/source/Aws.cpp
+index 6049b12264..e9aca9c580 100644
+--- a/aws-cpp-sdk-core/source/Aws.cpp
++++ b/aws-cpp-sdk-core/source/Aws.cpp
+@@ -136,6 +136,7 @@ namespace Aws
+ 
+         Aws::Http::SetInitCleanupCurlFlag(options.httpOptions.initAndCleanupCurl);
+         Aws::Http::SetInstallSigPipeHandlerFlag(options.httpOptions.installSigPipeHandler);
++        Aws::Http::SetCompliantRfc3986Encoding(options.httpOptions.compliantRfc3986Encoding);
+         Aws::Http::InitHttp();
+         Aws::InitializeEnumOverflowContainer();
+         cJSON_AS4CPP_Hooks hooks;
+diff --git a/aws-cpp-sdk-core/source/http/URI.cpp b/aws-cpp-sdk-core/source/http/URI.cpp
+index ce9ec064cb..9dfc10a875 100644
+--- a/aws-cpp-sdk-core/source/http/URI.cpp
++++ b/aws-cpp-sdk-core/source/http/URI.cpp
+@@ -24,6 +24,48 @@ namespace Http
+ 
+ const char* SEPARATOR = "://";
+ 
++bool s_compliantRfc3986Encoding = false;
++void SetCompliantRfc3986Encoding(bool compliant) { s_compliantRfc3986Encoding = compliant; }
++
++Aws::String urlEncodeSegment(const Aws::String& segment)
++{
++    // consolidates legacy escaping logic into one local method
++    if (s_compliantRfc3986Encoding)
++    {
++        return StringUtils::URLEncode(segment.c_str());
++    }
++    else
++    {
++        Aws::StringStream ss;
++        ss << std::hex << std::uppercase;
++        for(unsigned char c : segment) // alnum results in UB if the value of c is not unsigned char & is not EOF
++        {
++            // RFC 3986 §2.3 unreserved characters
++            if (StringUtils::IsAlnum(c))
++            {
++                ss << c;
++                continue;
++            }
++            switch(c)
++            {
++                // §2.3 unreserved characters
++                // The path section of the URL allows unreserved characters to appear unescaped
++                case '-': case '_': case '.': case '~':
++                // RFC 3986 §2.2 Reserved characters
++                // NOTE: this implementation does not accurately implement the RFC on purpose to accommodate for
++                // discrepancies in the implementations of URL encoding between AWS services for legacy reasons.
++                case '$': case '&': case ',':
++                case ':': case '=': case '@':
++                    ss << c;
++                    break;
++                default:
++                    ss << '%' << std::setfill('0') << std::setw(2) << (int)c << std::setw(0);
++            }
++        }
++        return ss.str();
++    }
++}
++
+ } // namespace Http
+ } // namespace Aws
+ 
+@@ -113,31 +155,7 @@ Aws::String URI::URLEncodePathRFC3986(const Aws::String& path)
+     // escape characters appearing in a URL path according to RFC 3986
+     for (const auto& segment : pathParts)
+     {
+-        ss << '/';
+-        for(unsigned char c : segment) // alnum results in UB if the value of c is not unsigned char & is not EOF
+-        {
+-            // §2.3 unreserved characters
+-            if (StringUtils::IsAlnum(c))
+-            {
+-                ss << c;
+-                continue;
+-            }
+-            switch(c)
+-            {
+-                // §2.3 unreserved characters
+-                case '-': case '_': case '.': case '~':
+-                // The path section of the URL allow reserved characters to appear unescaped
+-                // RFC 3986 §2.2 Reserved characters
+-                // NOTE: this implementation does not accurately implement the RFC on purpose to accommodate for
+-                // discrepancies in the implementations of URL encoding between AWS services for legacy reasons.
+-                case '$': case '&': case ',':
+-                case ':': case '=': case '@':
+-                    ss << c;
+-                    break;
+-                default:
+-                    ss << '%' << std::setfill('0') << std::setw(2) << (int)((unsigned char)c) << std::setw(0);
+-            }
+-        }
++        ss << '/' << urlEncodeSegment(segment);
+     }
+ 
+     //if the last character was also a slash, then add that back here.
+@@ -218,31 +236,7 @@ Aws::String URI::GetURLEncodedPathRFC3986() const
+     // escape characters appearing in a URL path according to RFC 3986
+     for (const auto& segment : m_pathSegments)
+     {
+-        ss << '/';
+-        for(unsigned char c : segment) // alnum results in UB if the value of c is not unsigned char & is not EOF
+-        {
+-            // §2.3 unreserved characters
+-            if (StringUtils::IsAlnum(c))
+-            {
+-                ss << c;
+-                continue;
+-            }
+-            switch(c)
+-            {
+-                // §2.3 unreserved characters
+-                case '-': case '_': case '.': case '~':
+-                // The path section of the URL allow reserved characters to appear unescaped
+-                // RFC 3986 §2.2 Reserved characters
+-                // NOTE: this implementation does not accurately implement the RFC on purpose to accommodate for
+-                // discrepancies in the implementations of URL encoding between AWS services for legacy reasons.
+-                case '$': case '&': case ',':
+-                case ':': case '=': case '@':
+-                    ss << c;
+-                    break;
+-                default:
+-                    ss << '%' << std::setfill('0') << std::setw(2) << (int)((unsigned char)c) << std::setw(0);
+-            }
+-        }
++        ss << '/' << urlEncodeSegment(segment);
+     }
+ 
+     if (m_pathSegments.empty() || m_pathHasTrailingSlash)

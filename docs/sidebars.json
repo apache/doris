@@ -50,15 +50,12 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
-                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
                     "items": [
                         "data-table/index/prefix-index",
-                        "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
-                        "data-table/index/ngram-bloomfilter-index",
                         "data-table/index/bitmap-index"
                     ]
                 }
@@ -179,9 +176,6 @@
             "type": "category",
             "label": "Query Acceleration",
             "items": [
-                "query-acceleration/pipeline-execution-engine",
-                "query-acceleration/nereids",
-                "query-acceleration/hight-concurrent-point-query",
                 "query-acceleration/materialized-view",
                 {
                     "type": "category",
@@ -236,7 +230,6 @@
                 "ecosystem/datax",
                 "ecosystem/seatunnel",
                 "ecosystem/kyuubi",
-                "ecosystem/mysql-to-doris",
                 "ecosystem/logstash",
                 "ecosystem/beats",
                 "ecosystem/plugin-development-manual",
@@ -305,7 +298,6 @@
                                 "sql-manual/sql-functions/array-functions/array_pushfront",
                                 "sql-manual/sql-functions/array-functions/array_compact",
                                 "sql-manual/sql-functions/array-functions/array_concat",
-                                "sql-manual/sql-functions/array-functions/array_zip",
                                 "sql-manual/sql-functions/array-functions/array_shuffle",
                                 "sql-manual/sql-functions/array-functions/array_cum_sum",
                                 "sql-manual/sql-functions/array-functions/array_exists",
@@ -427,7 +419,6 @@
                                 "sql-manual/sql-functions/string-functions/initcap",
                                 "sql-manual/sql-functions/string-functions/repeat",
                                 "sql-manual/sql-functions/string-functions/reverse",
-                                "sql-manual/sql-functions/string-functions/char",
                                 "sql-manual/sql-functions/string-functions/concat",
                                 "sql-manual/sql-functions/string-functions/concat_ws",
                                 "sql-manual/sql-functions/string-functions/substr",
@@ -566,8 +557,6 @@
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_intersect",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect_count",
-                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_expr_calculate",
-                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_expr_calculate_count",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_hash64"
                             ]
                         },
@@ -757,7 +746,6 @@
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-OBSERVER",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-MODIFY-BACKEND",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-FOLLOWER",
-                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-MODIFY-BROKER",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-BROKER",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-BACKEND",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-BACKEND"
@@ -814,7 +802,6 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FUNCTION",
@@ -955,6 +942,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WHITE-LIST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WARNING",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLETS-BELONG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-VARIABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PLUGINS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROLES",
@@ -1172,6 +1160,7 @@
                                 "admin-manual/http-actions/fe/show-meta-info-action",
                                 "admin-manual/http-actions/fe/show-proc-action",
                                 "admin-manual/http-actions/fe/show-runtime-info-action",
+                                "admin-manual/http-actions/fe/show-table-data-action",
                                 "admin-manual/http-actions/fe/statement-execution-action",
                                 "admin-manual/http-actions/fe/table-query-plan-action",
                                 "admin-manual/http-actions/fe/table-row-count-action",

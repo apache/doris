@@ -451,6 +451,11 @@ public:
     // Returns the runtime profile for the sink.
     RuntimeProfile* profile() override { return _profile; }
 
+    // the consumer func of sending pending batches in every NodeChannel.
+    // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
+    // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
+    void send_batch_process();
+
 private:
     // convert input batch to output batch which will be loaded into OLAP table.
     // this is only used in insert statement.
@@ -464,11 +469,6 @@ private:
                           int* filtered_rows, bool* stop_processing);
     bool _validate_cell(const TypeDescriptor& type, const std::string& col_name, void* slot,
                         size_t slot_index, fmt::memory_buffer& error_msg, RowBatch* batch);
-
-    // the consumer func of sending pending batches in every NodeChannel.
-    // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
-    // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
-    void _send_batch_process(RuntimeState* state);
 
 protected:
     friend class NodeChannel;
@@ -519,8 +519,7 @@ protected:
     // index_channel
     std::vector<std::shared_ptr<IndexChannel>> _channels;
 
-    CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _sender_thread;
+    bthread_t _sender_thread = 0;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
     std::vector<DecimalV2Value> _max_decimalv2_val;
@@ -577,6 +576,7 @@ private:
     OlapTablePartitionParam* _partition = nullptr;
     std::vector<ExprContext*> _output_expr_ctxs;
     std::unique_ptr<RowBatch> _output_batch;
+    RuntimeState* _state = nullptr;
 };
 
 } // namespace stream_load

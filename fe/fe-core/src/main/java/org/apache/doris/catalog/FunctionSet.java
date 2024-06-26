@@ -21,11 +21,13 @@ import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -925,6 +927,8 @@ public class FunctionSet<T> {
     public static final String ORTHOGONAL_BITMAP_INTERSECT = "orthogonal_bitmap_intersect";
     public static final String ORTHOGONAL_BITMAP_INTERSECT_COUNT = "orthogonal_bitmap_intersect_count";
     public static final String ORTHOGONAL_BITMAP_UNION_COUNT = "orthogonal_bitmap_union_count";
+    public static final String ORTHOGONAL_BITMAP_EXPR_CALCULATE_COUNT = "orthogonal_bitmap_expr_calculate_count";
+    public static final String ORTHOGONAL_BITMAP_EXPR_CALCULATE = "orthogonal_bitmap_expr_calculate";
 
     public static final String QUANTILE_UNION = "quantile_union";
     //TODO(weixiang): is quantile_percent can be replaced by approx_percentile?
@@ -1285,6 +1289,24 @@ public class FunctionSet<T> {
                 // The implementations of hex for string and int are different.
                 return false;
             }
+        }
+        if (FunctionCallExpr.STRING_SEARCH_FUNCTION_SET.contains(desc.functionName())) {
+            if (descArgTypes[1].isStringType() && candicateArgTypes[1].isArrayType()) {
+                // The needles arg of search functions should not be allowed to cast from string.
+                return false;
+            }
+        }
+        // If set `roundPreciseDecimalV2Value`, only use decimalv3 as target type to execute round function
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
+                && FunctionCallExpr.ROUND_FUNCTION_SET.contains(desc.functionName())
+                && descArgType.isDecimalV2() && candicateArgType.getPrimitiveType() != PrimitiveType.DECIMAL128) {
+            return false;
+        } else if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
+                && FunctionCallExpr.ROUND_FUNCTION_SET.contains(desc.functionName())
+                && descArgType.isDecimalV2() && candicateArgType.getPrimitiveType() == PrimitiveType.DECIMAL128) {
+            return true;
         }
         if ((descArgType.isDecimalV3() && candicateArgType.isDecimalV2())
                 || (descArgType.isDecimalV2() && candicateArgType.isDecimalV3())) {
@@ -2394,6 +2416,47 @@ public class FunctionSet<T> {
                     Lists.newArrayList(Type.BITMAP, t, t), Type.BIGINT, Type.BITMAP, true, "", "", "", "", "", "", "",
                     true, false, true, true));
         }
+
+        Type[] ntypes = {Type.CHAR, Type.VARCHAR, Type.STRING};
+        for (Type t : ntypes) {
+            addBuiltin(AggregateFunction.createBuiltin(ORTHOGONAL_BITMAP_EXPR_CALCULATE,
+                    Lists.newArrayList(Type.BITMAP, t, Type.STRING),
+                    Type.BITMAP,
+                    Type.VARCHAR,
+                    true,
+                    "_ZN5doris15BitmapFunctions37orthogonal_bitmap_expr_calculate_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris15BitmapFunctions39orthogonal_bitmap_expr_calculate_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_iPS5_S7_",
+                    "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris15BitmapFunctions42orthogonal_bitmap_expr_calculate_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "",
+                    "",
+                    "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(ORTHOGONAL_BITMAP_EXPR_CALCULATE_COUNT,
+                    Lists.newArrayList(Type.BITMAP, t, Type.STRING),
+                    Type.BIGINT,
+                    Type.VARCHAR,
+                    true,
+                    "_ZN5doris15BitmapFunctions43orthogonal_bitmap_expr_calculate_count_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                    "_ZN5doris15BitmapFunctions39orthogonal_bitmap_expr_calculate_updateEPN9doris_udf15FunctionContextERKNS1_9StringValES6_iPS5_S7_",
+                    "_ZN5doris15BitmapFunctions29orthogonal_bitmap_count_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                    "_ZN5doris15BitmapFunctions48orthogonal_bitmap_expr_calculate_count_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    "",
+                    "",
+                    "_ZN5doris15BitmapFunctions32orthogonal_bitmap_count_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                    true, false, true));
+
+            //vec ORTHOGONAL_BITMAP_EXPR_CALCULATE and ORTHOGONAL_BITMAP_EXPR_CALCULATE_COUNT
+            addBuiltin(
+                    AggregateFunction.createBuiltin(ORTHOGONAL_BITMAP_EXPR_CALCULATE, Lists.newArrayList(Type.BITMAP, t, Type.STRING),
+                            Type.BITMAP, Type.BITMAP, true, "", "", "", "", "", "", "", true, false, true, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(ORTHOGONAL_BITMAP_EXPR_CALCULATE_COUNT,
+                    Lists.newArrayList(Type.BITMAP, t, Type.STRING), Type.BIGINT, Type.BITMAP, true, "", "", "", "", "", "", "",
+                    true, false, true, true));
+        }
+
         // bitmap
         addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION, Lists.newArrayList(Type.BITMAP),
                 Type.BITMAP,

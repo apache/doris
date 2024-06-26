@@ -18,6 +18,7 @@
 #pragma once
 
 #include <bthread/bthread.h>
+#include <bthread/types.h>
 
 #include <string>
 #include <thread>
@@ -27,10 +28,10 @@
 #include "gutil/macros.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
-#include "util/defer_op.h"
+#include "util/defer_op.h" // IWYU pragma: keep
 
 // Used to observe the memory usage of the specified code segment
-#ifdef USE_MEM_TRACKER
+#if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER)
 // Count a code segment memory (memory malloc - memory free) to int64_t
 // Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT(&scope_mem); xxx; xxx; }
 #define SCOPED_MEM_COUNT(scope_mem) \
@@ -48,7 +49,7 @@
 #endif
 
 // Used to observe query/load/compaction/e.g. execution thread memory usage and respond when memory exceeds the limit.
-#ifdef USE_MEM_TRACKER
+#if defined(USE_MEM_TRACKER) && !defined(UNDEFINED_BEHAVIOR_SANITIZER)
 // Attach to query/load/compaction/e.g. when thread starts.
 // This will save some info about a working thread in the thread context.
 // And count the memory during thread execution (is actually also the code segment that executes the function)
@@ -86,6 +87,7 @@ namespace doris {
 class TUniqueId;
 class ThreadContext;
 
+extern bool k_doris_exit;
 extern bthread_key_t btls_key;
 
 // Using gcc11 compiles thread_local variable on lower versions of GLIBC will report an error,
@@ -186,42 +188,79 @@ public:
         return thread_mem_tracker_mgr->limiter_mem_tracker_raw();
     }
 
+    int switch_bthread_local_count = 0;
+
 private:
     std::string _task_id = "";
     TUniqueId _fragment_instance_id;
 };
 
+// Switch thread context from pthread local to bthread local context.
 // Cache the pointer of bthread local in pthead local,
 // Avoid calling bthread_getspecific frequently to get bthread local, which has performance problems.
-static void pthread_attach_bthread() {
-    bthread_id = bthread_self();
-    bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
-    if (bthread_context == nullptr) {
-        // A new bthread starts, two scenarios:
-        // 1. First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
-        // 2. There are not enough reusable btls in btls pool.
-        // else, two scenarios:
-        // 1. A new bthread starts, but get a reuses btls.
-        // 2. A pthread switch occurs. Because the pthread switch cannot be accurately identified at the moment.
-        // So tracker call reset 0 like reuses btls.
-        bthread_context = new ThreadContext;
-        // The brpc server should respond as quickly as possible.
-        bthread_context->thread_mem_tracker_mgr->disable_wait_gc();
-        // set the data so that next time bthread_getspecific in the thread returns the data.
-        CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
+class SwitchBthreadLocal {
+public:
+    static void switch_to_bthread_local() {
+        if (bthread_self() != 0) {
+            // Very frequent bthread_getspecific will slow, but switch_to_bthread_local is not expected to be much.
+            bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
+            if (bthread_context == nullptr) {
+                // A new bthread starts, two scenarios:
+                // 1. First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
+                // 2. There are not enough reusable btls in btls pool.
+                // else, two scenarios:
+                // 1. A new bthread starts, but get a reuses btls.
+                // 2. A pthread switch occurs. Because the pthread switch cannot be accurately identified at the moment.
+                // So tracker call reset 0 like reuses btls.
+                // during this period, stop the use of thread_context.
+                thread_context_ptr.init = false;
+                bthread_context = new ThreadContext;
+                // The brpc server should respond as quickly as possible.
+                bthread_context->thread_mem_tracker_mgr->disable_wait_gc();
+                // set the data so that next time bthread_getspecific in the thread returns the data.
+                CHECK((0 == bthread_setspecific(btls_key, bthread_context)) || doris::k_doris_exit);
+                thread_context_ptr.init = true;
+            }
+            bthread_id = bthread_self();
+            bthread_context->switch_bthread_local_count++;
+        }
     }
-}
 
+    // `switch_to_bthread_local` and `switch_back_pthread_local` should be used in pairs,
+    // `switch_to_bthread_local` should only be called if `switch_to_bthread_local` returns true
+    static void switch_back_pthread_local() {
+        if (bthread_self() != 0) {
+            if (!bthread_equal(bthread_self(), bthread_id)) {
+                bthread_id = bthread_self();
+                bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
+                DCHECK(bthread_context != nullptr);
+            }
+            bthread_context->switch_bthread_local_count--;
+            if (bthread_context->switch_bthread_local_count == 0) {
+                bthread_context = thread_context_ptr._ptr;
+            }
+        }
+    }
+};
+
+// Note: All use of thread_context() in bthread requires the use of SwitchBthreadLocal.
 static ThreadContext* thread_context() {
     if (bthread_self() != 0) {
-        if (bthread_self() != bthread_id) {
-            // A new bthread starts or pthread switch occurs, during this period, stop the use of thread_context.
-            thread_context_ptr.init = false;
-            pthread_attach_bthread();
-            thread_context_ptr.init = true;
+        // in bthread
+        if (!bthread_equal(bthread_self(), bthread_id)) {
+            // bthread switching pthread may be very frequent, remember not to use lock or other time-consuming operations.
+            bthread_id = bthread_self();
+            bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
+            // if nullptr, a new bthread task start and no reusable bthread local,
+            // or bthread switch pthread but not call switch_to_bthread_local, use pthread local context
+            // else, bthread switch pthread and called switch_to_bthread_local, use bthread local context.
+            if (bthread_context == nullptr) {
+                bthread_context = thread_context_ptr._ptr;
+            }
         }
         return bthread_context;
     } else {
+        // in pthread
         return thread_context_ptr._ptr;
     }
 }

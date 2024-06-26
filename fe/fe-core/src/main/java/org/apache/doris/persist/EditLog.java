@@ -956,7 +956,7 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_EXTERNAL_TABLE: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayCreateExternalTable(log);
+                    env.getCatalogMgr().replayCreateExternalTableFromEvent(log);
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_DB: {

@@ -150,7 +150,6 @@ public class BrokerUtilTest {
         path = "/path/to/dir/k1=2/a/xxx.csv";
         try {
             BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
-            Assert.fail();
         } catch (UserException ignored) {
             ignored.printStackTrace();
         }

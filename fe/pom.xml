@@ -239,7 +239,7 @@ under the License.
         <validation-api.version>1.1.0.Final</validation-api.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
         <kafka-clients.version>3.4.0</kafka-clients.version>
-        <oshi-core.version>4.0.0</oshi-core.version>
+        <oshi-core.version>6.4.5</oshi-core.version>
         <xnio-nio.version>3.8.8.Final</xnio-nio.version>
         <javax.annotation-api.version>1.3.2</javax.annotation-api.version>
         <javax.activation.version>1.2.0</javax.activation.version>
@@ -278,7 +278,8 @@ under the License.
         <spring.version>2.7.9</spring.version>
         <zookeeper.version>3.4.14</zookeeper.version>
         <ojdbc8.version>12.2.0.1</ojdbc8.version>
-        <doris.shade.version>1.0.2-SNAPSHOT</doris.shade.version>
+        <doris.shade.version>1.0.2</doris.shade.version>
+        <doris.shade.hive-shade.version>1.0.3</doris.shade.hive-shade.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -323,8 +324,8 @@ under the License.
                 </repository>
                 <!-- for java-cup -->
                 <repository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/repository/libs-release-local/</url>
                 </repository>
             </repositories>
             <pluginRepositories>
@@ -334,8 +335,8 @@ under the License.
                 </pluginRepository>
                 <!-- for cup-maven-plugin -->
                 <pluginRepository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/repository/libs-release-local/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
@@ -966,7 +967,7 @@ under the License.
             <dependency>
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hive-shade-3</artifactId>
-                <version>${doris.shade.version}</version>
+                <version>${doris.shade.hive-shade.version}</version>
             </dependency>
 
             <dependency>

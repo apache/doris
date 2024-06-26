@@ -39,6 +39,9 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.stream.StreamSupport;
 
 /**
  * Util for ES, some static method.
@@ -110,15 +113,16 @@ public class EsUtil {
             // remove dynamic templates, for ES 7.x and 8.x
             checkNonPropertiesFields(mappings, arrayFields);
             String firstType = mappings.fieldNames().next();
-            if (!"properties".equals(firstType)) {
-                // If type is not passed in takes the first type.
+            if (StreamSupport.stream(Spliterators
+                            .spliteratorUnknownSize(mappings.fieldNames(), Spliterator.ORDERED), false)
+                    .anyMatch(s -> s.contains("properties"))) {
+                return mappings;
+            } else {
                 ObjectNode firstData = (ObjectNode) mappings.get(firstType);
                 // check for ES 6.x and before
                 checkNonPropertiesFields(firstData, arrayFields);
                 return firstData;
             }
-            // Equal 7.x and after
-            return mappings;
         } else {
             if (mappings.has(mappingType)) {
                 ObjectNode jsonData = (ObjectNode) mappings.get(mappingType);
@@ -303,12 +307,13 @@ public class EsUtil {
             boolean bigIntFlag = false;
             for (String format : formats) {
                 // pre-check format
-                if (!ALLOW_DATE_FORMATS.contains(format)) {
+                String trimFormat = format.trim();
+                if (!ALLOW_DATE_FORMATS.contains(trimFormat)) {
                     column.setComment(
-                            "Elasticsearch type is date, format is " + format + " not support, use String type");
+                            "Elasticsearch type is date, format is " + trimFormat + " not support, use String type");
                     return ScalarType.createStringType();
                 }
-                switch (format) {
+                switch (trimFormat) {
                     case "yyyy-MM-dd HH:mm:ss":
                         dateTimeFlag = true;
                         break;

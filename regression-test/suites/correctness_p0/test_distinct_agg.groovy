@@ -55,4 +55,18 @@ suite("test_distinct_agg") {
         '''
         result([['1', '2023-01-10', 1L]])
     }
+
+    sql '''SELECT `b`.`dt` AS `dt`
+            FROM 
+                (SELECT `dt`AS `dt`,
+                    count(DISTINCT `role_id`) AS `pay_role`,
+                    avg(`cost`) AS `avg_cost`
+                FROM 
+                    (SELECT `k6` AS `dt`,
+                    `k1` AS `role_id`,
+                    sum(CAST(`k2` AS INT)) AS `cost`
+                    FROM `t`
+                    GROUP BY  `dt`, `role_id`) a
+                    GROUP BY  `dt`) b 
+                WHERE `dt` = '2023-06-18';'''
 }

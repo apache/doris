@@ -63,9 +63,9 @@ public class FeConstants {
     public static String null_string = "\\N";
 
     public static long tablet_checker_interval_ms = 20 * 1000L;
-    public static String csv = "csv";
-    public static String csv_with_names = "csv_with_names";
-    public static String csv_with_names_and_types = "csv_with_names_and_types";
+    public static final String csv = "csv";
+    public static final String csv_with_names = "csv_with_names";
+    public static final String csv_with_names_and_types = "csv_with_names_and_types";
 
     public static String text = "text";
 
@@ -75,6 +75,7 @@ public class FeConstants {
     public static String FS_PREFIX_OSS = "oss";
     public static String FS_PREFIX_BOS = "bos";
     public static String FS_PREFIX_COS = "cos";
+    public static String FS_PREFIX_COSN = "cosn";
     public static String FS_PREFIX_OBS = "obs";
     public static String FS_PREFIX_OFS = "ofs";
     public static String FS_PREFIX_GFS = "gfs";

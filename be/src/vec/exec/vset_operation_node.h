@@ -49,7 +49,7 @@ protected:
     //It's time to abstract out the same methods and provide them directly to others;
     void hash_table_init();
     Status hash_table_build(RuntimeState* state);
-    Status process_build_block(Block& block, uint8_t offset);
+    Status process_build_block(Block& block, uint8_t offset, RuntimeState* state);
     Status extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs);
     Status extract_probe_column(Block& block, ColumnRawPtrs& raw_ptrs, int child_id);
     template <bool keep_matched>
@@ -225,7 +225,14 @@ struct HashTableProbe {
         auto it = value.begin();
         for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
             auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
-            _mutable_cols[idx->second]->insert_from(column, it->row_num);
+            if (_mutable_cols[idx->second]->is_nullable() xor column.is_nullable()) {
+                DCHECK(_mutable_cols[idx->second]->is_nullable());
+                ((ColumnNullable*)(_mutable_cols[idx->second].get()))
+                        ->insert_from_not_nullable(column, it->row_num);
+
+            } else {
+                _mutable_cols[idx->second]->insert_from(column, it->row_num);
+            }
         }
         block_size++;
     }

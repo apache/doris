@@ -51,7 +51,7 @@ class Config {
     public String suitePath
     public String dataPath
     public String realDataPath
-    public String sf1DataPath
+
     public String cacheDataPath
     public String pluginPath
 
@@ -84,14 +84,16 @@ class Config {
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
+    public String caseNamePrefix
 
     Config() {}
 
-    Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
+    Config(String caseNamePrefix, String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
-           String suitePath, String dataPath, String realDataPath, String sf1DataPath, String cacheDataPath,
+           String suitePath, String dataPath, String realDataPath, String cacheDataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
            String testDirectories, String excludeDirectories, String pluginPath) {
+        this.caseNamePrefix = caseNamePrefix
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -103,7 +105,6 @@ class Config {
         this.suitePath = suitePath
         this.dataPath = dataPath
         this.realDataPath = realDataPath
-        this.sf1DataPath = sf1DataPath
         this.cacheDataPath = cacheDataPath
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
@@ -137,7 +138,6 @@ class Config {
         config.suitePath = FileUtils.getCanonicalPath(cmd.getOptionValue(pathOpt, config.suitePath))
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
-        config.sf1DataPath = cmd.getOptionValue(sf1DataOpt, config.sf1DataPath)
         config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
@@ -211,11 +211,13 @@ class Config {
         config.randomOrder = cmd.hasOption(randomOrderOpt)
         config.stopWhenFail = cmd.hasOption(stopWhenFailOpt)
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
+        config.caseNamePrefix = cmd.getOptionValue(caseNamePrefixOpt, config.caseNamePrefix)
         config.dryRun = cmd.hasOption(dryRunOpt)
 
         log.info("randomOrder is ${config.randomOrder}".toString())
         log.info("stopWhenFail is ${config.stopWhenFail}".toString())
         log.info("withOutLoadData is ${config.withOutLoadData}".toString())
+        log.info("caseNamePrefix is ${config.caseNamePrefix}".toString())
         log.info("dryRun is ${config.dryRun}".toString())
 
         Properties props = cmd.getOptionProperties("conf")
@@ -229,6 +231,7 @@ class Config {
 
     static Config fromConfigObject(ConfigObject obj) {
         def config = new Config(
+            configToString(obj.caseNamePrefix),
             configToString(obj.defaultDb),
             configToString(obj.jdbcUrl),
             configToString(obj.jdbcUser),
@@ -240,7 +243,6 @@ class Config {
             configToString(obj.suitePath),
             configToString(obj.dataPath),
             configToString(obj.realDataPath),
-            configToString(obj.sf1DataPath),
             configToString(obj.cacheDataPath),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
@@ -265,6 +267,11 @@ class Config {
     }
 
     static void fillDefaultConfig(Config config) {
+        if (config.caseNamePrefix == null) {
+            config.caseNamePrefix = ""
+            log.info("set caseNamePrefix to '' because not specify.".toString())
+        }
+
         if (config.defaultDb == null) {
             config.defaultDb = "regression_test"
             log.info("Set defaultDb to '${config.defaultDb}' because not specify.".toString())
@@ -320,11 +327,7 @@ class Config {
             config.realDataPath = "regression-test/realData"
             log.info("Set realDataPath to '${config.realDataPath}' because not specify.".toString())
         }
-
-        if (config.sf1DataPath == null) {
-            config.sf1DataPath = "regression-test/sf1Data"
-            log.info("Set sf1DataPath to '${config.sf1DataPath}' because not specify.".toString())
-        }
+        
 
         if (config.cacheDataPath == null) {
             config.cacheDataPath = "regression-test/cacheData"

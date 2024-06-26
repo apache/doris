@@ -184,7 +184,7 @@ public:
         if (is_null) {
             return;
         }
-        if (type() == OLAP_FIELD_TYPE_STRING) {
+        if (type() == OLAP_FIELD_TYPE_STRING || type() == OLAP_FIELD_TYPE_JSONB) {
             auto dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
             auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
             if (dst_slice->size < src_slice->size) {

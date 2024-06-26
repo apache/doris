@@ -149,7 +149,8 @@ public class JdbcScanNode extends ScanNode {
                 || jdbcType == TOdbcTableType.MONGODB
                 || jdbcType == TOdbcTableType.CLICKHOUSE
                 || jdbcType == TOdbcTableType.SAP_HANA
-                || jdbcType == TOdbcTableType.TRINO)) {
+                || jdbcType == TOdbcTableType.TRINO
+                || jdbcType == TOdbcTableType.PRESTO)) {
             sql.append(" LIMIT ").append(limit);
         }
 
@@ -164,6 +165,10 @@ public class JdbcScanNode extends ScanNode {
             return output.toString();
         }
         output.append(prefix).append("QUERY: ").append(getJdbcQueryStr()).append("\n");
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
         return output.toString();
     }
 

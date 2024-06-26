@@ -72,8 +72,8 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
 fi
 
 MAX_FILE_COUNT="$(ulimit -n)"
-if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
-    echo "Please set the maximum number of open file descriptors to be 65536 using 'ulimit -n 65536'."
+if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
+    echo "Please set the maximum number of open file descriptors larger than 60000, eg: 'ulimit -n 60000'."
     exit 1
 fi
 
@@ -102,11 +102,17 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     done
 fi
 
+if [[ -n "${HADOOP_CONF_DIR}" ]]; then
+    export DORIS_CLASSPATH="${HADOOP_CONF_DIR}:${DORIS_CLASSPATH}"
+fi
+
 # the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
 # and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
-export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}"
+export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
+
+export LD_LIBRARY_PATH="${DORIS_HOME}/lib/hadoop_hdfs/native:${LD_LIBRARY_PATH}"
 
 jdk_version() {
     local java_cmd="${1}"
@@ -262,18 +268,43 @@ if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
     export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 fi
 
-if [[ -z ${JAVA_OPTS} ]]; then
-    # set default JAVA_OPTS
-    CUR_DATE=$(date +%Y%m%d-%H%M%S)
-    JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
+# check java version and choose correct JAVA_OPTS
+java_version="$(
+    set -e
+    jdk_version "${JAVA_HOME}/bin/java"
+)"
+
+CUR_DATE=$(date +%Y%m%d-%H%M%S)
+LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
+COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
+JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDEL_TIME=300000 -DJDBC_MAX_WAIT_TIME=5000"
+
+if [[ "${java_version}" -gt 8 ]]; then
+    if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
+        JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+    fi
+    final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
+else
+    if [[ -z ${JAVA_OPTS} ]]; then
+        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+    fi
+    final_java_opt="${JAVA_OPTS}"
 fi
 
 if [[ "${MACHINE_OS}" == "Darwin" ]]; then
-    JAVA_OPTS="${JAVA_OPTS} -XX:-MaxFDLimit"
+    max_fd_limit='-XX:-MaxFDLimit'
+
+    if ! echo "${final_java_opt}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
+        final_java_opt="${final_java_opt} ${max_fd_limit}"
+    fi
+
+    if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
+        JAVA_OPTS="${JAVA_OPTS} ${max_fd_limit}"
+    fi
 fi
 
 # set LIBHDFS_OPTS for hadoop libhdfs
-export LIBHDFS_OPTS="${JAVA_OPTS}"
+export LIBHDFS_OPTS="${final_java_opt}"
 
 #echo "CLASSPATH: ${CLASSPATH}"
 #echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"

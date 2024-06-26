@@ -42,6 +42,7 @@ import software.amazon.awssdk.core.client.config.SdkAdvancedClientOption;
 import software.amazon.awssdk.core.retry.RetryPolicy;
 import software.amazon.awssdk.core.retry.backoff.EqualJitterBackoffStrategy;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
@@ -95,6 +96,12 @@ public class S3Storage extends BlobStorage {
     public void setProperties(Map<String, String> properties) {
         super.setProperties(properties);
         caseInsensitiveProperties.putAll(properties);
+        try {
+            checkS3(caseInsensitiveProperties);
+        } catch (UserException e) {
+            String msg = e.getMessage() + " Make sure you view the correct version of documentation.";
+            throw new IllegalArgumentException(msg, e);
+        }
         // Virtual hosted-style is recommended in the s3 protocol.
         // The path-style has been abandoned, but for some unexplainable reasons,
         // the s3 client will determine whether the endpiont starts with `s3`
@@ -137,7 +144,7 @@ public class S3Storage extends BlobStorage {
             System.setProperty("com.amazonaws.services.s3.enableV4", "true");
             S3Resource.getS3HadoopProperties(caseInsensitiveProperties).forEach(conf::set);
             try {
-                dfsFileSystem = FileSystem.get(new URI(remotePath), conf);
+		dfsFileSystem = FileSystem.get(new org.apache.hadoop.fs.Path(remotePath).toUri(), conf);
             } catch (Exception e) {
                 throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
             }
@@ -183,6 +190,7 @@ public class S3Storage extends BlobStorage {
             URI endpoint = StringUtils.isEmpty(bucket) ? tmpEndpoint :
                     URI.create(new URIBuilder(tmpEndpoint).setHost(bucket + "." + tmpEndpoint.getHost()).toString());
             client = S3Client.builder()
+                    .httpClient(UrlConnectionHttpClient.create())
                     .endpointOverride(endpoint)
                     .credentialsProvider(scp)
                     .region(Region.of(caseInsensitiveProperties.get(S3Resource.S3_REGION)))

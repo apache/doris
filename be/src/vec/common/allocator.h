@@ -220,7 +220,7 @@ public:
         if (old_size == new_size) {
             /// nothing to do.
             /// BTW, it's not possible to change alignment while doing realloc.
-        } else if (old_size < CHUNK_THRESHOLD && new_size < CHUNK_THRESHOLD &&
+        } else if (old_size < MMAP_THRESHOLD && new_size < MMAP_THRESHOLD &&
                    alignment <= MALLOC_MIN_ALIGNMENT) {
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = ::realloc(buf, new_size);

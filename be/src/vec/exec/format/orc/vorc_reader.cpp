@@ -160,7 +160,7 @@ Status OrcReader::init_reader(
 
     // create orc row reader
     _row_reader_options.range(_range_start_offset, _range_size);
-    _row_reader_options.setTimezoneName(_ctz);
+    _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
     RETURN_IF_ERROR(_init_read_columns());
     _init_search_argument(colname_to_value_range);
     _row_reader_options.include(_read_cols);
@@ -228,9 +228,12 @@ Status OrcReader::_init_read_columns() {
     for (auto& col_name : _column_names) {
         if (_is_hive) {
             auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
-            DCHECK(iter != _scan_params.slot_name_to_schema_pos.end());
-            int pos = iter->second;
-            orc_cols_lower_case[pos] = iter->first;
+            if (iter != _scan_params.slot_name_to_schema_pos.end()) {
+                int pos = iter->second;
+                if (pos < orc_cols_lower_case.size()) {
+                    orc_cols_lower_case[pos] = iter->first;
+                }
+            }
         }
         auto iter = std::find(orc_cols_lower_case.begin(), orc_cols_lower_case.end(), col_name);
         if (iter == orc_cols_lower_case.end()) {
@@ -627,7 +630,7 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
                                         const orc::TypeKind& type_kind, orc::ColumnVectorBatch* cvb,
                                         size_t num_values) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    auto* data = down_cast<orc::StringVectorBatch*>(cvb);
+    auto* data = dynamic_cast<orc::StringVectorBatch*>(cvb);
     if (data == nullptr) {
         return Status::InternalError("Wrong data type for colum '{}'", col_name);
     }
@@ -767,10 +770,14 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         SCOPED_RAW_TIMER(&_statistics.get_batch_time);
         // reset decimal_scale_params_index
         _decimal_scale_params_index = 0;
-        if (!_row_reader->next(*_batch)) {
-            *eof = true;
-            *read_rows = 0;
-            return Status::OK();
+        try {
+            if (!_row_reader->next(*_batch)) {
+                *eof = true;
+                *read_rows = 0;
+                return Status::OK();
+            }
+        } catch (std::exception& e) {
+            return Status::InternalError("orc read fail. reason = {}", e.what());
         }
     }
     const auto& batch_vec = down_cast<orc::StructVectorBatch*>(_batch.get())->fields;

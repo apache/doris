@@ -710,7 +710,7 @@ void DiskIoMgr::gc_io_buffers(int64_t bytes_to_free) {
              iter != _free_buffers[idx].end(); ++iter) {
             int64_t buffer_size = (1 << idx) * _min_buffer_size;
             --_num_allocated_buffers;
-            delete[] * iter;
+            delete[] *iter;
 
             bytes_freed += buffer_size;
         }

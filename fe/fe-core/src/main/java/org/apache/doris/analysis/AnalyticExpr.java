@@ -478,7 +478,7 @@ public class AnalyticExpr extends Expr {
         type = getFnCall().getType();
 
         for (Expr e : partitionExprs) {
-            if (e.isConstant()) {
+            if (e.isLiteral()) {
                 throw new AnalysisException(
                     "Expressions in the PARTITION BY clause must not be constant: "
                     + e.toSql() + " (in " + toSql() + ")");
@@ -486,7 +486,7 @@ public class AnalyticExpr extends Expr {
         }
 
         for (OrderByElement e : orderByElements) {
-            if (e.getExpr().isConstant()) {
+            if (e.getExpr().isLiteral()) {
                 throw new AnalysisException(
                     "Expressions in the ORDER BY clause must not be constant: "
                             + e.getExpr().toSql() + " (in " + toSql() + ")");
@@ -700,10 +700,10 @@ public class AnalyticExpr extends Expr {
                                             + getFnCall().getChildren().get(0).getType());
             }
 
-            if (getFnCall().getChildren().get(2) instanceof CastExpr) {
-                throw new AnalysisException("Type = " + type + " can't not convert to "
-                                            + getFnCall().getChildren().get(0).getType());
-            }
+            // if (getFnCall().getChildren().get(2) instanceof CastExpr) {
+            //     throw new AnalysisException("Type = " + type + " can't not convert to "
+            //                                 + getFnCall().getChildren().get(0).getType());
+            // }
 
             // check the value whether out of range
             checkDefaultValue(analyzer);

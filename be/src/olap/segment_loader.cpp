@@ -104,4 +104,8 @@ Status SegmentLoader::prune() {
     return Status::OK();
 }
 
+void SegmentLoader::erase_segments(const SegmentLoader::CacheKey& key) {
+    _cache->erase(key.encode());
+}
+
 } // namespace doris

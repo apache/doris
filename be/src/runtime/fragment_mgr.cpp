@@ -327,6 +327,7 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
 
     RuntimeState* runtime_state = _executor.runtime_state();
     DCHECK(runtime_state != nullptr);
+    params.__set_query_type(runtime_state->query_type());
     if (runtime_state->query_type() == TQueryType::LOAD && !done && status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(runtime_state->num_rows_load_total());
@@ -697,7 +698,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             }
         }
     }
-    fragments_ctx->fragment_ids.push_back(fragment_instance_id);
+    {
+        // Need lock to protect fragment_ids vector, beacuse push_back may reallocate it.
+        // And it will be visited when the query is cancelled.
+        std::lock_guard<std::mutex> lock(_lock);
+        fragments_ctx->fragment_ids.push_back(fragment_instance_id);
+    }
 
     exec_state.reset(new FragmentExecState(fragments_ctx->query_id,
                                            params.params.fragment_instance_id, params.backend_num,

@@ -46,8 +46,10 @@ Expr* CastExpr::from_thrift(const TExprNode& node) {
     return nullptr;
 }
 
-#define CAST_SAME(CLASS, TYPE, FN) \
-    TYPE CLASS::FN(ExprContext* context, TupleRow* row) { return _children[0]->FN(context, row); }
+#define CAST_SAME(CLASS, TYPE, FN)                        \
+    TYPE CLASS::FN(ExprContext* context, TupleRow* row) { \
+        return _children[0]->FN(context, row);            \
+    }
 
 #define CAST_FUNCTION(CLASS, TO_TYPE, TO_FN, FROM_TYPE, FROM_FN) \
     TO_TYPE CLASS::TO_FN(ExprContext* context, TupleRow* row) {  \

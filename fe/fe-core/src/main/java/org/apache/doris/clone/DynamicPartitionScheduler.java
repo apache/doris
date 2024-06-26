@@ -109,6 +109,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         dynamicPartitionTableInfo.add(Pair.of(dbId, tableId));
     }
 
+    // only for test
+    public boolean containsDynamicPartitionTable(Long dbId, Long tableId) {
+        return dynamicPartitionTableInfo.contains(Pair.of(dbId, tableId));
+    }
+
     public void removeDynamicPartitionTable(Long dbId, Long tableId) {
         dynamicPartitionTableInfo.remove(Pair.of(dbId, tableId));
     }
@@ -205,7 +210,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         ArrayList<Long> partitionSizeArray = Lists.newArrayList();
         for (Partition partition : partitions) {
             if (partition.getVisibleVersion() >= 2) {
-                partitionSizeArray.add(partition.getDataSize());
+                partitionSizeArray.add(partition.getDataSize(true));
             }
         }
 
@@ -273,8 +278,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 } catch (Exception e) {
                     isPartitionExists = true;
                     if (addPartitionKeyRange.equals(partitionItem.getItems())) {
-                        LOG.info("partition range {} exist in table {}, clear fail msg",
-                                addPartitionKeyRange, olapTable.getName());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("partition range {} exist in table {}, clear fail msg",
+                                    addPartitionKeyRange, olapTable.getName());
+                        }
                         clearCreatePartitionFailedMsg(olapTable.getId());
                     } else {
                         recordCreatePartitionFailedMsg(db.getFullName(), olapTable.getName(),

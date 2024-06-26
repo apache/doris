@@ -62,8 +62,13 @@ public class JdbcClient {
 
     private boolean isLowerCaseTableNames = false;
 
+    private static boolean convertDateToNull = false;
+
     // only used when isLowerCaseTableNames = true.
     private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
+
+    // only used when isLowerCaseTableNames = true.
+    private Map<String, String> lowerDBToRealDB = Maps.newHashMap();
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
             String onlySpecifiedDatabase, String isLowerCaseTableNames) {
@@ -75,6 +80,7 @@ public class JdbcClient {
         } catch (DdlException e) {
             throw new JdbcClientException("Failed to parse db type from jdbcUrl: " + jdbcUrl, e);
         }
+        convertDateToNull = isConvertDatetimeToNull(jdbcUrl);
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // TODO(ftw): The problem here is that the jar package is handled by FE
@@ -197,6 +203,7 @@ public class JdbcClient {
                     rs = stmt.executeQuery("SELECT SCHEMA_NAME FROM SYS.SCHEMAS WHERE HAS_PRIVILEGES = 'TRUE'");
                     break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = stmt.executeQuery("SHOW SCHEMAS");
                     break;
                 default:
@@ -204,7 +211,12 @@ public class JdbcClient {
             }
 
             while (rs.next()) {
-                databaseNames.add(rs.getString(1));
+                String databaseName = rs.getString(1);
+                if (isLowerCaseTableNames) {
+                    lowerDBToRealDB.put(databaseName.toLowerCase(), databaseName);
+                    databaseName = databaseName.toLowerCase();
+                }
+                databaseNames.add(databaseName);
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
@@ -227,6 +239,7 @@ public class JdbcClient {
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     databaseNames.add(conn.getSchema());
                     break;
                 default:
@@ -246,23 +259,34 @@ public class JdbcClient {
     public List<String> getTablesNameList(String dbName) {
         Connection conn = getConnection();
         ResultSet rs = null;
+        if (isLowerCaseTableNames) {
+            dbName = lowerDBToRealDB.get(dbName);
+        }
         List<String> tablesName = Lists.newArrayList();
         String[] types = {"TABLE", "VIEW"};
+        String[] mysqlTypes = {"TABLE", "VIEW", "SYSTEM VIEW"};
+        String[] ckTypes = {"TABLE", "VIEW", "SYSTEM TABLE"};
+        String[] hanaTypes = {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
-                    rs = databaseMetaData.getTables(dbName, null, null, types);
+                    rs = databaseMetaData.getTables(dbName, null, null, mysqlTypes);
+                    break;
+                case JdbcResource.CLICKHOUSE:
+                    rs = databaseMetaData.getTables(dbName, null, null, ckTypes);
                     break;
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
-                case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
-                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
+                case JdbcResource.SAP_HANA:
+                    rs = databaseMetaData.getTables(null, dbName, null, hanaTypes);
+                    break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
@@ -287,22 +311,34 @@ public class JdbcClient {
     public boolean isTableExist(String dbName, String tableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
+        if (isLowerCaseTableNames) {
+            dbName = lowerDBToRealDB.get(dbName);
+            tableName = lowerTableToRealTable.get(tableName);
+        }
         String[] types = {"TABLE", "VIEW"};
+        String[] mysqlTypes = {"TABLE", "VIEW", "SYSTEM VIEW"};
+        String[] ckTypes = {"TABLE", "VIEW", "SYSTEM TABLE"};
+        String[] hanaTypes = {"TABLE", "VIEW", "OLAP VIEW", "JOIN VIEW", "HIERARCHY VIEW", "CALC VIEW"};
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
             switch (dbType) {
                 case JdbcResource.MYSQL:
-                    rs = databaseMetaData.getTables(dbName, null, tableName, types);
+                    rs = databaseMetaData.getTables(dbName, null, null, mysqlTypes);
+                    break;
+                case JdbcResource.CLICKHOUSE:
+                    rs = databaseMetaData.getTables(dbName, null, null, ckTypes);
                     break;
                 case JdbcResource.POSTGRESQL:
                 case JdbcResource.ORACLE:
-                case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
-                case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getTables(null, dbName, null, types);
                     break;
+                case JdbcResource.SAP_HANA:
+                    rs = databaseMetaData.getTables(null, dbName, null, hanaTypes);
+                    break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = databaseMetaData.getTables(catalogName, dbName, null, types);
                     break;
                 default:
@@ -352,11 +388,14 @@ public class JdbcClient {
         // if isLowerCaseTableNames == true, tableName is lower case
         // but databaseMetaData.getColumns() is case sensitive
         if (isLowerCaseTableNames) {
+            dbName = lowerDBToRealDB.get(dbName);
             tableName = lowerTableToRealTable.get(tableName);
         }
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = conn.getCatalog();
+            String modifiedTableName;
+            boolean isModify = false;
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
             // catalog - the catalog of this table, `null` means all catalogs
             // schema - The schema of the table; corresponding to tablespace in Oracle
@@ -371,19 +410,34 @@ public class JdbcClient {
                     rs = databaseMetaData.getColumns(dbName, null, tableName, null);
                     break;
                 case JdbcResource.POSTGRESQL:
-                case JdbcResource.ORACLE:
                 case JdbcResource.CLICKHOUSE:
                 case JdbcResource.SQLSERVER:
                 case JdbcResource.SAP_HANA:
                     rs = databaseMetaData.getColumns(null, dbName, tableName, null);
                     break;
+                case JdbcResource.ORACLE:
+                    modifiedTableName = tableName.replace("/", "%");
+                    if (!modifiedTableName.equals(tableName)) {
+                        isModify = true;
+                    }
+                    rs = databaseMetaData.getColumns(null, dbName, modifiedTableName, null);
+                    break;
                 case JdbcResource.TRINO:
+                case JdbcResource.PRESTO:
                     rs = databaseMetaData.getColumns(catalogName, dbName, tableName, null);
                     break;
                 default:
                     throw new JdbcClientException("Unknown database type");
             }
             while (rs.next()) {
+                // for oracle special table name
+                if (isModify) {
+                    String actualTableName = rs.getString("TABLE_NAME");
+                    if (!tableName.equals(actualTableName)) {
+                        continue;
+                    }
+                }
+
                 JdbcFieldSchema field = new JdbcFieldSchema();
                 field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
@@ -426,6 +480,7 @@ public class JdbcClient {
             case JdbcResource.SAP_HANA:
                 return saphanaTypeToDoris(fieldSchema);
             case JdbcResource.TRINO:
+            case JdbcResource.PRESTO:
                 return trinoTypeToDoris(fieldSchema);
             default:
                 throw new JdbcClientException("Unknown database type");
@@ -455,6 +510,14 @@ public class JdbcClient {
                     int precision = fieldSchema.getColumnSize() + 1;
                     int scale = fieldSchema.getDecimalDigits();
                     return createDecimalOrStringType(precision, scale);
+                case "DOUBLE":
+                    // As of MySQL 8.0.17, the UNSIGNED attribute is deprecated
+                    // for columns of type FLOAT, DOUBLE, and DECIMAL (and any synonyms)
+                    // https://dev.mysql.com/doc/refman/8.0/en/numeric-type-syntax.html
+                    // The maximum value may cause errors due to insufficient accuracy
+                    return Type.DOUBLE;
+                case "FLOAT":
+                    return Type.FLOAT;
                 default:
                     throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
             }
@@ -480,6 +543,9 @@ public class JdbcClient {
             case "TIMESTAMP":
             case "DATETIME":
             case "DATETIMEV2": // for jdbc catalog connecting Doris database
+                if (convertDateToNull) {
+                    fieldSchema.setAllowNull(true);
+                }
                 return ScalarType.getDefaultDateType(Type.DATETIME);
             case "FLOAT":
                 return Type.FLOAT;
@@ -554,6 +620,11 @@ public class JdbcClient {
             case "bool":
                 return Type.BOOLEAN;
             case "bit":
+                if (fieldSchema.getColumnSize() == 1) {
+                    return Type.BOOLEAN;
+                } else {
+                    return ScalarType.createStringType();
+                }
             case "point":
             case "line":
             case "lseg":
@@ -734,9 +805,11 @@ public class JdbcClient {
             case "real":
                 return Type.FLOAT;
             case "float":
-            case "money":
-            case "smallmoney":
                 return Type.DOUBLE;
+            case "money":
+                return ScalarType.createDecimalV3Type(19, 4);
+            case "smallmoney":
+                return ScalarType.createDecimalV3Type(10, 4);
             case "decimal":
             case "numeric":
                 int precision = fieldSchema.getColumnSize();
@@ -832,6 +905,8 @@ public class JdbcClient {
             return charType;
         } else if (trinoType.startsWith("timestamp")) {
             return ScalarType.createDatetimeV2Type(6);
+        } else if (trinoType.startsWith("varchar")) {
+            return ScalarType.createStringType();
         }
         switch (trinoType) {
             case "integer":
@@ -848,8 +923,6 @@ public class JdbcClient {
                 return Type.FLOAT;
             case "boolean":
                 return Type.BOOLEAN;
-            case "varchar":
-                return ScalarType.createStringType();
             case "date":
                 return ScalarType.createDateV2Type();
             default:
@@ -879,5 +952,10 @@ public class JdbcClient {
                     true, -1));
         }
         return dorisTableSchema;
+    }
+ 
+    private boolean isConvertDatetimeToNull(String JdbcUrl) {
+        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull".
+        return JdbcUrl.contains("zeroDateTimeBehavior=convertToNull");
     }
 }

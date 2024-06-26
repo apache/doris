@@ -101,6 +101,10 @@ public interface LoadTaskInfo {
         return false;
     }
 
+    default boolean getEnableProfile() {
+        return false;
+    }
+
     class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
         public boolean isColumnDescsRewrited = false;

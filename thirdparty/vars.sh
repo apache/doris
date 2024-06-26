@@ -369,7 +369,7 @@ LIBDIVIDE_SOURCE="libdivide-5.0"
 LIBDIVIDE_MD5SUM="7fd16b0bb4ab6812b2e2fdc7bfb81641"
 
 #pdqsort
-PDQSORT_DOWNLOAD="http://ftp.cise.ufl.edu/ubuntu/pool/universe/p/pdqsort/pdqsort_0.0.0+git20180419.orig.tar.gz"
+PDQSORT_DOWNLOAD="http://deb.debian.org/debian/pool/main/p/pdqsort/pdqsort_0.0.0+git20180419.orig.tar.gz"
 PDQSORT_NAME="pdqsort.tar.gz"
 PDQSORT_SOURCE="pdqsort-0.0.0+git20180419"
 PDQSORT_MD5SUM="39261c3e7b40aa7505662fac29f22d20"
@@ -442,10 +442,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_X86_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/hadoop-libs-3.3.4/hadoop_lib_3.3.4-x86.tar.gz"
-HADOOP_LIBS_X86_NAME="hadoop_lib_3.3.4-x86.tar.gz"
-HADOOP_LIBS_X86_SOURCE="hadoop_lib_3.3.4-x86"
-HADOOP_LIBS_X86_MD5SUM="96117450170487f007ffeca5ddf62f7e"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.4-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.4.4-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.4-for-doris"
+HADOOP_LIBS_MD5SUM="00f0042dd3900ba016f079ee9c550efb"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -511,7 +511,7 @@ export TP_ARCHIVES=(
     'XXHASH'
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
-    'HADOOP_LIBS_X86'
+    'HADOOP_LIBS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

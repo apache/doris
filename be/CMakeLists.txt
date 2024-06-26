@@ -531,6 +531,10 @@ if (USE_JEMALLOC)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
 endif()
 
+if (ENABLE_STACKTRACE)
+    add_compile_options(-DENABLE_STACKTRACE)
+endif()
+
 # STRICT_MEMORY_USE=ON` expects BE to use less memory, and gives priority to ensuring stability
 # when the cluster memory is limited.
 # TODO In the future, expect a dynamic soft memory limit, combined with real-time memory usage of the cluster,
@@ -739,7 +743,7 @@ set(COMMON_THIRDPARTY
     simdjson
 )
 
-if (ARCH_AMD64 AND OS_LINUX)
+if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
     set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
 
@@ -951,7 +955,6 @@ install(FILES
     ${BASE_DIR}/../conf/be.conf
     ${BASE_DIR}/../conf/odbcinst.ini
     ${BASE_DIR}/../conf/asan_suppr.conf
-    ${BASE_DIR}/../conf/hdfs-site.xml
     DESTINATION ${OUTPUT_DIR}/conf)
 
 get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)

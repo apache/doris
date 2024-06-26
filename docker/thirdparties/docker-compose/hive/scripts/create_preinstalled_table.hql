@@ -243,6 +243,30 @@ TBLPROPERTIES (
 
 msck repair table table_with_vertical_line;
 
+CREATE external TABLE `table_with_pars`(
+  `id` int COMMENT 'id',
+  `data` string COMMENT 'data')
+PARTITIONED BY (
+  `dt_par` date,
+  `time_par` timestamp,
+  `decimal_par1` decimal(8, 4),
+  `decimal_par2` decimal(18, 6),
+  `decimal_par3` decimal(38, 12))
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
+WITH SERDEPROPERTIES (
+  'field.delim'='|',
+  'serialization.format'='|')
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.mapred.TextInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/csv_partition_table/table_with_pars/';
+
+set hive.msck.path.validation=ignore;
+msck repair table table_with_pars;
+
 CREATE TABLE `table_with_x01`(
   `k1` string COMMENT 'k1',
   `k2` string COMMENT 'k2',
@@ -285,5 +309,32 @@ CREATE TABLE `unsupported_type_table`(
            >,
   k6 int
 );
+
+CREATE TABLE `schema_evo_test_text`(
+  id int,
+  name string
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED by ',';
+insert into `schema_evo_test_text` select 1, "kaka";
+alter table `schema_evo_test_text` ADD COLUMNS (`ts` timestamp);
+insert into `schema_evo_test_text` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
+
+CREATE TABLE `schema_evo_test_parquet`(
+  id int,
+  name string
+)
+stored as parquet;
+insert into `schema_evo_test_parquet` select 1, "kaka";
+alter table `schema_evo_test_parquet` ADD COLUMNS (`ts` timestamp);
+insert into `schema_evo_test_parquet` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
+
+CREATE TABLE `schema_evo_test_orc`(
+  id int,
+  name string
+)
+stored as orc;
+insert into `schema_evo_test_orc` select 1, "kaka";
+alter table `schema_evo_test_orc` ADD COLUMNS (`ts` timestamp);
+insert into `schema_evo_test_orc` select 2, "messi", from_unixtime(to_unix_timestamp('20230101 13:01:03','yyyyMMdd HH:mm:ss'));
 
 show tables;

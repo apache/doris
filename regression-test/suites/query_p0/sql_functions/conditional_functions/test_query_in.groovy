@@ -60,4 +60,5 @@ suite("test_query_in", "query,p0") {
             where kk1 in ('jj')"""
     qt_in31 """select * from (select 'jj' as kk1, sum(k2) from ${tableName2} where k10 = '2015-04-02' group by kk1)tt
             where kk1 = 'jj'"""
+    qt_in32 """select * from ${tableName1} where cast(k1 as char) in (1, -1, 5, 0.1, 3.000) order by k1, k2, k3, k4"""
 }

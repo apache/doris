@@ -599,11 +599,29 @@ suite("test_bitmap_function") {
     // ARTHOGONAL_BITMAP_****
     def arthogonalBitmapTable = "test_arthogonal_bitmap"
     sql """ DROP TABLE IF EXISTS ${arthogonalBitmapTable} """
-    sql """ CREATE TABLE IF NOT EXISTS ${arthogonalBitmapTable} ( tag_group bigint(20) NULL COMMENT "标签组", tag_value_id varchar(64) NULL COMMENT "标签值", tag_range int(11) NOT NULL DEFAULT "0" COMMENT "", partition_sign varchar(32) NOT NULL COMMENT "分区标识", bucket int(11) NOT NULL COMMENT "分桶字段", confidence tinyint(4) NULL DEFAULT "100" COMMENT "置信度", members bitmap BITMAP_UNION NULL COMMENT "人群") ENGINE=OLAP AGGREGATE KEY(tag_group, tag_value_id, tag_range, partition_sign, bucket, confidence) COMMENT "dmp_tag_map" PARTITION BY LIST(partition_sign) (PARTITION p202203231 VALUES IN ("2022-03-23-1"), PARTITION p202203251 VALUES IN ("2022-03-25-1"), PARTITION p202203261 VALUES IN ("2022-03-26-1"), PARTITION p202203271 VALUES IN ("2022-03-27-1"), PARTITION p202203281 VALUES IN ("2022-03-28-1"), PARTITION p202203291 VALUES IN ("2022-03-29-1"), PARTITION p202203301 VALUES IN ("2022-03-30-1"), PARTITION p202203311 VALUES IN ("2022-03-31-1"), PARTITION p202204011 VALUES IN ("2022-04-01-1"), PARTITION crowd VALUES IN ("crowd"), PARTITION crowd_tmp VALUES IN ("crowd_tmp"), PARTITION extend_crowd VALUES IN ("extend_crowd"), PARTITION partition_sign VALUES IN ("online_crowd")) DISTRIBUTED BY HASH(bucket) BUCKETS 64 PROPERTIES ("replication_allocation" = "tag.location.default: 1", "in_memory" = "false", "storage_format" = "V2");"""
+    sql """ CREATE TABLE IF NOT EXISTS ${arthogonalBitmapTable} (
+        tag_group bigint(20) NULL COMMENT "标签组",
+        bucket int(11) NOT NULL COMMENT "分桶字段",
+        members bitmap BITMAP_UNION NULL COMMENT "人群") ENGINE=OLAP
+        AGGREGATE KEY(tag_group,
+                      bucket)
+        DISTRIBUTED BY HASH(bucket) BUCKETS 64
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2");
+    """
+    sql """ insert into ${arthogonalBitmapTable} values (1, 1, bitmap_from_string("1,11,111")), (2, 2, to_bitmap(2)); """
+    sql """ insert into ${arthogonalBitmapTable} values (11, 1, bitmap_from_string("1,11")), (12, 2, to_bitmap(2)); """
 
     qt_sql """ select orthogonal_bitmap_intersect(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
     qt_sql """ select orthogonal_bitmap_intersect_count(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
     qt_sql """ select orthogonal_bitmap_union_count(members) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006);  """
+    qt_sql_orthogonal_bitmap_intersect_count2 """ select orthogonal_bitmap_intersect_count(members, tag_group, 1,2) from test_arthogonal_bitmap; """
+    qt_sql_orthogonal_bitmap_intersect_count3_1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/orthogonal_bitmap_intersect_count(members, tag_group, 1,11) from test_arthogonal_bitmap; """
+    qt_sql_orthogonal_bitmap_intersect_count3_2 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=2)*/orthogonal_bitmap_intersect_count(members, tag_group, 1,11) from test_arthogonal_bitmap; """
+    qt_sql_orthogonal_bitmap_intersect_count4 """ select orthogonal_bitmap_intersect_count(members, tag_group, 2,12) from test_arthogonal_bitmap; """
+    qt_sql_orthogonal_bitmap_union_count2 """ select orthogonal_bitmap_union_count( cast(null as bitmap)) from test_arthogonal_bitmap; """
+    qt_sql_orthogonal_bitmap_union_count3 """ select orthogonal_bitmap_union_count(members) from test_arthogonal_bitmap; """
 
     qt_sql """ select bitmap_to_array(user_id) from ${intersectCountTable} order by dt desc; """
     qt_sql """ select bitmap_to_array(bitmap_empty()); """
@@ -629,4 +647,122 @@ suite("test_bitmap_function") {
     sql "insert into d_table select -4,-4,-4,'d';"
     try_sql "select bitmap_union(to_bitmap_with_check(k2)) from d_table;"
     qt_sql "select bitmap_union(to_bitmap(k2)) from d_table;"
+
+    // bug fix
+    sql """ DROP TABLE IF EXISTS test_bitmap1 """
+    sql """
+        CREATE TABLE test_bitmap1 (
+          dt INT(11) NULL,
+          id bitmap BITMAP_UNION NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(dt)
+        DISTRIBUTED BY HASH(dt) BUCKETS 1
+        properties (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into
+            test_bitmap1
+        values
+            (1, to_bitmap(11)),
+            (2, to_bitmap(22)),
+            (3, to_bitmap(33)),
+            (4, to_bitmap(44)),
+            (5, to_bitmap(44)),
+            (6, to_bitmap(44)),
+            (7, to_bitmap(44)),
+            (8, to_bitmap(44)),
+            (9, to_bitmap(44)),
+            (10, to_bitmap(44)),
+            (11, to_bitmap(44)),
+            (12, to_bitmap(44)),
+            (13, to_bitmap(44)),
+            (14, to_bitmap(44)),
+            (15, to_bitmap(44)),
+            (16, to_bitmap(44)),
+            (17, to_bitmap(44));
+    """
+    qt_sql_bitmap_subset_in_range """
+        select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/
+            bitmap_to_string(
+                bitmap_subset_in_range(id, cast(null as bigint), cast(null as bigint))
+            )
+        from
+            test_bitmap1;
+    """
+
+    sql """
+        drop TABLE if exists test_bitmap_intersect;
+    """
+
+    sql """
+        CREATE TABLE test_bitmap_intersect (
+            dt1 date NOT NULL,
+            dt2 date NOT NULL,
+            id varchar(256) NULL,
+            type smallint(6) MAX NULL,
+            id_bitmap bitmap BITMAP_UNION NULL
+        ) ENGINE = OLAP AGGREGATE KEY(dt1, dt2, id) PARTITION BY RANGE(dt1) (
+            PARTITION p20230725
+            VALUES
+                [('2023-07-25'), ('2023-07-26')))
+        DISTRIBUTED BY HASH(dt1, dt2) BUCKETS 15 properties("replication_num"="1");
+    """
+
+    sql """
+        insert into test_bitmap_intersect
+            select
+                str_to_date('2023-07-25','%Y-%m-%d') as dt1,
+                str_to_date('2023-07-25','%Y-%m-%d') as dt2,
+                'aaaaaaaaaa' as id,
+                1 as type,
+                BITMAP_HASH64('aaaaaaaaaa') as id_bitmap;
+    """
+    qt_sql_bitmap_intersect_check0 """
+        select intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+    qt_sql_bitmap_intersect_check1 """
+        select bitmap_count(orthogonal_bitmap_intersect(id_bitmap, type, 1)) as count2_bitmap from test_bitmap_intersect;
+    """
+    qt_sql_bitmap_intersect_check2 """
+        select orthogonal_bitmap_intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+
+    // test function intersect_count
+    qt_sql_bitmap_intersect """
+        select count(distinct if(type=1, id,null)) as count1,
+            intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+
+    sql """
+        drop TABLE if exists test_orthog_bitmap_intersect;
+    """
+    sql """
+        CREATE TABLE test_orthog_bitmap_intersect (
+            tag int NOT NULL,
+            hid int NOT NULL,
+            id_bitmap bitmap BITMAP_UNION NULL
+        ) ENGINE = OLAP AGGREGATE KEY(tag, hid)
+        DISTRIBUTED BY HASH(hid) BUCKETS 1 properties("replication_num"="1");
+    """
+
+    sql """
+        insert into test_orthog_bitmap_intersect
+            select 0, 1, to_bitmap(1) as id_bitmap;
+    """
+    // test function orthogonal_bitmap_intersect
+    qt_sql_orthogonal_bitmap_intersect"""
+        select count(distinct tag) as count1,
+            bitmap_count(orthogonal_bitmap_intersect(id_bitmap, tag, 0)) as count2_bitmap from test_orthog_bitmap_intersect;
+    """
+
+    // test function orthogonal_bitmap_intersect_count
+    qt_sql_orthogonal_bitmap_intersect_count"""
+        select count(distinct tag) as count1,
+            orthogonal_bitmap_intersect_count(id_bitmap, tag, 0) as count2_bitmap from test_orthog_bitmap_intersect;
+    """
+
+     // BITMAP_FROM_ARRAY
+    qt_sql """ select bitmap_to_string(BITMAP_FROM_ARRAY([]));"""
 }

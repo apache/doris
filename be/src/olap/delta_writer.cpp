@@ -23,6 +23,7 @@
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
@@ -33,6 +34,7 @@
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/mem_info.h"
 #include "util/ref_count_closure.h"
 
 namespace doris {
@@ -111,11 +113,18 @@ Status DeltaWriter::init() {
     if (_tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
         _cur_max_version = _tablet->max_version_unlocked().second;
-        _rowset_ids = _tablet->all_rs_id(_cur_max_version);
+        // tablet is under alter process. The delete bitmap will be calculated after conversion.
+        if (_tablet->tablet_state() == TABLET_NOTREADY &&
+            SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+            _rowset_ids.clear();
+        } else {
+            _rowset_ids = _tablet->all_rs_id(_cur_max_version);
+        }
     }
 
     // check tablet version number
-    if (_tablet->version_count() > config::max_tablet_version_num) {
+    if (_tablet->version_count() > config::max_tablet_version_num &&
+        !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         //trigger quick compaction
         if (config::enable_quick_compaction) {
             StorageEngine::instance()->submit_quick_compaction_task(_tablet);
@@ -231,7 +240,9 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     _mem_table->insert(block, row_idxs);
 
     if (_mem_table->need_to_agg()) {
-        _mem_table->shrink_memtable_by_agg();
+        if (config::enable_shrink_memory) {
+            _mem_table->shrink_memtable_by_agg();
+        }
         if (_mem_table->is_flush()) {
             auto s = _flush_memtable_async();
             _reset_mem_table();
@@ -394,10 +405,25 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         return res;
     }
     if (_tablet->enable_unique_key_merge_on_write()) {
+        // tablet is under alter process. The delete bitmap will be calculated after conversion.
+        if (_tablet->tablet_state() == TABLET_NOTREADY &&
+            SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+            LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
+                         "tablet_id: "
+                      << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
+        } else {
+            auto beta_rowset = reinterpret_cast<BetaRowset*>(_cur_rowset.get());
+            std::vector<segment_v2::SegmentSharedPtr> segments;
+            RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
+            if (segments.size() > 1) {
+                RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments,
+                                                            nullptr, _delete_bitmap,
+                                                            _cur_max_version, true));
+            }
+        }
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
-                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids,
-                dynamic_cast<BetaRowsetWriter*>(_rowset_writer.get())->get_num_mow_keys());
+                _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
     }
 
     _delta_written_success = true;

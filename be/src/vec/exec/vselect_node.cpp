@@ -33,6 +33,7 @@ Status VSelectNode::prepare(RuntimeState* state) {
 
 Status VSelectNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSelectNode::open");
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();

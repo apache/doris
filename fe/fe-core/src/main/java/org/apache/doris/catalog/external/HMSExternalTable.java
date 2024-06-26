@@ -18,6 +18,7 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -33,6 +34,7 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -252,6 +254,26 @@ public class HMSExternalTable extends ExternalTable {
         }
     }
 
+    public String getViewText() {
+        String viewText = getViewExpandedText();
+        if (StringUtils.isNotEmpty(viewText)) {
+            return viewText;
+        }
+        return getViewOriginalText();
+    }
+
+    public String getViewExpandedText() {
+        LOG.debug("View expanded text of hms table [{}.{}.{}] : {}",
+                this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewExpandedText());
+        return remoteTable.getViewExpandedText();
+    }
+
+    public String getViewOriginalText() {
+        LOG.debug("View original text of hms table [{}.{}.{}] : {}",
+                this.getCatalog().getName(), this.getDbName(), this.getName(), remoteTable.getViewOriginalText());
+        return remoteTable.getViewOriginalText();
+    }
+
     public String getMetastoreUri() {
         return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
     }
@@ -301,7 +323,7 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {
-        Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(this);
+        Table icebergTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this);
         Schema schema = icebergTable.schema();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
         for (FieldSchema field : hmsSchema) {

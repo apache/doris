@@ -39,8 +39,7 @@ namespace doris::vectorized {
 // space-saving algorithm
 template <typename T>
 struct AggregateFunctionTopNData {
-    using ColVecType =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<T>>;
+    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
     void set_paramenters(int input_top_num, int space_expand_rate = 50) {
         top_num = input_top_num;
         capacity = (uint64_t)top_num * space_expand_rate;
@@ -206,8 +205,7 @@ struct AggregateFunctionTopNImplIntInt {
 //for topn_array agg
 template <typename T, bool has_default_param>
 struct AggregateFunctionTopNImplArray {
-    using ColVecType =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<T>>;
+    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
         if constexpr (has_default_param) {
@@ -231,8 +229,7 @@ struct AggregateFunctionTopNImplArray {
 //for topn_weighted agg
 template <typename T, bool has_default_param>
 struct AggregateFunctionTopNImplWeight {
-    using ColVecType =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<T>>;
+    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
         if constexpr (has_default_param) {

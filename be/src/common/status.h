@@ -268,7 +268,13 @@ static constexpr bool capture_stacktrace() {
         && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
         && code != ErrorCode::SEGCOMPACTION_INIT_WRITER
-        && code != ErrorCode::SEGCOMPACTION_FAILED;
+        && code != ErrorCode::SEGCOMPACTION_FAILED
+        && code != ErrorCode::META_KEY_NOT_FOUND
+        && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
+        && code != ErrorCode::TRANSACTION_NOT_EXIST
+        && code != ErrorCode::TRANSACTION_ALREADY_VISIBLE
+        && code != ErrorCode::TOO_MANY_TRANSACTIONS
+        && code != ErrorCode::TRANSACTION_ALREADY_COMMITTED;
 }
 // clang-format on
 
@@ -464,8 +470,8 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
     ostr << (status._err_msg ? status._err_msg->_msg : "");
 #ifdef ENABLE_STACKTRACE
-    if (status->_err_msg && !status->_err_msg._stack.empty()) {
-        ostr << '\n' << status->_err_msg._stack;
+    if (status._err_msg && !status._err_msg->_stack.empty()) {
+        ostr << '\n' << status._err_msg->_stack;
     }
 #endif
     return ostr;

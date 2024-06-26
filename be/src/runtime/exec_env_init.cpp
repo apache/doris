@@ -95,6 +95,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
+
+    TimezoneUtils::load_timezone_names();
+
     _thread_mgr = new ThreadResourceMgr();
     if (config::doris_enable_scanner_thread_pool_per_disk &&
         config::doris_scanner_thread_pool_thread_num >= store_paths.size() &&

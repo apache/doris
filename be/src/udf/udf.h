@@ -924,6 +924,7 @@ using doris_udf::DoubleVal;
 using doris_udf::StringVal;
 using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
+using doris_udf::DateTimeV2Val;
 using doris_udf::HllVal;
 using doris_udf::FunctionContext;
 using doris_udf::CollectionVal;

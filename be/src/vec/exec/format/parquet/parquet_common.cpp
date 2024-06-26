@@ -29,10 +29,6 @@ const uint32_t ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS = 2440588;
 const uint64_t ParquetInt96::MICROS_IN_DAY = 86400000000;
 const uint64_t ParquetInt96::NANOS_PER_MICROSECOND = 1000;
 
-inline uint64_t ParquetInt96::to_timestamp_micros() const {
-    return (hi - JULIAN_EPOCH_OFFSET_DAYS) * MICROS_IN_DAY + lo / NANOS_PER_MICROSECOND;
-}
-
 #define FOR_LOGICAL_NUMERIC_TYPES(M) \
     M(TypeIndex::Int8, Int8)         \
     M(TypeIndex::UInt8, UInt8)       \

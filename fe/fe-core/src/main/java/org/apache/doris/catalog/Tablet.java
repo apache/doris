@@ -214,15 +214,16 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     // for query
-    public List<Replica> getQueryableReplicas(long visibleVersion) {
+    public List<Replica> getQueryableReplicas(long visibleVersion, boolean allowFailedVersion) {
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
+        List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
             }
 
-            // Skip the missing version replica
-            if (replica.getLastFailedVersion() > 0) {
+            // Skip the missing version replica.
+            if (replica.getLastFailedVersion() > 0 && !allowFailedVersion) {
                 continue;
             }
 
@@ -231,7 +232,15 @@ public class Tablet extends MetaObject implements Writable {
                 if (replica.checkVersionCatchUp(visibleVersion, false)) {
                     allQueryableReplica.add(replica);
                 }
+            } else if (state == ReplicaState.DECOMMISSION) {
+                if (replica.checkVersionCatchUp(visibleVersion, false)) {
+                    auxiliaryReplica.add(replica);
+                }
             }
+        }
+
+        if (allQueryableReplica.isEmpty()) {
+            allQueryableReplica = auxiliaryReplica;
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
@@ -442,6 +451,10 @@ public class Tablet extends MetaObject implements Writable {
 
             if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
                 // this replica is alive but version incomplete
+                if (replica.needFurtherRepair() && needFurtherRepairReplica == null
+                        && backend.isScheduleAvailable()) {
+                    needFurtherRepairReplica = replica;
+                }
                 continue;
             }
             aliveAndVersionComplete++;

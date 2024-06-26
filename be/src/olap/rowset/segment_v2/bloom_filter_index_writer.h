@@ -23,6 +23,10 @@
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "runtime/mem_pool.h"
+#include "util/slice.h"
+#include "vec/common/arena.h"
 
 namespace doris {
 
@@ -56,6 +60,41 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(BloomFilterIndexWriter);
+};
+
+// For unique key with merge on write, the data for each segment is deduplicated.
+// Bloom filter doesn't need to use `set` for deduplication like
+// `BloomFilterIndexWriterImpl`, so vector can be used to accelerate.
+class PrimaryKeyBloomFilterIndexWriterImpl : public BloomFilterIndexWriter {
+public:
+    explicit PrimaryKeyBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options,
+                                                  const TypeInfo* type_info)
+            : _bf_options(bf_options),
+              _type_info(type_info),
+              _has_null(false),
+              _bf_buffer_size(0) {}
+
+    ~PrimaryKeyBloomFilterIndexWriterImpl() override = default;
+
+    void add_values(const void* values, size_t count) override;
+
+    void add_nulls(uint32_t count) override { _has_null = true; }
+
+    Status flush() override;
+
+    Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override;
+
+    uint64_t size() override;
+
+private:
+    BloomFilterOptions _bf_options;
+    const TypeInfo* _type_info;
+    MemPool _pool;
+    bool _has_null;
+    uint64_t _bf_buffer_size;
+    // distinct values
+    std::vector<Slice> _values;
+    std::vector<std::unique_ptr<BloomFilter>> _bfs;
 };
 
 } // namespace segment_v2

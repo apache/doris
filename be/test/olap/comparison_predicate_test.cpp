@@ -88,7 +88,9 @@ static std::string to_datetime_string(uint64_t& datetime_value) {
 #define TEST_PREDICATE_DEFINITION(CLASS_NAME)                                                     \
     class CLASS_NAME : public testing::Test {                                                     \
     public:                                                                                       \
-        CLASS_NAME() { _mem_pool.reset(new MemPool()); }                                          \
+        CLASS_NAME() {                                                                            \
+            _mem_pool.reset(new MemPool());                                                       \
+        }                                                                                         \
         ~CLASS_NAME() {}                                                                          \
         void SetTabletSchema(std::string name, const std::string& type,                           \
                              const std::string& aggregation, uint32_t length, bool is_allow_null, \

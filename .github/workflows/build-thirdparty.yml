@@ -86,8 +86,8 @@ jobs:
             'zip'
             'unzip'
             'autopoint'
-            'openjdk-11-jdk'
-            'openjdk-11-jdk-headless'
+            'openjdk-8-jdk'
+            'openjdk-8-jdk-headless'
             'maven'
           )
 
@@ -104,6 +104,9 @@ jobs:
         run: |
           export DEFAULT_DIR='/opt/doris'
           export PATH="${DEFAULT_DIR}/ldb-toolchain/bin:${PATH}"
+          export PATH="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 1 -type d -name 'bin'):${PATH}"
+          export JAVA_HOME="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 0)"
+          export DORIS_TOOLCHAIN=gcc
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"

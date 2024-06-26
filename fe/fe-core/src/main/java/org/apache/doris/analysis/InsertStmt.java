@@ -721,6 +721,7 @@ public class InsertStmt extends DdlStmt {
                         resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
                     }
                 }
+                exprByName.put(col.getName(), resultExprs.get(resultExprs.size() - 1));
             }
         }
     }

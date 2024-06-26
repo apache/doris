@@ -63,8 +63,6 @@ void NewFileScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
         LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to " << _scan_ranges.size();
     }
     if (scan_ranges.size() > 0) {
-        _input_tuple_id =
-                scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params.src_tuple_id;
         _output_tuple_id =
                 scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params.dest_tuple_id;
     }

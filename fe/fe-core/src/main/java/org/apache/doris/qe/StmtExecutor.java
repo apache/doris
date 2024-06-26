@@ -627,6 +627,14 @@ public class StmtExecutor implements ProfileWriter {
         }
     }
 
+    private void syncJournalIfNeeded() throws Exception {
+        final Env env = context.getEnv();
+        if (env.isMaster() || !context.getSessionVariable().enableStrongConsistencyRead) {
+            return;
+        }
+        new MasterOpExecutor(context).syncJournal();
+    }
+
     /**
      * get variables in stmt.
      *
@@ -1091,6 +1099,7 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
+        syncJournalIfNeeded();
         if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()) {
             SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
             if (handleSelectRequestInFe(parsedSelectStmt)) {

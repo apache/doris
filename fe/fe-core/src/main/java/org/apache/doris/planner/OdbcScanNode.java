@@ -82,6 +82,43 @@ public class OdbcScanNode extends ScanNode {
                 return filter;
             }
         }
+        if ((tableType.equals(TOdbcTableType.TRINO) || tableType.equals(TOdbcTableType.PRESTO))
+                && expr.contains(DateLiteral.class) && (expr instanceof BinaryPredicate)) {
+            ArrayList<Expr> children = expr.getChildren();
+            if (children.get(1).isConstant() && (children.get(1).getType().isDate()) || children
+                    .get(1).getType().isDateV2()) {
+                String filter = children.get(0).toSql();
+                filter += ((BinaryPredicate) expr).getOp().toString();
+                filter += "date '" + children.get(1).getStringValue() + "'";
+                return filter;
+            }
+            if (children.get(1).isConstant() && (children.get(1).getType().isDatetime() || children
+                    .get(1).getType().isDatetimeV2())) {
+                String filter = children.get(0).toSql();
+                filter += ((BinaryPredicate) expr).getOp().toString();
+                filter += "timestamp '" + children.get(1).getStringValue() + "'";
+                return filter;
+            }
+        }
+        if (tableType.equals(TOdbcTableType.CLICKHOUSE) && expr.contains(DateLiteral.class)
+                && (expr instanceof BinaryPredicate)) {
+            ArrayList<Expr> children = expr.getChildren();
+            if (children.get(1).isConstant() && (children.get(1).getType().isDate()) || children
+                    .get(1).getType().isDateV2()) {
+                String filter = children.get(0).toSql();
+                filter += ((BinaryPredicate) expr).getOp().toString();
+                filter += "date '" + children.get(1).getStringValue() + "'";
+                return filter;
+            }
+            if (children.get(1).isConstant() && (children.get(1).getType().isDatetime() || children
+                    .get(1).getType().isDatetimeV2())) {
+                String filter = children.get(0).toSql();
+                filter += ((BinaryPredicate) expr).getOp().toString();
+                filter += "timestamp '" + children.get(1).getStringValue() + "'";
+                return filter;
+            }
+        }
+
         return expr.toMySql();
     }
 
@@ -129,6 +166,10 @@ public class OdbcScanNode extends ScanNode {
             return output.toString();
         }
         output.append(prefix).append("QUERY: ").append(getOdbcQueryStr()).append("\n");
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
         return output.toString();
     }
 

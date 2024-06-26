@@ -232,6 +232,8 @@ CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "300");
 // garbage sweep policy
 CONF_Int32(max_garbage_sweep_interval, "3600");
 CONF_Int32(min_garbage_sweep_interval, "180");
+// garbage sweep every batch will sleep 1ms
+CONF_mInt32(garbage_sweep_batch_size, "100");
 CONF_mInt32(snapshot_expire_time_sec, "172800");
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
@@ -474,7 +476,7 @@ CONF_Int32(min_chunk_reserved_bytes, "1024");
 // of gperftools tcmalloc central lock.
 // Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
 // gperftools tcmalloc.
-CONF_mBool(disable_chunk_allocator_in_vec, "false");
+CONF_mBool(disable_chunk_allocator_in_vec, "true");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -846,7 +848,7 @@ CONF_mInt32(orc_natural_read_size_mb, "8");
 CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 
 //whether turn on quick compaction feature
-CONF_Bool(enable_quick_compaction, "false");
+CONF_Bool(enable_quick_compaction, "true");
 // For continuous versions that rows less than quick_compaction_max_rows will  trigger compaction quickly
 CONF_Int32(quick_compaction_max_rows, "1000");
 // min compaction versions
@@ -917,6 +919,18 @@ CONF_Bool(enable_fuzzy_mode, "false");
 CONF_Int32(max_depth_of_expr_tree, "600");
 
 CONF_mBool(enable_stack_trace, "true");
+
+// enable shrink memory, default is false
+CONF_Bool(enable_shrink_memory, "false");
+
+// Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
+CONF_mBool(allow_invalid_decimalv2_literal, "false");
+
+// data page size for primary key index.
+CONF_Int32(primary_key_data_page_size, "32768");
+
+// the max package size be thrift server can receive,avoid accepting error or too large package causing OOM,default 20M
+CONF_Int32(be_thrift_max_pkg_bytes, "20000000");
 
 #ifdef BE_TEST
 // test s3

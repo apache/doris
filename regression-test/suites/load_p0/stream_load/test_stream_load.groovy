@@ -672,5 +672,57 @@ suite("test_stream_load", "p0") {
         }
     }
     sql "sync"
+
+    // test common user
+    def tableName13 = "test_common_user"
+    sql """ DROP TABLE IF EXISTS ${tableName13} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName13} (
+            `k1` bigint(20) NULL,
+            `k2` bigint(20) NULL,
+            `v1` tinyint(4) SUM NULL,
+            `v2` tinyint(4) REPLACE NULL,
+            `v3` tinyint(4) REPLACE_IF_NOT_NULL NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`, `k2`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`k1`)
+        (PARTITION partition_a VALUES [("-9223372036854775808"), ("10")),
+        PARTITION partition_b VALUES [("10"), ("20")),
+        PARTITION partition_c VALUES [("20"), ("30")),
+        PARTITION partition_d VALUES [("30"), ("40")))
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+    
+    sql """create USER common_user@'%' IDENTIFIED BY '123456'"""
+    sql """GRANT LOAD_PRIV ON *.* TO 'common_user'@'%';"""
+
+    streamLoad {
+        table "${tableName13}"
+
+        set 'column_separator', '|'
+        set 'columns', 'k1, k2, v1, v2, v3'
+        set 'strict_mode', 'true'
+        set 'Authorization', 'Basic  Y29tbW9uX3VzZXI6MTIzNDU2'
+
+        file 'test_auth.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    
+    sql "sync"
+    sql """DROP USER 'common_user'@'%'"""
 }
 

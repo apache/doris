@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -406,7 +407,15 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         LOG.info("before replay erase table[{}]", tableId);
         RecycleTableInfo tableInfo = idToTable.remove(tableId);
         idToRecycleTime.remove(tableId);
+        if (tableInfo == null) {
+            LOG.warn("tableInfo {} is null, idToTable:{}", tableId, idToTable);
+            return;
+        }
         Table table = tableInfo.getTable();
+        if (table == null) {
+            LOG.warn("tableId {} is null, idToTable:{}", tableId, idToTable);
+            return;
+        }
         if (table.getType() == TableType.OLAP && !Env.isCheckpointThread()) {
             Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, true);
         }
@@ -511,6 +520,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     public synchronized void replayErasePartition(long partitionId) {
         RecyclePartitionInfo partitionInfo = idToPartition.remove(partitionId);
         idToRecycleTime.remove(partitionId);
+
+        if (partitionInfo == null) {
+            LOG.error("replayErasePartition: partitionInfo is null for partitionId[{}]", partitionId);
+        }
 
         Partition partition = partitionInfo.getPartition();
         if (!Env.isCheckpointThread()) {
@@ -691,6 +704,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 // log
                 RecoverInfo recoverInfo = new RecoverInfo(db.getId(), table.getId(), -1L, "", newTableName, "");
                 Env.getCurrentEnv().getEditLog().logRecoverTable(recoverInfo);
+            }
+            // Only olap table need recover dynamic partition, other table like jdbc odbc view.. do not need it
+            if (table.getType() == TableType.OLAP) {
+                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), (OlapTable) table, isReplay);
             }
         } finally {
             table.writeUnlock();

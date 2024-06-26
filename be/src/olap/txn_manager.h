@@ -58,7 +58,6 @@ struct TabletTxnInfo {
     // records rowsets calc in commit txn
     RowsetIdUnorderedSet rowset_ids;
     int64_t creation_time;
-    uint64_t num_keys;
 
     TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset)
             : load_id(load_id),
@@ -168,7 +167,7 @@ public:
                                        TTabletId tablet_id, SchemaHash schema_hash,
                                        TabletUid tablet_uid, bool unique_key_merge_on_write,
                                        DeleteBitmapPtr delete_bitmap,
-                                       const RowsetIdUnorderedSet& rowset_ids, uint64_t num_keys);
+                                       const RowsetIdUnorderedSet& rowset_ids);
 
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;

@@ -41,4 +41,6 @@ public interface IcebergSource {
     ExternalCatalog getCatalog();
 
     String getFileFormat() throws DdlException, MetaNotFoundException;
+
+    void updateRequiredSlots(ExternalFileScanNode.ParamCreateContext context) throws UserException;
 }

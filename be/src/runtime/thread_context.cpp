@@ -19,7 +19,6 @@
 
 #include "common/signal_handler.h"
 #include "runtime/runtime_state.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
@@ -41,12 +40,13 @@ ScopeMemCount::~ScopeMemCount() {
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                        const std::string& task_id, const TUniqueId& fragment_instance_id) {
+    SwitchBthreadLocal::switch_to_bthread_local();
     thread_context()->attach_task(task_id, fragment_instance_id, mem_tracker);
 }
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
-    doris::signal::query_id_hi = runtime_state->query_id().hi;
-    doris::signal::query_id_lo = runtime_state->query_id().lo;
+    SwitchBthreadLocal::switch_to_bthread_local();
+    signal::set_signal_task_id(runtime_state->query_id());
     thread_context()->attach_task(print_id(runtime_state->query_id()),
                                   runtime_state->fragment_instance_id(),
                                   runtime_state->query_mem_tracker());
@@ -54,36 +54,43 @@ AttachTask::AttachTask(RuntimeState* runtime_state) {
 
 AttachTask::~AttachTask() {
     thread_context()->detach_task();
-#ifndef NDEBUG
-    DorisMetrics::instance()->attach_task_thread_count->increment(1);
-#endif // NDEBUG
+    SwitchBthreadLocal::switch_back_pthread_local();
 }
 
 SwitchThreadMemTrackerLimiter::SwitchThreadMemTrackerLimiter(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+    SwitchBthreadLocal::switch_to_bthread_local();
     _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, TUniqueId());
 }
 
 SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
     thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
+    SwitchBthreadLocal::switch_back_pthread_local();
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {
-    _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
+    SwitchBthreadLocal::switch_to_bthread_local();
+    if (mem_tracker) {
+        _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
+    }
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(
         const std::shared_ptr<MemTracker>& mem_tracker)
         : _mem_tracker(mem_tracker) {
-    _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
+    SwitchBthreadLocal::switch_to_bthread_local();
+    if (_mem_tracker) {
+        _need_pop =
+                thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
+    }
 }
 
 AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
-#ifndef NDEBUG
-    DorisMetrics::instance()->add_thread_mem_tracker_consumer_count->increment(1);
-#endif // NDEBUG
-    if (_need_pop) thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
+    if (_need_pop) {
+        thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
+    }
+    SwitchBthreadLocal::switch_back_pthread_local();
 }
 
 } // namespace doris

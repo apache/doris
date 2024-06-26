@@ -536,6 +536,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 throw new TException("request from invalid host was rejected.");
             }
         }
+        if (params.isSyncJournalOnly()) {
+            final TMasterOpResult result = new TMasterOpResult();
+            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            // just make the protocol happy
+            result.setPacket("".getBytes());
+            return result;
+        }
 
         // add this log so that we can track this stmt
         LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), clientAddr.getHostname());
@@ -786,8 +793,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         if (txnOperation.equalsIgnoreCase("commit")) {
+            long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
             Env.getCurrentGlobalTransactionMgr()
-                    .commitTransaction2PC(database, tableList, request.getTxnId(), 5000);
+                    .commitTransaction2PC(database, tableList, request.getTxnId(), timeoutMs);
         } else if (txnOperation.equalsIgnoreCase("abort")) {
             Env.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId(), tableList);
         } else {

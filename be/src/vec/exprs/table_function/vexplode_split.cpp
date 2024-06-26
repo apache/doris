@@ -89,11 +89,10 @@ Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
                 if (first != second) {
                     output.emplace_back(strv.substr(std::distance(strv.begin(), first),
                                                     std::distance(first, second)));
-                    first = std::next(second);
                 } else {
                     output.emplace_back("", 0);
-                    first = std::next(second, delims.size());
                 }
+                first = std::next(second, delims.size());
 
                 if (second == last) {
                     break;

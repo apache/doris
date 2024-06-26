@@ -799,6 +799,10 @@ build_brpc() {
         ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
     else
         ldflags="-L${TP_LIB_DIR}"
+
+        # Don't set OPENSSL_ROOT_DIR
+        sed '/set(OPENSSL_ROOT_DIR/,/)/ d' ../CMakeLists.txt >../CMakeLists.txt.bak
+        mv ../CMakeLists.txt.bak ../CMakeLists.txt
     fi
 
     # Currently, BRPC can't be built for static libraries only (without .so). Therefore, we should add `-fPIC`
@@ -1565,14 +1569,20 @@ build_fast_float() {
     cp -r ./include/fast_float "${TP_INSTALL_DIR}/include/"
 }
 
-# hadoop_libs_x86
-build_hadoop_libs_x86() {
-    check_if_source_exist "${HADOOP_LIBS_X86_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_X86_SOURCE}"
+# hadoop_libs
+build_hadoop_libs() {
+    check_if_source_exist "${HADOOP_LIBS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_SOURCE}"
+    echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" >env.sh
+    ./build.sh
+
     mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp ./include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
-    cp -r ./* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/*.a"
+    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
+    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -1637,8 +1647,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
 
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
-    elif [[ "$(uname -s)" == 'Linux' ]] && [[ "$(uname -m)" == 'x86_64' ]]; then
-        read -r -a packages <<<"${packages[*]} hadoop_libs_x86"
+    elif [[ "$(uname -s)" == 'Linux' ]]; then
+        read -r -a packages <<<"${packages[*]} hadoop_libs"
     fi
 fi
 

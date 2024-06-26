@@ -26,12 +26,13 @@ namespace vectorized {
 template <class HashTableContext>
 struct HashTableBuild {
     HashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
-                   VSetOperationNode* operation_node, uint8_t offset)
+                   VSetOperationNode* operation_node, uint8_t offset, RuntimeState* state)
             : _rows(rows),
               _offset(offset),
               _acquired_block(acquired_block),
               _build_raw_ptrs(build_raw_ptrs),
-              _operation_node(operation_node) {}
+              _operation_node(operation_node),
+              _state(state) {}
 
     Status operator()(HashTableContext& hash_table_ctx) {
         using KeyGetter = typename HashTableContext::State;
@@ -51,6 +52,9 @@ struct HashTableBuild {
         }
 
         for (size_t k = 0; k < _rows; ++k) {
+            if (k % 65536 == 0) {
+                RETURN_IF_CANCELLED(_state);
+            }
             auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table, k,
                                                          *(_operation_node->_arena));
 
@@ -72,6 +76,7 @@ private:
     Block& _acquired_block;
     ColumnRawPtrs& _build_raw_ptrs;
     VSetOperationNode* _operation_node;
+    RuntimeState* _state;
 };
 
 VSetOperationNode::VSetOperationNode(ObjectPool* pool, const TPlanNode& tnode,
@@ -138,13 +143,20 @@ Status VSetOperationNode::prepare(RuntimeState* state) {
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
 
     // Prepare result expr lists.
+    vector<bool> nullable_flags;
+    nullable_flags.resize(_child_expr_lists[0].size(), false);
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
+        for (int j = 0; j < _child_expr_lists[i].size(); ++j) {
+            nullable_flags[j] = nullable_flags[j] || _child_expr_lists[i][j]->root()->is_nullable();
+        }
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
 
-    for (auto ctx : _child_expr_lists[0]) {
+    for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
+        const auto& ctx = _child_expr_lists[0][i];
         _build_not_ignore_null.push_back(ctx->root()->is_nullable());
-        _left_table_data_types.push_back(ctx->root()->data_type());
+        _left_table_data_types.push_back(nullable_flags[i] ? make_nullable(ctx->root()->data_type())
+                                                           : ctx->root()->data_type());
     }
     hash_table_init();
 
@@ -271,7 +283,7 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
             _build_blocks.emplace_back(mutable_block.to_block());
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
-            RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
+            RETURN_IF_ERROR(process_build_block(_build_blocks[index], index, state));
             mutable_block = MutableBlock();
             ++index;
             last_mem_used = _mem_used;
@@ -280,11 +292,11 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
 
     _build_blocks.emplace_back(mutable_block.to_block());
     child(0)->close(state);
-    RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
+    RETURN_IF_ERROR(process_build_block(_build_blocks[index], index, state));
     return Status::OK();
 }
 
-Status VSetOperationNode::process_build_block(Block& block, uint8_t offset) {
+Status VSetOperationNode::process_build_block(Block& block, uint8_t offset, RuntimeState* state) {
     size_t rows = block.rows();
     if (rows == 0) {
         return Status::OK();
@@ -299,7 +311,7 @@ Status VSetOperationNode::process_build_block(Block& block, uint8_t offset) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     HashTableBuild<HashTableCtxType> hash_table_build_process(rows, block, raw_ptrs,
-                                                                              this, offset);
+                                                                              this, offset, state);
                     hash_table_build_process(arg);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";

@@ -968,7 +968,7 @@ public class Coordinator {
             receiver.cancel();
         }
         cancelRemoteFragmentsAsync(cancelReason);
-        if (profileDoneSignal != null) {
+        if (profileDoneSignal != null && !needReport) {
             // count down to zero to notify all objects waiting for this
             profileDoneSignal.countDownToZero(new Status());
             LOG.info("unfinished instance: {}", profileDoneSignal.getLeftMarks()
@@ -1260,6 +1260,10 @@ public class Coordinator {
                 int exchangeInstances = -1;
                 if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
                     exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
+                }
+                // when we use nested loop join do right outer / semi / anti join, the instance must be 1.
+                if (leftMostNode.getNumInstances() == 1) {
+                    exchangeInstances = 1;
                 }
                 if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentId)
                         .instanceExecParams.size() > exchangeInstances) {

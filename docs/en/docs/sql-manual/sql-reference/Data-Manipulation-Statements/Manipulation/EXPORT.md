@@ -74,6 +74,7 @@ illustrate:
   - `exec_mem_limit`: Export the upper limit of the memory usage of a single BE node, the default is 2GB, and the unit is bytes.
   - `timeout`: The timeout period of the export job, the default is 2 hours, the unit is seconds.
   - `tablet_num_per_task`: The maximum number of tablets each subtask can allocate to scan.
+  - `format`: Specifies the file format, currently only supports csv, csv_with_names, csv_with_names_and_types. If without specified, the default is csv.
 
 - `WITH BROKER`
 

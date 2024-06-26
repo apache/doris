@@ -20,6 +20,7 @@ package org.apache.doris.planner.external.iceberg;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.MetaNotFoundException;
@@ -54,8 +55,9 @@ public class IcebergApiSource implements IcebergSource {
     public IcebergApiSource(IcebergExternalTable table, TupleDescriptor desc,
                             Map<String, ColumnRange> columnNameToRange) {
         this.icebergExtTable = table;
-        this.originTable = ((IcebergExternalCatalog) icebergExtTable.getCatalog())
-                .getIcebergTable(icebergExtTable.getDbName(), icebergExtTable.getName());
+        this.originTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
+            ((IcebergExternalCatalog) icebergExtTable.getCatalog()).getCatalog(), icebergExtTable.getCatalog().getId(),
+            icebergExtTable.getDbName(), icebergExtTable.getName());
         this.desc = desc;
     }
 
@@ -94,6 +96,20 @@ public class IcebergApiSource implements IcebergSource {
                 .map(PartitionField::name).collect(Collectors.toList());
         List<Column> columns = icebergExtTable.getBaseSchema(false);
         context.params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
+        updateRequiredSlots(context);
+        return context;
+    }
+
+    @Override
+    public void updateRequiredSlots(ExternalFileScanNode.ParamCreateContext context) throws UserException {
+        updateRequiredSlots(context, null);
+    }
+
+    public void updateRequiredSlots(ExternalFileScanNode.ParamCreateContext context, List<String> partitionKeys) throws UserException {
+        context.params.unsetRequiredSlots();
+        if (partitionKeys == null) {
+            partitionKeys = originTable.spec().fields().stream().map(PartitionField::name).collect(Collectors.toList());
+        }
         for (SlotDescriptor slot : desc.getSlots()) {
             if (!slot.isMaterialized()) {
                 continue;
@@ -103,7 +119,6 @@ public class IcebergApiSource implements IcebergSource {
             slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
             context.params.addToRequiredSlots(slotInfo);
         }
-        return context;
     }
 
     @Override

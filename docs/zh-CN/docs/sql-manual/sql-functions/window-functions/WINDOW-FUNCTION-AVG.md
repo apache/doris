@@ -17,7 +17,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 计算窗口内数据的平均值
 
 ```sql
-AVG([DISTINCT | ALL] *expression*) [OVER (*analytic_clause*)]
+AVG([ALL] *expression*) [OVER (*analytic_clause*)]
 ```
 
 ### example

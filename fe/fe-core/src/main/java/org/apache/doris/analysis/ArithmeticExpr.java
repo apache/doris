@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -362,6 +363,8 @@ public class ArithmeticExpr extends Expr {
             return Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {
             return pt1 == PrimitiveType.DECIMALV2 && pt2 == PrimitiveType.DECIMALV2
+                    || (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value)
                     ? Type.MAX_DECIMALV2_TYPE : Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMAL32 || pt2 == PrimitiveType.DECIMAL32) {
             return pt1 == PrimitiveType.DECIMAL32 && pt2 == PrimitiveType.DECIMAL32 ? Type.DECIMAL32 : Type.DOUBLE;
@@ -554,7 +557,7 @@ public class ArithmeticExpr extends Expr {
                     if (((ScalarType) type).getScalarScale() != ((ScalarType) children.get(1).type).getScalarScale()) {
                         castChild(type, 1);
                     }
-                } else if (op == Operator.DIVIDE && (t2Scale != 0) && t1.isDecimalV3()) {
+                } else if (op == Operator.DIVIDE && (t2Scale != 0) && t1TargetType.isDecimalV3()) {
                     int targetScale = t1Scale + t2Scale;
                     if (precision < targetScale) {
                         type = castBinaryOp(Type.DOUBLE);

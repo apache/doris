@@ -48,7 +48,7 @@ public class DropDatabaseEvent extends MetastoreEvent {
         try {
             infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
             Env.getCurrentEnv().getCatalogMgr()
-                    .dropExternalDatabase(dbName, catalogName);
+                    .dropExternalDatabase(dbName, catalogName, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"));

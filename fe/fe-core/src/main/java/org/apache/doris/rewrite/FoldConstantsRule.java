@@ -250,6 +250,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
                     VariableMgr.fillValue(ConnectContext.get().getSessionVariable(), (SysVariableDesc) expr);
                     literalExpr = ((SysVariableDesc) expr).getLiteralExpr();
                 } catch (AnalysisException e) {
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                     LOG.warn("failed to get session variable value: " + ((SysVariableDesc) expr).getName());
                 }
             }
@@ -276,6 +279,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 literalExpr = LiteralExpr.create(str, type);
                 infoFnMap.put(expr.getId().toString(), literalExpr);
             } catch (AnalysisException e) {
+                if (ConnectContext.get() != null) {
+                    ConnectContext.get().getState().reset();
+                }
                 LOG.warn("failed to get const expr value from InformationFunction: {}", e.getMessage());
             }
 
@@ -322,7 +328,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         // ATTN: make sure the child order of expr keep unchanged
         for (int i = 0; i < expr.getChildren().size(); i++) {
             Expr child = expr.getChild(i);
-            if (literalExpr.equals(replaceExpr(child, key, literalExpr))) {
+            if (!(child instanceof LiteralExpr) && literalExpr.equals(replaceExpr(child, key, literalExpr))) {
                 literalExpr.setId(child.getId());
                 expr.setChild(i, literalExpr);
                 break;

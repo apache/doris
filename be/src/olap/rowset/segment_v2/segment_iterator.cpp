@@ -194,9 +194,13 @@ Status SegmentIterator::_init(bool is_vec) {
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
     // z-order can not use prefix index
     if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
+        SCOPED_RAW_TIMER(&_opts.stats->block_init_get_row_range_by_keys_ns);
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
-    RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->block_init_get_row_range_by_conditions_ns);
+        RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
+    }
     if (is_vec) {
         _vec_init_lazy_materialization();
         _vec_init_char_column_id();
@@ -285,6 +289,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
                                                           &_column_iterators[unique_id]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
+            iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
             iter_opts.io_ctx = _opts.io_ctx;
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
@@ -391,6 +396,22 @@ Status SegmentIterator::_init_return_column_iterators() {
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
+    std::set<ColumnId> del_cond_id_set;
+    _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
+    std::vector<bool> tmp_is_pred_column;
+    tmp_is_pred_column.resize(_schema.columns().size(), false);
+    if (!_col_predicates.empty() || !del_cond_id_set.empty()) {
+        for (auto predicate : _col_predicates) {
+            auto cid = predicate->column_id();
+            tmp_is_pred_column[cid] = true;
+        }
+        // handle delete_condition
+        if (!del_cond_id_set.empty()) {
+            for (auto cid : del_cond_id_set) {
+                tmp_is_pred_column[cid] = true;
+            }
+        }
+    }
     for (auto cid : _schema.column_ids()) {
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_column_iterators.count(unique_id) < 1) {
@@ -401,6 +422,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
             iter_opts.io_ctx = _opts.io_ctx;
+            iter_opts.is_predicate_column = tmp_is_pred_column[cid];
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
@@ -515,8 +537,10 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     DCHECK(pk_index_reader != nullptr);
 
     std::string index_key;
+    // when is_include is false, we shoudle append KEY_NORMAL_MARKER to the
+    // encode key. Otherwise, we will get an incorrect upper bound.
     encode_key_with_padding<RowCursor, true, true>(
-            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include);
+            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include, true);
     if (index_key < _segment->min_key()) {
         *rowid = 0;
         return Status::OK();
@@ -1180,8 +1204,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // read 100 rows to estimate average row size
         nrows_read_limit = 100;
     }
-    _read_columns_by_index(nrows_read_limit, _current_batch_rows_read,
-                           _lazy_materialization_read || _opts.record_rowids);
+    RETURN_IF_ERROR(_read_columns_by_index(nrows_read_limit, _current_batch_rows_read,
+                                           _lazy_materialization_read || _opts.record_rowids));
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _current_batch_rows_read;

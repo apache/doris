@@ -508,17 +508,49 @@ public class PlannerTest extends TestWithFeService {
 
     @Test
     public void testPushSortToOlapScan() throws Exception {
-        // Push sort successfully
-        String sql1 = "explain select k1 from db1.tbl1 order by k1, k2";
+        // Push sort fail without limit
+        String sql1 = "explain select k1 from db1.tbl3 order by k1, k2";
         StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
         String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+        Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
+        Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+
+        // Push sort fail limit > topnOptLimitThreshold
+        sql1 = "explain select k1 from db1.tbl3 order by k1, k2 limit "
+            + (connectContext.getSessionVariable().topnOptLimitThreshold + 1);
+        stmtExecutor1 = new StmtExecutor(connectContext, sql1);
+        stmtExecutor1.execute();
+        planner1 = stmtExecutor1.planner();
+        plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+        Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
+        Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+
+        // Push sort success limit = topnOptLimitThreshold
+        sql1 = "explain select k1 from db1.tbl3 order by k1, k2 limit "
+            + (connectContext.getSessionVariable().topnOptLimitThreshold);
+        stmtExecutor1 = new StmtExecutor(connectContext, sql1);
+        stmtExecutor1.execute();
+        planner1 = stmtExecutor1.planner();
+        plan1 = planner1.getExplainString(new ExplainOptions(false, false));
         Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
 
+        // Push sort success limit < topnOptLimitThreshold
+        if (connectContext.getSessionVariable().topnOptLimitThreshold > 1) {
+            sql1 = "explain select k1 from db1.tbl3 order by k1, k2 limit "
+                + (connectContext.getSessionVariable().topnOptLimitThreshold - 1);
+            stmtExecutor1 = new StmtExecutor(connectContext, sql1);
+            stmtExecutor1.execute();
+            planner1 = stmtExecutor1.planner();
+            plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
+            Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+        }
+
         // Push sort failed
-        String sql2 = "explain select k1, k2, k3 from db1.tbl1 order by k1, k3, k2";
+        String sql2 = "explain select k1, k2, k3 from db1.tbl3 order by k1, k3, k2";
         StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
@@ -529,15 +561,14 @@ public class PlannerTest extends TestWithFeService {
 
     @Test
     public void testEliminatingSortNode() throws Exception {
-            // fail case 1
+            // success case 1
             {
             String sql1 = "explain select k1 from db1.tbl1 where k1 = 1 order by k1, k2";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+            Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // fail case 2
@@ -547,8 +578,7 @@ public class PlannerTest extends TestWithFeService {
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+            Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // fail case 3
@@ -558,8 +588,7 @@ public class PlannerTest extends TestWithFeService {
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+            Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // fail case 4
@@ -569,8 +598,7 @@ public class PlannerTest extends TestWithFeService {
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+            Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // fail case 5
@@ -580,8 +608,7 @@ public class PlannerTest extends TestWithFeService {
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
+            Assertions.assertTrue(plan1.contains("order by:"));
             }
 
             // fail case 6
@@ -612,8 +639,7 @@ public class PlannerTest extends TestWithFeService {
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+            Assertions.assertFalse(plan1.contains("order by:"));
             }
 
             // success case 2
@@ -623,8 +649,7 @@ public class PlannerTest extends TestWithFeService {
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+            Assertions.assertFalse(plan1.contains("order by:"));
             }
 
             // success case 3
@@ -634,8 +659,7 @@ public class PlannerTest extends TestWithFeService {
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+            Assertions.assertFalse(plan1.contains("order by:"));
             }
 
             // success case 4
@@ -645,8 +669,7 @@ public class PlannerTest extends TestWithFeService {
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
-            Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+            Assertions.assertFalse(plan1.contains("order by:"));
             }
 
             // success case 5
@@ -657,8 +680,7 @@ public class PlannerTest extends TestWithFeService {
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
-            Assertions.assertFalse(plan1.contains("SORT INFO:"));
-            Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
+            Assertions.assertFalse(plan1.contains("order by:"));
             }
 
 

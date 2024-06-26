@@ -38,7 +38,7 @@ suite("test_bitmap_index_load") {
         table "${tbName}"
         set 'column_separator', '|'
         set 'columns', 'a,temp'
-        file """${context.sf1DataPath}/regression/bitmap_index_test.csv"""
+        file """${getS3Url()}/regression/bitmap_index_test.csv"""
         time 10000 // limit inflight 10s
 
         // if declared a check callback, the default check condition will ignore.

@@ -144,6 +144,9 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         if (!labelToStreamLoadRecord.containsKey(label)) {
             labelToStreamLoadRecord.put(label, streamLoadRecord);
         }
+        else if (labelToStreamLoadRecord.get(label).getFinishTime().compareTo(streamLoadRecord.getFinishTime()) < 0) {
+            labelToStreamLoadRecord.put(label, streamLoadRecord);
+        }
         writeUnlock();
     }
 

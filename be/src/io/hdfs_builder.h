@@ -57,6 +57,7 @@ private:
     bool need_kinit {false};
     std::string hdfs_kerberos_keytab;
     std::string hdfs_kerberos_principal;
+    std::string ticket_path;
 };
 
 THdfsParams parse_properties(const std::map<std::string, std::string>& properties);

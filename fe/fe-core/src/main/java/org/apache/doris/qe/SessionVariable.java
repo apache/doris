@@ -50,6 +50,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
     public static final String SQL_MODE = "sql_mode";
@@ -79,6 +80,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String CODEGEN_LEVEL = "codegen_level";
+    public static final String HAVE_QUERY_CACHE =  "have_query_cache";
     // mem limit can't smaller than bufferpool's default page size
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
@@ -234,6 +236,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
 
+    public static final String SKIP_MISSING_VERSION = "skip_missing_version";
+
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
@@ -253,10 +257,16 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
+    public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
+
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
 
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
+
+    public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
+
+    public static final String ROUND_PRECISE_DECIMALV2_VALUE = "round_precise_decimalv2_value";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -264,12 +274,18 @@ public class SessionVariable implements Serializable, Writable {
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
 
+    @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
+    public boolean roundPreciseDecimalV2Value = false;
+
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
+
+    @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT)
+    public long maxScanQueueMemByte = 2147483648L / 20;
 
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
@@ -345,7 +361,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean sqlAutoIsNull = false;
 
     @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
-    public long sqlSelectLimit = 9223372036854775807L;
+    public long sqlSelectLimit = -1;
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET)
@@ -368,11 +384,11 @@ public class SessionVariable implements Serializable, Writable {
 
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_WRITE_TIMEOUT)
-    public int netWriteTimeout = 60;
+    public int netWriteTimeout = 600;
 
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_READ_TIMEOUT)
-    public int netReadTimeout = 60;
+    public int netReadTimeout = 600;
 
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true)
@@ -391,6 +407,9 @@ public class SessionVariable implements Serializable, Writable {
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     public int codegenLevel = 0;
+
+    @VariableMgr.VarAttr(name = HAVE_QUERY_CACHE, flag = VariableMgr.READ_ONLY)
+    public boolean haveQueryCache = false;
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE)
@@ -629,6 +648,19 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
     public boolean skipDeleteBitmap = false;
 
+    // This variable replace the original FE config `recover_with_skip_missing_version`.
+    // In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover.
+    // This config can control the behavior of query. When it is set to `true`, the query will ignore the
+    // visible version recorded in FE partition, use the replica version. If the replica on BE has missing versions,
+    // the query will directly skip this missing version, and only return the data of the existing versions.
+    // Besides, the query will always try to select the one with the highest lastSuccessVersion among all surviving
+    // BE replicas, so as to recover as much data as possible.
+    // You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries.
+    // This variable conflicts with the use_fix_replica variable, when the use_fix_replica variable is not -1,
+    // this variable will not work.
+    @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
+    public boolean skipMissingVersion = false;
+
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
     // in nereids for some mistaken modification. You should set it on the
@@ -667,6 +699,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
 
+    @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
+    public long topnOptLimitThreshold = 1024;
+
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
     @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST)
@@ -675,6 +710,9 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is -1, which means not fix replica
     @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
     public int useFixReplica = -1;
+
+    @VariableMgr.VarAttr(name = ENABLE_STRONG_CONSISTENCY)
+    public boolean enableStrongConsistencyRead = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -693,6 +731,8 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
         }
+        // set random 1, 10, 100, 1000, 10000
+        this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
     }
 
     public String printFuzzyVariables() {
@@ -734,6 +774,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
+    }
+
+    public long getMaxScanQueueExecMemByte() {
+        return maxScanQueueMemByte;
     }
 
     public int getQueryTimeoutS() {
@@ -864,6 +908,10 @@ public class SessionVariable implements Serializable, Writable {
         return codegenLevel;
     }
 
+    public boolean getHaveQueryCache() {
+        return haveQueryCache;
+    }
+
     /**
      * setMaxExecMemByte.
      **/
@@ -873,6 +921,10 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             this.maxExecMemByte = maxExecMemByte;
         }
+    }
+
+    public void setMaxScanQueueMemByte(long scanQueueMemByte) {
+        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 20);
     }
 
     public boolean isSqlQuoteShowCreate() {
@@ -1355,6 +1407,7 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);
+        tResult.setScanQueueMemLimit(Math.min(maxScanQueueMemByte, maxExecMemByte / 20));
 
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMinReservation(0);
@@ -1404,6 +1457,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipDeletePredicate(skipDeletePredicate);
 
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
+
+        tResult.setSkipMissingVersion(skipMissingVersion);
 
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
 
@@ -1583,6 +1638,7 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions getQueryOptionVariables() {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setMemLimit(maxExecMemByte);
+        queryOptions.setScanQueueMemLimit(Math.min(maxScanQueueMemByte, maxExecMemByte / 20));
         queryOptions.setQueryTimeout(queryTimeoutS);
         return queryOptions;
     }

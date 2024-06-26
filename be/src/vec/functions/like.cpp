@@ -429,7 +429,7 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     // for constant_substring_fn, use long run length search for performance
     if (constant_substring_fn ==
         *(state->function
-                  .target<doris::Status (*)(LikeSearchState * state, const ColumnString&,
+                  .target<doris::Status (*)(LikeSearchState* state, const ColumnString&,
                                             const StringValue&, ColumnUInt8::Container&)>())) {
         RETURN_IF_ERROR(execute_substring(values->get_chars(), values->get_offsets(), vec_res,
                                           &state->search_state));

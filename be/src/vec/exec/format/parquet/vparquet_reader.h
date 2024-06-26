@@ -52,6 +52,7 @@ public:
         int64_t parse_meta_time = 0;
         int64_t row_group_filter_time = 0;
         int64_t page_index_filter_time = 0;
+        int64_t open_reader_time = 0;
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -128,6 +129,7 @@ private:
         RuntimeProfile::Counter* decode_dict_time;
         RuntimeProfile::Counter* decode_level_time;
         RuntimeProfile::Counter* decode_null_map_time;
+        RuntimeProfile::Counter* open_reader_time;
     };
 
     Status _open_file();

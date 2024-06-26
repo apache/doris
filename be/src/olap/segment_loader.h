@@ -96,6 +96,8 @@ public:
                        : ((double)_cache->get_usage() / _cache->get_total_capacity());
     }
 
+    void erase_segments(const SegmentLoader::CacheKey& key);
+
 private:
     SegmentLoader();
 

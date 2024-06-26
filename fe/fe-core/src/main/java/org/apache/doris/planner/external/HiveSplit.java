@@ -21,13 +21,20 @@ import lombok.Data;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapred.FileSplit;
 
+import java.util.List;
+
 @Data
 public class HiveSplit extends FileSplit {
     private long fileSize;
+    // The values of partitions.
+    // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
+    // partitionValues would be ["part1", "part2"]
+    protected List<String> partitionValues;
 
-    public HiveSplit(Path file, long start, long length, long fileSize, String[] hosts) {
+    public HiveSplit(Path file, long start, long length, long fileSize, String[] hosts, List<String> partitionValues) {
         super(file, start, length, hosts);
         this.fileSize = fileSize;
+        this.partitionValues = partitionValues;
     }
 
     protected TableFormatType tableFormatType;

@@ -259,6 +259,7 @@ public class StreamLoadPlanner {
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         queryOptions.setEnableVectorizedEngine(Config.enable_vectorized_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
+        queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
 
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();

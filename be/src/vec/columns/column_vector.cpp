@@ -479,7 +479,8 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
     res_data.reserve(offsets.back());
 
     // vectorized this code to speed up
-    IColumn::Offset counts[size];
+    auto counts_uptr = std::unique_ptr<IColumn::Offset[]>(new IColumn::Offset[size]);
+    IColumn::Offset* counts = counts_uptr.get();
     for (ssize_t i = 0; i < size; ++i) {
         counts[i] = offsets[i] - offsets[i - 1];
     }

@@ -407,6 +407,10 @@ struct TReportExecStatusParams {
   17: optional i64 loaded_bytes
 
   18: optional list<Types.TErrorTabletInfo> errorTabletInfos
+
+  // 19: optional i32 fragment_id
+
+  20: optional PaloInternalService.TQueryType query_type
 }
 
 struct TFeResult {
@@ -437,6 +441,7 @@ struct TMasterOpRequest {
     19: optional map<string, string> session_variables
     20: optional bool foldConstantByBe
     21: optional map<string, string> trace_carrier
+    22: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
 }
 
 struct TColumnDefinition {
@@ -547,6 +552,8 @@ struct TStreamLoadPutRequest {
     40: optional PlanNodes.TFileCompressType compress_type
     41: optional i64 file_size // only for stream load with parquet or orc
     42: optional bool trim_double_quotes // trim double quotes for csv
+    // 43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
+    44: optional bool enable_profile
 }
 
 struct TStreamLoadPutResult {

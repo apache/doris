@@ -34,7 +34,7 @@ JSONB
 
 ### description
     JSONB (JSON Binary) datatype.
-        Use binary JSON format for storage and jsonb function to extract field.
+        Use binary JSON format for storage and jsonb function to extract field.The maximum (default) support is 1048576 bytes (1MB), and the JSONB type is also limited by the be configuration `jsonb_type_length_soft_limit_bytes`
 
 ### note
     There are some advantanges for JSONB over plain JSON STRING.

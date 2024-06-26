@@ -108,7 +108,7 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(opts.file_reader->path().native(),
-                                         opts.page_pointer.offset);
+                                         opts.file_reader->size(), opts.page_pointer.offset);
     if (opts.use_page_cache && cache->is_cache_available(opts.type) &&
         cache->lookup(cache_key, &cache_handle, opts.type)) {
         // we find page in cache, use it
@@ -130,6 +130,14 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     if (page_size < 8) {
         return Status::Corruption("Bad page: too small size ({})", page_size);
     }
+
+    // This will cause the query to be canceled very sensitively,
+    // Expect to wait for a period of time after the memory exceeds the limit,
+    // like mem_check in the Allocator in the Apache Doris master branch
+    // if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(page_size)) {
+    //     return Status::MemoryLimitExceeded(
+    //             fmt::format("Bad page: sys memory check failed, try alloc: {}", page_size));
+    // }
 
     // hold compressed page at first, reset to decompressed page later
     std::unique_ptr<char[]> page(new char[page_size]);
@@ -166,8 +174,12 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
             return Status::Corruption("Bad page: page is compressed but codec is NO_COMPRESSION");
         }
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
-        std::unique_ptr<char[]> decompressed_page(
-                new char[footer->uncompressed_size() + footer_size + 4]);
+        auto uncompressed_size = footer->uncompressed_size() + footer_size + 4;
+        // if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(uncompressed_size)) {
+        //     return Status::MemoryLimitExceeded(fmt::format(
+        //             "Bad page: sys memory check failed, try alloc: {}", uncompressed_size));
+        // }
+        std::unique_ptr<char[]> decompressed_page(new char[uncompressed_size]);
 
         // decompress page body
         Slice compressed_body(page_slice.data, body_size);

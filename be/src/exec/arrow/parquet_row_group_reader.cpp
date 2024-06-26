@@ -173,7 +173,7 @@ Status RowGroupReader::init_filter_groups(const TupleDescriptor* tuple_desc,
                 // Column not exist in parquet file
                 continue;
             }
-            auto slot_iter = _slot_conjuncts.find(slot_id);
+            auto slot_iter = _slot_conjuncts.find(tuple_desc->slots()[slot_id]->id());
             if (slot_iter == _slot_conjuncts.end()) {
                 continue;
             }

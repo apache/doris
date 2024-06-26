@@ -318,15 +318,20 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
                                            const TypeDescriptor& type, int row,
                                            TOdbcTableType::type table_type) {
     auto extra_convert_func = [&](const std::string_view& str, const bool& is_date) -> void {
-        if (table_type != TOdbcTableType::ORACLE && table_type != TOdbcTableType::SAP_HANA) {
-            fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
-        } else {
+        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::SAP_HANA) {
             //if is ORACLE and date type, insert into need convert
             if (is_date) {
                 fmt::format_to(_insert_stmt_buffer, "to_date('{}','yyyy-mm-dd')", str);
             } else {
                 fmt::format_to(_insert_stmt_buffer, "to_date('{}','yyyy-mm-dd hh24:mi:ss')", str);
             }
+        } else if (table_type == TOdbcTableType::POSTGRESQL) {
+            fmt::format_to(_insert_stmt_buffer, "'{}'::date", str);
+        } else if (table_type == TOdbcTableType::SQLSERVER) {
+            // Values in sqlserver should be enclosed by single quotes
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+        } else {
+            fmt::format_to(_insert_stmt_buffer, "\"{}\"", str);
         }
     };
     const vectorized::IColumn* column = column_ptr;
@@ -416,7 +421,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         // TODO(zhangstar333): check array data type of postgresql
         // for oracle/pg database string must be '
         if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL ||
-            table_type == TOdbcTableType::SAP_HANA) {
+            table_type == TOdbcTableType::SAP_HANA || table_type == TOdbcTableType::MYSQL ||
+            table_type == TOdbcTableType::CLICKHOUSE || table_type == TOdbcTableType::SQLSERVER) {
             fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
         } else {
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", fmt::basic_string_view(item, size));
