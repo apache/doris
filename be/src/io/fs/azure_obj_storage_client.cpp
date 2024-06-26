@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <azure/core/http/http.hpp>
+#include <azure/core/http/http_status_code.hpp>
 #include <azure/core/io/body_stream.hpp>
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
@@ -60,8 +61,10 @@ ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOption
     try {
         f();
     } catch (Azure::Core::RequestFailedException& e) {
-        auto msg = fmt::format("Azure request failed because {}, error msg {}, path msg {}",
-                               e.what(), e.Message, wrap_object_storage_path_msg(opts));
+        auto msg = fmt::format(
+                "Azure request failed because {}, error msg {}, http code {}, path msg {}",
+                e.what(), e.Message, static_cast<int>(e.StatusCode),
+                wrap_object_storage_path_msg(opts));
         LOG_WARNING(msg);
         return {.status = convert_to_obj_response(Status::InternalError<false>(std::move(msg))),
                 .http_code = static_cast<int>(e.StatusCode),
@@ -99,10 +102,12 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         Azure::Core::IO::MemoryBodyStream memory_body(
                 reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
         // The blockId must be base64 encoded
-        auto resp = client.StageBlock(base64_encode_part_num(part_num), memory_body);
+        client.StageBlock(base64_encode_part_num(part_num), memory_body);
     } catch (Azure::Core::RequestFailedException& e) {
-        auto msg = fmt::format("Azure request failed because {}, error msg {}, path msg {}",
-                               e.what(), e.Message, wrap_object_storage_path_msg(opts));
+        auto msg = fmt::format(
+                "Azure request failed because {}, error msg {}, http code {}, path msg {}",
+                e.what(), e.Message, static_cast<int>(e.StatusCode),
+                wrap_object_storage_path_msg(opts));
         LOG_WARNING(msg);
         // clang-format off
         return {
@@ -142,8 +147,10 @@ ObjectStorageHeadResponse AzureObjStorageClient::head_object(const ObjectStorage
                              .request_id = std::move(e.RequestId)},
             };
         }
-        auto msg = fmt::format("Failed to head azure blob due to {}, path msg {}", e.Message,
-                               wrap_object_storage_path_msg(opts));
+        auto msg = fmt::format(
+                "Azure request failed because {}, error msg {}, http code {}, path msg {}",
+                e.what(), e.Message, static_cast<int>(e.StatusCode),
+                wrap_object_storage_path_msg(opts));
         return ObjectStorageHeadResponse {
                 .resp = {.status = convert_to_obj_response(
                                  Status::InternalError<false>(std::move(msg))),
