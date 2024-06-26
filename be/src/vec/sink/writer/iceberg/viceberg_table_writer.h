@@ -41,7 +41,7 @@ struct TypeDescriptor;
 namespace vectorized {
 
 class IColumn;
-class VIcebergPartitionWriter;
+class IPartitionWriter;
 struct ColumnWithTypeAndName;
 
 class VIcebergTableWriter final : public AsyncResultWriter {
@@ -50,7 +50,7 @@ public:
 
     ~VIcebergTableWriter() = default;
 
-    Status init_properties(ObjectPool* pool);
+    Status init_properties(ObjectPool* pool, const RowDescriptor& row_desc);
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
@@ -96,11 +96,12 @@ private:
     std::string _escape(const std::string& path);
     std::vector<std::string> _partition_values(const doris::iceberg::StructLike& data);
 
-    std::shared_ptr<VIcebergPartitionWriter> _create_partition_writer(
-            vectorized::Block& block, int position, const std::string* file_name = nullptr,
-            int file_name_index = 0);
+    std::shared_ptr<IPartitionWriter> _create_partition_writer(
+            vectorized::Block& block, int position, Block* transformed_block = nullptr,
+            const std::string* file_name = nullptr, int file_name_index = 0);
 
-    std::optional<PartitionData> _get_partition_data(vectorized::Block& block, int position);
+    std::optional<PartitionData> _get_partition_data(vectorized::Block* transformed_block,
+                                                     int position);
 
     std::any _get_iceberg_partition_value(const TypeDescriptor& type_desc,
                                           const ColumnWithTypeAndName& partition_column,
@@ -113,6 +114,8 @@ private:
 
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
+    ObjectPool* _pool = nullptr;
+    const RowDescriptor* _row_desc = nullptr;
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
 
@@ -122,12 +125,9 @@ private:
     std::set<size_t> _non_write_columns_indices;
     std::vector<IcebergPartitionColumn> _iceberg_partition_columns;
 
-    std::unordered_map<std::string, std::shared_ptr<VIcebergPartitionWriter>>
-            _partitions_to_writers;
+    std::unordered_map<std::string, std::shared_ptr<IPartitionWriter>> _partitions_to_writers;
 
     VExprContextSPtrs _write_output_vexpr_ctxs;
-
-    Block _transformed_block;
 
     size_t _row_count = 0;
 
