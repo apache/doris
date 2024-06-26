@@ -32,10 +32,7 @@ import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
-<<<<<<< HEAD
 import org.apache.doris.thrift.TInvertedIndexStorageFormat;
-=======
->>>>>>> 902d156cfc (support v2 and log)
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
