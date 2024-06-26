@@ -467,6 +467,14 @@ Status VRowDistribution::generate_rows_distribution(
                                                                 row_part_tablet_ids);
     }
 
+    if (block->columns() != input_block.columns()) {
+        std::vector<int> column_offset;
+        for (int i = 0; i < input_block.columns(); i++) {
+            column_offset.push_back(i);
+        }
+        block = Block::create_shared(block->copy_block(column_offset));
+    }
+
     filtered_rows = _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() -
                     prev_filtered_rows;
     return st;
