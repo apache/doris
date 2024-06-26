@@ -1866,10 +1866,13 @@ public class TabletScheduler extends MasterDaemon {
      * If task is timeout, remove the tablet.
      */
     public void handleRunningTablets() {
+        Set<Long> aliveBeIds = Sets.newHashSet(Env.getCurrentSystemInfo().getAllBackendIds(true));
         // 1. remove the tablet ctx if timeout
         List<TabletSchedCtx> cancelTablets = Lists.newArrayList();
         synchronized (this) {
             for (TabletSchedCtx tabletCtx : runningTablets.values()) {
+                long srcBeId = tabletCtx.getSrcBackendId();
+                long destBeId = tabletCtx.getDestBackendId();
                 if (Config.disable_tablet_scheduler) {
                     tabletCtx.setErrMsg("tablet scheduler is disabled");
                     cancelTablets.add(tabletCtx);
@@ -1880,6 +1883,12 @@ public class TabletScheduler extends MasterDaemon {
                     tabletCtx.setErrMsg("timeout");
                     cancelTablets.add(tabletCtx);
                     stat.counterCloneTaskTimeout.incrementAndGet();
+                } else if (destBeId > 0 && !aliveBeIds.contains(destBeId)) {
+                    tabletCtx.setErrMsg("dest be " + destBeId + " is dead");
+                    cancelTablets.add(tabletCtx);
+                } else if (srcBeId > 0 && !aliveBeIds.contains(srcBeId)) {
+                    tabletCtx.setErrMsg("src be " + srcBeId + " is dead");
+                    cancelTablets.add(tabletCtx);
                 }
             }
         }
