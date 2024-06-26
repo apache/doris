@@ -58,10 +58,15 @@ public class Profile {
     private final String name;
     private SummaryProfile summaryProfile;
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
-    private boolean isFinished;
+    private boolean isFinished = false;
     private Map<Integer, String> planNodeMap;
 
     private int profileLevel = 3;
+
+    // The constructor is for UT usage
+    public Profile(String name) {
+        this.name = name;
+    }
 
     public Profile(String name, boolean isEnable, int profileLevel) {
         this.name = name;
@@ -198,5 +203,19 @@ public class Profile {
         RuntimeProfile rootProfile = composeRootProfile();
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
         return gson.toJson(rootProfile.toBrief());
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    // If there is no execution profile, it will be regarded as completed.
+    public boolean isComplete() {
+        return this.executionProfiles.stream().allMatch(ExecutionProfile::isCompleted);
+    }
+
+    // For UT
+    public void setSummaryProfile(SummaryProfile summaryProfile) {
+        this.summaryProfile = summaryProfile;
     }
 }

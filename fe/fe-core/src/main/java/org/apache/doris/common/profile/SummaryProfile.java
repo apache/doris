@@ -147,7 +147,7 @@ public class SummaryProfile {
             WRITE_RESULT_TIME,
             DORIS_VERSION,
             IS_NEREIDS,
-                    IS_CACHED,
+            IS_CACHED,
             TOTAL_INSTANCES_NUM,
             INSTANCES_NUM_PER_BE,
             PARALLEL_FRAGMENT_EXEC_INSTANCE,
@@ -276,6 +276,18 @@ public class SummaryProfile {
         }
         for (String key : EXECUTION_SUMMARY_KEYS) {
             executionSummaryProfile.addInfoString(key, "N/A");
+        }
+    }
+
+    // This method is for UT usage
+    public void fuzzyInit() {
+        for (String key : SUMMARY_KEYS) {
+            String randomId = String.valueOf(TimeUtils.getStartTimeMs());
+            summaryProfile.addInfoString(key, randomId);
+        }
+        for (String key : EXECUTION_SUMMARY_KEYS) {
+            String randomId = String.valueOf(TimeUtils.getStartTimeMs());
+            executionSummaryProfile.addInfoString(key, randomId);
         }
     }
 
