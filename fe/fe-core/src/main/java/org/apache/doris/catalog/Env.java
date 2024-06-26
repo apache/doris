@@ -3366,7 +3366,7 @@ public class Env {
 
         // inverted index storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
-        sb.append(olapTable.getInvertedIndexStorageFormat()).append("\"");
+        sb.append(olapTable.getInvertedIndexFileStorageFormat()).append("\"");
 
         // compression type
         if (olapTable.getCompressionType() != TCompressionType.LZ4F) {

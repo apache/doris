@@ -1326,7 +1326,7 @@ public class RestoreJob extends AbstractJob {
                             localTbl.storeRowColumn(),
                             binlogConfig, objectPool,
                             localTbl.rowStorePageSize());
-                    task.setInvertedIndexStorageFormat(localTbl.getInvertedIndexStorageFormat());
+                    task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
                         // ensure this replica is bound to the same backend disk as the origin table's replica.

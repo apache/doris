@@ -26,7 +26,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -79,7 +79,7 @@ public class TableProperty implements Writable {
      */
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
-    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.DEFAULT;
+    private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = TInvertedIndexFileStorageFormat.DEFAULT;
 
     private TCompressionType compressionType = TCompressionType.LZ4F;
 
@@ -468,10 +468,10 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    public TableProperty buildInvertedIndexStorageFormat() {
-        invertedIndexStorageFormat = TInvertedIndexStorageFormat.valueOf(properties.getOrDefault(
+    public TableProperty buildInvertedIndexFileStorageFormat() {
+        invertedIndexFileStorageFormat = TInvertedIndexFileStorageFormat.valueOf(properties.getOrDefault(
                 PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
-                TInvertedIndexStorageFormat.DEFAULT.name()));
+                TInvertedIndexFileStorageFormat.DEFAULT.name()));
         return this;
     }
 
@@ -538,8 +538,8 @@ public class TableProperty implements Writable {
         return storageFormat;
     }
 
-    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
-        return invertedIndexStorageFormat;
+    public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormat() {
+        return invertedIndexFileStorageFormat;
     }
 
     public DataSortInfo getDataSortInfo() {
@@ -632,7 +632,7 @@ public class TableProperty implements Writable {
                 .buildMinLoadReplicaNum()
                 .buildStorageMedium()
                 .buildStorageFormat()
-                .buildInvertedIndexStorageFormat()
+                .buildInvertedIndexFileStorageFormat()
                 .buildDataSortInfo()
                 .buildCompressionType()
                 .buildStoragePolicy()

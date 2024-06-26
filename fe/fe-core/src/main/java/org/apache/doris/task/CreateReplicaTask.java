@@ -31,6 +31,7 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TStatusCode;
@@ -92,7 +93,7 @@ public class CreateReplicaTask extends AgentTask {
     // TODO should unify the naming of v1(alpha rowset), v2(beta rowset), it is very confused to read code
     private TStorageFormat storageFormat = TStorageFormat.V2;
 
-    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.V1;
+    private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = TInvertedIndexFileStorageFormat.V2;
 
     // true if this task is created by recover request(See comment of Config.recover_with_empty_tablet)
     private boolean isRecoverTask = false;
@@ -262,8 +263,8 @@ public class CreateReplicaTask extends AgentTask {
         this.storageFormat = storageFormat;
     }
 
-    public void setInvertedIndexStorageFormat(TInvertedIndexStorageFormat invertedIndexStorageFormat) {
-        this.invertedIndexStorageFormat = invertedIndexStorageFormat;
+    public void setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
+        this.invertedIndexFileStorageFormat = invertedIndexFileStorageFormat;
     }
 
     public void setClusterKeyIndexes(List<Integer> clusterKeyIndexes) {
@@ -380,8 +381,19 @@ public class CreateReplicaTask extends AgentTask {
             createTabletReq.setStorageFormat(storageFormat);
         }
 
-        if (invertedIndexStorageFormat != null) {
-            createTabletReq.setInvertedIndexStorageFormat(invertedIndexStorageFormat);
+        if (invertedIndexFileStorageFormat != null) {
+            createTabletReq.setInvertedIndexFileStorageFormat(invertedIndexFileStorageFormat);
+            // We will discard the "TInvertedIndexStorageFormat". Don't make any further changes here.
+            switch (invertedIndexFileStorageFormat) {
+                case V1:
+                    createTabletReq.setInvertedIndexStorageFormat(TInvertedIndexStorageFormat.V1);
+                    break;
+                case V2:
+                    createTabletReq.setInvertedIndexStorageFormat(TInvertedIndexStorageFormat.V2);
+                    break;
+                default:
+                    break;
+            }
         }
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
