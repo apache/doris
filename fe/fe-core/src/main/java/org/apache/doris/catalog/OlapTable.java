@@ -1201,6 +1201,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return null;
     }
 
+    public void setEnableDeleteOnDeletePredicate(boolean enable) {
+        getOrCreatTableProperty().setEnableDeleteOnDeletePredicate(enable);
+    }
+
+    public boolean getEnableDeleteOnDeletePredicate() {
+        return getOrCreatTableProperty().getEnableDelteOnDeletePredicate();
+    }
+
     public void setGroupCommitIntervalMs(int groupCommitInterValMs) {
         getOrCreatTableProperty().setGroupCommitIntervalMs(groupCommitInterValMs);
     }

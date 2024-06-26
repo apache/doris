@@ -2263,6 +2263,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
@@ -2276,6 +2277,18 @@ public class SchemaChangeHandler extends AlterHandler {
         int enableSingleCompaction = -1; // < 0 means don't update
         if (singleCompaction != null) {
             enableSingleCompaction = Boolean.parseBoolean(singleCompaction) ? 1 : 0;
+        }
+
+        if (enableUniqueKeyMergeOnWrite && Boolean.parseBoolean(singleCompaction)) {
+            throw new UserException(
+                    "enable_single_replica_compaction property is not supported for merge-on-write table");
+        }
+
+        String enableMowDeleteOnDeletePredicate = properties.get(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE);
+        if (!enableUniqueKeyMergeOnWrite && Boolean.getBoolean(enableMowDeleteOnDeletePredicate)) {
+            throw new UserException(
+                    "enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table");
         }
 
         String disableAutoCompactionBoolean = properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
