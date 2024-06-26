@@ -133,6 +133,6 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(logicalUnion(), any()));
+                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
     }
 }
