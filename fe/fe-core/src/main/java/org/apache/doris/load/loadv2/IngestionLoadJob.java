@@ -108,9 +108,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class BucketLoadJob extends LoadJob {
+public class IngestionLoadJob extends LoadJob {
 
-    public static final Logger LOG = LogManager.getLogger(BucketLoadJob.class);
+    public static final Logger LOG = LogManager.getLogger(IngestionLoadJob.class);
 
     private long etlStartTimestamp = -1;
 
@@ -141,13 +141,13 @@ public class BucketLoadJob extends LoadJob {
 
     private final Map<String, String> hadoopProperties = new HashMap<>();
 
-    public BucketLoadJob() {
-        super(EtlJobType.BUCKET);
+    public IngestionLoadJob() {
+        super(EtlJobType.INGESTION);
     }
 
-    public BucketLoadJob(long dbId, String label, List<String> tableNames, UserIdentity userInfo)
+    public IngestionLoadJob(long dbId, String label, List<String> tableNames, UserIdentity userInfo)
             throws LoadException {
-        super(EtlJobType.BUCKET, dbId, label);
+        super(EtlJobType.INGESTION, dbId, label);
         this.loadTableIds = getLoadTableIds(tableNames);
         this.userInfo = userInfo;
     }
