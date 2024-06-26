@@ -468,7 +468,10 @@ Status VRowDistribution::generate_rows_distribution(
     }
 
     // remove extra columns added by auto partition calc
-    block->erase_tail(input_block.columns());
+    if (_vpartition->is_auto_partition()) {
+        block->erase_tail(input_block.columns());
+    }
+
     filtered_rows = _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() -
                     prev_filtered_rows;
     return st;
