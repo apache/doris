@@ -1053,7 +1053,7 @@ suite("test_dup_schema_value_drop", "p0") {
 
 
     // Test the duplicate model by drop a value type from STRUCT
-    errorMessage = "errCode = 2, detailMessage = can not cast from origin type STRUCT<col:TINYINT,col:VARCHAR(65533),col:VARCHAR(65533)> to target type=ARRAY<INT>"
+    errorMessage = "errCode = 2, detailMessage = can not cast from origin type STRUCT<StructField ( name=col1, dataType=TINYINT, nullable=true ),StructField ( name=col2, dataType=VARCHAR(3), nullable=true ),StructField ( name=col3, dataType=VARCHAR(3), nullable=true )> to target type=ARRAY<INT>"
     expectException({
         sql initTable
         sql initTableData
