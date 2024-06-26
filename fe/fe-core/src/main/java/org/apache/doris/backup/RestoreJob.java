@@ -1810,7 +1810,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
-                                replica.updateVersionForRestore(entry.getValue());
+                                replica.updateVersionForRestore(visibleVersion);
                             }
                         }
                     }
