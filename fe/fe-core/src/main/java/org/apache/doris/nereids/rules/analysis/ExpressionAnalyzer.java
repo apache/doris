@@ -258,10 +258,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     if (tableName.isEmpty()) {
                         tableName = "table list";
                     }
-                    throw new AnalysisException("Unknown column '"
-                            + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
-                            + "' in '" + tableName + "' in "
-                            + currentPlan.getType().toString().substring("LOGICAL_".length()) + " clause");
+                    couldNotFoundColumn(unboundSlot, tableName);
                 }
                 return unboundSlot;
             case 1:
@@ -298,6 +295,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                                 .map(Expression::toString)
                                 .collect(Collectors.joining(", "))));
         }
+    }
+
+    protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
+        throw new AnalysisException("Unknown column '"
+                + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
+                + "' in '" + tableName + "' in "
+                + currentPlan.getType().toString().substring("LOGICAL_".length()) + " clause");
     }
 
     @Override
@@ -714,17 +718,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
     }
 
-    private void checkBoundLambda(Expression lambdaFunction, List<String> argumentNames) {
-        lambdaFunction.foreachUp(e -> {
-            if (e instanceof UnboundSlot) {
-                UnboundSlot unboundSlot = (UnboundSlot) e;
-                throw new AnalysisException("Unknown lambda slot '"
-                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
-                        + " in lambda arguments" + argumentNames);
-            }
-        });
-    }
-
     private UnboundFunction bindHighOrderFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
         int childrenSize = unboundFunction.children().size();
         List<Expression> subChildren = new ArrayList<>();
@@ -737,16 +730,21 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Expression lambdaFunction = lambda.getLambdaFunction();
         List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(subChildren);
 
-        // 1.bindSlot
         List<Slot> boundedSlots = arrayItemReferences.stream()
                 .map(ArrayItemReference::toSlot)
                 .collect(ImmutableList.toImmutableList());
-        lambdaFunction = new SlotBinder(new Scope(boundedSlots), context.cascadesContext,
-                true, false).bind(lambdaFunction);
-        checkBoundLambda(lambdaFunction, lambda.getLambdaArgumentNames());
 
-        // 2.bindFunction
-        lambdaFunction = lambdaFunction.accept(this, context);
+        ExpressionAnalyzer lambdaAnalyzer = new ExpressionAnalyzer(currentPlan, new Scope(boundedSlots),
+                context.cascadesContext, true, false) {
+            @Override
+            protected void couldNotFoundColumn(UnboundSlot unboundSlot, String tableName) {
+                throw new AnalysisException("Unknown lambda slot '"
+                        + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
+                        + " in lambda arguments" + lambda.getLambdaArgumentNames());
+            }
+        };
+        lambdaFunction = lambdaAnalyzer.analyze(lambdaFunction,
+                new ExpressionRewriteContext(context.cascadesContext));
 
         Lambda lambdaClosure = lambda.withLambdaFunctionArguments(lambdaFunction, arrayItemReferences);
 
