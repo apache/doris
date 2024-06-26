@@ -39,7 +39,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 
 /**
  * compute functions in FE.
@@ -230,6 +232,12 @@ public class FEFunctions {
         return new StringLiteral(result);
     }
 
+    @FEFunction(name = "date_format", argTypes = { "DATE", "VARCHAR" }, returnType = "VARCHAR")
+    public static StringLiteral dateFormatDate(LiteralExpr date, StringLiteral fmtLiteral) throws AnalysisException {
+        String result = ((DateLiteral) date).dateFormat(fmtLiteral.getStringValue());
+        return new StringLiteral(result);
+    }
+
     @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIMEV2")
     public static DateLiteral dateParse(StringLiteral date, StringLiteral fmtLiteral) throws AnalysisException {
         DateLiteral dateLiteral = new DateLiteral();
@@ -350,6 +358,25 @@ public class FEFunctions {
     @FEFunction(name = "day", argTypes = { "DATETIME" }, returnType = "TINYINT")
     public static IntLiteral day(LiteralExpr arg) throws AnalysisException {
         return new IntLiteral(((DateLiteral) arg).getDay(), Type.INT);
+    }
+
+    @FEFunction(name = "last_day", argTypes = { "DATETIMEV2" }, returnType = "DATEV2")
+    public static DateLiteral lastDayDateV2(LiteralExpr date) throws AnalysisException {
+        DateLiteral dateLiteral = ((DateLiteral) date);
+        LocalDate lDate = LocalDate.parse(dateLiteral.getStringValue());
+        YearMonth yearMonth = YearMonth.from(lDate);
+        int lastDay = yearMonth.lengthOfMonth();
+        return new DateLiteral(dateLiteral.getYear(), dateLiteral.getMonth(), (long) lastDay, Type.DATEV2);
+    }
+
+    @FEFunction(name = "last_day", argTypes = { "DATETIME" }, returnType = "DATE")
+    public static DateLiteral lastDay(LiteralExpr date) throws AnalysisException {
+        DateLiteral dateLiteral = ((DateLiteral) date);
+        LocalDateTime monthFitstDay = LocalDateTime.of((int) dateLiteral.getYear(), (int) dateLiteral.getMonth(),
+                1, 0, 0, 0);
+        LocalDateTime nextMonthFirstDay = monthFitstDay.plusMonths(1);
+        return new DateLiteral(nextMonthFirstDay.getYear(), nextMonthFirstDay.getMonthValue(),
+                nextMonthFirstDay.getDayOfMonth(), Type.DATE);
     }
 
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")
