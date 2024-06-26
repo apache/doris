@@ -23,7 +23,7 @@
 #include "io/fs/path.h"
 namespace doris {
 class Status;
-class S3ClientConf;
+struct S3ClientConf;
 namespace io {
 
 // Names are in lexico order.
