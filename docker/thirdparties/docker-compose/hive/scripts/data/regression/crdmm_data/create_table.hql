@@ -154,7 +154,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
 LOCATION
-  '/user/doris/suites/test_external_credit_data/crdmm_data'
+  '/user/doris/suites/regression/crdmm_data/'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1685331029');
 
