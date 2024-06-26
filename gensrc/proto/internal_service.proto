@@ -24,6 +24,7 @@ option java_package = "org.apache.doris.proto";
 import "data.proto";
 import "descriptors.proto";
 import "types.proto";
+import "olap_common.proto";
 import "olap_file.proto";
 
 option cc_generic_services = true;
@@ -888,11 +889,6 @@ message PLoadStreamResponse {
     optional bytes load_stream_profile = 4;
     repeated PTabletSchemaWithIndex tablet_schemas = 5;
     optional bool eos = 6;
-}
-
-enum FileType {
-  SEGMENT_FILE = 1;
-  INVERTED_INDEX_FILE_V2 = 2;
 }
 
 message PStreamHeader {

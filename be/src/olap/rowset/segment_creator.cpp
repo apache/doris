@@ -137,12 +137,12 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     io::FileWriterPtr segment_file_writer;
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
-    io::FileWriterPtr inverted_file_v2_writer;
+    io::FileWriterPtr inverted_file_writer;
     if (_context.tablet_schema->has_inverted_index() &&
         _context.tablet_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2) {
-        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, inverted_file_v2_writer,
-                                                             FileType::INVERTED_INDEX_FILE_V2));
+        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, inverted_file_writer,
+                                                             FileType::INVERTED_INDEX_FILE));
     }
 
     segment_v2::SegmentWriterOptions writer_options;
@@ -156,7 +156,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     writer = std::make_unique<segment_v2::SegmentWriter>(
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
             _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context,
-            std::move(inverted_file_v2_writer));
+            std::move(inverted_file_writer));
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     auto s = writer->init();
     if (!s.ok()) {
@@ -173,12 +173,12 @@ Status SegmentFlusher::_create_segment_writer(
     io::FileWriterPtr segment_file_writer;
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
-    io::FileWriterPtr inverted_file_v2_writer;
+    io::FileWriterPtr inverted_file_writer;
     if (_context.tablet_schema->has_inverted_index() &&
         _context.tablet_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2) {
-        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, inverted_file_v2_writer,
-                                                             FileType::INVERTED_INDEX_FILE_V2));
+        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, inverted_file_writer,
+                                                             FileType::INVERTED_INDEX_FILE));
     }
 
     segment_v2::VerticalSegmentWriterOptions writer_options;
@@ -192,7 +192,7 @@ Status SegmentFlusher::_create_segment_writer(
     writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
             _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context,
-            std::move(inverted_file_v2_writer));
+            std::move(inverted_file_writer));
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
     auto s = writer->init();
     if (!s.ok()) {

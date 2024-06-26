@@ -88,7 +88,7 @@ private:
     std::unordered_map<uint32_t /*segid*/, SegmentStatisticsSharedPtr> _segment_stat_map;
     std::mutex _segment_stat_map_lock;
     std::vector<io::FileWriterPtr> _segment_file_writers;
-    std::vector<io::FileWriterPtr> _inverted_file_v2_writers;
+    std::vector<io::FileWriterPtr> _inverted_file_writers;
     QueryThreadContext _query_thread_context;
 };
 

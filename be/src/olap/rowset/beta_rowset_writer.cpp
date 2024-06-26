@@ -834,7 +834,7 @@ Status BaseBetaRowsetWriter::_create_file_writer(const std::string& path,
 Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWriterPtr& file_writer,
                                                 FileType file_type) {
     auto segment_path = _context.segment_path(segment_id);
-    if (file_type == FileType::INVERTED_INDEX_FILE_V2) {
+    if (file_type == FileType::INVERTED_INDEX_FILE) {
         std::string prefix =
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
         std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
@@ -851,13 +851,13 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
     io::FileWriterPtr segment_file_writer;
     RETURN_IF_ERROR(_create_file_writer(segment_path, segment_file_writer));
 
-    io::FileWriterPtr inverted_file_v2_writer;
+    io::FileWriterPtr inverted_file_writer;
     if (_context.tablet_schema->has_inverted_index() &&
         _context.tablet_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2) {
         auto path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(segment_path);
         auto idx_path = InvertedIndexDescriptor::get_index_file_path_v2(path_prefix);
-        RETURN_IF_ERROR(_create_file_writer(idx_path, inverted_file_v2_writer));
+        RETURN_IF_ERROR(_create_file_writer(idx_path, inverted_file_writer));
     }
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
@@ -868,7 +868,7 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             segment_file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
             _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context,
-            std::move(inverted_file_v2_writer));
+            std::move(inverted_file_writer));
     if (auto& seg_writer = _segcompaction_worker->get_file_writer();
         seg_writer != nullptr && seg_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());

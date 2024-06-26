@@ -653,16 +653,16 @@ Status Compaction::do_inverted_index_compaction() {
                                                    open_idx_file_cache);
         auto create_idx_file_writer = [this, &ctx, &i, &inverted_index_file_writers,
                                        &index_path_prefix]() -> Status {
-            io::FileWriterPtr idx_file_v2_writer;
+            io::FileWriterPtr idx_file_writer;
             if (_cur_tablet_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2) {
                 auto idx_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-                RETURN_IF_ERROR(ctx.fs()->create_file(idx_path, &idx_file_v2_writer));
+                RETURN_IF_ERROR(ctx.fs()->create_file(idx_path, &idx_file_writer));
             }
             auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                     ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), i,
                     _cur_tablet_schema->get_inverted_index_storage_format(),
-                    std::move(idx_file_v2_writer));
+                    std::move(idx_file_writer));
             inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
             return Status::OK();
         };

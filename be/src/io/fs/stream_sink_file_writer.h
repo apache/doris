@@ -18,7 +18,7 @@
 #pragma once
 
 #include <brpc/stream.h>
-#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/olap_common.pb.h>
 
 #include <queue>
 

@@ -269,14 +269,14 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         InvertedIndexDescriptor::get_index_file_path_prefix(local_segment_path(
                                 _tablet->tablet_path(), output_rowset_meta->rowset_id().to_string(),
                                 seg_ptr->id()))};
-                io::FileWriterPtr inverted_file_v2_writer;
+                io::FileWriterPtr inverted_file_writer;
                 auto idx_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-                RETURN_IF_ERROR(fs->create_file(idx_path, &inverted_file_v2_writer));
+                RETURN_IF_ERROR(fs->create_file(idx_path, &inverted_file_writer));
                 auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                         fs, std::move(index_path_prefix),
                         output_rowset_meta->rowset_id().to_string(), seg_ptr->id(),
                         output_rowset_schema->get_inverted_index_storage_format(),
-                        std::move(inverted_file_v2_writer));
+                        std::move(inverted_file_writer));
                 RETURN_IF_ERROR(inverted_index_file_writer->initialize(dirs));
                 // create inverted index writer
                 for (auto& index_meta : _dropped_inverted_indexes) {
@@ -318,7 +318,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             _olap_data_convertor->reserve(_alter_inverted_indexes.size());
 
             std::unique_ptr<InvertedIndexFileWriter> inverted_index_file_writer = nullptr;
-            io::FileWriterPtr inverted_file_v2_writer;
+            io::FileWriterPtr inverted_file_writer;
             if (output_rowset_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2) {
                 auto idx_file_reader_iter = _inverted_index_file_readers.find(
@@ -331,17 +331,17 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 auto dirs = DORIS_TRY(idx_file_reader_iter->second->get_all_directories());
 
                 auto idx_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-                RETURN_IF_ERROR(fs->create_file(idx_path, &inverted_file_v2_writer));
+                RETURN_IF_ERROR(fs->create_file(idx_path, &inverted_file_writer));
                 inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
                         seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format(),
-                        std::move(inverted_file_v2_writer));
+                        std::move(inverted_file_writer));
                 RETURN_IF_ERROR(inverted_index_file_writer->initialize(dirs));
             } else {
                 inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
                         seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format(),
-                        std::move(inverted_file_v2_writer));
+                        std::move(inverted_file_writer));
             }
             // create inverted index writer
             for (auto inverted_index : _alter_inverted_indexes) {

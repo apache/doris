@@ -188,13 +188,13 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
         return st;
     }
 
-    io::FileWriterPtr inverted_file_v2_writer;
+    io::FileWriterPtr inverted_file_writer;
     if (context.tablet_schema->has_inverted_index() &&
         context.tablet_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2) {
         auto path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(segment_path);
         auto idx_path = InvertedIndexDescriptor::get_index_file_path_v2(path_prefix);
-        Status st = fs.create_file(idx_path, &inverted_file_v2_writer);
+        Status st = fs.create_file(idx_path, &inverted_file_writer);
         if (!st.ok()) {
             LOG(WARNING) << "failed to create inverted idx file. idx_path=" << idx_path
                          << ", err: " << st;
@@ -209,7 +209,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             segment_file_writer.get(), seg_id, context.tablet_schema, context.tablet,
             context.data_dir, context.max_rows_per_segment, writer_options, nullptr,
-            std::move(inverted_file_v2_writer));
+            std::move(inverted_file_writer));
     RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(segment_file_writer)));
 
     auto s = (*writer)->init(column_ids, is_key);

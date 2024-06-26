@@ -145,7 +145,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         g_load_stream_flush_running_threads << -1;
         auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
         if (eos && st.ok()) {
-            if (file_type == FileType::INVERTED_INDEX_FILE_V2) {
+            if (file_type == FileType::INVERTED_INDEX_FILE) {
                 st = _load_stream_writer->close_inverted_index(new_segid);
             } else {
                 st = _load_stream_writer->close_segment(new_segid);

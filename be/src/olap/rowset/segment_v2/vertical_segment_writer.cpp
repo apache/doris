@@ -85,7 +85,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              DataDir* data_dir, uint32_t max_row_per_segment,
                                              const VerticalSegmentWriterOptions& opts,
                                              std::shared_ptr<MowContext> mow_context,
-                                             io::FileWriterPtr inverted_file_v2_writer)
+                                             io::FileWriterPtr inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
@@ -117,7 +117,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                         _opts.rowset_ctx->segment_path(segment_id))},
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format(),
-                std::move(inverted_file_v2_writer));
+                std::move(inverted_file_writer));
     }
 }
 
