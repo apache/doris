@@ -61,10 +61,6 @@ public:
     void commit_txn(::google::protobuf::RpcController* controller, const CommitTxnRequest* request,
                     CommitTxnResponse* response, ::google::protobuf::Closure* done) override;
 
-    void commit_txn_with_sub_txn(::google::protobuf::RpcController* controller,
-                                 const CommitTxnRequest* request, CommitTxnResponse* response,
-                                 ::google::protobuf::Closure* done);
-
     void abort_txn(::google::protobuf::RpcController* controller, const AbortTxnRequest* request,
                    AbortTxnResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -279,6 +275,18 @@ private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
             std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
+
+    void commit_txn_immediately(
+            ::google::protobuf::RpcController* controller, const CommitTxnRequest* request,
+            CommitTxnResponse* response, ::google::protobuf::Closure* done, MetaServiceCode& code,
+            std::string& msg, std::stringstream& ss, const std::string& instance_id, int64_t db_id,
+            std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta);
+
+    void commit_txn_with_sub_txn(::google::protobuf::RpcController* controller,
+                                 const CommitTxnRequest* request, CommitTxnResponse* response,
+                                 ::google::protobuf::Closure* done, MetaServiceCode& code,
+                                 std::string& msg, std::stringstream& ss,
+                                 const std::string& instance_id);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
