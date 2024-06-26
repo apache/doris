@@ -15,15 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_viewfs_hive", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_viewfs_hive", "p0,external,hive,external_docker,external_docker_hive") {
 
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
-        String catalog_name = "test_viewfs_hive"
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (!"true".equalsIgnoreCase(enabled)) {
+        return;
+    }
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String catalog_name = "${hivePrefix}_test_viewfs_hive"
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String hdfsPort = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+        String nameNodeHost = externalEnvIp
 
         sql """drop catalog if exists ${catalog_name};"""
 
@@ -31,8 +34,8 @@ suite("test_viewfs_hive", "p2,external,hive,external_remote,external_remote_hive
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hadoop.username' = 'hadoop',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
-                'fs.viewfs.mounttable.my-cluster.link./ns1' = 'hdfs://${nameNodeHost}:${hdfsPort}/',
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
+                'fs.viewfs.mounttable.my-cluster.link./ns1' = 'hdfs://${externalEnvIp}:${hdfsPort}/',
                 'fs.viewfs.mounttable.my-cluster.homedir' = '/ns1',
                 'fs.defaultFS' = 'viewfs://my-cluster'
             );
@@ -54,6 +57,8 @@ suite("test_viewfs_hive", "p2,external,hive,external_remote,external_remote_hive
         // The location of partition table contains hdfs and viewfs locations partitions.
         qt_viewfs_mixed_partition1 """ select * from test_viewfs_mixed_partition order by id""" 
         qt_viewfs_mixed_partition2 """ select * from test_viewfs_mixed_partition where part_col = 20230101 order by id""" 
-        qt_viewfs_mixed_partition3 """ select * from test_viewfs_mixed_partition where part_col = 20230201 order by id""" 
+        qt_viewfs_mixed_partition3 """ select * from test_viewfs_mixed_partition where part_col = 20230201 order by id"""
+
+        sql """drop catalog if exists ${catalog_name};"""
     }
 }
