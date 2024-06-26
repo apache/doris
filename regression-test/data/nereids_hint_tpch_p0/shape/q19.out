@@ -15,7 +15,7 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[part]
 
 Hint log:
-Used:  leading(lineitem broadcast part )
+Used: leading(lineitem broadcast part ) 
 UnUsed:
 SyntaxError:
 

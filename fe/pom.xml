@@ -363,6 +363,8 @@ under the License.
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.version>202</airlift.version>
+        <azure.sdk.version>1.2.24</azure.sdk.version>
+        <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
     </properties>
     <profiles>
         <profile>
@@ -1753,6 +1755,13 @@ under the License.
                 <groupId>io.airlift</groupId>
                 <artifactId>concurrent</artifactId>
                 <version>${airlift.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.azure</groupId>
+                <artifactId>azure-sdk-bom</artifactId>
+                <version>${azure.sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>

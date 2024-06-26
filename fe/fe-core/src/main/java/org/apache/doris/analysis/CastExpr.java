@@ -120,7 +120,7 @@ public class CastExpr extends Expr {
      */
     public CastExpr(Type targetType, Expr e, Void v) {
         Preconditions.checkArgument(targetType.isValid());
-        Preconditions.checkNotNull(e);
+        Preconditions.checkNotNull(e, "cast child is null");
         opcode = TExprOpcode.CAST;
         type = targetType;
         targetTypeDef = null;
@@ -153,6 +153,10 @@ public class CastExpr extends Expr {
             Type from = getActualArgTypes(collectChildReturnTypes())[0];
             Type to = getActualType(type);
             NullableMode nullableMode = TYPE_NULLABLE_MODE.get(Pair.of(from, to));
+            // for complex type cast to jsonb we make ret is always nullable
+            if (from.isComplexType() && type.isJsonbType()) {
+                nullableMode = Function.NullableMode.ALWAYS_NULLABLE;
+            }
             Preconditions.checkState(nullableMode != null,
                     "cannot find nullable node for cast from " + from + " to " + to);
             fn = new Function(new FunctionName(getFnName(type)), Lists.newArrayList(e.type), type,

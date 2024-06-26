@@ -17,7 +17,8 @@
 
 suite("test_unique_schema_key_change_add","p0") {
      def tbName = "test_unique_schema_key_change_add"
-
+     def on_write = getRandomBoolean()
+     println String.format("current enable_unique_key_merge_on_write is : %s ",on_write)
      //Test the unique model by adding a key column
      sql """ DROP TABLE IF EXISTS ${tbName} """
      def initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
@@ -35,7 +36,7 @@ suite("test_unique_schema_key_change_add","p0") {
              "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
              "          PROPERTIES (\n" +
              "          \"replication_allocation\" = \"tag.location.default: 1\",\n" +
-             "          \"enable_unique_key_merge_on_write\" = \"true\"\n" +
+             "          \"enable_unique_key_merge_on_write\" = \"${on_write}\"\n" +
              "          );"
 
      def initTableData = "insert into ${tbName} values(123456789, 'Alice', 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +

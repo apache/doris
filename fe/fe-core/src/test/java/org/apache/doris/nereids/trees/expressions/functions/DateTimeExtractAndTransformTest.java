@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 
 import org.junit.jupiter.api.Assertions;
@@ -39,5 +40,20 @@ class DateTimeExtractAndTransformTest {
         Assertions.assertEquals(new TinyIntLiteral((byte) 52), DateTimeExtractAndTransform.week(localDateTime4, 2));
         LocalDateTime localDateTime5 = localDateTime4.plusDays(1);
         Assertions.assertEquals(new TinyIntLiteral((byte) 53), DateTimeExtractAndTransform.week(localDateTime5, 2));
+    }
+
+    @Test
+    void testYearWeekMode2Function() {
+        LocalDateTime localDateTime = LocalDateTime.of(0, 1, 1, 0, 0, 0, 0);
+        Assertions.assertEquals(new IntegerLiteral(1), DateTimeExtractAndTransform.yearWeek(localDateTime, 2));
+        LocalDateTime localDateTime2 = localDateTime.plusDays(1);
+        Assertions.assertEquals(new IntegerLiteral(1), DateTimeExtractAndTransform.yearWeek(localDateTime2, 2));
+        LocalDateTime localDateTime3 = LocalDateTime.of(0, 1, 9, 0, 0, 0, 0);
+        Assertions.assertEquals(new IntegerLiteral(2), DateTimeExtractAndTransform.yearWeek(localDateTime3, 2));
+
+        LocalDateTime localDateTime4 = LocalDateTime.of(0, 12, 30, 0, 0, 0, 0);
+        Assertions.assertEquals(new IntegerLiteral(52), DateTimeExtractAndTransform.yearWeek(localDateTime4, 2));
+        LocalDateTime localDateTime5 = localDateTime4.plusDays(1);
+        Assertions.assertEquals(new IntegerLiteral(53), DateTimeExtractAndTransform.yearWeek(localDateTime5, 2));
     }
 }

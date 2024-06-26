@@ -257,12 +257,13 @@ suite("test_table_level_compaction_policy") {
             );
     """
     sql """sync"""
-
-    test {
-        sql """
-            alter table  ${tableName} set ("enable_single_replica_compaction" = "true")
-            """
-        exception "enable_single_replica_compaction property is not supported for merge-on-write table"
+    if (!isCloudMode()) {
+        test {
+            sql """
+                alter table  ${tableName} set ("enable_single_replica_compaction" = "true")
+                """
+            exception "enable_single_replica_compaction property is not supported for merge-on-write table"
+        }
     }
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """sync"""

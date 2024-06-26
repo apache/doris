@@ -59,7 +59,7 @@ eval set -- "${OPTS}"
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg"
+    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2"
 else
     while true; do
         case "$1" in
@@ -319,6 +319,18 @@ if [[ "${RUN_HIVE2}" -eq 1 ]]; then
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+
+    # sed all s3 info in run.sh of each suite
+    find "${ROOT}/docker-compose/hive/scripts/suites" -type f -name "run.sh" | while read -r file; do
+        if [ -f "$file" ]; then
+            echo "Processing $file"
+            sed -i "s/s3Endpoint/${s3Endpoint}/g" "${file}"
+            sed -i "s/s3BucketName/${s3BucketName}/g" "${file}"
+        else
+            echo "File not found: $file"
+        fi
+    done
+
     # generate hive-2x.yaml
     export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
@@ -345,6 +357,18 @@ if [[ "${RUN_HIVE3}" -eq 1 ]]; then
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+
+    # sed all s3 info in run.sh of each suite
+    find "${ROOT}/docker-compose/hive/scripts/suites" -type f -name "run.sh" | while read -r file; do
+        if [ -f "$file" ]; then
+            echo "Processing $file"
+            sed -i "s/s3Endpoint/${s3Endpoint}/g" "${file}"
+            sed -i "s/s3BucketName/${s3BucketName}/g" "${file}"
+        else
+            echo "File not found: $file"
+        fi
+    done
+
     # generate hive-3x.yaml
     export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
@@ -368,10 +392,8 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     # iceberg
     cp "${ROOT}"/docker-compose/iceberg/iceberg.yaml.tpl "${ROOT}"/docker-compose/iceberg/iceberg.yaml
     cp "${ROOT}"/docker-compose/iceberg/entrypoint.sh.tpl "${ROOT}"/docker-compose/iceberg/entrypoint.sh
-    cp "${ROOT}"/docker-compose/iceberg/spark-defaults.conf.tpl "${ROOT}"/docker-compose/iceberg/spark-defaults.conf
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/iceberg.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/entrypoint.sh
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/spark-defaults.conf
     sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env down
     sudo rm -rf "${ROOT}"/docker-compose/iceberg/data
     if [[ "${STOP}" -ne 1 ]]; then

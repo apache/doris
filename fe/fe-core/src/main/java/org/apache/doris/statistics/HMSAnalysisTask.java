@@ -277,7 +277,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
     }
 
     @Override
-    protected void deleteNotExistPartitionStats() throws DdlException {
+    protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
         TableStatsMeta tableStats = Env.getServingEnv().getAnalysisManager().findTableStatsStatus(tbl.getId());
         if (tableStats == null) {
             return;

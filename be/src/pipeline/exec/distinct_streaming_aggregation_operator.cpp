@@ -203,8 +203,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
     _distinct_row.reserve(rows);
 
     if (!_stop_emplace_flag) {
-        RETURN_IF_CATCH_EXCEPTION(
-                _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows));
+        _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows);
     }
 
     bool mem_reuse = _parent->cast<DistinctStreamingAggOperatorX>()._make_nullable_keys.empty() &&

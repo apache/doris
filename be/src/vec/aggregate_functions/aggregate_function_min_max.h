@@ -69,6 +69,16 @@ public:
 
     constexpr static bool IsFixedLength = true;
 
+    void set_to_min_max(bool max) { value = max ? type_limit<T>::max() : type_limit<T>::min(); }
+
+    void change_if(const IColumn& column, size_t row_num, bool less) {
+        has_value = true;
+        value = less ? std::min(assert_cast<const ColumnVector<T>&>(column).get_data()[row_num],
+                                value)
+                     : std::max(assert_cast<const ColumnVector<T>&>(column).get_data()[row_num],
+                                value);
+    }
+
     void insert_result_into(IColumn& to) const {
         if (has()) {
             assert_cast<ColumnVector<T>&>(to).get_data().push_back(value);
@@ -144,28 +154,16 @@ public:
         }
     }
 
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
+    void change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
+        if (UNLIKELY(!has())) {
             change(column, row_num, arena);
-            return true;
-        } else {
-            return false;
         }
     }
 
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
+    void change_first_time(const Self& to, Arena* arena) {
+        if (UNLIKELY(!has() && to.has())) {
             change(to, arena);
-            return true;
-        } else {
-            return false;
         }
-    }
-
-    bool is_equal_to(const Self& to) const { return has() && to.value == value; }
-
-    bool is_equal_to(const IColumn& column, size_t row_num) const {
-        return has() && assert_cast<const ColumnVector<T>&>(column).get_data()[row_num] == value;
     }
 };
 
@@ -185,6 +183,16 @@ public:
     bool has() const { return has_value; }
 
     constexpr static bool IsFixedLength = true;
+
+    void set_to_min_max(bool max) { value = max ? type_limit<T>::max() : type_limit<T>::min(); }
+
+    void change_if(const IColumn& column, size_t row_num, bool less) {
+        has_value = true;
+        value = less ? std::min(assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num],
+                                value)
+                     : std::max(assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num],
+                                value);
+    }
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
@@ -261,28 +269,16 @@ public:
         }
     }
 
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
+    void change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
+        if (UNLIKELY(!has())) {
             change(column, row_num, arena);
-            return true;
-        } else {
-            return false;
         }
     }
 
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
+    void change_first_time(const Self& to, Arena* arena) {
+        if (UNLIKELY(!has() && to.has())) {
             change(to, arena);
-            return true;
-        } else {
-            return false;
         }
-    }
-
-    bool is_equal_to(const Self& to) const { return has() && to.value == value; }
-
-    bool is_equal_to(const IColumn& column, size_t row_num) const {
-        return has() && assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] == value;
     }
 };
 
@@ -436,29 +432,17 @@ public:
         }
     }
 
-    bool change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has()) {
+    void change_first_time(const IColumn& column, size_t row_num, Arena* arena) {
+        if (UNLIKELY(!has())) {
             change(column, row_num, arena);
-            return true;
-        } else {
-            return false;
         }
     }
 
-    bool change_first_time(const Self& to, Arena* arena) {
-        if (!has() && to.has()) {
+    void change_first_time(const Self& to, Arena* arena) {
+        if (UNLIKELY(!has() && to.has())) {
             change(to, arena);
-            return true;
-        } else {
-            return false;
         }
     }
-
-    bool is_equal_to(const Self& to) const {
-        return has() && to.get_string_ref() == get_string_ref();
-    }
-
-    bool is_equal_to(const IColumn& column, size_t row_num) const { return false; }
 };
 
 template <typename Data>
@@ -466,10 +450,24 @@ struct AggregateFunctionMaxData : public Data {
     using Self = AggregateFunctionMaxData;
     using Data::IsFixedLength;
 
+    AggregateFunctionMaxData() { reset(); }
+
     void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        this->change_if_greater(column, row_num, arena);
+        if constexpr (Data::IsFixedLength) {
+            this->change_if(column, row_num, false);
+        } else {
+            this->change_if_greater(column, row_num, arena);
+        }
     }
+
     void change_if_better(const Self& to, Arena* arena) { this->change_if_greater(to, arena); }
+
+    void reset() {
+        if constexpr (Data::IsFixedLength) {
+            this->set_to_min_max(false);
+        }
+        Data::reset();
+    }
 
     static const char* name() { return "max"; }
 };
@@ -479,10 +477,23 @@ struct AggregateFunctionMinData : Data {
     using Self = AggregateFunctionMinData;
     using Data::IsFixedLength;
 
+    AggregateFunctionMinData() { reset(); }
+
     void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        this->change_if_less(column, row_num, arena);
+        if constexpr (Data::IsFixedLength) {
+            this->change_if(column, row_num, true);
+        } else {
+            this->change_if_less(column, row_num, arena);
+        }
     }
     void change_if_better(const Self& to, Arena* arena) { this->change_if_less(to, arena); }
+
+    void reset() {
+        if constexpr (Data::IsFixedLength) {
+            this->set_to_min_max(true);
+        }
+        Data::reset();
+    }
 
     static const char* name() { return "min"; }
 };

@@ -86,7 +86,8 @@ public class JoinUtils {
         double memLimit = sessionVariable.getMaxExecMemByte();
         double rowsLimit = sessionVariable.getBroadcastRowCountLimit();
         double brMemlimit = sessionVariable.getBroadcastHashtableMemLimitPercentage();
-        double datasize = join.getGroupExpression().get().child(1).getStatistics().computeSize();
+        double datasize = join.getGroupExpression().get().child(1)
+                .getStatistics().computeSize(join.right().getOutput());
         double rowCount = join.getGroupExpression().get().child(1).getStatistics().getRowCount();
         return rowCount <= rowsLimit && datasize <= memLimit * brMemlimit;
     }

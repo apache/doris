@@ -179,15 +179,20 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
 }
 
 ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
-        const ObjectStoragePathOptions& opts, const ObjectCompleteMultiParts& completed_parts) {
+        const ObjectStoragePathOptions& opts,
+        const std::vector<ObjectCompleteMultiPart>& completed_parts) {
     CompleteMultipartUploadRequest complete_request;
     complete_request.WithBucket(opts.bucket).WithKey(opts.key).WithUploadId(*opts.upload_id);
 
     CompletedMultipartUpload completed_upload;
-    const auto aws_complete_parts = static_cast<const S3CompleteMultiParts&>(completed_parts);
     std::vector<CompletedPart> complete_parts;
-    std::ranges::transform(aws_complete_parts.parts, std::back_inserter(complete_parts),
-                           [](auto&& part_ptr) { return *part_ptr; });
+    std::ranges::transform(completed_parts, std::back_inserter(complete_parts),
+                           [](const ObjectCompleteMultiPart& part_ptr) {
+                               CompletedPart part;
+                               part.SetPartNumber(part_ptr.part_num);
+                               part.SetETag(part_ptr.etag);
+                               return part;
+                           });
     completed_upload.SetParts(std::move(complete_parts));
     complete_request.WithMultipartUpload(completed_upload);
 
@@ -385,6 +390,12 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
         request.SetContinuationToken(result.GetNextContinuationToken());
     } while (is_trucated);
     return {};
+}
+
+std::string S3ObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
+                                                       int64_t expiration_secs) {
+    return _client->GeneratePresignedUrl(opts.bucket, opts.key, Aws::Http::HttpMethod::HTTP_GET,
+                                         expiration_secs);
 }
 
 } // namespace doris::io

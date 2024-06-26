@@ -16,39 +16,41 @@ PhysicalResultSink
 --------------------------PhysicalOlapScan[supplier]
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey) and (orders.o_custkey = customer.c_custkey)) otherCondition=()
-------------------------------PhysicalProject
---------------------------------filter((orders.o_orderdate <= '1996-12-31') and (orders.o_orderdate >= '1995-01-01'))
-----------------------------------PhysicalOlapScan[orders]
-------------------------------NestedLoopJoin[CROSS_JOIN]
+----------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=()
+------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[lineitem]
+--------------------------------------filter((orders.o_orderdate <= '1996-12-31') and (orders.o_orderdate >= '1995-01-01'))
+----------------------------------------PhysicalOlapScan[orders]
+------------------------------------PhysicalProject
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[lineitem]
+----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------------------PhysicalProject
+--------------------------------------------filter((part.p_type = 'ECONOMY ANODIZED STEEL'))
+----------------------------------------------PhysicalOlapScan[part]
+------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = n1.n_nationkey)) otherCondition=()
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[customer]
 ------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------PhysicalProject
-----------------------------------------filter((part.p_type = 'ECONOMY ANODIZED STEEL'))
-------------------------------------------PhysicalOlapScan[part]
---------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = n1.n_nationkey)) otherCondition=()
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[customer]
---------------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN] hashCondition=((n1.n_regionkey = region.r_regionkey)) otherCondition=()
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((n1.n_regionkey = region.r_regionkey)) otherCondition=()
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[nation]
+------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[nation]
---------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------------------PhysicalProject
-------------------------------------------------filter((region.r_name = 'AMERICA'))
---------------------------------------------------PhysicalOlapScan[region]
+----------------------------------------------filter((region.r_name = 'AMERICA'))
+------------------------------------------------PhysicalOlapScan[region]
 --------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[nation]
 
 Hint log:
-Used:  leading(supplier { orders { lineitem broadcast part } { customer broadcast { n1 broadcast region } } } broadcast n2 )
-UnUsed:
+Used: leading(supplier { orders { lineitem broadcast part } { customer broadcast { n1 broadcast region } } } broadcast n2 ) 
+UnUsed: 
 SyntaxError:
 

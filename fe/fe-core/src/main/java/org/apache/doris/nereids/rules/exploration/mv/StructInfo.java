@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -607,9 +608,6 @@ public class StructInfo {
                 checkContext.setContainsTopAggregate(true);
                 checkContext.plusTopAggregateNum();
             }
-            if (aggregate.getSourceRepeat().isPresent()) {
-                return false;
-            }
             return visit(aggregate, checkContext);
         }
 
@@ -627,7 +625,8 @@ public class StructInfo {
                     || plan instanceof Join
                     || plan instanceof LogicalSort
                     || plan instanceof LogicalAggregate
-                    || plan instanceof GroupPlan) {
+                    || plan instanceof GroupPlan
+                    || plan instanceof LogicalRepeat) {
                 return doVisit(plan, checkContext);
             }
             return false;
@@ -660,7 +659,8 @@ public class StructInfo {
             if (plan instanceof Filter
                     || plan instanceof Project
                     || plan instanceof CatalogRelation
-                    || plan instanceof GroupPlan) {
+                    || plan instanceof GroupPlan
+                    || plan instanceof LogicalRepeat) {
                 return doVisit(plan, checkContext);
             }
             return false;
@@ -728,26 +728,32 @@ public class StructInfo {
 
     /**
      * Add filter on table scan according to table filter map
+     *
+     * @return Pair(Plan, Boolean) first is the added filter plan, value is the identifier that represent whether
+     *         need to add filter.
+     *         return null if add filter fail.
      */
-    public static Plan addFilterOnTableScan(Plan queryPlan, Map<BaseTableInfo, Set<String>> partitionOnOriginPlan,
-            String partitionColumn,
-            CascadesContext parentCascadesContext) {
+    public static Pair<Plan, Boolean> addFilterOnTableScan(Plan queryPlan, Map<BaseTableInfo,
+            Set<String>> partitionOnOriginPlan, String partitionColumn, CascadesContext parentCascadesContext) {
         // Firstly, construct filter form invalid partition, this filter should be added on origin plan
         PredicateAddContext predicateAddContext = new PredicateAddContext(partitionOnOriginPlan, partitionColumn);
         Plan queryPlanWithUnionFilter = queryPlan.accept(new PredicateAdder(),
                 predicateAddContext);
-        if (!predicateAddContext.isAddSuccess()) {
+        if (!predicateAddContext.isHandleSuccess()) {
             return null;
+        }
+        if (!predicateAddContext.isNeedAddFilter()) {
+            return Pair.of(queryPlan, false);
         }
         // Deep copy the plan to avoid the plan output is the same with the later union output, this may cause
         // exec by mistake
         queryPlanWithUnionFilter = new LogicalPlanDeepCopier().deepCopy(
                 (LogicalPlan) queryPlanWithUnionFilter, new DeepCopierContext());
         // rbo rewrite after adding filter on origin plan
-        return MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
+        return Pair.of(MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
-        }, queryPlanWithUnionFilter, queryPlan);
+        }, queryPlanWithUnionFilter, queryPlan), true);
     }
 
     /**

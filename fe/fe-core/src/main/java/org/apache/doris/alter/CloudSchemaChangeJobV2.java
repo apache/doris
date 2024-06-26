@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
@@ -106,6 +107,15 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
 
     @Override
     protected void postProcessShadowIndex() {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip drop shadown indexes in checking compatibility mode");
+            return;
+        }
+
+        if (Env.isCheckpointThread()) {
+            return;
+        }
+
         List<Long> shadowIdxList = indexIdMap.keySet().stream().collect(Collectors.toList());
         dropIndex(shadowIdxList);
     }
@@ -124,7 +134,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                     .dropMaterializedIndex(tableId, idxList, false);
                 break;
             } catch (Exception e) {
-                LOG.warn("tryTimes:{}, dropIndex exception:", tryTimes, e);
+                LOG.warn("drop index failed, retry times {}, dbId: {}, tableId: {}, jobId: {}, idxList: {}:",
+                        tryTimes, dbId, tableId, jobId, idxList, e);
             }
             sleepSeveralSeconds();
             tryTimes++;
@@ -214,7 +225,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                 tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                                 tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                 tbl.getTimeSeriesCompactionLevelThreshold(),
-                                tbl.disableAutoCompaction());
+                                tbl.disableAutoCompaction(),
+                                tbl.getRowStoreColumnsUniqueIds(rowStoreColumns));
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

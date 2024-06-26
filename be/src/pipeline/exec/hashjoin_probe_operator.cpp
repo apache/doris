@@ -294,37 +294,35 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     Status st;
     if (local_state._probe_index < local_state._probe_block.rows()) {
         DCHECK(local_state._has_set_need_null_map_for_probe);
-        RETURN_IF_CATCH_EXCEPTION({
-            std::visit(
-                    [&](auto&& arg, auto&& process_hashtable_ctx, auto need_null_map_for_probe,
-                        auto ignore_null) {
-                        using HashTableProbeType = std::decay_t<decltype(process_hashtable_ctx)>;
-                        if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
-                            using HashTableCtxType = std::decay_t<decltype(arg)>;
-                            if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                st = process_hashtable_ctx.template process<need_null_map_for_probe,
-                                                                            ignore_null>(
-                                        arg,
-                                        need_null_map_for_probe
-                                                ? &local_state._null_map_column->get_data()
-                                                : nullptr,
-                                        mutable_join_block, &temp_block,
-                                        local_state._probe_block.rows(), _is_mark_join,
-                                        _have_other_join_conjunct);
-                                local_state._mem_tracker->set_consumption(
-                                        arg.serialized_keys_size(false));
-                            } else {
-                                st = Status::InternalError("uninited hash table");
-                            }
+        std::visit(
+                [&](auto&& arg, auto&& process_hashtable_ctx, auto need_null_map_for_probe,
+                    auto ignore_null) {
+                    using HashTableProbeType = std::decay_t<decltype(process_hashtable_ctx)>;
+                    if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
+                        using HashTableCtxType = std::decay_t<decltype(arg)>;
+                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                            st = process_hashtable_ctx
+                                         .template process<need_null_map_for_probe, ignore_null>(
+                                                 arg,
+                                                 need_null_map_for_probe
+                                                         ? &local_state._null_map_column->get_data()
+                                                         : nullptr,
+                                                 mutable_join_block, &temp_block,
+                                                 local_state._probe_block.rows(), _is_mark_join,
+                                                 _have_other_join_conjunct);
+                            local_state._mem_tracker->set_consumption(
+                                    arg.serialized_keys_size(false));
                         } else {
-                            st = Status::InternalError("uninited hash table probe");
+                            st = Status::InternalError("uninited hash table");
                         }
-                    },
-                    *local_state._shared_state->hash_table_variants,
-                    *local_state._process_hashtable_ctx_variants,
-                    vectorized::make_bool_variant(local_state._need_null_map_for_probe),
-                    vectorized::make_bool_variant(local_state._shared_state->probe_ignore_null));
-        });
+                    } else {
+                        st = Status::InternalError("uninited hash table probe");
+                    }
+                },
+                *local_state._shared_state->hash_table_variants,
+                *local_state._process_hashtable_ctx_variants,
+                vectorized::make_bool_variant(local_state._need_null_map_for_probe),
+                vectorized::make_bool_variant(local_state._shared_state->probe_ignore_null));
     } else if (local_state._probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
             std::visit(
@@ -457,7 +455,7 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
                                                                temp_block->columns()));
     }
 
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_output_block(temp_block, output_block, false));
+    RETURN_IF_ERROR(_build_output_block(temp_block, output_block, false));
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();
@@ -529,13 +527,17 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.left, ctx));
         _probe_expr_ctxs.push_back(ctx);
         bool null_aware = eq_join_conjunct.__isset.opcode &&
-                          eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+                          eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL &&
+                          (eq_join_conjunct.right.nodes[0].is_nullable ||
+                           eq_join_conjunct.left.nodes[0].is_nullable);
         probe_not_ignore_null[conjuncts_index] =
                 null_aware ||
                 (_probe_expr_ctxs.back()->root()->is_nullable() && probe_dispose_null);
         conjuncts_index++;
         const bool is_null_safe_equal = eq_join_conjunct.__isset.opcode &&
-                                        eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+                                        (eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL) &&
+                                        (eq_join_conjunct.right.nodes[0].is_nullable ||
+                                         eq_join_conjunct.left.nodes[0].is_nullable);
 
         /// If it's right anti join,
         /// we should convert the probe to nullable if the build side is nullable.

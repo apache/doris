@@ -64,6 +64,7 @@ import java.util.Calendar;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
@@ -419,10 +420,27 @@ public class DynamicPartitionUtil {
         return false;
     }
 
+    public static void checkDynamicPartitionPropertyKeysValid(Map<String, String> properties) throws DdlException {
+        if (properties == null) {
+            return;
+        }
+        List<String> invalidDynamicPartitionProperties = new LinkedList<>();
+        for (String key : properties.keySet()) {
+            if (key.startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
+                    && !DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTIES.contains(key)) {
+                invalidDynamicPartitionProperties.add(key);
+            }
+        }
+        if (!invalidDynamicPartitionProperties.isEmpty()) {
+            throw new DdlException("Invalid dynamic partition properties: "
+                    + String.join(", ", invalidDynamicPartitionProperties));
+        }
+    }
+
     // Check if all requried properties has been set.
     // And also check all optional properties, if not set, set them to default value.
     public static boolean checkInputDynamicPartitionProperties(Map<String, String> properties,
-            OlapTable olapTable) throws DdlException {
+                                                               OlapTable olapTable) throws DdlException {
         if (properties == null || properties.isEmpty()) {
             return false;
         }

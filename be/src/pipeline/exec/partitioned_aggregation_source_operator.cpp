@@ -23,6 +23,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/fragment_mgr.h"
 #include "util/runtime_profile.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -245,7 +246,15 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
                 while (!eos && !state->is_cancelled()) {
                     {
                         SCOPED_TIMER(Base::_spill_recover_time);
-                        _status = stream->read_next_block_sync(&block, &eos);
+                        DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::recover_spill_data",
+                                        {
+                                            _status = Status::Error<INTERNAL_ERROR>(
+                                                    "fault_inject partitioned_agg_source "
+                                                    "recover_spill_data failed");
+                                        });
+                        if (_status.ok()) {
+                            _status = stream->read_next_block_sync(&block, &eos);
+                        }
                     }
                     RETURN_IF_ERROR(_status);
 
@@ -280,6 +289,13 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
                       << " execution_context released, maybe query was cancelled.";
             return;
         }
+        DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::merge_spill_data_cancel", {
+            auto st = Status::InternalError(
+                    "fault_inject partitioned_agg_source "
+                    "merge spill data canceled");
+            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, st);
+            return;
+        });
 
         auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return spill_func(); }); }();
 
@@ -288,9 +304,11 @@ Status PartitionedAggLocalState::initiate_merge_spill_partition_agg_data(Runtime
         }
     };
 
-    RETURN_IF_ERROR(
-            ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
-                    exception_catch_func));
-    return Status::OK();
+    DBUG_EXECUTE_IF("fault_inject::partitioned_agg_source::submit_func", {
+        return Status::Error<INTERNAL_ERROR>(
+                "fault_inject partitioned_agg_source submit_func failed");
+    });
+    return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
+            exception_catch_func);
 }
 } // namespace doris::pipeline

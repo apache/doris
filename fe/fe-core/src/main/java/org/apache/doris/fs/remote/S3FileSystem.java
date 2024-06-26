@@ -58,16 +58,20 @@ public class S3FileSystem extends ObjFileSystem {
     @Override
     protected FileSystem nativeFileSystem(String remotePath) throws UserException {
         if (dfsFileSystem == null) {
-            Configuration conf = new Configuration();
-            System.setProperty("com.amazonaws.services.s3.enableV4", "true");
-            // the entry value in properties may be null, and
-            PropertyConverter.convertToHadoopFSProperties(properties).entrySet().stream()
-                    .filter(entry -> entry.getKey() != null && entry.getValue() != null)
-                    .forEach(entry -> conf.set(entry.getKey(), entry.getValue()));
-            try {
-                dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
-            } catch (Exception e) {
-                throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
+            synchronized (this) {
+                if (dfsFileSystem == null) {
+                    Configuration conf = new Configuration();
+                    System.setProperty("com.amazonaws.services.s3.enableV4", "true");
+                    // the entry value in properties may be null, and
+                    PropertyConverter.convertToHadoopFSProperties(properties).entrySet().stream()
+                            .filter(entry -> entry.getKey() != null && entry.getValue() != null)
+                            .forEach(entry -> conf.set(entry.getKey(), entry.getValue()));
+                    try {
+                        dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
+                    } catch (Exception e) {
+                        throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
+                    }
+                }
             }
         }
         return dfsFileSystem;

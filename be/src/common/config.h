@@ -304,6 +304,9 @@ DECLARE_mInt32(thrift_connect_timeout_seconds);
 DECLARE_mInt32(fetch_rpc_timeout_seconds);
 // default thrift client retry interval (in milliseconds)
 DECLARE_mInt64(thrift_client_retry_interval_ms);
+// max message size of thrift request
+// default: 100 * 1024 * 1024
+DECLARE_mInt64(thrift_max_message_size);
 // max row count number for single scan range, used in segmentv1
 DECLARE_mInt32(doris_scan_range_row_count);
 // max bytes number for single scan range, used in segmentv2
@@ -1042,6 +1045,8 @@ DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
+// only cache index pages (prerequisite: enable_file_cache = true)
+DECLARE_Bool(file_cache_index_only);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
@@ -1175,6 +1180,9 @@ DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
+// USED FOR DEBUGING
+// core directly if the compaction found there's duplicate key on mow table
+DECLARE_mBool(enable_mow_compaction_correctness_check_core);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
 // When the number of missing versions is more than this value, do not directly
@@ -1380,6 +1388,9 @@ DECLARE_mBool(skip_loading_stale_rowset_meta);
 // Disable this option will no longer use file to record log.
 // Only works when starting BE with --console.
 DECLARE_Bool(enable_file_logger);
+
+// The minimum row group size when exporting Parquet files.
+DECLARE_Int64(min_row_group_size);
 
 #ifdef BE_TEST
 // test s3

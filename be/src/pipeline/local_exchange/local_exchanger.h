@@ -52,7 +52,8 @@ public:
     virtual ExchangeType get_type() const = 0;
     virtual void close(LocalExchangeSourceLocalState& local_state) = 0;
 
-    virtual DependencySPtr get_local_state_dependency(int _channel_id) { return nullptr; }
+    virtual std::vector<Dependency*> local_sink_state_dependency(int channel_id) { return {}; }
+    virtual std::vector<Dependency*> local_state_dependency(int channel_id) { return {}; }
 
 protected:
     friend struct LocalExchangeSharedState;
@@ -234,7 +235,10 @@ public:
         for (size_t i = 0; i < num_partitions; i++) {
             _queues_mem_usege[i] = 0;
             _sink_deps.push_back(
-                    std::make_shared<Dependency>(0, 0, "LOCAL_MERGE_SORT_DEPENDENCY", true));
+                    std::make_shared<Dependency>(0, 0, "LOCAL_MERGE_SORT_SINK_DEPENDENCY", true));
+            _queue_deps.push_back(
+                    std::make_shared<Dependency>(0, 0, "LOCAL_MERGE_SORT_QUEUE_DEPENDENCY"));
+            _queue_deps.back()->block();
         }
     }
     ~LocalMergeSortExchanger() override = default;
@@ -247,20 +251,24 @@ public:
 
     Status build_merger(RuntimeState* statem, LocalExchangeSourceLocalState& local_state);
 
-    DependencySPtr get_local_state_dependency(int channel_id) override {
-        DCHECK(_sink_deps[channel_id]);
-        return _sink_deps[channel_id];
-    }
+    std::vector<Dependency*> local_sink_state_dependency(int channel_id) override;
+
+    std::vector<Dependency*> local_state_dependency(int channel_id) override;
 
     void add_mem_usage(LocalExchangeSinkLocalState& local_state, int64_t delta);
+    void sub_mem_usage(LocalExchangeSinkLocalState& local_state, int64_t delta);
     void sub_mem_usage(LocalExchangeSourceLocalState& local_state, int channel_id, int64_t delta);
     void close(LocalExchangeSourceLocalState& local_state) override {}
 
 private:
+    // only channel_id = 0 , build _merger and use it
+
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
     std::shared_ptr<SortSourceOperatorX> _sort_source;
     std::vector<DependencySPtr> _sink_deps;
     std::vector<std::atomic_int64_t> _queues_mem_usege;
+    // if cur queue is empty, block this queue
+    std::vector<DependencySPtr> _queue_deps;
     const int64_t _each_queue_limit;
 };
 

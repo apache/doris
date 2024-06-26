@@ -75,7 +75,11 @@ public class HistogramTask extends BaseAnalysisTask {
     }
 
     @Override
-    protected void deleteNotExistPartitionStats() throws DdlException {
+    protected void doSample() {
+    }
+
+    @Override
+    protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
     }
 
     private String getSampleRateFunction() {

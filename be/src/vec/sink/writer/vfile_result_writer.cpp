@@ -128,9 +128,9 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                 _file_opts->parquet_version, _output_object_data));
         break;
     case TFileFormatType::FORMAT_ORC:
-        _vfile_writer.reset(new VOrcTransformer(_state, _file_writer_impl.get(),
-                                                _vec_output_expr_ctxs, _file_opts->orc_schema,
-                                                _output_object_data));
+        _vfile_writer.reset(new VOrcTransformer(
+                _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->orc_schema, {},
+                _output_object_data, _file_opts->orc_compression_type));
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
@@ -194,7 +194,7 @@ std::string VFileResultWriter::_file_format_to_name() {
     }
 }
 
-Status VFileResultWriter::write(Block& block) {
+Status VFileResultWriter::write(RuntimeState* state, Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -291,7 +291,8 @@ Status VFileResultWriter::_send_result() {
     attach_infos.insert(std::make_pair("URL", file_url));
 
     result->result_batch.__set_attached_infos(attach_infos);
-    RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "failed to send outfile result");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(_state, result),
+                                   "failed to send outfile result");
     return Status::OK();
 }
 

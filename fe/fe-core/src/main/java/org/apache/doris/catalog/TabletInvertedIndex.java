@@ -361,7 +361,7 @@ public class TabletInvertedIndex {
     private TPartitionVersionInfo generatePartitionVersionInfoWhenReport(TransactionState transactionState,
             long transactionId, TabletMeta tabletMeta, long partitionId) {
         TableCommitInfo tableCommitInfo;
-        if (transactionState.getSubTransactionStates() == null) {
+        if (transactionState.getSubTxnIds() == null) {
             tableCommitInfo = transactionState.getTableCommitInfo(tabletMeta.getTableId());
         } else {
             tableCommitInfo = transactionState.getTableCommitInfoBySubTxnId(transactionId);

@@ -41,7 +41,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Paths;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 
@@ -74,10 +74,14 @@ public class LocationPath {
     }
 
     private LocationPath(String location) {
-        this(location, new HashMap<>());
+        this(location, Collections.emptyMap(), true);
     }
 
     public LocationPath(String location, Map<String, String> props) {
+        this(location, props, true);
+    }
+
+    public LocationPath(String location, Map<String, String> props, boolean convertPath) {
         String scheme = parseScheme(location).toLowerCase();
         if (scheme.isEmpty()) {
             locationType = LocationType.NOSCHEME;
@@ -88,7 +92,7 @@ public class LocationPath {
                     locationType = LocationType.HDFS;
                     // Need add hdfs host to location
                     String host = props.get(HdfsResource.DSF_NAMESERVICES);
-                    this.location = normalizedHdfsPath(location, host);
+                    this.location = convertPath ? normalizedHdfsPath(location, host) : location;
                     break;
                 case FeConstants.FS_PREFIX_S3:
                     locationType = LocationType.S3;
@@ -96,22 +100,22 @@ public class LocationPath {
                     break;
                 case FeConstants.FS_PREFIX_S3A:
                     locationType = LocationType.S3A;
-                    this.location = convertToS3(location);
+                    this.location = convertPath ? convertToS3(location) : location;
                     break;
                 case FeConstants.FS_PREFIX_S3N:
                     // include the check for multi locations and in a table, such as both s3 and hdfs are in a table.
                     locationType = LocationType.S3N;
-                    this.location = convertToS3(location);
+                    this.location = convertPath ? convertToS3(location) : location;
                     break;
                 case FeConstants.FS_PREFIX_BOS:
                     locationType = LocationType.BOS;
                     // use s3 client to access
-                    this.location = convertToS3(location);
+                    this.location = convertPath ? convertToS3(location) : location;
                     break;
                 case FeConstants.FS_PREFIX_GCS:
                     locationType = LocationType.GCS;
                     // use s3 client to access
-                    this.location = convertToS3(location);
+                    this.location = convertPath ? convertToS3(location) : location;
                     break;
                 case FeConstants.FS_PREFIX_OSS:
                     if (isHdfsOnOssEndpoint(location)) {
@@ -119,7 +123,7 @@ public class LocationPath {
                         this.location = location;
                     } else {
                         if (useS3EndPoint(props)) {
-                            this.location = convertToS3(location);
+                            this.location = convertPath ? convertToS3(location) : location;
                         } else {
                             this.location = location;
                         }
@@ -128,7 +132,7 @@ public class LocationPath {
                     break;
                 case FeConstants.FS_PREFIX_COS:
                     if (useS3EndPoint(props)) {
-                        this.location = convertToS3(location);
+                        this.location = convertPath ? convertToS3(location) : location;
                     } else {
                         this.location = location;
                     }
@@ -136,7 +140,7 @@ public class LocationPath {
                     break;
                 case FeConstants.FS_PREFIX_OBS:
                     if (useS3EndPoint(props)) {
-                        this.location = convertToS3(location);
+                        this.location = convertPath ? convertToS3(location) : location;
                     } else {
                         this.location = location;
                     }
@@ -331,7 +335,7 @@ public class LocationPath {
         if (location == null || location.isEmpty()) {
             return null;
         }
-        LocationPath locationPath = new LocationPath(location);
+        LocationPath locationPath = new LocationPath(location, Collections.emptyMap(), false);
         return locationPath.getTFileTypeForBE();
     }
 

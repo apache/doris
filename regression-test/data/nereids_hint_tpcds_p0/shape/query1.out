@@ -42,7 +42,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------PhysicalOlapScan[store]
 
 Hint log:
-Used:  leading(store_returns broadcast date_dim )
+Used: leading(store_returns broadcast date_dim ) 
 UnUsed:
 SyntaxError:
 

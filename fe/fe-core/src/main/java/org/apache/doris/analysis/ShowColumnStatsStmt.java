@@ -235,6 +235,9 @@ public class ShowColumnStatsStmt extends ShowStmt {
         for (Map.Entry<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> entry : resultMap.entrySet()) {
             PartitionColumnStatisticCacheKey key = entry.getKey();
             PartitionColumnStatistic value = entry.getValue();
+            if (value == null || value.isUnKnown) {
+                continue;
+            }
             List<String> row = Lists.newArrayList();
             row.add(key.colName); // column_name
             row.add(key.partId); // partition_name

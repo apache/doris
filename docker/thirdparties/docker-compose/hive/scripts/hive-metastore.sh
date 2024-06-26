@@ -16,17 +16,31 @@
 # specific language governing permissions and limitations
 # under the License.
 
+set -x
+
 nohup /opt/hive/bin/hive --service metastore &
 
 # wait metastore start
 sleep 10s
 
+# create tables for other cases
+# new cases should use separate dir
+hadoop fs -mkdir /user/doris/suites/
+
+SUITES_DIR="/mnt/scripts/suites"
+for dir in "$SUITES_DIR"/*/; do
+    if [ -f "$dir/run.sh" ]; then
+        echo "Executing run.sh in $dir"
+        (cd "$dir" && bash ./run.sh)
+    else
+        echo "run.sh not found or not executable in $dir"
+    fi
+done
+
 # if you test in your local，better use # to annotation section about tpch1.db
 if [[ ! -d "/mnt/scripts/tpch1.db" ]]; then
     echo "/mnt/scripts/tpch1.db does not exist"
     cd /mnt/scripts/
-    #curl -O /mnt/scripts https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/tpch1_parquet/tpch1.db.tar.gz
-    echo "curl -O s3BucketName.s3Endpoint/regression/datalake/pipeline_data/tpch1.db.tar.gz"
     curl -O https://s3BucketName.s3Endpoint/regression/datalake/pipeline_data/tpch1.db.tar.gz
     tar -zxf tpch1.db.tar.gz
     rm -rf tpch1.db.tar.gz
@@ -37,9 +51,7 @@ fi
 
 # put data file
 ## put tpch1
-echo "hadoop fs -mkdir /user/doris/"
 hadoop fs -mkdir -p /user/doris/
-echo "hadoop fs -put /mnt/scripts/tpch1.db /user/doris/"
 hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
 
 
@@ -47,8 +59,6 @@ hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
 if [[ ! -d "/mnt/scripts/paimon1" ]]; then
     echo "/mnt/scripts/paimon1 does not exist"
     cd /mnt/scripts/
-    #curl -O https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/paimon/paimon1.tar.gz
-    echo "curl -O s3BucketName.s3Endpoint/regression/datalake/pipeline_data/paimon1.tar.gz"
     curl -O https://s3BucketName.s3Endpoint/regression/datalake/pipeline_data/paimon1.tar.gz
     tar -zxf paimon1.tar.gz
     rm -rf paimon1.tar.gz
@@ -58,34 +68,19 @@ else
 fi
 
 ## put paimon1
-echo "hadoop fs -put /mnt/scripts/paimon1 /user/doris/"
 hadoop fs -put /mnt/scripts/paimon1 /user/doris/
 
 ## put other preinstalled data
-echo "hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/"
 hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/
 
 # create table
-echo "hive -f /mnt/scripts/create_tpch1_orc.hql"
 hive -f /mnt/scripts/create_tpch1_orc.hql
-
-echo "hive -f /mnt/scripts/create_tpch1_parquet.hql"
 hive -f /mnt/scripts/create_tpch1_parquet.hql
-
-echo "hive -f /mnt/scripts/create_preinstalled_table.hql"
 hive -f /mnt/scripts/create_preinstalled_table.hql
 
-echo "touch /mnt/SUCCESS"
 touch /mnt/SUCCESS
 
 # Avoid container exit
 while true; do
     sleep 1
 done
-
-create catalog if not exists hive2_docker properties (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.21.0.101:9083',
-    'fs.defaultFS' = 'hdfs://172.21.0.101:8020',
-    'hadoop.username' = 'hadoop'
-);
