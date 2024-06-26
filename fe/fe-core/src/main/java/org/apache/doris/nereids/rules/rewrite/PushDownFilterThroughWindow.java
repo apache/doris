@@ -66,7 +66,6 @@ public class PushDownFilterThroughWindow extends OneRewriteRuleFactory {
             for (Expression expr : filter.getConjuncts()) {
                 if (commonPartitionKeys.containsAll(expr.getInputSlots())) {
                     bottomConjuncts.add(expr);
-                    break;
                 } else {
                     upperConjuncts.add(expr);
                 }

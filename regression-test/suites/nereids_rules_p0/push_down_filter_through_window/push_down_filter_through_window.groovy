@@ -33,4 +33,11 @@ suite("push_down_filter_through_window") {
     select * from (select row_number() over(partition by id,value1 order by value1) as num, id, value1 from push_down_multi_column_predicate_through_window_t ) t 
     where abs(id+value1)<30 and num<=2 order by id,value1,num;
     """
+    qt_multi_column_or_predicate_push_down_window_shape """
+    explain shape plan
+    select * from (select id,value1, row_number() over(partition by id,value1 order by value1) rc from push_down_multi_column_predicate_through_window_t ) t where (id>1 or value1>2) and rc<2;
+    """
+    qt_multi_column_or_predicate_push_down_window """
+    select * from (select id,value1, row_number() over(partition by id,value1 order by value1) rc from push_down_multi_column_predicate_through_window_t ) t where (id>1 or value1>2) and rc<2 order by 1,2 ;
+    """
 }
