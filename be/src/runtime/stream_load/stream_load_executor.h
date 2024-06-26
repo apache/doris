@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <functional>
 #include <memory>
 
 #include "common/factory_creator.h"
@@ -51,10 +50,6 @@ public:
     virtual void rollback_txn(StreamLoadContext* ctx);
 
     Status execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx);
-
-    Status execute_plan_fragment(
-            std::shared_ptr<StreamLoadContext> ctx,
-            const std::function<void(std::shared_ptr<StreamLoadContext> ctx)>& cb);
 
 protected:
     // collect the load statistics from context and set them to stat
