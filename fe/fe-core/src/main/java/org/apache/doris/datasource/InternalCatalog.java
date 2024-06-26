@@ -17,6 +17,18 @@
 
 package org.apache.doris.datasource;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import lombok.Getter;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AddRollupClause;
@@ -33,6 +45,7 @@ import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
+import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPartitionClause;
@@ -141,6 +154,9 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.cdc.utils.CdcUtils;
+import org.apache.doris.job.extensions.cdc.CdcDatabaseJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -172,18 +188,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import lombok.Getter;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.time.StopWatch;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -417,11 +421,14 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void createDb(CreateDbStmt stmt) throws DdlException {
         String fullDbName = stmt.getFullDbName();
         Map<String, String> properties = stmt.getProperties();
+        String engineName = stmt.getEngineName();
 
         long id = Env.getCurrentEnv().getNextId();
         Database db = new Database(id, fullDbName);
         // check and analyze database properties before create database
         db.setDbProperties(new DatabaseProperty(properties));
+        db.setDbEngineName(engineName);
+
 
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
@@ -430,6 +437,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (fullNameToDb.containsKey(fullDbName)) {
                 if (stmt.isSetIfNotExists()) {
                     LOG.info("create database[{}] which already exists", fullDbName);
+                    createMaterializedCdc(db);
                     return;
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, fullDbName);
@@ -442,6 +450,40 @@ public class InternalCatalog implements CatalogIf<Database> {
             unlock();
         }
         LOG.info("createDb dbName = " + fullDbName + ", id = " + id);
+        createMaterializedCdc(db);
+    }
+
+    private void createMaterializedCdc(Database db) throws DdlException {
+        String engineName = db.getDbEngineName();
+        String fullDbName = db.getFullName();
+        DatabaseProperty dbProperties = db.getDbProperties();
+        if(dbProperties == null || MapUtils.isEmpty(dbProperties.getProperties())){
+            return;
+        }
+        Map<String, String> properties = dbProperties.getProperties();
+        if(CreateDbStmt.ENGINE_MATERIALIZED_CDC.equals(engineName)){
+            try{
+                List<CreateTableStmt> tables = CdcUtils.generateCreateTableStmts(fullDbName, properties);
+                for(CreateTableStmt table : tables){
+                    createTable(table);
+                }
+                if(Config.enable_cdc_scanner){
+                    CdcDatabaseJob cdcDatabaseJob = new CdcDatabaseJob(db.getId(), fullDbName, properties, CdcDatabaseJob.generateJobExecConfig(properties));
+                    Env.getCurrentEnv().getJobManager().registerJob(cdcDatabaseJob);
+                }else {
+                    throw new DdlException("please set enable_cdc_scanner=true first");
+                }
+            }catch (Throwable t){
+                LOG.error("Failed to create cdc database job", t);
+                try{
+                    DropDbStmt dropDbStmt = new DropDbStmt(true, new DbName(INTERNAL_CATALOG_NAME, fullDbName), true);
+                    dropDb(dropDbStmt);
+                }catch (Throwable th){
+                    LOG.warn("Rollback drop cdc database failed, please drop database by manual, erros msg" + th.getMessage());
+                }
+                throw new DdlException("Failed to create cdc database job, " + t.getMessage());
+            }
+        }
     }
 
     /**
@@ -550,6 +592,15 @@ public class InternalCatalog implements CatalogIf<Database> {
             DropDbInfo info = new DropDbInfo(dbName, stmt.isForceDrop(), recycleTime);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
+
+            // 4. remove job
+            if(CreateDbStmt.ENGINE_MATERIALIZED_CDC.equals(db.getDbEngineName())){
+                try{
+                    Env.getCurrentEnv().getJobManager().unregisterJob(db.getFullName(), true);
+                }catch (JobException ex){
+                    LOG.warn("Failed to unregister cdc database job, please drop job by manual, error msg: " + ex.getMessage());
+                }
+            }
         } finally {
             unlock();
         }

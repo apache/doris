@@ -18,7 +18,6 @@
 package org.apache.doris.cdcloader.mysql.rest;
 
 import org.apache.doris.cdcloader.common.rest.ResponseEntityBuilder;
-import org.apache.doris.cdcloader.mysql.loader.LoadContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
@@ -30,7 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-public class ShutdownController extends BaseController implements ApplicationContextAware {
+public class ShutdownController implements ApplicationContextAware {
     private static final Logger LOG = LoggerFactory.getLogger(ShutdownController.class);
 
     private ApplicationContext context;
@@ -42,9 +41,9 @@ public class ShutdownController extends BaseController implements ApplicationCon
 
     @PostMapping("/api/shutdown")
     public Object shutdownContext(@RequestParam("jobId") long jobId) {
-        if(!checkJobId(jobId)){
-            return ResponseEntityBuilder.jobIdInconsistent();
-        }
+//        if(!checkJobId(jobId)){
+//            return ResponseEntityBuilder.jobIdInconsistent();
+//        }
         new Thread(() -> {
             try {
                 Thread.sleep(2000);
@@ -52,7 +51,6 @@ public class ShutdownController extends BaseController implements ApplicationCon
                 Thread.currentThread().interrupt();
             }
             LOG.info("shutdown cdc process...");
-            LoadContext.getInstance().close();
             ((ConfigurableApplicationContext) context).close();
             System.exit(0);
         }).start();

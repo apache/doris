@@ -123,6 +123,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     @SerializedName(value = "dbProperties")
     private DatabaseProperty dbProperties = new DatabaseProperty();
 
+    @SerializedName(value = "dbEngine")
+    private String dbEngineName = "";
+
     private BinlogConfig binlogConfig = new BinlogConfig();
 
     public Database() {
@@ -286,6 +289,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public void setDbProperties(DatabaseProperty dbProperties) {
         this.dbProperties = dbProperties;
+    }
+
+    public String getDbEngineName() {
+        return dbEngineName;
+    }
+
+    public void setDbEngineName(String dbEngineName) {
+        this.dbEngineName = dbEngineName;
     }
 
     public long getUsedDataQuotaWithLock() {
@@ -638,6 +649,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         out.writeLong(replicaQuotaSize);
         dbProperties.write(out);
+
+        Text.writeString(out, dbEngineName);
     }
 
     private void discardHudiTable() {
@@ -705,6 +718,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
                     ? Config.max_running_txn_num_per_db
                     : Config.default_db_max_running_txn_num;
+        }
+
+        if(Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_134){
+            dbEngineName = Text.readString(in);
         }
     }
 

@@ -31,11 +31,6 @@ public class ResponseEntityBuilder {
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 
-    public static ResponseEntity jobIdInconsistent() {
-        ResponseBody body = new ResponseBody().code(RestApiStatusCode.BAD_REQUEST).msg("Job id inconsistent");
-        return ResponseEntity.status(HttpStatus.OK).body(body);
-    }
-
     public static ResponseEntity okWithCommonError(String msg) {
         ResponseBody body = new ResponseBody().code(RestApiStatusCode.COMMON_ERROR).msg("Error").data(msg);
         return ResponseEntity.status(HttpStatus.OK).body(body);

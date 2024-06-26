@@ -1833,9 +1833,9 @@ opt_intermediate_type ::=
 // Create Statement
 create_stmt ::=
     /* Database */
-    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists db_name:db opt_properties:properties
+    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists db_name:db opt_engine:engineName opt_properties:properties
     {:
-        RESULT = new CreateDbStmt(ifNotExists, db, properties);
+        RESULT = new CreateDbStmt(ifNotExists, db, engineName, properties);
     :}
     | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists db_name:db
     {:

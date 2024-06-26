@@ -49,7 +49,7 @@ import javax.servlet.http.HttpServletRequest;
  */
 public class HttpUtils {
     static final int REQUEST_SUCCESS_CODE = 0;
-    static final int DEFAULT_TIME_OUT_MS = 2000;
+    static final int DEFAULT_TIME_OUT_MS = 60000;
 
     static List<Pair<String, Integer>> getFeList() {
         return Env.getCurrentEnv().getFrontends(null)
@@ -85,7 +85,7 @@ public class HttpUtils {
         return doGet(url, headers, DEFAULT_TIME_OUT_MS);
     }
 
-    public static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
+    public static String doPost(String url, Map<String, String> headers, Object body, int timeoutMs) throws IOException{
         HttpPost httpPost = new HttpPost(url);
         if (Objects.nonNull(body)) {
             String jsonString = GsonUtils.GSON.toJson(body);
@@ -93,8 +93,12 @@ public class HttpUtils {
             httpPost.setEntity(stringEntity);
         }
 
-        setRequestConfig(httpPost, headers, DEFAULT_TIME_OUT_MS);
+        setRequestConfig(httpPost, headers, timeoutMs);
         return executeRequest(httpPost);
+    }
+
+    public static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
+        return doPost(url, headers, body, DEFAULT_TIME_OUT_MS);
     }
 
     private static void setRequestConfig(HttpRequestBase request, Map<String, String> headers, int timeoutMs) {

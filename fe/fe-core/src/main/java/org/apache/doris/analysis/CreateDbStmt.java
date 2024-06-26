@@ -17,17 +17,18 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -37,12 +38,22 @@ public class CreateDbStmt extends DdlStmt {
     private String ctlName;
     private String dbName;
     private Map<String, String> properties;
+    private String engineName = "";
+    public static final String ENGINE_MATERIALIZED_CDC = "materializedcdc";
 
     public CreateDbStmt(boolean ifNotExists, DbName dbName, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.ctlName = dbName.getCtl();
         this.dbName = dbName.getDb();
         this.properties = properties == null ? new HashMap<>() : properties;
+    }
+
+    public CreateDbStmt(boolean ifNotExists, DbName dbName, String engineName, Map<String, String> properties) {
+        this.ifNotExists = ifNotExists;
+        this.ctlName = dbName.getCtl();
+        this.dbName = dbName.getDb();
+        this.properties = properties == null ? new HashMap<>() : properties;
+        this.engineName = engineName;
     }
 
     public String getFullDbName() {
@@ -61,6 +72,10 @@ public class CreateDbStmt extends DdlStmt {
         return properties;
     }
 
+    public String getEngineName() {
+        return engineName;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -69,6 +84,15 @@ public class CreateDbStmt extends DdlStmt {
         }
         FeNameFormat.checkCatalogName(ctlName);
         FeNameFormat.checkDbName(dbName);
+        if(StringUtils.isNotEmpty(engineName)){
+            if(!engineName.equals(ENGINE_MATERIALIZED_CDC)) {
+                throw new AnalysisException("Unknown engine name: " + engineName);
+            }
+            if(!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)){
+                throw new AnalysisException("MaterializedCdc engine database must be created in internal catalog");
+            }
+        }
+
         InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(ConnectContext.get(), ctlName, dbName, PrivPredicate.CREATE)) {
@@ -86,6 +110,9 @@ public class CreateDbStmt extends DdlStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE DATABASE ").append("`").append(dbName).append("`");
+        if (StringUtils.isNotEmpty(engineName)){
+            stringBuilder.append("\nENGINE = ").append(engineName.toLowerCase());
+        }
         if (properties.size() > 0) {
             stringBuilder.append("\nPROPERTIES (\n");
             stringBuilder.append(new PrintableMap<>(properties, "=", true, true, false));

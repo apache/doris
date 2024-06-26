@@ -19,9 +19,14 @@ package org.apache.doris.cdcloader.mysql.rest;
 
 
 import org.apache.doris.cdcloader.common.rest.ResponseEntityBuilder;
-import org.apache.doris.cdcloader.mysql.loader.SplitReader;
-import org.apache.doris.cdcloader.mysql.loader.DorisRecord;
-import org.apache.doris.cdcloader.mysql.loader.LoadContext;
+import org.apache.doris.cdcloader.mysql.config.LoadContext;
+import org.apache.doris.cdcloader.mysql.reader.SourceReader;
+import org.apache.doris.cdcloader.mysql.rest.model.FetchRecordReq;
+import org.apache.doris.cdcloader.mysql.rest.model.JobConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -30,49 +35,45 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-public class LoaderController extends BaseController {
-    @RequestMapping(path = "/api/fetchRecords", method = RequestMethod.GET)
-    public Object rowcount(@RequestParam("fetchSize") int fetchSize,
-                           @RequestParam(value = "schedule", defaultValue = "false") boolean schedule,
-                           @RequestParam("jobId") long jobId) throws Exception {
-        if(!checkJobId(jobId)){
-            return ResponseEntityBuilder.jobIdInconsistent();
-        }
+public class LoaderController {
+    private static final Logger LOG = LoggerFactory.getLogger(LoaderController.class);
+    @RequestMapping(path = "/api/fetchRecords", method = RequestMethod.POST)
+    public Object fetchRecords(@RequestBody FetchRecordReq recordReq) {
         LoadContext context  = LoadContext.getInstance();
-        SplitReader splitReader = context.getSplitReader();
-        List<DorisRecord> dorisRecords = splitReader.fetchRecords(fetchSize, schedule);
-        return ResponseEntityBuilder.ok(dorisRecords);
+        SourceReader reader = context.getSourceReader();
+        try{
+            Object response = reader.read(recordReq);
+            return ResponseEntityBuilder.ok(response);
+        }catch (Exception ex){
+            LOG.error("Failed fetch record,", ex);
+            return ResponseEntityBuilder.badRequest(ex.getMessage());
+        }
+    }
+
+    @RequestMapping(path = "/api/fetchSplits", method = RequestMethod.POST)
+    public Object fetchSplits(@RequestBody JobConfig config) throws Exception {
+        LoadContext context  = LoadContext.getInstance();
+        SourceReader reader = context.getSourceReader();
+        List splits = reader.getSourceSplits(config);
+        return ResponseEntityBuilder.ok(splits);
     }
 
     @RequestMapping(path = "/api/status", method = RequestMethod.GET)
     public Object isStarted(@RequestParam("jobId") long jobId) {
-        if(!checkJobId(jobId)){
-            return ResponseEntityBuilder.jobIdInconsistent();
-        }
-        LoadContext context  = LoadContext.getInstance();
-        SplitReader splitReader = context.getSplitReader();
-        if(splitReader != null){
-            return ResponseEntityBuilder.ok(splitReader.isStarted());
-        }else{
-            return ResponseEntityBuilder.ok(false);
-        }
-    }
-
-    @RequestMapping(path = "/api/getSnapshotSplits", method = RequestMethod.GET)
-    public Object getSnapshotSplits(@RequestParam("jobId") long jobId) {
-        if(!checkJobId(jobId)){
-            return ResponseEntityBuilder.jobIdInconsistent();
-        }
-        //获取当前已经切分好的chunk splits
-        return ResponseEntityBuilder.ok();
+        return ResponseEntityBuilder.ok(true);
     }
 
     @RequestMapping(path = "/api/job/cdc/heartbeat", method = RequestMethod.POST)
     public Object heartbeat(@RequestParam("jobId") long jobId) {
-        if(!checkJobId(jobId)){
-            return ResponseEntityBuilder.jobIdInconsistent();
-        }
         return ResponseEntityBuilder.ok();
+    }
+
+    @RequestMapping(path = "/api/close/{jobId}", method = RequestMethod.POST)
+    public Object close(@PathVariable long jobId) {
+        LoadContext context  = LoadContext.getInstance();
+        SourceReader reader = context.getSourceReader();
+        reader.close(jobId);
+        return ResponseEntityBuilder.ok(true);
     }
 
 }

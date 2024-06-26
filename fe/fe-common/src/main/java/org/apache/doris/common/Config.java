@@ -1684,6 +1684,11 @@ public class Config extends ConfigBase {
                     + "the value should be greater than 0, if it is <=0, default is 5."})
     public static int job_mtmv_task_consumer_thread_num = 10;
 
+    @ConfField(description = {"用于执行 Cdc 任务的线程数,值应该大于0，否则默认为5",
+        "The number of threads used to consume cdc tasks, "
+            + "the value should be greater than 0, if it is <=0, default is 5."})
+    public static int job_cdc_task_consumer_thread_num = 10;
+
     /* job test config */
     /**
      * If set to true, we will allow the interval unit to be set to second, when creating a recurring job.
@@ -2837,6 +2842,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_cloud_running_txn_check = true;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cdc_scanner = false;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

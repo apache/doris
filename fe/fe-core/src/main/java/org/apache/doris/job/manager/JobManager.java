@@ -176,6 +176,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
         writeLock();
         try {
+            dropJob.onUnRegister();
             // write delete log
             dropJob.logDeleteOperation();
             jobMap.remove(dropJob.getJobId());

@@ -15,10 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.common;
+package org.apache.doris.cdcloader.mysql.config;
 
-public enum JobType {
-    INSERT,
-    MV,
-    CDC
+import org.apache.doris.cdcloader.mysql.reader.SourceReader;
+
+public class LoadContext {
+    private static volatile LoadContext INSTANCE;
+//    private LoaderOptions loaderOptions;
+    private SourceReader sourceReader;
+
+    private LoadContext() {
+    }
+
+    public static LoadContext getInstance() {
+        if (INSTANCE == null) {
+            synchronized (LoadContext.class) {
+                if (INSTANCE == null) {
+                    INSTANCE = new LoadContext();
+                }
+            }
+        }
+        return INSTANCE;
+    }
+
+
+    public SourceReader getSourceReader() {
+        return sourceReader;
+    }
+
+    public void setSourceReader(SourceReader sourceReader) {
+        this.sourceReader = sourceReader;
+    }
+
 }

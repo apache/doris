@@ -34,16 +34,11 @@ import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.extensions.cdc.CdcTableJob;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.tablefunction.CdcTableValuedFunction;
 
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
 
 /**
  * syntax:
@@ -165,54 +160,16 @@ public class CreateJobStmt extends DdlStmt {
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
         String originStmt = getOrigStmt().originStmt;
         String executeSql = parseExecuteSql(originStmt, jobName, comment);
-
-        Map<String, String> params = parseCdcTableJobParams();
-        if(!params.isEmpty()){
-            CdcTableJob job = new CdcTableJob(jobName,
-                    JobStatus.RUNNING,
-                    labelName.getDbName(),
-                    comment,
-                    ConnectContext.get().getCurrentUserIdentity(),
-                    jobExecutionConfiguration,
-                    System.currentTimeMillis(),
-                    executeSql,
-                    params);
-            jobInstance = job;
-        }else{
-            // create job use label name as its job name
-            InsertJob job = new InsertJob(jobName,
-                    JobStatus.RUNNING,
-                    labelName.getDbName(),
-                    comment,
-                    ConnectContext.get().getCurrentUserIdentity(),
-                    jobExecutionConfiguration,
-                    System.currentTimeMillis(),
-                    executeSql);
-            jobInstance = job;
-        }
-    }
-
-    private Map<String, String> parseCdcTableJobParams() {
-        Map<String, String> properties = new HashMap<>();
-        if(doStmt instanceof InsertStmt) {
-            InsertStmt insertStmt = (InsertStmt) doStmt;
-            QueryStmt queryStmt = insertStmt.getQueryStmt();
-            if(queryStmt instanceof SelectStmt) {
-                SelectStmt selectStmt = (SelectStmt) queryStmt;
-                List<TableRef> tableRefs = selectStmt.getTableRefs();
-                for(TableRef tableRef : tableRefs) {
-                    if(tableRef instanceof TableValuedFunctionRef){
-                        TableValuedFunctionRef tvfRef = (TableValuedFunctionRef) tableRef;
-                        // As long as there is a table of type cdc, it is considered to be CdcTableJob
-                        if (CdcTableValuedFunction.NAME.equals(tvfRef.getFuncName())){
-                            properties.putAll(tvfRef.getParams());
-                            return properties;
-                        }
-                    }
-                }
-            }
-        }
-        return properties;
+        // create job use label name as its job name
+        InsertJob job = new InsertJob(jobName,
+            JobStatus.RUNNING,
+            labelName.getDbName(),
+            comment,
+            ConnectContext.get().getCurrentUserIdentity(),
+            jobExecutionConfiguration,
+            System.currentTimeMillis(),
+            executeSql);
+        jobInstance = job;
     }
 
     private void checkJobName(String jobName) throws AnalysisException {

@@ -17,17 +17,16 @@
 
 package org.apache.doris.job.task;
 
+import com.google.gson.annotations.SerializedName;
+import lombok.Data;
+import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.RandomUtils;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
-
-import com.google.gson.annotations.SerializedName;
-import lombok.Data;
-import lombok.extern.log4j.Log4j2;
-import org.apache.commons.lang3.RandomUtils;
 
 @Data
 @Log4j2

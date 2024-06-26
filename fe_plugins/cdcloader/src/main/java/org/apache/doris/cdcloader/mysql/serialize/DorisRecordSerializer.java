@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.common;
+package org.apache.doris.cdcloader.mysql.serialize;
 
-public enum JobType {
-    INSERT,
-    MV,
-    CDC
+import java.io.IOException;
+import java.io.Serializable;
+
+public interface DorisRecordSerializer<T, C> extends Serializable {
+
+    C serialize(T record) throws IOException;
 }

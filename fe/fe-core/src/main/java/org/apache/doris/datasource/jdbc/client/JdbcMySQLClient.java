@@ -122,6 +122,12 @@ public class JdbcMySQLClient extends JdbcClient {
         return databaseMetaData.getColumns(remoteDbName, null, remoteTableName, null);
     }
 
+    @Override
+    protected ResultSet getPrimaryColumns(DatabaseMetaData databaseMetaData, String catalogName, String remoteDbName,
+                                         String remoteTableName) throws SQLException {
+        return databaseMetaData.getPrimaryKeys(remoteDbName, null, remoteTableName);
+    }
+
     /**
      * get all columns of one table
      */

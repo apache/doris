@@ -17,10 +17,12 @@
 
 package org.apache.doris.tablefunction;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.job.common.JobType;
-import org.apache.doris.job.extensions.cdc.CdcTableJob;
+import org.apache.doris.job.extensions.cdc.CdcDatabaseJob;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -30,9 +32,6 @@ import org.apache.doris.thrift.TJobsMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
-
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -81,15 +80,12 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
         TJobsMetadataParams jobMetadataParams = params.getJobsMetadataParams();
         String type = jobMetadataParams.getType();
         JobType jobType = JobType.valueOf(type.toUpperCase());
-        if (jobType == null) {
-            throw new AnalysisException("Invalid job metadata query");
-        }
         if (JobType.MV == jobType) {
             return MTMVJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
         } else if (JobType.INSERT == jobType) {
             return InsertJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
-        } else if (JobType.CDC_TABLE == jobType) {
-            return CdcTableJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
+        } else if (JobType.CDC == jobType) {
+            return CdcDatabaseJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
         } else {
             throw new AnalysisException("Invalid job type: " + jobType.toString());
         }
@@ -122,8 +118,8 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
             return MTMVJob.SCHEMA;
         } else if (JobType.INSERT == jobType) {
             return InsertJob.SCHEMA;
-        } else if (JobType.CDC_TABLE == jobType) {
-            return CdcTableJob.SCHEMA;
+        } else if (JobType.CDC == jobType) {
+            return CdcDatabaseJob.SCHEMA;
         } else {
             throw new AnalysisException("Invalid job type: " + jobType.toString());
         }

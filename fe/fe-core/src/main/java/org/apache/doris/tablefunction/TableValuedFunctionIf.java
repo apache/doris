@@ -72,14 +72,8 @@ public abstract class TableValuedFunctionIf {
                 return new TasksTableValuedFunction(params);
             case GroupCommitTableValuedFunction.NAME:
                 return new GroupCommitTableValuedFunction(params);
-            case WorkloadSchedPolicyTableValuedFunction.NAME:
-                return new WorkloadSchedPolicyTableValuedFunction(params);
             case QueryTableValueFunction.NAME:
                 return QueryTableValueFunction.createQueryTableValueFunction(params);
-            case CdcTableValuedFunction.NAME:
-                // return new CdcTableValuedFunction(params);
-                // use number tvf mock
-                return new NumbersTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }
