@@ -414,9 +414,6 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
 
     _row_distribution_watch.stop();
 
-    // remove extra columns added by auto partition calc
-    block->erase_tail(_schema->tuple_desc()->slots().size());
-
     // For each tablet, send its input_rows from block to delta writer
     for (const auto& [tablet_id, rows] : rows_for_tablet) {
         RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows));
