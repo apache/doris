@@ -731,7 +731,8 @@ enum TMetadataType {
   MATERIALIZED_VIEWS,
   JOBS,
   TASKS,
-  WORKLOAD_SCHED_POLICY
+  WORKLOAD_SCHED_POLICY,
+  PARTITIONS
 }
 
 enum TIcebergQueryType {
