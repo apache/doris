@@ -121,10 +121,9 @@ Status NewFileScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
             std::min<size_t>(config::doris_scanner_thread_pool_thread_num, _scan_ranges.size());
     _kv_cache.reset(new ShardedKVCache(shard_num));
     for (auto& scan_range : _scan_ranges) {
-        std::unique_ptr<VFileScanner> scanner =
-                VFileScanner::create_unique(_state, this, _limit_per_scanner,
-                                            scan_range.scan_range.ext_scan_range.file_scan_range,
-                                            runtime_profile(), _kv_cache.get());
+        std::unique_ptr<VFileScanner> scanner = VFileScanner::create_unique(
+                _state, this, _limit, scan_range.scan_range.ext_scan_range.file_scan_range,
+                runtime_profile(), _kv_cache.get());
         RETURN_IF_ERROR(
                 scanner->prepare(_conjuncts, &_colname_to_value_range, &_colname_to_slot_id));
         scanners->push_back(std::move(scanner));

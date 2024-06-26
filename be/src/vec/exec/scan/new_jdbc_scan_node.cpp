@@ -65,9 +65,8 @@ Status NewJdbcScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     if (_eos == true) {
         return Status::OK();
     }
-    std::unique_ptr<NewJdbcScanner> scanner =
-            NewJdbcScanner::create_unique(_state, this, _limit_per_scanner, _tuple_id,
-                                          _query_string, _table_type, _state->runtime_profile());
+    std::unique_ptr<NewJdbcScanner> scanner = NewJdbcScanner::create_unique(
+            _state, this, _limit, _tuple_id, _query_string, _table_type, _state->runtime_profile());
     RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
     scanners->push_back(std::move(scanner));
     return Status::OK();
