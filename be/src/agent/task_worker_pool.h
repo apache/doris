@@ -176,6 +176,8 @@ void gc_binlog_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void clean_udf_cache_callback(const TAgentTaskRequest& req);
+
 void visible_version_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void report_task_callback(const TMasterInfo& master_info);
