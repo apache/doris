@@ -291,11 +291,11 @@ Status GroupCommitTable::get_first_block_load_queue(
                 _thread_pool->submit_func([&, be_exe_version, mem_tracker, dep = create_plan_dep] {
                     Defer defer {[&, dep = dep]() {
                         dep->set_ready();
+                        std::unique_lock l(_lock);
                         for (auto it : _create_plan_deps) {
                             it->set_ready();
                         }
                         _create_plan_deps.clear();
-                        std::unique_lock l(_lock);
                         _is_creating_plan_fragment = false;
                     }};
                     auto st = _create_group_commit_load(be_exe_version, mem_tracker);
