@@ -20,15 +20,17 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::simd {
-void reverse_copy_bytes(UInt8* __restrict desc, size_t desc_len, const void* src_void,
-                        size_t str_len) {
-    if (str_len == 0) {
+// Copy src_len bytes from src_void to desc in reverse order.
+// The first bytes of src_void will be copied to the last bytes of desc.
+inline void reverse_copy_bytes(vectorized::UInt8* __restrict desc, size_t desc_len, const void* src_void,
+                        size_t src_len) {
+    if (src_len == 0) {
         return;
     }
 
-    const UInt8* src_ui8 = static_cast<const UInt8*>(src_void);
+    const vectorized::UInt8* __restrict src_ui8 = static_cast<const vectorized::UInt8*>(src_void);
 
-    for (int i = desc_len - 1, j = 0; j < str_len; --i, ++j) {
+    for (int i = desc_len - 1, j = 0; j < src_len; --i, ++j) {
         desc[i] = src_ui8[j];
     }
 }
