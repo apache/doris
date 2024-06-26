@@ -25,7 +25,7 @@ sleep 10s
 
 # create tables for other cases
 # new cases should use separate dir
-hadoop fs -mkdir /user/doris/suites/
+hadoop fs -mkdir -p /user/doris/suites/
 
 DATA_DIR="/mnt/scripts/data/"
 find "${DATA_DIR}" -type f -name "run.sh" -exec chmod +x {} \; -exec {} \;

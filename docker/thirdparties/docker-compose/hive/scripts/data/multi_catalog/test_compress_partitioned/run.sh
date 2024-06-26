@@ -15,8 +15,8 @@ fi
 
 ## mkdir and put data to hdfs
 hadoop fs -mkdir -p /user/doris/suites/multi_catalog/
-hadoop fs -put "${CUR_DIR}/data/*" /user/doris/suites/multi_catalog/
+hadoop fs -put "${CUR_DIR}"/data/* /user/doris/suites/multi_catalog/
 
 # create table
-hive -f "${CUR_DIR}/create_table.hql"
+hive -f "${CUR_DIR}"/create_table.hql
 

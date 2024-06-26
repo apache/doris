@@ -324,7 +324,7 @@ if [[ "${RUN_HIVE2}" -eq 1 ]]; then
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
 
     # sed all s3 info in run.sh of each suite
-    find "${ROOT}/docker-compose/hive/scripts/suites" -type f -name "run.sh" | while read -r file; do
+    find "${ROOT}/docker-compose/hive/scripts/data/" -type f -name "run.sh" | while read -r file; do
         if [ -f "$file" ]; then
             echo "Processing $file"
             sed -i "s/s3Endpoint/${s3Endpoint}/g" "${file}"
@@ -362,7 +362,7 @@ if [[ "${RUN_HIVE3}" -eq 1 ]]; then
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
 
     # sed all s3 info in run.sh of each suite
-    find "${ROOT}/docker-compose/hive/scripts/suites" -type f -name "run.sh" | while read -r file; do
+    find "${ROOT}/docker-compose/hive/scripts/data" -type f -name "run.sh" | while read -r file; do
         if [ -f "$file" ]; then
             echo "Processing $file"
             sed -i "s/s3Endpoint/${s3Endpoint}/g" "${file}"
