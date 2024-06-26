@@ -109,14 +109,13 @@ import javax.annotation.Nullable;
 
 /** ExpressionAnalyzer */
 public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext> {
-    private static final ExpressionAnalyzer FUNCTION_ANALYZER = new ExpressionAnalyzer(
-            null, new Scope(ImmutableList.of()), null, false, false);
-
     @VisibleForTesting
     public static final AbstractExpressionRewriteRule FUNCTION_ANALYZER_RULE = new AbstractExpressionRewriteRule() {
         @Override
         public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-            return FUNCTION_ANALYZER.analyze(expr, ctx);
+            return new ExpressionAnalyzer(
+                    null, new Scope(ImmutableList.of()), null, false, false
+            ).analyze(expr, ctx);
         }
     };
 
