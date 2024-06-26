@@ -22,8 +22,8 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
-#include "json2pb/json_to_pb.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_common.h"
@@ -62,18 +62,23 @@ TEST_F(TestBaseCompaction, filter_input_rowset) {
                                      UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
                                      TCompressionType::LZ4F));
     TabletSharedPtr tablet(new Tablet(engine, tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    tablet->_cumulative_point = 25;
     BaseCompaction compaction(engine, tablet);
     //std::vector<RowsetSharedPtr> rowsets;
-    compaction._input_rowsets.push_back(create_rowset({0, 1}, 1, false, 0));
+
+    RowsetSharedPtr init_rs = create_rowset({0, 1}, 1, false, 0);
+    tablet->_rs_version_map.emplace(init_rs->version(), init_rs);
     for (int i = 2; i < 30; ++i) {
-        compaction._input_rowsets.push_back(create_rowset({i, i}, 1, false, 1024));
+        RowsetSharedPtr rs = create_rowset({i, i}, 1, false, 1024);
+        tablet->_rs_version_map.emplace(rs->version(), rs);
     }
-    compaction._filter_input_rowset();
+    Status st = compaction.pick_rowsets_to_compact();
+    EXPECT_TRUE(st.ok());
     EXPECT_EQ(compaction._input_rowsets.front()->start_version(), 0);
     EXPECT_EQ(compaction._input_rowsets.front()->end_version(), 1);
 
-    EXPECT_EQ(compaction._input_rowsets.back()->start_version(), 20);
-    EXPECT_EQ(compaction._input_rowsets.back()->end_version(), 20);
+    EXPECT_EQ(compaction._input_rowsets.back()->start_version(), 21);
+    EXPECT_EQ(compaction._input_rowsets.back()->end_version(), 21);
 }
 
 } // namespace doris

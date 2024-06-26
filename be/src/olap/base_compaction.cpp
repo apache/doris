@@ -86,17 +86,6 @@ Status BaseCompaction::execute_compact() {
 }
 
 void BaseCompaction::_filter_input_rowset() {
-    auto rs_iter = _input_rowsets.begin();
-    int score = 0;
-    while (rs_iter != _input_rowsets.end()) {
-        score += (*rs_iter)->rowset_meta()->get_compaction_score();
-        if (score > config::base_compaction_max_compaction_score) {
-            break;
-        }
-        rs_iter++;
-    }
-    _input_rowsets.erase(rs_iter, _input_rowsets.end());
-
     // if dup_key and no delete predicate
     // we skip big files to save resources
     if (_tablet->keys_type() != KeysType::DUP_KEYS) {
@@ -109,7 +98,7 @@ void BaseCompaction::_filter_input_rowset() {
     }
     int64_t max_size = config::base_compaction_dup_key_max_file_size_mbytes * 1024 * 1024;
     // first find a proper rowset for start
-    rs_iter = _input_rowsets.begin();
+    auto rs_iter = _input_rowsets.begin();
     while (rs_iter != _input_rowsets.end()) {
         if ((*rs_iter)->rowset_meta()->total_disk_size() >= max_size) {
             rs_iter = _input_rowsets.erase(rs_iter);
@@ -161,6 +150,16 @@ Status BaseCompaction::pick_rowsets_to_compact() {
                 "the tablet is with rowset: [0-1], [2-y], and [0-1] has no data. in this "
                 "situation, no need to do base compaction.");
     }
+
+    int score = 0;
+    int rowset_cnt = 0;
+    while (rowset_cnt < _input_rowsets.size()) {
+        score += _input_rowsets[rowset_cnt++]->rowset_meta()->get_compaction_score();
+        if (score > config::base_compaction_max_compaction_score) {
+            break;
+        }
+    }
+    _input_rowsets.resize(rowset_cnt);
 
     // 1. cumulative rowset must reach base_compaction_num_cumulative_deltas threshold
     if (_input_rowsets.size() > config::base_compaction_min_rowset_num) {
