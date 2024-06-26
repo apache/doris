@@ -1996,11 +1996,12 @@ public class TabletScheduler extends MasterDaemon {
         // path hash -> slot num
         private Map<Long, Slot> pathSlots = Maps.newConcurrentMap();
         private long beId;
-        private int nextSlotIndex;
+        // only use in takeAnAvailBalanceSlotFrom, make pick RR
+        private long lastPickPathHash;
 
         public PathSlot(Map<Long, TStorageMedium> paths, long beId) {
             this.beId = beId;
-            this.nextSlotIndex = 0;
+            this.lastPickPathHash = -1;
             for (Map.Entry<Long, TStorageMedium> entry : paths.entrySet()) {
                 pathSlots.put(entry.getKey(), new Slot(entry.getValue()));
             }
@@ -2155,22 +2156,24 @@ public class TabletScheduler extends MasterDaemon {
             Collections.sort(pathHashs);
             int preferSlotIndex;
             synchronized (this) {
-                if (nextSlotIndex < 0 || nextSlotIndex > 1000000) {
-                    nextSlotIndex = 0;
+                int preferSlotIndex = pathHashs.indexOf(lastPickPathHash) + 1;
+                if (preferSlotIndex < 0 || preferSlotIndex >= pathHashs.size()) {
+                    preferSlotIndex = 0;
                 }
-                preferSlotIndex = nextSlotIndex % pathHashs.size();
-                nextSlotIndex++;
-            }
-            for (int i = preferSlotIndex; i < pathHashs.size(); i++) {
-                long pathHash = pathHashs.get(i);
-                if (takeBalanceSlot(pathHash) != -1) {
-                    return pathHash;
+
+                for (int i = preferSlotIndex; i < pathHashs.size(); i++) {
+                    long pathHash = pathHashs.get(i);
+                    if (takeBalanceSlot(pathHash) != -1) {
+                        lastPickPathHash = pathHash;
+                        return pathHash;
+                    }
                 }
-            }
-            for (int i = 0; i < preferSlotIndex; i++) {
-                long pathHash = pathHashs.get(i);
-                if (takeBalanceSlot(pathHash) != -1) {
-                    return pathHash;
+                for (int i = 0; i < preferSlotIndex; i++) {
+                    long pathHash = pathHashs.get(i);
+                    if (takeBalanceSlot(pathHash) != -1) {
+                        lastPickPathHash = pathHash;
+                        return pathHash;
+                    }
                 }
             }
             return -1;
