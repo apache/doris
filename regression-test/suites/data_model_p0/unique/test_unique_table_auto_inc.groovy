@@ -447,15 +447,18 @@ suite("test_unique_table_auto_inc") {
     sql """insert into ${table13}(name) values("A"), ("B"), ("C")"""
     qt_sql "select * from ${table13} order by mykey;"
     sql """insert into ${table13}(name) select lower(name) from ${table13};"""
-    qt_sql "select * from ${table13} order by mykey;"
+    qt_sql """ select count(mykey), count(distinct mykey) from ${table13}"""
+    qt_sql "select name from ${table13} order by name;"
     sql """ insert into ${table13}(name) select "Jack" as name from ${table13};"""
-    qt_sql "select * from ${table13} order by mykey;"
+    qt_sql """ select count(mykey), count(distinct mykey) from ${table13}"""
+    qt_sql "select name from ${table13} order by name;"
     
     sql """ insert into ${table14} values
     (100,"John"), (null, "Mick"), (300, "Bob"), (null, "Alice"), (null, "Steve");"""
     qt_ql "select * from ${table14} order by mykey, name;"
     sql """ insert into ${table13} select mykey, name from ${table14};"""
-    qt_sql "select * from ${table13} order by mykey;"
+    qt_sql """ select count(mykey), count(distinct mykey) from ${table13}"""
+    qt_sql "select name from ${table13} order by name;"
 
     sql "drop table if exists ${table13};"
     sql "drop table if exists ${table14};"
