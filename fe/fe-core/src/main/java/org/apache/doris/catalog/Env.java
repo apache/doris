@@ -266,6 +266,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CleanTrashTask;
+import org.apache.doris.task.CleanUDFCacheTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
@@ -290,6 +291,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -5612,6 +5614,7 @@ public class Env {
             Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
             db.dropFunction(stmt.getFunction(), stmt.isIfExists());
         }
+        cleanUDFCacheTask(stmt); // BE will cache classload, when drop function, BE need clear cache
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
@@ -6102,6 +6105,18 @@ public class Env {
             CleanTrashTask cleanTrashTask = new CleanTrashTask(backend.getId());
             batchTask.addTask(cleanTrashTask);
             LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
+        }
+        AgentTaskExecutor.submit(batchTask);
+    }
+
+    public void cleanUDFCacheTask(DropFunctionStmt stmt) {
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
+        String functionSignature = stmt.signatureString();
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (Backend backend : backendsInfo.values()) {
+            CleanUDFCacheTask cleanUDFCacheTask = new CleanUDFCacheTask(backend.getId(), functionSignature);
+            batchTask.addTask(cleanUDFCacheTask);
+            LOG.info("clean udf cache in be {}, beId {}", backend.getHost(), backend.getId());
         }
         AgentTaskExecutor.submit(batchTask);
     }
