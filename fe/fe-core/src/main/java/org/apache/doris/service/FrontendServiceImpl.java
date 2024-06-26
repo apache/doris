@@ -2630,6 +2630,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
             LOG.error("failed to getAutoIncrementRange:{}, request:{}, backend:{}",
                     NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
             return result;

@@ -43,7 +43,7 @@ struct AutoIncIDAllocator {
         return ids.front().first++;
     }
 
-    void insert_ids(int64_t start, std::size_t length) {
+    void insert_ids(int64_t start, size_t length) {
         total_count += length;
         ids.emplace_back(start, length);
     }
@@ -91,6 +91,8 @@ private:
 
     Result<int64_t> _fetch_ids_from_fe(size_t length);
 
+    void _discard_all();
+
     std::atomic<size_t> _batch_size {MIN_BATCH_SIZE};
 
     int64_t _db_id;
@@ -106,6 +108,7 @@ private:
 
     mutable std::mutex _latch;
     std::list<AutoIncRange> _buffers;
+    size_t _current_volume {0};
 };
 
 class GlobalAutoIncBuffers {
