@@ -157,3 +157,8 @@ db2_11_port=50000
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = true
+
+// kerberos docker config
+enableKerberosTest = true
+kerberosHmsPort=9883
+kerberosHdfsPort=8820
