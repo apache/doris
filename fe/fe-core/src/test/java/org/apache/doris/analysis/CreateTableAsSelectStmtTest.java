@@ -503,7 +503,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"enable_mow_delete_on_delete_predicate\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }

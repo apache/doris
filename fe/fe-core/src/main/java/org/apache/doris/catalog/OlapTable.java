@@ -1126,6 +1126,14 @@ public class OlapTable extends Table {
         return null;
     }
 
+    public void setEnableDeleteOnDeletePredicate(boolean enable) {
+        getOrCreatTableProperty().setEnableDeleteOnDeletePredicate(enable);
+    }
+
+    public boolean getEnableDeleteOnDeletePredicate() {
+        return getOrCreatTableProperty().getEnableDelteOnDeletePredicate();
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }

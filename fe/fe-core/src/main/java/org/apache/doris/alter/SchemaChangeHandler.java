@@ -2215,6 +2215,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
             LOG.info("Properties already up-to-date");
@@ -2230,6 +2231,13 @@ public class SchemaChangeHandler extends AlterHandler {
         if (enableUniqueKeyMergeOnWrite && Boolean.parseBoolean(singleCompaction)) {
             throw new UserException(
                     "enable_single_replica_compaction property is not supported for merge-on-write table");
+        }
+
+        String enableMowDeleteOnDeletePredicate = properties.get(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE);
+        if (!enableUniqueKeyMergeOnWrite && Boolean.getBoolean(enableMowDeleteOnDeletePredicate)) {
+            throw new UserException(
+                    "enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table");
         }
 
         String skipWriteIndexOnLoad = properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
