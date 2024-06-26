@@ -16,8 +16,7 @@
 // under the License.
 
 suite("test_unique_model_schema_value_add","p0") {
-    def tbName = "test_unique_model_schema_value_add"
-    def tbName2 = "test_unique_model_schema_value_add_1"
+    def tbName = "unique_model_schema_value_add"
     def on_write = getRandomBoolean()
     println String.format("current enable_unique_key_merge_on_write is : %s ",on_write)
     //Test the unique model by adding a value column
@@ -54,7 +53,7 @@ suite("test_unique_model_schema_value_add","p0") {
     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1  "
     def errorMessage=""
     sql """ alter  table ${tbName} add  column province VARCHAR(20)  DEFAULT "广东省" AFTER username """
-    def insertSql = "insert into ${tbName} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+    def insertSql = "insert into ${tbName} values(993456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -65,7 +64,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column special_area BOOLEAN  DEFAULT "0" AFTER username """
-    insertSql = "insert into ${tbName} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    insertSql = "insert into ${tbName} values(993456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -77,7 +76,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column special_area TINYINT  DEFAULT "0" AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -89,7 +88,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column area_num SMALLINT  DEFAULT "999" AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', 567, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', 567, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -100,7 +99,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column house_price INT  DEFAULT "999" AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -111,7 +110,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column house_price1 BIGINT  DEFAULT "99999991" AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', 88889494646, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', 88889494646, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -123,7 +122,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column car_price LARGEINT  DEFAULT "9999" AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', 555888555, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', 555888555, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -138,7 +137,7 @@ suite("test_unique_model_schema_value_add","p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} add  column phone FLOAT  DEFAULT "166.68" AFTER username """
-        insertSql = " insert into ${tbName} values(123456689, 'Alice', 189.98, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+        insertSql = " insert into ${tbName} values(993456689, 'Alice', 189.98, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -156,7 +155,7 @@ suite("test_unique_model_schema_value_add","p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} add  column watch DOUBLE  DEFAULT "166.689" AFTER username """
-        insertSql = " insert into ${tbName} values(123456689, 'Alice', 189.479, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+        insertSql = " insert into ${tbName} values(993456689, 'Alice', 189.479, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -168,7 +167,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column watch DECIMAL(38,10)  DEFAULT "16899.6464689" AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', 16499.6464689, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', 16499.6464689, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -180,7 +179,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column watch DATE  DEFAULT "1997-01-01" AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', \"2024-01-01\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', \"2024-01-01\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -193,7 +192,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column anniversary DATETIME  DEFAULT "1997-01-01 00:00:00" AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', \"2024-01-04 09:00:00\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', \"2024-01-04 09:00:00\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -207,7 +206,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column teacher CHAR  DEFAULT "0" AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', \"1\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', \"1\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -219,7 +218,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column comment STRING  DEFAULT "我是小说家" AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', '我是侦探家', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', '我是侦探家', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -231,7 +230,7 @@ suite("test_unique_model_schema_value_add","p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} add  column comment HLL HLL_UNION   AFTER username """
-        insertSql = " insert into ${tbName} values(123456689, 'Alice', '2', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+        insertSql = " insert into ${tbName} values(993456689, 'Alice', '2', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -245,7 +244,7 @@ suite("test_unique_model_schema_value_add","p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} add  column device_id   bitmap BITMAP_UNION  AFTER username """
-        insertSql = " insert into ${tbName} values(123456689, 'Alice', to_bitmap(243), 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+        insertSql = " insert into ${tbName} values(993456689, 'Alice', to_bitmap(243), 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -259,7 +258,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column m   Map<STRING, INT>   AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', {'a': 100, 'b': 200}, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', {'a': 100, 'b': 200}, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -271,7 +270,7 @@ suite("test_unique_model_schema_value_add","p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} add  column   j    JSON   AFTER username """
-    insertSql = " insert into ${tbName} values(123456689, 'Alice', '{\"k1\":\"v31\", \"k2\": 300}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    insertSql = " insert into ${tbName} values(993456689, 'Alice', '{\"k1\":\"v31\", \"k2\": 300}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60

@@ -116,7 +116,8 @@ public:
     ReturnType stored_result() const {
         if (!has_called()) {
             // Could not return status if the method not called.
-            throw std::exception();
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "calling stored_result while has not been called");
         }
         if (_eptr) {
             std::rethrow_exception(_eptr);

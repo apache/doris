@@ -257,7 +257,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 throw e;
             }
         } catch (Exception e) {
-            throw new HMSClientException("failed to check if table %s in db %s exists", e, tblName, dbName);
+            throw new HMSClientException("failed to truncate table %s in db %s.", e, tblName, dbName);
         }
     }
 
@@ -289,7 +289,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 throw e;
             }
         } catch (Exception e) {
-            throw new HMSClientException("failed to check if table %s in db %s exists", e, tblName, dbName);
+            throw new HMSClientException("failed to list partitions in table '%s.%s'.", e, dbName, tblName);
         }
     }
 

@@ -80,6 +80,7 @@ import org.apache.doris.catalog.InlineView;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.ListPartitionInfo;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.MultiRowType;
@@ -90,9 +91,11 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
@@ -114,6 +117,8 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.load.CloudBrokerLoadJob;
+import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.util.RangeUtils;
@@ -168,9 +173,15 @@ import org.apache.doris.fs.remote.dfs.JFSFileSystem;
 import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
+import org.apache.doris.load.loadv2.BrokerLoadJob;
+import org.apache.doris.load.loadv2.BulkLoadJob;
+import org.apache.doris.load.loadv2.InsertLoadJob;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
+import org.apache.doris.load.loadv2.MiniLoadJob;
 import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
+import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.KafkaProgress;
@@ -196,6 +207,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
@@ -215,6 +227,7 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
 import com.google.gson.ReflectionAccessFilter;
+import com.google.gson.ToNumberPolicy;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
@@ -233,6 +246,7 @@ import java.lang.reflect.Type;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -252,7 +266,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * See the following "GuavaTableAdapter" and "GuavaMultimapAdapter" for example.
  */
 public class GsonUtils {
-
     // runtime adapter for class "Type"
     private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory
             = RuntimeTypeAdapterFactory
@@ -531,9 +544,26 @@ public class GsonUtils {
                     .registerSubtype(BackupJob.class, BackupJob.class.getSimpleName())
                     .registerSubtype(RestoreJob.class, RestoreJob.class.getSimpleName());
 
+    private static RuntimeTypeAdapterFactory<LoadJob> loadJobTypeAdapterFactory
+                    = RuntimeTypeAdapterFactory.of(LoadJob.class, "clazz")
+                    .registerSubtype(BrokerLoadJob.class, BrokerLoadJob.class.getSimpleName())
+                    .registerSubtype(BulkLoadJob.class, BulkLoadJob.class.getSimpleName())
+                    .registerSubtype(CloudBrokerLoadJob.class, CloudBrokerLoadJob.class.getSimpleName())
+                    .registerSubtype(CopyJob.class, CopyJob.class.getSimpleName())
+                    .registerSubtype(InsertLoadJob.class, InsertLoadJob.class.getSimpleName())
+                    .registerSubtype(MiniLoadJob.class, MiniLoadJob.class.getSimpleName())
+                    .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<PartitionItem> partitionItemTypeAdapterFactory
+                    = RuntimeTypeAdapterFactory.of(PartitionItem.class, "clazz")
+                    .registerSubtype(ListPartitionItem.class, ListPartitionItem.class.getSimpleName())
+                    .registerSubtype(RangePartitionItem.class, RangePartitionItem.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
-    private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
+    private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
+            .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
+            .addSerializationExclusionStrategy(
                     new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
@@ -563,7 +593,10 @@ public class GsonUtils {
             .registerTypeAdapterFactory(routineLoadTypeAdapterFactory)
             .registerTypeAdapterFactory(remoteFileSystemTypeAdapterFactory)
             .registerTypeAdapterFactory(jobBackupTypeAdapterFactory)
+            .registerTypeAdapterFactory(loadJobTypeAdapterFactory)
+            .registerTypeAdapterFactory(partitionItemTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
+            .registerTypeAdapter(ImmutableList.class, new ImmutableListDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
             .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer()).setExclusionStrategies(
@@ -846,6 +879,16 @@ public class GsonUtils {
             final Type type2 = TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
             final Map<?, ?> map = context.deserialize(json, type2);
             return ImmutableMap.copyOf(map);
+        }
+    }
+
+    public static final class ImmutableListDeserializer implements JsonDeserializer<ImmutableList<?>> {
+        @Override
+        public ImmutableList<?> deserialize(final JsonElement json, final Type type,
+                final JsonDeserializationContext context) throws JsonParseException {
+            final Type type2 = TypeUtils.parameterize(List.class, ((ParameterizedType) type).getActualTypeArguments());
+            final List<?> list = context.deserialize(json, type2);
+            return ImmutableList.copyOf(list);
         }
     }
 

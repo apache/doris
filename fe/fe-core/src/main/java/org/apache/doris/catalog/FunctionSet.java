@@ -178,6 +178,7 @@ public class FunctionSet<T> {
     public static final String HLL_UNION_AGG = "hll_union_agg";
     public static final String HLL_RAW_AGG = "hll_raw_agg";
     public static final String HLL_CARDINALITY = "hll_cardinality";
+    public static final String HLL_FROM_BASE64 = "hll_from_base64";
 
     public static final String TO_BITMAP = "to_bitmap";
     public static final String TO_BITMAP_WITH_CHECK = "to_bitmap_with_check";

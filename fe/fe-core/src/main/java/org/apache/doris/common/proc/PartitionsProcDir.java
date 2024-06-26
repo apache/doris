@@ -240,7 +240,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                         .map(Map.Entry::getKey).collect(Collectors.toList());
             } else {
                 Collection<Partition> partitions = isTempPartition
-                        ? olapTable.getTempPartitions() : olapTable.getPartitions();
+                        ? olapTable.getAllTempPartitions() : olapTable.getPartitions();
                 partitionIds = partitions.stream().map(Partition::getId).collect(Collectors.toList());
             }
 

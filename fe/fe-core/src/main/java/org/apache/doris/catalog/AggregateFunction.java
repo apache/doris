@@ -28,11 +28,11 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -68,16 +68,24 @@ public class AggregateFunction extends Function {
     public static ImmutableSet<String> SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET = ImmutableSet.of("group_concat");
 
     // Set if different from retType_, null otherwise.
+    @SerializedName("it")
     private Type intermediateType;
 
     // The symbol inside the binary at location_ that contains this particular.
     // They can be null if it is not required.
+    @SerializedName("ufs")
     private String updateFnSymbol;
+    @SerializedName("ifs")
     private String initFnSymbol;
+    @SerializedName("sfs")
     private String serializeFnSymbol;
+    @SerializedName("mfs")
     private String mergeFnSymbol;
+    @SerializedName("gvfs")
     private String getValueFnSymbol;
+    @SerializedName("rfs")
     private String removeFnSymbol;
+    @SerializedName("ffs")
     private String finalizeFnSymbol;
 
     private static String BE_BUILTINS_CLASS = "AggregateFunctions";
@@ -86,6 +94,7 @@ public class AggregateFunction extends Function {
     // e.g. min(distinct col) == min(col).
     // TODO: currently it is not possible for user functions to specify this. We should
     // extend the create aggregate function stmt to allow additional metadata like this.
+    @SerializedName("igd")
     private boolean ignoresDistinct;
 
     // True if this function can appear within an analytic expr (fn() OVER(...)).
@@ -93,9 +102,11 @@ public class AggregateFunction extends Function {
     // we should identify this property from the function itself (e.g., based on which
     // functions of the UDA API are implemented).
     // Currently, there is no reliable way of doing that.
+    @SerializedName("isAn")
     private boolean isAnalyticFn;
 
     // True if this function can be used for aggregation (without an OVER() clause).
+    @SerializedName("isAg")
     private boolean isAggregateFn;
 
     // True if this function returns a non-null value on an empty input. It is used
@@ -103,9 +114,11 @@ public class AggregateFunction extends Function {
     // TODO: Instead of manually setting this flag, we should identify this
     // property from the function itself (e.g. evaluating the function on an
     // empty input in BE).
+    @SerializedName("rnno")
     private boolean returnsNonNullOnEmpty;
 
     // use for java-udaf to point the class of user define
+    @SerializedName("sn")
     private String symbolName;
 
     // only used for serialization
@@ -622,33 +635,6 @@ public class AggregateFunction extends Function {
         //    agg_fn.setIgnores_distinct(ignoresDistinct);
         fn.setAggregateFn(aggFn);
         return fn;
-    }
-
-    @Override
-    public void write(DataOutput output) throws IOException {
-        // 1. type
-        FunctionType.AGGREGATE.write(output);
-        // 2. parent
-        super.writeFields(output);
-        // 3. self's member
-        boolean hasInterType = intermediateType != null;
-        output.writeBoolean(hasInterType);
-        if (hasInterType) {
-            ColumnType.write(output, intermediateType);
-        }
-        IOUtils.writeOptionString(output, updateFnSymbol);
-        IOUtils.writeOptionString(output, initFnSymbol);
-        IOUtils.writeOptionString(output, serializeFnSymbol);
-        IOUtils.writeOptionString(output, mergeFnSymbol);
-        IOUtils.writeOptionString(output, getValueFnSymbol);
-        IOUtils.writeOptionString(output, removeFnSymbol);
-        IOUtils.writeOptionString(output, finalizeFnSymbol);
-        IOUtils.writeOptionString(output, symbolName);
-
-        output.writeBoolean(ignoresDistinct);
-        output.writeBoolean(isAnalyticFn);
-        output.writeBoolean(isAggregateFn);
-        output.writeBoolean(returnsNonNullOnEmpty);
     }
 
     public void readFields(DataInput input) throws IOException {

@@ -174,6 +174,12 @@ public class StreamLoadPlanner {
                 if (col.isKey() && !existInExpr) {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
                 }
+                if (!col.getGeneratedColumnsThatReferToThis().isEmpty()
+                        && col.getGeneratedColumnInfo() == null && !existInExpr) {
+                    throw new UserException("Partial update should include"
+                            + " all ordinary columns referenced"
+                            + " by generated columns, missing: " + col.getName());
+                }
             }
             if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
                 partialUpdateInputColumns.add(Column.DELETE_SIGN);

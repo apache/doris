@@ -31,6 +31,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -226,7 +227,7 @@ public class Repository implements Writable {
         // so that we can add regression tests about backup/restore.
         //
         // TODO: support hdfs/brokers
-        if (fileSystem instanceof S3FileSystem) {
+        if (fileSystem instanceof S3FileSystem || fileSystem instanceof AzureFileSystem) {
             String deleteStaledSnapshots = fileSystem.getProperties()
                     .getOrDefault(CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, "false");
             if (deleteStaledSnapshots.equalsIgnoreCase("true")) {
@@ -235,7 +236,7 @@ public class Repository implements Writable {
                 String snapshotPrefix = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name));
                 LOG.info("property {} is set, delete snapshots with prefix: {}",
                         CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, snapshotPrefix);
-                Status st = ((S3FileSystem) fileSystem).deleteDirectory(snapshotPrefix);
+                Status st = fileSystem.deleteDirectory(snapshotPrefix);
                 if (!st.ok()) {
                     return st;
                 }
@@ -557,7 +558,7 @@ public class Repository implements Writable {
             if (!st.ok()) {
                 return st;
             }
-        } else if (fileSystem instanceof S3FileSystem) {
+        } else if (fileSystem instanceof S3FileSystem || fileSystem instanceof AzureFileSystem) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
             }

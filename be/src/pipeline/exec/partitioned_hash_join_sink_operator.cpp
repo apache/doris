@@ -27,24 +27,25 @@ namespace doris::pipeline {
 Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
                                                doris::pipeline::LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSpillSinkLocalState::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     _shared_state->partitioned_build_blocks.resize(p._partition_count);
     _shared_state->spilled_streams.resize(p._partition_count);
 
     _internal_runtime_profile.reset(new RuntimeProfile("internal_profile"));
 
-    _partitioner = std::make_unique<PartitionerType>(p._partition_count);
-    RETURN_IF_ERROR(_partitioner->init(p._build_exprs));
-
     _partition_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile(), "PartitionTime", "Spill", 1);
     _partition_shuffle_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile(), "PartitionShuffleTime", "Spill", 1);
     _spill_build_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile(), "SpillBuildTime", "Spill", 1);
 
-    return _partitioner->prepare(state, p._child_x->row_desc());
+    return Status::OK();
 }
 
 Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXSpillSinkLocalState::open(state));
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     for (uint32_t i = 0; i != p._partition_count; ++i) {
@@ -58,7 +59,7 @@ Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
                                             _spill_data_size, _spill_write_disk_timer,
                                             _spill_write_wait_io_timer);
     }
-    return _partitioner->open(state);
+    return p._partitioner->clone(state, _partitioner);
 }
 
 Status PartitionedHashJoinSinkLocalState::close(RuntimeState* state, Status exec_status) {
@@ -410,10 +411,10 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
         }
     }
 
-    --_spilling_streams_count;
+    auto num = _spilling_streams_count.fetch_sub(1);
     DCHECK_GE(_spilling_streams_count, 0);
 
-    if (_spilling_streams_count == 0) {
+    if (num == 1) {
         std::unique_lock<std::mutex> lock(_spill_lock);
         _dependency->set_ready();
         if (_child_eos) {
@@ -449,16 +450,20 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
         _build_exprs.emplace_back(eq_join_conjunct.right);
         partition_exprs.emplace_back(eq_join_conjunct.right);
     }
+    _partitioner = std::make_unique<PartitionerType>(_partition_count);
+    RETURN_IF_ERROR(_partitioner->init(_build_exprs));
 
     return Status::OK();
 }
 
 Status PartitionedHashJoinSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(_inner_sink_operator->set_child(_child_x));
+    RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
     return _inner_sink_operator->prepare(state);
 }
 
 Status PartitionedHashJoinSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(_partitioner->open(state));
     return _inner_sink_operator->open(state);
 }
 

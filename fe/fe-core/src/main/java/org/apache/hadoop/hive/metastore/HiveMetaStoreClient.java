@@ -214,7 +214,6 @@ import static org.apache.hadoop.hive.metastore.utils.MetaStoreUtils.getDefaultCa
 import static org.apache.hadoop.hive.metastore.utils.MetaStoreUtils.prependCatalogToDbName;
 import org.apache.hadoop.hive.metastore.utils.ObjectPair;
 import org.apache.hadoop.hive.metastore.utils.SecurityUtils;
-import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.StringUtils;
@@ -1526,9 +1525,6 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
   @Override
   public void truncateTable(String catName, String dbName, String tableName, List<String> partNames)
       throws TException {
-    if (hiveVersion == HiveVersion.V1_0 || hiveVersion == HiveVersion.V2_0 || hiveVersion == HiveVersion.V2_3) {
-        throw new TException("HiveMetaStoreClient doesn't support truncateTable before Hive3.");
-    }
     client.truncate_table(prependCatalogToDbNameByVersion(hiveVersion, catName, dbName, conf), tableName, partNames);
   }
 

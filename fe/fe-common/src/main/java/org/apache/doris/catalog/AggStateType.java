@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
@@ -120,6 +121,7 @@ public class AggStateType extends Type {
         container.setSubTypes(types);
         container.setResultIsNullable(resultIsNullable);
         container.setFunctionName(functionName);
+        container.setBeExecVersion(Config.be_exec_version);
     }
 
     @Override

@@ -27,15 +27,16 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "runtime/query_statistics.h"
+#include "runtime/runtime_state.h"
+#include "util/hash_util.hpp"
 
-namespace google {
-namespace protobuf {
+namespace google::protobuf {
 class Closure;
-}
-} // namespace google
+} // namespace google::protobuf
 
 namespace arrow {
 class RecordBatch;
@@ -71,19 +72,19 @@ struct GetResultBatchCtx {
 // buffer used for result customer and producer
 class BufferControlBlock {
 public:
-    BufferControlBlock(const TUniqueId& id, int buffer_size);
+    BufferControlBlock(const TUniqueId& id, int buffer_size, int batch_size);
     ~BufferControlBlock();
 
     Status init();
-    Status add_batch(std::unique_ptr<TFetchDataResult>& result);
-    Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
+    Status add_batch(RuntimeState* state, std::unique_ptr<TFetchDataResult>& result);
+    Status add_arrow_batch(RuntimeState* state, std::shared_ptr<arrow::RecordBatch>& result);
 
     void get_batch(GetResultBatchCtx* ctx);
     Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
 
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
-    Status close(Status exec_status);
+    Status close(const TUniqueId& id, Status exec_status);
     // this is called by RPC, called from coordinator
     void cancel();
 
@@ -94,11 +95,12 @@ public:
         // or some other failure.
         // and the number of written rows is only needed when all things go well.
         if (_query_statistics != nullptr) {
-            _query_statistics->set_returned_rows(num_rows);
+            _query_statistics->add_returned_rows(num_rows);
         }
     }
 
-    void set_dependency(std::shared_ptr<pipeline::Dependency> result_sink_dependency);
+    void set_dependency(const TUniqueId& id,
+                        std::shared_ptr<pipeline::Dependency> result_sink_dependency);
 
 protected:
     void _update_dependency();
@@ -121,18 +123,17 @@ protected:
 
     // protects all subsequent data in this block
     std::mutex _lock;
-    // signal arrival of new batch or the eos/cancelled condition
-    std::condition_variable _data_arrival;
-    // signal removal of data by stream consumer
-    std::condition_variable _data_removal;
 
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 
     // only used for FE using return rows to check limit
     std::unique_ptr<QueryStatistics> _query_statistics;
-    std::atomic_bool _batch_queue_empty = false;
-    std::vector<std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
-    size_t close_cnt = 0;
+    // instance id to dependency
+    std::unordered_map<TUniqueId, std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
+    std::unordered_map<TUniqueId, size_t> _instance_rows;
+    std::list<std::unordered_map<TUniqueId, size_t>> _instance_rows_in_queue;
+
+    int _batch_size;
 };
 
 } // namespace doris

@@ -37,6 +37,7 @@ suite ("diffrent_serialize") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,3,null,'c';"
 
+    createMV("create materialized view mv1_1 as select k1,bitmap_intersect(to_bitmap(k2)) from d_table group by k1;")
     createMV("create materialized view mv1 as select k1,bitmap_agg(k2) from d_table group by k1;")
     /*
     createMV("create materialized view mv2 as select k1,map_agg(k2,k3) from d_table group by k1;")
@@ -55,6 +56,12 @@ suite ("diffrent_serialize") {
         contains "(mv1)"
     }
     qt_select_mv "select k1,bitmap_to_string(bitmap_agg(k2)) from d_table group by k1 order by 1;"
+
+    explain {
+        sql("select k1,bitmap_to_string(bitmap_intersect(to_bitmap(k2))) from d_table group by k1 order by 1;")
+        contains "(mv1_1)"
+    }
+    qt_select_mv "select k1,bitmap_to_string(bitmap_intersect(to_bitmap(k2))) from d_table group by k1 order by 1;"
 
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 1,2,1,'a';"

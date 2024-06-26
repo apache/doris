@@ -2041,7 +2041,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ConnectContext.remove();
         }
         result.setPipelineParams(planFragmentParamsList);
-        LOG.info("receive stream load multi table put request result: {}", result);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive stream load multi table put request result: {}", result);
+        }
         return result;
     }
 

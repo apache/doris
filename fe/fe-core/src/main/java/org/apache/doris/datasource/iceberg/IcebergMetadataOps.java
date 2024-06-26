@@ -64,6 +64,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
+    public IcebergExternalCatalog getExternalCatalog() {
+        return dorisCatalog;
+    }
+
     @Override
     public void close() {
     }
@@ -177,6 +181,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void truncateTable(String dbName, String tblName, List<String> partitions) {
-        throw new UnsupportedOperationException("Iceberg truncate table is not supported.");
+        throw new UnsupportedOperationException("Truncate Iceberg table is not supported.");
     }
 }

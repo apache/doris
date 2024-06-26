@@ -375,7 +375,6 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         if (cache_status.ok()) {
             return Status::OK();
         }
-        stats->inverted_index_query_cache_miss++;
         FulltextIndexSearcherPtr* searcher_ptr = nullptr;
 
         InvertedIndexCacheHandle inverted_index_cache_handle;

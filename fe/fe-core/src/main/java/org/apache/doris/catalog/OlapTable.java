@@ -54,6 +54,8 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
@@ -89,6 +91,7 @@ import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -111,7 +114,7 @@ import java.util.stream.Collectors;
  * Internal representation of tableFamilyGroup-related metadata. A OlaptableFamilyGroup contains several tableFamily.
  * Note: when you add a new olap table property, you should modify TableProperty class
  */
-public class OlapTable extends Table implements MTMVRelatedTableIf {
+public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
 
     public enum OlapTableState {
@@ -143,27 +146,32 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     @SerializedName("keysType")
     private KeysType keysType;
+    @Setter
     @SerializedName("partitionInfo")
     private PartitionInfo partitionInfo;
     @SerializedName("idToPartition")
+    @Getter
     private Map<Long, Partition> idToPartition = new HashMap<>();
+    // handled in postgsonprocess
+    @Getter
     private Map<String, Partition> nameToPartition = Maps.newTreeMap();
 
     @SerializedName(value = "distributionInfo")
     private DistributionInfo defaultDistributionInfo;
 
     // all info about temporary partitions are save in "tempPartitions"
+    @Getter
     @SerializedName(value = "tempPartitions")
     private TempPartitions tempPartitions = new TempPartitions();
 
     // bloom filter columns
     @SerializedName(value = "bfColumns")
-
     private Set<String> bfColumns;
+
     @SerializedName(value = "bfFpp")
     private double bfFpp;
-    @SerializedName(value = "colocateGroup")
 
+    @SerializedName(value = "colocateGroup")
     private String colocateGroup;
 
     private boolean hasSequenceCol;
@@ -184,6 +192,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     @SerializedName(value = "tableProperty")
     private TableProperty tableProperty;
 
+    @SerializedName(value = "aIncg")
     private AutoIncrementGenerator autoIncrementGenerator;
 
     private volatile Statistics statistics = new Statistics();
@@ -1172,7 +1181,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     // get only temp partitions
-    public Collection<Partition> getTempPartitions() {
+    public Collection<Partition> getAllTempPartitions() {
         return tempPartitions.getAllPartitions();
     }
 
@@ -1536,82 +1545,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        // state
-        Text.writeString(out, state.name());
-
-        // indices' schema
-        int counter = indexNameToId.size();
-        out.writeInt(counter);
-        for (Map.Entry<String, Long> entry : indexNameToId.entrySet()) {
-            String indexName = entry.getKey();
-            long indexId = entry.getValue();
-            Text.writeString(out, indexName);
-            out.writeLong(indexId);
-            indexIdToMeta.get(indexId).write(out);
-        }
-
-        Text.writeString(out, keysType.name());
-        Text.writeString(out, partitionInfo.getType().name());
-        partitionInfo.write(out);
-        Text.writeString(out, defaultDistributionInfo.getType().name());
-        defaultDistributionInfo.write(out);
-
-        // partitions
-        int partitionCount = idToPartition.size();
-        out.writeInt(partitionCount);
-        for (Partition partition : idToPartition.values()) {
-            partition.write(out);
-        }
-
-        // bloom filter columns
-        if (bfColumns == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            out.writeInt(bfColumns.size());
-            for (String bfColumn : bfColumns) {
-                Text.writeString(out, bfColumn);
-            }
-            out.writeDouble(bfFpp);
-        }
-
-        // colocateTable
-        if (colocateGroup == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, colocateGroup);
-        }
-
-        out.writeLong(baseIndexId);
-
-        // write indexes
-        if (indexes != null) {
-            out.writeBoolean(true);
-            indexes.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        // tableProperty
-        if (tableProperty == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            tableProperty.write(out);
-        }
-
-        // autoIncrementGenerator
-        if (autoIncrementGenerator == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            autoIncrementGenerator.write(out);
-        }
-
-        tempPartitions.write(out);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     @Override
@@ -1645,6 +1579,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         // partition and distribution info
         keysType = KeysType.valueOf(Text.readString(in));
 
+        // useless code see pr 3036
         // add the correct keys type in tmp index meta
         for (MaterializedIndexMeta indexMeta : tmpIndexMetaList) {
             indexMeta.setKeysType(keysType);
@@ -1733,9 +1668,56 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         rebuildFullSchema();
     }
 
+    @Override
+    public void gsonPostProcess() throws IOException {
+
+        // HACK: the index id in MaterializedIndexMeta is not equals to the index id
+        // saved in OlapTable, because the table restore from snapshot is not reset
+        // the MaterializedIndexMeta correctly.
+        // for each index, reset the index id in MaterializedIndexMeta
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            long indexId = entry.getKey();
+            MaterializedIndexMeta indexMeta = entry.getValue();
+            if (indexMeta.getIndexId() != indexId) {
+                LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
+                        + " to the index saved in table {} ({}), reset it to {}",
+                        indexMeta.getIndexId(), indexNameToId.get(indexId), name, id, indexId);
+                indexMeta.resetIndexIdForRestore(indexId);
+            }
+        }
+
+        // for each idToPartition, add partition to nameToPartition
+        for (Partition partition : idToPartition.values()) {
+            nameToPartition.put(partition.getName(), partition);
+        }
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_124
+                    && autoIncrementGenerator != null) {
+            autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
+        }
+        if (isAutoBucket()) {
+            defaultDistributionInfo.markAutoBucket();
+        }
+        RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
+        if (tempRangeInfo != null) {
+            for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
+                this.partitionInfo.addPartition(partitionId, true,
+                        tempRangeInfo.getItem(partitionId), tempRangeInfo.getDataProperty(partitionId),
+                        tempRangeInfo.getReplicaAllocation(partitionId), tempRangeInfo.getIsInMemory(partitionId),
+                        tempRangeInfo.getIsMutable(partitionId));
+            }
+        }
+        tempPartitions.unsetPartitionInfo();
+
+        // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
+        // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
+        // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
+        rebuildFullSchema();
+    }
+
     public OlapTable selectiveCopy(Collection<String> reservedPartitions, IndexExtState extState, boolean isForBackup) {
-        OlapTable copied = new OlapTable();
-        if (!DeepCopy.copy(this, copied, OlapTable.class, FeConstants.meta_version)) {
+        OlapTable copied = DeepCopy.copy(this, OlapTable.class, FeConstants.meta_version);
+        if (copied == null) {
             LOG.warn("failed to copy olap table: " + getName());
             return null;
         }
@@ -1795,6 +1777,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         }
 
         return copied;
+    }
+
+    public static OlapTable read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            OlapTable t = new OlapTable();
+            t.readFields(in);
+            return t;
+        }
+        return (OlapTable) GsonUtils.GSON.fromJson(Text.readString(in), OlapTable.class);
     }
 
     /*
