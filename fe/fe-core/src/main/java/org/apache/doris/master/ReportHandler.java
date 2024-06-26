@@ -889,8 +889,8 @@ public class ReportHandler extends Daemon {
                                             objectPool);
 
                                     createReplicaTask.setIsRecoverTask(true);
-                                    createReplicaTask.setInvertedIndexStorageFormat(olapTable
-                                                                .getInvertedIndexStorageFormat());
+                                    createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
+                                                                .getInvertedIndexFileStorageFormat());
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
                                     // just set this replica as bad
