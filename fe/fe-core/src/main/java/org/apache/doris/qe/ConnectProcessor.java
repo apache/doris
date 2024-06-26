@@ -387,7 +387,7 @@ public abstract class ConnectProcessor {
                         if (i != stmts.size() - 1) {
                             ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
                             if (ctx.getState().getStateType() != MysqlStateType.ERR) {
-                                // here, doris id different with mysql.
+                                // here, doris do different with mysql.
                                 // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
                                 // single statement. Doris treat it with multi statement, but only return
                                 // the last statement result.
