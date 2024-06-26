@@ -51,8 +51,11 @@ run() {
     shopt -s inherit_errexit
 
     cd "${teamcity_build_checkoutDir}" || return 1
-    echo "ak='${cos_ak}'" >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
-    echo "sk='${cos_sk}'" >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
+    {
+        echo # add a new line to prevent two config items from being combined, which will cause the error "No signature of method"
+        echo "ak='${cos_ak}'"
+        echo "sk='${cos_sk}'"
+    } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy \
         "${teamcity_build_checkoutDir}"/regression-test/conf/
     # start kafka docker to run case test_rountine_load

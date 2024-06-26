@@ -95,7 +95,7 @@ public:
         // or some other failure.
         // and the number of written rows is only needed when all things go well.
         if (_query_statistics != nullptr) {
-            _query_statistics->set_returned_rows(num_rows);
+            _query_statistics->add_returned_rows(num_rows);
         }
     }
 
@@ -123,6 +123,10 @@ protected:
 
     // protects all subsequent data in this block
     std::mutex _lock;
+
+    // get arrow flight result is a sync method, need wait for data ready and return result.
+    // TODO, waiting for data will block pipeline, so use a request pool to save requests waiting for data.
+    std::condition_variable _arrow_data_arrival;
 
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 

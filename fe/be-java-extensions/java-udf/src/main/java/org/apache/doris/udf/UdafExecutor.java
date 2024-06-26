@@ -73,6 +73,8 @@ public class UdafExecutor extends BaseExecutor {
             outputTable.close();
         }
         super.close();
+        allMethods = null;
+        stateObjMap = null;
     }
 
     private Map<Integer, ColumnValueConverter> getInputConverters(int numColumns) {
