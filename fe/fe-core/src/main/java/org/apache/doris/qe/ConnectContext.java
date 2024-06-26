@@ -760,8 +760,8 @@ public class ConnectContext {
             //to ms
             long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
-                LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
-                        timeoutTag, getMysqlChannel().getRemoteHostPortString(), timeout);
+                LOG.warn("kill {} timeout, remote: {}, query timeout: {}, query id: {}",
+                        timeoutTag, getMysqlChannel().getRemoteHostPortString(), timeout, queryId);
                 killFlag = true;
             }
         }
