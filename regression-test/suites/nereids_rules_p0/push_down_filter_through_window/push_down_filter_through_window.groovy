@@ -18,6 +18,7 @@
 suite("push_down_filter_through_window") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set ignore_shape_nodes='PhysicalDistribute'"
     sql "drop table if exists push_down_multi_column_predicate_through_window_t"
     multi_sql """
     CREATE TABLE push_down_multi_column_predicate_through_window_t (id INT, value1 INT, value2 VARCHAR(50))

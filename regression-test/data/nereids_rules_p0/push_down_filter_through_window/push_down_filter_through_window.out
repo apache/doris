@@ -4,11 +4,10 @@ PhysicalResultSink
 --filter((num <= 2))
 ----PhysicalWindow
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalDistribute[DistributionSpecHash]
-----------PhysicalPartitionTopN
-------------PhysicalProject
---------------filter((abs((id + value1)) < 4))
-----------------PhysicalOlapScan[push_down_multi_column_predicate_through_window_t]
+--------PhysicalPartitionTopN
+----------PhysicalProject
+------------filter((abs((id + value1)) < 4))
+--------------PhysicalOlapScan[push_down_multi_column_predicate_through_window_t]
 
 -- !multi_column_predicate_push_down_window --
 1	1	10
@@ -19,11 +18,10 @@ PhysicalResultSink
 --filter((rc < 2))
 ----PhysicalWindow
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalDistribute[DistributionSpecHash]
-----------PhysicalPartitionTopN
-------------PhysicalProject
---------------filter(((t.id > 1) OR (t.value1 > 2)))
-----------------PhysicalOlapScan[push_down_multi_column_predicate_through_window_t]
+--------PhysicalPartitionTopN
+----------PhysicalProject
+------------filter(((t.id > 1) OR (t.value1 > 2)))
+--------------PhysicalOlapScan[push_down_multi_column_predicate_through_window_t]
 
 -- !multi_column_or_predicate_push_down_window --
 1	10	1
