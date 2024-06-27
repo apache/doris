@@ -1250,11 +1250,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DISTRIBUTE_PLANNER, needForward = true,
             fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "使用新的nereids的分布式规划器的开关，这个分布式规划器可以规划出一些更高效的查询计划，比如在某些情况下，"
-                    + "可以把左表shuffle到右表去做bucket shuffle join",
-            "The switch to use new DistributedPlanner of nereids, this planner can planning some "
-                    + "more efficient query plans, e.g. in certain situations, shuffle left side to "
-                    + "right side to do bucket shuffle join"
+                "使用新的nereids的分布式规划器的开关，这个分布式规划器可以规划出一些更高效的查询计划，比如在某些情况下，"
+                        + "可以把左表shuffle到右表去做bucket shuffle join",
+                "The switch to use new DistributedPlanner of nereids, this planner can planning some "
+                        + "more efficient query plans, e.g. in certain situations, shuffle left side to "
+                        + "right side to do bucket shuffle join"
     })
     private boolean enableNereidsDistributePlanner = false;
 
