@@ -303,7 +303,7 @@ public class PartitionRebalancer extends Rebalancer {
             List<Long> availPath = paths.stream().filter(path -> path.getStorageMedium() == tabletCtx.getStorageMedium()
                             && path.isFit(tabletCtx.getTabletSize(), false) == BalanceStatus.OK)
                     .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toList());
-            long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath);
+            long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath, tabletCtx.getStorageMedium());
             if (pathHash == -1) {
                 throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                         "paths has no available balance slot: " + availPath);
