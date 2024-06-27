@@ -994,7 +994,9 @@ public class TabletScheduler extends MasterDaemon {
         if (chosenReplica == null) {
             return false;
         }
+
         deleteReplicaInternal(tabletCtx, chosenReplica, "src replica of rebalance", force);
+        rebalancer.invalidateToDeleteReplicaId(tabletCtx);
 
         return true;
     }

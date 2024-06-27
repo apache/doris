@@ -351,6 +351,11 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     @Override
+    public void invalidateToDeleteReplicaId(TabletSchedCtx tabletCtx) {
+        movesCacheMap.invalidateTablet(tabletCtx);
+    }
+
+    @Override
     public void updateLoadStatistic(Map<Tag, LoadStatisticForTag> statisticMap) {
         super.updateLoadStatistic(statisticMap);
         movesCacheMap.updateMapping(statisticMap, Config.partition_rebalance_move_expire_after_access);
