@@ -414,7 +414,7 @@ public class SystemInfoServiceTest {
             }
         }
         Set<Long> expectBackendIds = infoService.getMixBackends().stream()
-                .filter(be -> be.isAlive()).map(Backend::getId())
+                .filter(Backend::isAlive).map(Backend::getId)
                 .collect(Collectors.toSet());
         Assert.assertEquals(expectBackendIds, beCounterMap.keySet().stream().collect(Collectors.toSet()));
         List<Integer> list = Lists.newArrayList(beCounterMap.values());
