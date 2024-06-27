@@ -23,6 +23,7 @@
 #include "io/fs/path.h"
 namespace doris {
 class Status;
+struct S3ClientConf;
 namespace io {
 
 // Names are in lexico order.
@@ -60,6 +61,14 @@ struct ObjectStorageResponse {
     ObjectStorageStatus status {};
     int http_code {200};
     std::string request_id = std::string();
+    static ObjectStorageResponse OK() {
+        // clang-format off
+        return {
+                .status { .code = 0, },
+                .http_code = 200,
+        };
+        // clang-format on
+    }
 };
 
 struct ObjectStorageUploadResponse {
@@ -118,7 +127,8 @@ public:
             const ObjectStoragePathOptions& opts) = 0;
     // Return a presigned URL for users to access the object
     virtual std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                               int64_t expiration_secs) = 0;
+                                               int64_t expiration_secs,
+                                               const S3ClientConf& conf) = 0;
 };
 } // namespace io
 } // namespace doris
