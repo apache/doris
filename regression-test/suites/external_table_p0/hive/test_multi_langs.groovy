@@ -28,15 +28,15 @@ suite("test_multi_langs", "p2,external,hive,external_remote,external_remote_hive
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
-            String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-            String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+            String hive2HmsPort = context.config.otherConfigs.get("hive2HmsPort")
             String catalog_name = "test_multi_langs"
 
             sql """drop catalog if exists ${catalog_name};"""
             sql """
                 create catalog if not exists ${catalog_name} properties (
                     'type'='hms',
-                    'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
+                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hive2HmsPort}'
                 );
             """
             logger.info("catalog " + catalog_name + " created")

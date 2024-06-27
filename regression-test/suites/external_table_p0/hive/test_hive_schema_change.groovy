@@ -89,18 +89,18 @@ alter table type_change_parquet change column fd_double fd_double double;
 alter table type_change_parquet change column date_timestamp date_timestamp timestamp;
 alter table type_change_parquet change column timestamp_date timestamp_date date;
 */
-suite("test_hive_schema_change", "p2,external,hive,external_remote,external_remote_hive") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
+suite("test_hive_schema_change", "p2,external,hive,external_docker,external_docker_hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String hive2HmsPort = context.config.otherConfigs.get("hive2HmsPort")
         String catalog_name = "test_hive_schema_change"
         sql """drop catalog if exists ${catalog_name};"""
         sql """
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hadoop.username' = 'hadoop',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hive2HmsPort}'
             );
         """
         sql """ switch ${catalog_name} """
