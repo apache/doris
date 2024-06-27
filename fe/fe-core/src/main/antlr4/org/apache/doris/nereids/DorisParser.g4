@@ -95,7 +95,7 @@ statementBase
         (whereClause)?
         TO filePath=STRING_LITERAL
         (propertyClause)?
-        (withRemoteStorageSystem)?                                  #export
+        (withRemoteStorageSystem)?                                     #export
     | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
         (REFRESH refreshMethod? refreshTrigger?)?
