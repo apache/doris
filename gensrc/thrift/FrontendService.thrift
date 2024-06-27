@@ -991,6 +991,7 @@ struct TMetadataTableRequestParams {
   8: optional PlanNodes.TMaterializedViewsMetadataParams materialized_views_metadata_params
   9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
+  11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
 }
 
 struct TSchemaTableRequestParams {

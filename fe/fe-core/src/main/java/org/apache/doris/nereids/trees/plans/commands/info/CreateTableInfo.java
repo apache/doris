@@ -1044,5 +1044,13 @@ public class CreateTableInfo {
             return isGeneratedColumn;
         }
     }
+
+    public PartitionTableInfo getPartitionTableInfo() {
+        return partitionTableInfo;
+    }
+
+    public DistributionDescriptor getDistribution() {
+        return distribution;
+    }
 }
 

@@ -507,7 +507,7 @@ DECLARE_mInt64(pick_rowset_to_compact_interval_sec);
 // Compaction priority schedule
 DECLARE_mBool(enable_compaction_priority_scheduling);
 DECLARE_mInt32(low_priority_compaction_task_num_per_disk);
-DECLARE_mDouble(low_priority_tablet_version_num_ratio);
+DECLARE_mInt32(low_priority_compaction_score_threshold);
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DECLARE_Int32(max_meta_checkpoint_threads);

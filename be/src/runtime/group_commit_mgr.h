@@ -187,6 +187,7 @@ private:
     // fragment_instance_id to load_block_queue
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
     bool _is_creating_plan_fragment = false;
+    std::vector<std::shared_ptr<pipeline::Dependency>> _create_plan_deps;
 };
 
 class GroupCommitMgr {

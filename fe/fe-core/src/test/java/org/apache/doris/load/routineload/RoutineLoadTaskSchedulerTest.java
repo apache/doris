@@ -39,6 +39,7 @@ import org.junit.Test;
 
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingDeque;
 
 public class RoutineLoadTaskSchedulerTest {
@@ -61,7 +62,7 @@ public class RoutineLoadTaskSchedulerTest {
             MetaNotFoundException, AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         long beId = 100L;
 
-        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        ConcurrentMap<Integer, Long> partitionIdToOffset = Maps.newConcurrentMap();
         partitionIdToOffset.put(1, 100L);
         partitionIdToOffset.put(2, 200L);
         KafkaProgress kafkaProgress = new KafkaProgress();

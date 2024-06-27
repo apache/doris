@@ -113,8 +113,6 @@ protected:
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
-    // time of prefilter input block from scanner
-    RuntimeProfile::Counter* _prefilter_timer = nullptr;
     // time of convert input block to output block from scanner
     RuntimeProfile::Counter* _convert_block_timer = nullptr;
     // time of filter output block from scanner

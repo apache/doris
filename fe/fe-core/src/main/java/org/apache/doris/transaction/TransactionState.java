@@ -78,6 +78,7 @@ public class TransactionState implements Writable {
         ROUTINE_LOAD_TASK(4), // routine load task use this type
         BATCH_LOAD_JOB(5); // load job v2 for broker load
 
+        @SerializedName("f")
         private final int flag;
 
         private LoadJobSourceType(int flag) {

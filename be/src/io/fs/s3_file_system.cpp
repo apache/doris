@@ -441,7 +441,8 @@ std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expir
     } else {
         client = _client->get();
     }
-    return client->generate_presigned_url({.bucket = _bucket, .key = key}, expiration_secs);
+    return client->generate_presigned_url({.bucket = _bucket, .key = key}, expiration_secs,
+                                          _client->s3_client_conf());
 }
 
 } // namespace doris::io
