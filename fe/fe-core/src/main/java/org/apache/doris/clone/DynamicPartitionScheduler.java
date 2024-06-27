@@ -201,34 +201,19 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
         List<Partition> partitions = idToItems.stream()
                 .map(entry -> table.getPartition(entry.getKey()))
-                .filter(partition -> partition != null && !partition.getName().equals(nowPartitionName))
+                .filter(partition -> partition != null && !partition.getName().equals(nowPartitionName)
+                        && partitions.getVisibleVersion() >= 2)
                 .collect(Collectors.toList());
-        List<Long> visibleVersions = null;
-        try {
-            visibleVersions = Partition.getVisibleVersions(partitions);
-        } catch (RpcException e) {
-            LOG.warn("autobucket use property's buckets get visible version fail, table: [{}-{}], "
-                    + "partition: {}, buckets num: {}, exception: ",
-                    table.getName(), table.getId(), partitionName, property.getBuckets(), e);
-            return property.getBuckets();
-        }
-
-        List<Partition> hasDataPartitions = Lists.newArrayList();
-        for (int i = 0; i < partitions.size(); i++) {
-            if (visibleVersions.get(i) >= 2) {
-                hasDataPartitions.add(partitions.get(i));
-            }
-        }
 
         // no exist history partition data
-        if (hasDataPartitions.isEmpty()) {
+        if (partitions.isEmpty()) {
             LOG.info("autobucket use property's buckets due to all partitions no data, table: [{}-{}], "
                     + "partition: {}, buckets num: {}",
                     table.getName(), table.getId(), partitionName, property.getBuckets());
             return property.getBuckets();
         }
 
-        ArrayList<Long> partitionSizeArray = hasDataPartitions.stream()
+        ArrayList<Long> partitionSizeArray = partitions.stream()
                 .map(partition -> partition.getAllDataSize(true))
                 .collect(Collectors.toCollection(ArrayList::new));
         long estimatePartitionSize = getNextPartitionSize(partitionSizeArray);
@@ -237,10 +222,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         int bucketsNum = AutoBucketUtils.getBucketsNum(uncompressedPartitionSize, Config.autobucket_min_buckets);
         LOG.info("autobucket calc with {} history partitions, table: [{}-{}], partition: {}, buckets num: {}, "
                 + " estimate partition size: {}, last partitions(partition name, local size, remote size): {}",
-                hasDataPartitions.size(), table.getName(), table.getId(), partitionName, bucketsNum,
+                partitions.size(), table.getName(), table.getId(), partitionName, bucketsNum,
                 estimatePartitionSize,
-                hasDataPartitions.stream()
-                        .skip(Math.max(0, hasDataPartitions.size() - 7))
+                partitions.stream()
+                        .skip(Math.max(0, partitions.size() - 7))
                         .map(partition -> "(" + partition.getName() + ", " + partition.getDataSize(true)
                                 + ", " + partition.getRemoteDataSize() + ")")
                         .collect(Collectors.toList()));
