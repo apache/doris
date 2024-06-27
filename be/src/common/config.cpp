@@ -437,6 +437,8 @@ DEFINE_Validator(compaction_task_num_per_disk,
                  [](const int config) -> bool { return config >= 2; });
 DEFINE_Validator(compaction_task_num_per_fast_disk,
                  [](const int config) -> bool { return config >= 2; });
+DEFINE_Validator(low_priority_compaction_task_num_per_disk,
+                 [](const int config) -> bool { return config >= 2; });
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DEFINE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
@@ -458,8 +460,8 @@ DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
 
 // Compaction priority schedule
 DEFINE_mBool(enable_compaction_priority_scheduling, "true");
-DEFINE_mInt32(low_priority_compaction_task_num_per_disk, "1");
-DEFINE_mDouble(low_priority_tablet_version_num_ratio, "0.7");
+DEFINE_mInt32(low_priority_compaction_task_num_per_disk, "2");
+DEFINE_mInt32(low_priority_compaction_score_threshold, "200");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DEFINE_Int32(max_meta_checkpoint_threads, "-1");
@@ -1220,6 +1222,8 @@ DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
+DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
+DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 

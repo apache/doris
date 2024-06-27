@@ -507,7 +507,7 @@ DECLARE_mInt64(pick_rowset_to_compact_interval_sec);
 // Compaction priority schedule
 DECLARE_mBool(enable_compaction_priority_scheduling);
 DECLARE_mInt32(low_priority_compaction_task_num_per_disk);
-DECLARE_mDouble(low_priority_tablet_version_num_ratio);
+DECLARE_mInt32(low_priority_compaction_score_threshold);
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DECLARE_Int32(max_meta_checkpoint_threads);
@@ -1304,6 +1304,13 @@ DECLARE_mBool(check_segment_when_build_rowset_meta);
 DECLARE_mBool(enable_s3_rate_limiter);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
+// When meet s3 429 error, the "get" request will
+// sleep s3_read_base_wait_time_ms (*1, *2, *3, *4) ms
+// get try again.
+// The max sleep time is s3_read_max_wait_time_ms
+// and the max retry time is max_s3_client_retry
+DECLARE_mInt32(s3_read_base_wait_time_ms);
+DECLARE_mInt32(s3_read_max_wait_time_ms);
 
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);

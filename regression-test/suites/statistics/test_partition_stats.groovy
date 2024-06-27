@@ -128,8 +128,8 @@ suite("test_partition_stats") {
     assertEquals("6.0", result[0][3])
     assertEquals("6", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("1.0", result[0][6])
-    assertEquals("6.0", result[0][7])
+    assertEquals("1", result[0][6])
+    assertEquals("6", result[0][7])
     assertEquals("24.0", result[0][8])
     assertEquals("N/A", result[0][10])
     assertEquals("N/A", result[0][11])
@@ -516,8 +516,8 @@ suite("test_partition_stats") {
     assertEquals("12.0", result[0][3])
     assertEquals("6", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("1.0", result[0][6])
-    assertEquals("6.0", result[0][7])
+    assertEquals("1", result[0][6])
+    assertEquals("6", result[0][7])
     assertEquals("48.0", result[0][8])
     sql """drop stats part5 partition(p1)"""
     result = sql """show column cached stats part5(id) partition(p1)"""

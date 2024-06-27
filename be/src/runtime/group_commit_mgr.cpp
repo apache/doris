@@ -287,18 +287,25 @@ Status GroupCommitTable::get_first_block_load_queue(
     if (!_is_creating_plan_fragment) {
         _is_creating_plan_fragment = true;
         create_plan_dep->block();
-        RETURN_IF_ERROR(
-                _thread_pool->submit_func([&, be_exe_version, mem_tracker, dep = create_plan_dep] {
-                    Defer defer {[&, dep = dep]() {
-                        dep->set_ready();
-                        std::unique_lock l(_lock);
-                        _is_creating_plan_fragment = false;
-                    }};
-                    auto st = _create_group_commit_load(be_exe_version, mem_tracker);
-                    if (!st.ok()) {
-                        LOG(WARNING) << "create group commit load error, st=" << st.to_string();
-                    }
-                }));
+        RETURN_IF_ERROR(_thread_pool->submit_func([&, be_exe_version, mem_tracker,
+                                                   dep = create_plan_dep] {
+            Defer defer {[&, dep = dep]() {
+                dep->set_ready();
+                std::unique_lock l(_lock);
+                for (auto it : _create_plan_deps) {
+                    it->set_ready();
+                }
+                std::vector<std::shared_ptr<pipeline::Dependency>> {}.swap(_create_plan_deps);
+                _is_creating_plan_fragment = false;
+            }};
+            auto st = _create_group_commit_load(be_exe_version, mem_tracker);
+            if (!st.ok()) {
+                LOG(WARNING) << "create group commit load error, st=" << st.to_string();
+            }
+        }));
+    } else {
+        create_plan_dep->block();
+        _create_plan_deps.push_back(create_plan_dep);
     }
     return try_to_get_matched_queue();
 }
