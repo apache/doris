@@ -403,6 +403,8 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
                     LOG(WARNING) << "submit tablet checkpoint tasks failed.";
                 }
             }
+        } else {
+            LOG(INFO) << "skip tablet checkpoint";
         }
         interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
