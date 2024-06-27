@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -1236,7 +1237,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
 
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true, varType = VariableAnnotation.REMOVED)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true)
     public String enableNereidsRules = "";
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
@@ -3098,7 +3099,11 @@ public class SessionVariable implements Serializable, Writable {
         if (statementContext == null) {
             return false;
         }
-        LogicalPlan logicalPlan = ((LogicalPlanAdapter) statementContext.getParsedStatement()).getLogicalPlan();
+        StatementBase parsedStatement = statementContext.getParsedStatement();
+        if (!(parsedStatement instanceof LogicalPlanAdapter)) {
+            return false;
+        }
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         // TODO: support other sink
         if (logicalPlan instanceof UnboundResultSink && sessionVariable.enableNereidsDistributePlanner) {
