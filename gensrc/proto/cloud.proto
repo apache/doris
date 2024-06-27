@@ -820,8 +820,7 @@ message GetVersionResponse {
     repeated int64 table_ids = 4;
     repeated int64 partition_ids = 5;
     repeated int64 versions = 6;
-    repeated int64 version_update_times_ms = 7; // for batch
-    optional int64 version_update_time_ms = 8; // for single
+    repeated int64 version_update_time_ms = 7;
 };
 
 message GetObjStoreInfoRequest {
