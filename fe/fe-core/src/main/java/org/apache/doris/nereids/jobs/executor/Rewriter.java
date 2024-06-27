@@ -319,11 +319,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
 
             topic("Eager aggregation",
-                    topDown(
+                    costBased(topDown(
                             new PushDownAggThroughJoinOneSide(),
                             new PushDownAggThroughJoin()
-                    ),
-                    custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)
+                    )),
+                    costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new))
             ),
 
             // this rule should invoke after infer predicate and push down distinct, and before push down limit
