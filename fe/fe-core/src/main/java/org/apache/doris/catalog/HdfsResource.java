@@ -46,6 +46,7 @@ public class HdfsResource extends Resource {
     public static final String HADOOP_FS_PREFIX = "dfs.";
     public static String HADOOP_FS_NAME = "fs.defaultFS";
     public static String HADOOP_FS_ROOT_PATH = "root_path";
+    public static String HADOOP_SITE_PATH = "dfs.config.dir";
     public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
     public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
     public static String DSF_NAMESERVICES = "dfs.nameservices";

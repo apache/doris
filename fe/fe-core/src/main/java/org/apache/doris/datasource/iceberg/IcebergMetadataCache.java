@@ -115,7 +115,7 @@ public class IcebergMetadataCache {
             HMSExternalCatalog ctg = (HMSExternalCatalog) key.catalog;
             icebergCatalog = createIcebergHiveCatalog(
                     ctg.getHiveMetastoreUris(),
-                    ctg.getCatalogProperty().getHadoopProperties(),
+                    ctg.getConfiguration(),
                     ctg.getProperties());
         } else if (key.catalog instanceof IcebergExternalCatalog) {
             icebergCatalog = ((IcebergExternalCatalog) key.catalog).getCatalog();
@@ -175,15 +175,10 @@ public class IcebergMetadataCache {
                 });
     }
 
-    private Catalog createIcebergHiveCatalog(String uri, Map<String, String> hdfsConf, Map<String, String> props) {
+    private Catalog createIcebergHiveCatalog(String uri, Configuration hdfsConf, Map<String, String> props) {
         // set hdfs configure
-        Configuration conf = DFSFileSystem.getHdfsConf(
-                hdfsConf.getOrDefault(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty());
-        for (Map.Entry<String, String> entry : hdfsConf.entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
         HiveCatalog hiveCatalog = new HiveCatalog();
-        hiveCatalog.setConf(conf);
+        hiveCatalog.setConf(hdfsConf);
 
         if (props.containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
             props.put(HMSProperties.HIVE_METASTORE_URIS, uri);

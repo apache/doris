@@ -22,7 +22,7 @@ import org.apache.doris.analysis.StorageBackend;
 import java.util.Map;
 
 public class JFSFileSystem extends DFSFileSystem {
-    public JFSFileSystem(Map<String, String> properties) {
-        super(StorageBackend.StorageType.JFS, properties);
+    public JFSFileSystem(Map<String, String> properties, String configSitePath) {
+        super(StorageBackend.StorageType.JFS, properties, configSitePath);
     }
 }

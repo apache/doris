@@ -387,7 +387,7 @@ public class HudiScanNode extends HiveScanNode {
         }
         if (!partitionInit) {
             prunedPartitions = HiveMetaStoreClientHelper.ugiDoAs(
-                    HiveMetaStoreClientHelper.getConfiguration(hmsTable),
+                    hmsTable.getCatalog().getConfiguration(),
                     () -> getPrunedPartitions(hudiClient, snapshotTimestamp));
             partitionInit = true;
         }
@@ -449,7 +449,7 @@ public class HudiScanNode extends HiveScanNode {
         if (!partitionInit) {
             // Non partition table will get one dummy partition
             prunedPartitions = HiveMetaStoreClientHelper.ugiDoAs(
-                    HiveMetaStoreClientHelper.getConfiguration(hmsTable),
+                    hmsTable.getCatalog().getConfiguration(),
                     () -> getPrunedPartitions(hudiClient, snapshotTimestamp));
             partitionInit = true;
         }

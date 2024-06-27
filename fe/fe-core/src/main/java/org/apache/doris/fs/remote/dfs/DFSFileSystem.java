@@ -53,20 +53,24 @@ import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
     public static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
     private static final Logger LOG = LogManager.getLogger(DFSFileSystem.class);
     private HDFSFileOperations operations = null;
+    private Optional<String> configSitePath;
 
-    public DFSFileSystem(Map<String, String> properties) {
-        this(StorageBackend.StorageType.HDFS, properties);
+    public DFSFileSystem(Map<String, String> properties, String configSitePath) {
+        this(StorageBackend.StorageType.HDFS, properties, configSitePath);
     }
 
-    public DFSFileSystem(StorageBackend.StorageType type, Map<String, String> properties) {
+    public DFSFileSystem(StorageBackend.StorageType type, Map<String, String> properties, String configSitePath) {
         super(type.name(), type);
         this.properties.putAll(properties);
+        // fill with default properties if configSitePath is null
+        this.configSitePath = Optional.ofNullable(configSitePath);
     }
 
     @VisibleForTesting
@@ -75,7 +79,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         if (dfsFileSystem == null) {
             synchronized (this) {
                 if (dfsFileSystem == null) {
-                    Configuration conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
+                    Configuration conf = getHdfsConf(ifNotSetFallbackToSimpleAuth(), configSitePath);
                     for (Map.Entry<String, String> propEntry : properties.entrySet()) {
                         conf.set(propEntry.getKey(), propEntry.getValue());
                     }
@@ -94,13 +98,31 @@ public class DFSFileSystem extends RemoteFileSystem {
         return dfsFileSystem;
     }
 
-    public static Configuration getHdfsConf(boolean fallbackToSimpleAuth) {
-        Configuration hdfsConf = new HdfsConfiguration();
+    public static Configuration getHdfsConf(boolean fallbackToSimpleAuth, Optional<String> configSitePath) {
+        Configuration conf;
+        if (configSitePath.isPresent()) {
+            conf = new Configuration(false);
+            File cfgFile = new File(configSitePath.get());
+            if (!cfgFile.isDirectory()) {
+                throw new IllegalArgumentException("The path is not a directory: " + cfgFile.getAbsolutePath());
+            }
+            if (cfgFile.isDirectory()) {
+                File[] siteFiles = cfgFile.listFiles();
+                if (siteFiles == null) {
+                    throw new IllegalStateException("No site files found in " + cfgFile.getAbsolutePath());
+                }
+                for (File siteFile : siteFiles) {
+                    conf.addResource(siteFile.getPath());
+                }
+            }
+        } else {
+            conf = new HdfsConfiguration();
+        }
         if (fallbackToSimpleAuth) {
             // need support fallback to simple if the cluster is a mixture of  kerberos and simple auth.
-            hdfsConf.set(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
+            conf.set(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
         }
-        return hdfsConf;
+        return conf;
     }
 
     @Override

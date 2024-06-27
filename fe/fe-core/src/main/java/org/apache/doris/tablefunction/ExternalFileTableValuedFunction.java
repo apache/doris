@@ -94,6 +94,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
 
     public static final String PROP_TABLE_ID = "table_id";
+    protected String configSitePath;
 
     protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(FileFormatConstants.PROP_FORMAT)
@@ -167,7 +168,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
-            BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+            BrokerUtil.parseFile(path, brokerDesc, fileStatuses, configSitePath);
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
         }

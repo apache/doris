@@ -20,6 +20,7 @@ package org.apache.doris.fs;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.fs.remote.AzureFileSystem;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
@@ -36,6 +37,11 @@ import java.util.Map;
 public class FileSystemFactory {
 
     public static RemoteFileSystem get(String name, StorageBackend.StorageType type, Map<String, String> properties) {
+        return get(name, type, properties, null);
+    }
+
+    public static RemoteFileSystem get(String name, StorageBackend.StorageType type,
+                                       Map<String, String> properties, String configSitePath) {
         // TODO: rename StorageBackend.StorageType
         if (type == StorageBackend.StorageType.S3) {
             if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
@@ -43,11 +49,11 @@ public class FileSystemFactory {
             }
             return new S3FileSystem(properties);
         } else if (type == StorageBackend.StorageType.HDFS || type == StorageBackend.StorageType.GFS) {
-            return new DFSFileSystem(properties);
+            return new DFSFileSystem(properties, configSitePath);
         } else if (type == StorageBackend.StorageType.OFS) {
-            return new OFSFileSystem(properties);
+            return new OFSFileSystem(properties, configSitePath);
         } else if (type == StorageBackend.StorageType.JFS) {
-            return new JFSFileSystem(properties);
+            return new JFSFileSystem(properties, configSitePath);
         } else if (type == StorageBackend.StorageType.BROKER) {
             return new BrokerFileSystem(name, properties);
         } else {
@@ -57,6 +63,7 @@ public class FileSystemFactory {
 
     public static RemoteFileSystem getRemoteFileSystem(FileSystemType type, Map<String, String> properties,
                                                        String bindBrokerName) {
+        String configSitePath = properties.get(HdfsResource.HADOOP_SITE_PATH);
         switch (type) {
             case S3:
                 if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
@@ -64,11 +71,11 @@ public class FileSystemFactory {
                 }
                 return new S3FileSystem(properties);
             case DFS:
-                return new DFSFileSystem(properties);
+                return new DFSFileSystem(properties, configSitePath);
             case OFS:
-                return new OFSFileSystem(properties);
+                return new OFSFileSystem(properties, configSitePath);
             case JFS:
-                return new JFSFileSystem(properties);
+                return new JFSFileSystem(properties, configSitePath);
             case BROKER:
                 return new BrokerFileSystem(bindBrokerName, properties);
             case AZURE:

@@ -64,7 +64,6 @@ import com.google.common.collect.Streams;
 import com.google.common.collect.TreeRangeMap;
 import lombok.Data;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
@@ -433,11 +432,7 @@ public class HiveMetaStoreCache {
     }
 
     private synchronized void setJobConf() {
-        Configuration configuration = DFSFileSystem.getHdfsConf(catalog.ifNotSetFallbackToSimpleAuth());
-        for (Map.Entry<String, String> entry : catalog.getCatalogProperty().getHadoopProperties().entrySet()) {
-            configuration.set(entry.getKey(), entry.getValue());
-        }
-        jobConf = new JobConf(configuration);
+        jobConf = new JobConf(catalog.getConfiguration());
         // For Tez engine, it may generate subdirectories for "union" query.
         // So there may be files and directories in the table directory at the same time. eg:
         //      /us£er/hive/warehouse/region_tmp_union_all2/000000_0
