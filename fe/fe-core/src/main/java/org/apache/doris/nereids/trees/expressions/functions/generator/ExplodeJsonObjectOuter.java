@@ -36,6 +36,10 @@ import java.util.List;
  */
 public class ExplodeJsonObjectOuter extends TableGeneratingFunction implements UnaryExpression, AlwaysNullable {
 
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(StructLiteral.constructStructType(
+                    ImmutableList.of(StringType.INSTANCE, JsonType.INSTANCE))).args(JsonType.INSTANCE));
+
     /**
      * constructor with 1 argument.
      */
@@ -54,9 +58,7 @@ public class ExplodeJsonObjectOuter extends TableGeneratingFunction implements U
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return ImmutableList.of(
-                FunctionSignature.ret(StructLiteral.constructStructType(
-                        ImmutableList.of(StringType.INSTANCE, JsonType.INSTANCE))).args(JsonType.INSTANCE));
+        return SIGNATURES;
     }
 
     @Override
