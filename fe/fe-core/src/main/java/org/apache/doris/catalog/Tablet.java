@@ -27,7 +27,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -59,7 +58,7 @@ import java.util.stream.LongStream;
 /**
  * This class represents the olap tablet related metadata.
  */
-public class Tablet extends MetaObject implements Writable {
+public class Tablet extends MetaObject {
     private static final Logger LOG = LogManager.getLogger(Tablet.class);
     // if current version count of replica is mor than
     // QUERYABLE_TIMES_OF_MIN_VERSION_COUNT times the minimum version count,
