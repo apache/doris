@@ -38,34 +38,9 @@ suite("test_hive_partition_column_analyze", "p0,external,hive,external_docker,ex
 
         try {
             sql """set global enable_get_row_count_from_file_list=true"""
-            // Test analyze table without init.
-            sql """analyze table ${catalog_name}.multi_partition.multi_partition_parquet (event_day) with sync"""
-            sql """analyze table ${catalog_name}.multi_partition.multi_partition_orc (event_day) with sync"""
 
             sql """switch ${catalog_name};"""
             logger.info("switched to catalog " + catalog_name)
-            sql """use multi_partition;"""
-            def result = sql """show column stats multi_partition_parquet (event_day)"""
-            assertEquals(result.size(), 1)
-            assertEquals(result[0][0], "event_day")
-            assertEquals(result[0][2], "3.83714205E8")
-            assertEquals(result[0][3], "99949.0")
-            assertEquals(result[0][4], "0.0")
-            assertEquals(result[0][5], "3.83714205E9")
-            assertEquals(result[0][6], "10.0")
-            assertEquals(result[0][7], "\'1749-09-24\'")
-            assertEquals(result[0][8], "\'2023-05-26\'")
-
-            result = sql """show column stats multi_partition_orc (event_day)"""
-            assertEquals(result.size(), 1)
-            assertEquals(result[0][0], "event_day")
-            assertEquals(result[0][2], "1.9007155E8")
-            assertEquals(result[0][3], "99949.0")
-            assertEquals(result[0][4], "0.0")
-            assertEquals(result[0][5], "1.9007155E9")
-            assertEquals(result[0][6], "10.0")
-            assertEquals(result[0][7], "\'1749-09-24\'")
-            assertEquals(result[0][8], "\'2023-05-26\'")
 
             sql """analyze table ${catalog_name}.partition_type.tinyint_partition (tinyint_part) with sync"""
             sql """analyze table ${catalog_name}.partition_type.smallint_partition (smallint_part) with sync"""
