@@ -86,6 +86,12 @@ public:
     // nullIf(col1, col2) == if(col1 = col2, NULL, col1)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        if (block.get_by_position(arguments[0]).column->only_null()) {
+            // nullIf(null,x) => null
+            block.get_by_position(result).column =
+                    block.get_by_position(arguments[0]).column->clone_resized(input_rows_count);
+            return Status::OK();
+        }
         const ColumnsWithTypeAndName eq_columns {
                 block.get_by_position(arguments[0]),
                 block.get_by_position(arguments[1]),
