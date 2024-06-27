@@ -16,7 +16,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
     'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
 LOCATION
-    '/user/doris/suites/test_hive_remove_partition/partition_manual_remove'
+    '/user/doris/suites/multi_catalog/partition_manual_remove'
 TBLPROPERTIES (
     'transient_lastDdlTime'='1684941779');
 
