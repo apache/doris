@@ -36,6 +36,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "gutil/strings/strcat.h"
 #include "gutil/strings/substitute.h"
@@ -518,6 +519,9 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
 
 Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id,
                                   bool is_drop_table_or_partition) {
+    if (!config::enable_drop_tablet) {
+        return Status::InternalError("not supported");
+    }
     auto& shard = _get_tablets_shard(tablet_id);
     std::lock_guard wrlock(shard.lock);
     if (shard.tablets_under_clone.count(tablet_id) > 0) {

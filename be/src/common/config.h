@@ -1170,6 +1170,8 @@ DECLARE_mBool(clear_rs_meta);
 
 DECLARE_mInt64(tmp_tablet_id);
 
+DECLARE_mBool(enable_drop_tablet);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

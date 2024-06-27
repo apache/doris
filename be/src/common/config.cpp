@@ -1113,6 +1113,8 @@ DEFINE_mBool(clear_rs_meta, "false");
 
 DEFINE_mInt64(tmp_tablet_id, "-1");
 
+DEFINE_mBool(enable_drop_tablet, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
