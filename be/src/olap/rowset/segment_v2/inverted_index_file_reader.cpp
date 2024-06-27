@@ -23,6 +23,7 @@
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
+#include "util/debug_points.h"
 
 namespace doris::segment_v2 {
 
@@ -40,14 +41,17 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
     std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
     auto index_file_full_path = _index_file_dir / _index_file_name;
     try {
-        bool exists = false;
-        RETURN_IF_ERROR(_fs->exists(index_file_full_path, &exists));
-        if (!exists) {
+        int64_t file_size = 0;
+        Status st = _fs->file_size(index_file_full_path, &file_size);
+        DBUG_EXECUTE_IF("inverted file read error: index file not found", {
+            st = Status::Error<doris::ErrorCode::NOT_FOUND>("index file not found");
+        })
+        if (st.code() == ErrorCode::NOT_FOUND) {
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                     "inverted index file {} is not found", index_file_full_path.native());
+        } else if (!st.ok()) {
+            return st;
         }
-        int64_t file_size = 0;
-        RETURN_IF_ERROR(_fs->file_size(index_file_full_path, &file_size));
         if (file_size == 0) {
             LOG(WARNING) << "inverted index file " << index_file_full_path << " is empty.";
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -157,6 +161,10 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
                 dir->close();
                 _CLDELETE(dir)
             }
+            if (err.number() == CL_ERR_FileNotFound) {
+                return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                        "inverted index path: {} not exist.", index_file_path));
+            }
             return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occur when open idx file {}, error msg: {}",
                     (_index_file_dir / file_name).native(), err.what()));
@@ -174,7 +182,7 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
         if (index_it == _indices_entries.end()) {
             std::ostringstream errMsg;
             errMsg << "No index with id " << index_id << " found";
-            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                     "CLuceneError occur when open idx file {}, error msg: {}",
                     (_index_file_dir / _index_file_name).native(), errMsg.str()));
         }
