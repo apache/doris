@@ -1598,7 +1598,7 @@ public class DatabaseTransactionMgr {
     protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
-            LOG.warn("Unknow exception. state of transaction [{}] changed, failed to commit transaction",
+            LOG.warn("Unknown exception. state of transaction [{}] changed, failed to commit transaction",
                     transactionState.getTransactionId());
             return;
         }
