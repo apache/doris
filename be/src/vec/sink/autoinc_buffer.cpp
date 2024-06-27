@@ -73,7 +73,6 @@ Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
                     "auto_increment ranges in _buffers. retry_time={}",
                     retry_times);
             master_addr = result.master_address;
-            _discard_all();
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
@@ -161,12 +160,6 @@ Status AutoIncIDBuffer::_launch_async_fetch_task(size_t length) {
         _is_fetching = false;
     }));
     return Status::OK();
-}
-
-void AutoIncIDBuffer::_discard_all() {
-    std::lock_guard<std::mutex> lock {_latch};
-    _buffers.clear();
-    _current_volume = 0;
 }
 
 } // namespace doris::vectorized

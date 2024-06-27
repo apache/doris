@@ -91,8 +91,6 @@ private:
 
     Result<int64_t> _fetch_ids_from_fe(size_t length);
 
-    void _discard_all();
-
     std::atomic<size_t> _batch_size {MIN_BATCH_SIZE};
 
     int64_t _db_id;
