@@ -46,6 +46,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public class SystemInfoServiceTest {
@@ -419,9 +420,10 @@ public class SystemInfoServiceTest {
         Assert.assertEquals(expectBackendIds, beCounterMap.keySet().stream().collect(Collectors.toSet()));
         List<Integer> list = Lists.newArrayList(beCounterMap.values());
         Collections.sort(list);
-        int diff = list.get(list.size() - 1) - list.get(0);
+        int max = list.get(list.size() - 1);
+        int diff =  max - list.get(0);
         // The max replica num and min replica num's diff is less than 20%.
-        Assert.assertTrue((diff * 1.0 / list.get(0)) < 0.2);
+        Assert.assertTrue((diff * 1.0 / max) < 0.2);
     }
 
     private void addDisk(Backend be, String path, TStorageMedium medium, long totalB, long availB) {
