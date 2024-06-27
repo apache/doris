@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_dup_schema_key_change_add","p0") {
+suite("test_dup_schema_key_add","p0") {
      def tbName1 = "test_dup_schema_key_change_add1"
      def tbName2 = "test_dup_schema_key_change_add2"
 
@@ -51,7 +51,7 @@ suite("test_dup_schema_key_change_add","p0") {
      //Test the duplicate model by adding a key column with VARCHAR
      sql initTable
      sql initTableData
-     def insertSql = "insert into ${tbName1} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+     def insertSql = "insert into ${tbName1} values(923456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
      def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName1}' ORDER BY createtime DESC LIMIT 1  "
      def errorMessage
      sql """ alter  table ${tbName1} add  column province VARCHAR(20) KEY DEFAULT "广东省" AFTER username """
@@ -86,7 +86,7 @@ suite("test_dup_schema_key_change_add","p0") {
              "               (456789012, 'Dave', '广东省', 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
              "               (567890123, 'Eve', '广东省', 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', '广东省', 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
-             "               (123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+             "               (923456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
              "               (789012345, 'Grace', '广东省', 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
      sql initTable1
      sql initTableData1
@@ -97,7 +97,7 @@ suite("test_dup_schema_key_change_add","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName1} add  column special_area BOOLEAN KEY DEFAULT "0" AFTER username """
-     insertSql = "insert into ${tbName1} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+     insertSql = "insert into ${tbName1} values(923456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -129,7 +129,7 @@ suite("test_dup_schema_key_change_add","p0") {
              "               (456789012, 'Dave', '0', 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
              "               (567890123, 'Eve', '0', 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', '0', 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
-             "               (123456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+             "               (923456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
              "               (789012345, 'Grace', '0', 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
      sql initTable1
      sql initTableData1
@@ -141,7 +141,7 @@ suite("test_dup_schema_key_change_add","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName1} add  column special_area TINYINT KEY DEFAULT "0" AFTER username """
-     insertSql = " insert into ${tbName1} values(123456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 1, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -173,7 +173,7 @@ suite("test_dup_schema_key_change_add","p0") {
              "               (456789012, 'Dave', '0', 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
              "               (567890123, 'Eve', '0', 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', '0', 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
-             "               (123456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+             "               (923456689, 'Alice', '1', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
              "               (789012345, 'Grace', '0', 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
      sql initTable1
      sql initTableData1
@@ -186,7 +186,7 @@ suite("test_dup_schema_key_change_add","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName1} add  column area_num SMALLINT KEY DEFAULT "999" AFTER username """
-     insertSql = " insert into ${tbName1} values(123456689, 'Alice', 567, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 567, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -218,7 +218,7 @@ suite("test_dup_schema_key_change_add","p0") {
              "               (456789012, 'Dave', 999, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
              "               (567890123, 'Eve', 999, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', 999, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
-             "               (123456689, 'Alice', 567, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+             "               (923456689, 'Alice', 567, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
              "               (789012345, 'Grace', 999, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
      sql initTable1
      sql initTableData1
@@ -230,7 +230,7 @@ suite("test_dup_schema_key_change_add","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName1} add  column house_price INT KEY DEFAULT "999" AFTER username """
-     insertSql = " insert into ${tbName1} values(123456689, 'Alice', 22536, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 22536, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -262,7 +262,7 @@ suite("test_dup_schema_key_change_add","p0") {
              "               (456789012, 'Dave', 999, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
              "               (567890123, 'Eve', 999, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', 999, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
-             "               (123456689, 'Alice', 22536, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 11:56:00')," +
+             "               (923456689, 'Alice', 22536, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 11:56:00')," +
              "               (789012345, 'Grace', 999, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
      sql initTable1
      sql initTableData1
@@ -275,7 +275,7 @@ suite("test_dup_schema_key_change_add","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName1} add  column house_price1 BIGINT KEY DEFAULT "99999991" AFTER username """
-     insertSql = " insert into ${tbName1} values(123456689, 'Alice', 88889494646, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 88889494646, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -307,7 +307,7 @@ suite("test_dup_schema_key_change_add","p0") {
              "               (456789012, 'Dave', 99999991, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
              "               (567890123, 'Eve', 99999991, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', 99999991, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
-             "               (123456689, 'Alice', 88889494646, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+             "               (923456689, 'Alice', 88889494646, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
              "               (789012345, 'Grace', 99999991, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
      sql initTable1
      sql initTableData1
@@ -321,7 +321,7 @@ suite("test_dup_schema_key_change_add","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName1} add  column car_price LARGEINT KEY DEFAULT "9999" AFTER username """
-     insertSql = " insert into ${tbName1} values(123456689, 'Alice', 555888555, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 555888555, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -353,7 +353,7 @@ suite("test_dup_schema_key_change_add","p0") {
              "               (456789012, 'Dave', 9999, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
              "               (567890123, 'Eve', 9999, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', 9999, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
-             "               (123456689, 'Alice', 555888555, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+             "               (923456689, 'Alice', 555888555, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
              "               (789012345, 'Grace', 9999, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
      sql initTable1
      sql initTableData1
@@ -369,7 +369,7 @@ suite("test_dup_schema_key_change_add","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName1} add  column phone FLOAT KEY DEFAULT "166.6" AFTER username """
-          insertSql = " insert into ${tbName1} values(123456689, 'Alice', 189.9, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+          insertSql = " insert into ${tbName1} values(923456689, 'Alice', 189.9, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -385,7 +385,7 @@ suite("test_dup_schema_key_change_add","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName1} add  column watch DOUBLE KEY DEFAULT "166.689" AFTER username """
-          insertSql = " insert into ${tbName1} values(123456689, 'Alice', 189.479, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          insertSql = " insert into ${tbName1} values(923456689, 'Alice', 189.479, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -400,7 +400,7 @@ suite("test_dup_schema_key_change_add","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName1} add  column watch DECIMAL(38,10) KEY DEFAULT "16899.6464689" AFTER username """
-     insertSql = " insert into ${tbName1} values(123456689, 'Alice', 16499.6464689, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 16499.6464689, 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -413,7 +413,7 @@ suite("test_dup_schema_key_change_add","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName1} add  column watch DATE KEY DEFAULT "1997-01-01" AFTER username """
-     insertSql = " insert into ${tbName1} values(123456689, 'Alice', \"2024-01-01\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+     insertSql = " insert into ${tbName1} values(923456689, 'Alice', \"2024-01-01\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -444,7 +444,7 @@ suite("test_dup_schema_key_change_add","p0") {
              "               (456789012, 'Dave', '1997-01-01', 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
              "               (567890123, 'Eve', '1997-01-01', 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', '1997-01-01', 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
-             "               (123456689, 'Alice', '2024-01-01', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+             "               (923456689, 'Alice', '2024-01-01', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
              "               (789012345, 'Grace', '1997-01-01', 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
      sql initTable1
      sql initTableData1
@@ -457,7 +457,7 @@ suite("test_dup_schema_key_change_add","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName1} add  column anniversary DATETIME KEY DEFAULT "1997-01-01 00:00:00" AFTER username """
-     insertSql = " insert into ${tbName1} values(123456689, 'Alice', \"2024-01-04 09:00:00\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+     insertSql = " insert into ${tbName1} values(923456689, 'Alice', \"2024-01-04 09:00:00\", 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -488,7 +488,7 @@ suite("test_dup_schema_key_change_add","p0") {
              "               (456789012, 'Dave', '1997-01-01 00:00:00', 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
              "               (567890123, 'Eve', '1997-01-01 00:00:00', 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', '1997-01-01 00:00:00', 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
-             "               (123456689, 'Alice', '2024-01-04 09:00:00', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+             "               (923456689, 'Alice', '2024-01-04 09:00:00', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
              "               (789012345, 'Grace', '1997-01-01 00:00:00', 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
      sql initTable1
      sql initTableData1
@@ -501,7 +501,7 @@ suite("test_dup_schema_key_change_add","p0") {
      sql initTable
      sql initTableData
      sql """ alter  table ${tbName1} add  column teacher CHAR KEY DEFAULT "F" AFTER username """
-     insertSql = " insert into ${tbName1} values(123456689, 'Alice', 'T', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 'T', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
      waitForSchemaChangeDone({
           sql getTableStatusSql
           time 60
@@ -533,7 +533,7 @@ suite("test_dup_schema_key_change_add","p0") {
              "               (456789012, 'Dave', 'F', 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00')," +
              "               (567890123, 'Eve', 'F', 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', 'F', 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
-             "               (123456689, 'Alice', 'T', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
+             "               (923456689, 'Alice', 'T', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00')," +
              "               (789012345, 'Grace', 'F', 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
      sql initTable1
      sql initTableData1
@@ -548,7 +548,7 @@ suite("test_dup_schema_key_change_add","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName1} add  column comment STRING KEY DEFAULT "我是小说家" AFTER username """
-          insertSql = " insert into ${tbName1} values(123456689, 'Alice', '我是侦探家', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+          insertSql = " insert into ${tbName1} values(923456689, 'Alice', '我是侦探家', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -562,7 +562,7 @@ suite("test_dup_schema_key_change_add","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName1} add  column device_id   bitmap    KEY  DEFAULT "to_bitmap(243)" AFTER username """
-          insertSql = " insert into ${tbName1} values(123456689, 'Alice', to_bitmap(243), 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+          insertSql = " insert into ${tbName1} values(923456689, 'Alice', to_bitmap(243), 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -578,7 +578,7 @@ suite("test_dup_schema_key_change_add","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName1} add  column m   Map<STRING, INT>    KEY  DEFAULT "{'a': 100, 'b': 200}" AFTER username """
-          insertSql = " insert into ${tbName1} values(123456689, 'Alice', '{'a': 100, 'b': 200}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
+          insertSql = " insert into ${tbName1} values(923456689, 'Alice', '{'a': 100, 'b': 200}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');  "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -592,7 +592,7 @@ suite("test_dup_schema_key_change_add","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName1} add  column   j    JSON   DEFAULT '{\"a\": 300}' AFTER username """
-          insertSql = " insert into ${tbName1} values(123456689, 'Alice', '{\"k1\":\"v31\", \"k2\": 300}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          insertSql = " insert into ${tbName1} values(923456689, 'Alice', '{\"k1\":\"v31\", \"k2\": 300}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60
@@ -606,7 +606,7 @@ suite("test_dup_schema_key_change_add","p0") {
           sql initTable
           sql initTableData
           sql """ alter  table ${tbName1} add  column   j    JSON    KEY  DEFAULT "{'a': 100, 'b': 200}" AFTER username """
-          insertSql = " insert into ${tbName1} values(123456689, 'Alice', '{\"k1\":\"v31\", \"k2\": 300}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+          insertSql = " insert into ${tbName1} values(923456689, 'Alice', '{\"k1\":\"v31\", \"k2\": 300}', 'Yaan',  25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
                time 60

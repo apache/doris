@@ -94,6 +94,11 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
     }
 
     @Override
+    public long getSelectedIndexIdForMV() {
+        return logicalOlapScan.getSelectedIndexIdForMV();
+    }
+
+    @Override
     public List<Long> getSelectedPartitionIds() {
         return logicalOlapScan.getSelectedPartitionIds();
     }
