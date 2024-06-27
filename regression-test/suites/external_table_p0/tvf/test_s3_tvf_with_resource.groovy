@@ -181,6 +181,13 @@ suite("test_s3_tvf_with_resource", "p0") {
     String pwd = 'C123_567p'
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         test {
                 sql """
@@ -194,6 +201,7 @@ suite("test_s3_tvf_with_resource", "p0") {
                 exception "Access denied"
             }
     }
+
     try_sql("DROP USER ${user}")
 
 }
