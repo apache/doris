@@ -1178,15 +1178,17 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const auto& ipv4_column_with_type_and_name = block.get_by_position(arguments[0]);
-        WhichDataType addr_type(ipv4_column_with_type_and_name.type);
-        const auto* ipv4_column =
-                assert_cast<const ColumnIPv4*>(ipv4_column_with_type_and_name.column.get());
-        const auto& ipv4_column_data = ipv4_column->get_data();
+        const auto& [ipv4_column, ipv4_const] =
+                unpack_if_const(ipv4_column_with_type_and_name.column);
+        const auto* ipv4_addr_column = assert_cast<const ColumnIPv4*>(ipv4_column.get());
+        const auto& ipv4_column_data = ipv4_addr_column->get_data();
         auto col_res = ColumnIPv6::create(input_rows_count, 0);
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            map_ipv4_to_ipv6(ipv4_column_data[i], reinterpret_cast<UInt8*>(&col_res_data[i]));
+            auto ipv4_idx = index_check_const(i, ipv4_const);
+            map_ipv4_to_ipv6(ipv4_column_data[ipv4_idx],
+                             reinterpret_cast<UInt8*>(&col_res_data[i]));
         }
 
         block.replace_by_position(result, std::move(col_res));

@@ -914,6 +914,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(currentUser, context);
     }
 
+    default R visitCutIpv6(CutIpv6 cutIpv6, C context) {
+        return visitScalarFunction(cutIpv6, context);
+    }
+
     default R visitDatabase(Database database, C context) {
         return visitScalarFunction(database, context);
     }
@@ -1242,6 +1246,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(ipv4StringToNumOrNull, context);
     }
 
+    default R visitIpv4ToIpv6(Ipv4ToIpv6 ipv4ToIpv6, C context) {
+        return visitScalarFunction(ipv4ToIpv6, context);
+    }
+
     default R visitIpv6NumToString(Ipv6NumToString ipv6NumToString, C context) {
         return visitScalarFunction(ipv6NumToString, context);
     }
@@ -1284,38 +1292,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv6CIDRToRange(Ipv6CIDRToRange ipv6CIDRToRange, C context) {
         return visitScalarFunction(ipv6CIDRToRange, context);
-    }
-
-    default R visitToIpv4(ToIpv4 toIpv4, C context) {
-        return visitScalarFunction(toIpv4, context);
-    }
-
-    default R visitToIpv4OrDefault(ToIpv4OrDefault toIpv4OrDefault, C context) {
-        return visitScalarFunction(toIpv4OrDefault, context);
-    }
-
-    default R visitToIpv4OrNull(ToIpv4OrNull toIpv4OrNull, C context) {
-        return visitScalarFunction(toIpv4OrNull, context);
-    }
-
-    default R visitToIpv6(ToIpv6 toIpv6, C context) {
-        return visitScalarFunction(toIpv6, context);
-    }
-
-    default R visitToIpv6OrDefault(ToIpv6OrDefault toIpv6OrDefault, C context) {
-        return visitScalarFunction(toIpv6OrDefault, context);
-    }
-
-    default R visitToIpv6OrNull(ToIpv6OrNull toIpv6OrNull, C context) {
-        return visitScalarFunction(toIpv6OrNull, context);
-    }
-
-    default R visitIpv4ToIpv6(Ipv4ToIpv6 ipv4ToIpv6, C context) {
-        return visitScalarFunction(ipv4ToIpv6, context);
-    }
-
-    default R visitCutIpv6(CutIpv6 cutIpv6, C context) {
-        return visitScalarFunction(cutIpv6, context);
     }
 
     default R visitJsonArray(JsonArray jsonArray, C context) {
@@ -1996,6 +1972,30 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitToDays(ToDays toDays, C context) {
         return visitScalarFunction(toDays, context);
+    }
+
+    default R visitToIpv4(ToIpv4 toIpv4, C context) {
+        return visitScalarFunction(toIpv4, context);
+    }
+
+    default R visitToIpv4OrDefault(ToIpv4OrDefault toIpv4OrDefault, C context) {
+        return visitScalarFunction(toIpv4OrDefault, context);
+    }
+
+    default R visitToIpv4OrNull(ToIpv4OrNull toIpv4OrNull, C context) {
+        return visitScalarFunction(toIpv4OrNull, context);
+    }
+
+    default R visitToIpv6(ToIpv6 toIpv6, C context) {
+        return visitScalarFunction(toIpv6, context);
+    }
+
+    default R visitToIpv6OrDefault(ToIpv6OrDefault toIpv6OrDefault, C context) {
+        return visitScalarFunction(toIpv6OrDefault, context);
+    }
+
+    default R visitToIpv6OrNull(ToIpv6OrNull toIpv6OrNull, C context) {
+        return visitScalarFunction(toIpv6OrNull, context);
     }
 
     default R visitToMonday(ToMonday toMonday, C context) {

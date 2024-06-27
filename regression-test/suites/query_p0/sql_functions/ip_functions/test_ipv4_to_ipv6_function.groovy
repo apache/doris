@@ -37,10 +37,13 @@ suite("test_ipv4_to_ipv6_function") {
     (3, '127.0.0.1'),
     (4, '192.168.0.1'),
     (5, '255.255.255.254'),
-    (6, '255.255.255.255')
+    (6, '255.255.255.255'),
+    (7, NULL)
     """
 
-    qt_sql "select ipv6_num_to_string(ipv4_to_ipv6(to_ipv4(ip_v4))) from test_ipv4_to_ipv6_function order by id"
+    qt_sql "select ipv6_num_to_string(ipv4_to_ipv6(to_ipv4_or_null(ip_v4))) from test_ipv4_to_ipv6_function order by id"
+
+    qt_sql """ select ipv6_num_to_string(ipv4_to_ipv6(to_ipv4('192.168.0.1'))) """
 
     qt_sql "select ipv4_to_ipv6(NULL)"
 

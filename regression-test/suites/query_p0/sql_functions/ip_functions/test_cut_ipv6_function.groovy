@@ -37,12 +37,16 @@ suite("test_cut_ipv6_function") {
     insert into test_cut_ipv6_function values
     (1, '0.0.0.0', '::', 0, 0),
     (2, '192.168.0.1', '::1', 2, 2),
-    (4, '127.0.0.1', '2001:1b70:a1:610::b102:2', 4, 4),
-    (6, '255.255.255.254', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe', 8, 8),
-    (8, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', 16, 16)
+    (3, '127.0.0.1', '2001:1b70:a1:610::b102:2', 4, 4),
+    (4, '255.255.255.254', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe', 8, 8),
+    (5, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', 16, 16),
+    (6, NULL, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', 16, 16),
+    (7, '255.255.255.255', NULL, 16, 16),
+    (8, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', NULL, 16),
+    (9, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', 16, NULL)
     """
 
-    qt_sql "select cut_ipv6(to_ipv6(ip_v6), bytes_for_ipv6, 0), cut_ipv6(ipv4_to_ipv6(to_ipv4(ip_v4)), 0, bytes_for_ipv4) from test_cut_ipv6_function order by id"
+    qt_sql "select cut_ipv6(to_ipv6_or_null(ip_v6), bytes_for_ipv6, 0), cut_ipv6(ipv4_to_ipv6(to_ipv4_or_null(ip_v4)), 0, bytes_for_ipv4) from test_cut_ipv6_function order by id"
 
     qt_sql "select cut_ipv6(NULL, 0, 0)"
     qt_sql "select cut_ipv6(to_ipv6('2001:0DB8:AC10:FE01:FEED:BABE:CAFE:F00D'), NULL, 0)"

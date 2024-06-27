@@ -21,10 +21,9 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IPv6Type;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -37,12 +36,10 @@ import java.util.List;
  * scalar function cut_ipv6
  */
 public class CutIpv6 extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+        implements TernaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                .args(IPv6Type.INSTANCE, TinyIntType.INSTANCE, TinyIntType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE)
                 .args(IPv6Type.INSTANCE, TinyIntType.INSTANCE, TinyIntType.INSTANCE));
 
     public CutIpv6(Expression arg0, Expression arg1, Expression arg2) {
