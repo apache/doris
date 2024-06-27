@@ -346,6 +346,7 @@ public class CloudReplica extends Replica {
         return true;
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

@@ -394,6 +394,7 @@ public class Tablet extends MetaObject implements Writable {
         return "tabletId=" + this.id;
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

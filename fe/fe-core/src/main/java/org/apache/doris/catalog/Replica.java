@@ -699,6 +699,7 @@ public class Replica {
         return strBuffer.toString();
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         backendId = in.readLong();
@@ -713,6 +714,7 @@ public class Replica {
         lastSuccessVersionHash = in.readLong();
     }
 
+    @Deprecated
     public static Replica read(DataInput in) throws IOException {
         Replica replica = EnvFactory.getInstance().createReplica();
         replica.readFields(in);
