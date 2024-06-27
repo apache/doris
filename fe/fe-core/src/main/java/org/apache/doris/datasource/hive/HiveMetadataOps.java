@@ -40,7 +40,7 @@ import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,7 +61,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private final HMSCachedClient client;
     private final HMSExternalCatalog catalog;
 
-    public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
+    public HiveMetadataOps(Configuration hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
         this(catalog, createCachedClient(hiveConf,
                 Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
                 jdbcClientConfig));
@@ -81,7 +81,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
-    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
+    private static HMSCachedClient createCachedClient(Configuration hiveConf, int thriftClientPoolSize,
             JdbcClientConfig jdbcClientConfig) {
         if (hiveConf != null) {
             return new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);

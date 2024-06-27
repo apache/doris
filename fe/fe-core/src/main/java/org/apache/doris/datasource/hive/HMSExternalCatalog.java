@@ -42,6 +42,7 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -131,7 +132,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        HiveConf hiveConf = null;
+        Configuration hiveConf = null;
         JdbcClientConfig jdbcClientConfig = null;
         String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_TYPE, "");
         if (hiveMetastoreType.equalsIgnoreCase("jdbc")) {
@@ -142,10 +143,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault("driver_url", ""));
             jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
         } else {
-            hiveConf = new HiveConf();
-            for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
-                hiveConf.set(kv.getKey(), kv.getValue());
-            }
+            hiveConf = getConfiguration();
             hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                     String.valueOf(Config.hive_metastore_client_timeout_second));
             HadoopUGI.tryKrbLogin(this.getName(), AuthenticationConfig.getKerberosConfig(hiveConf,

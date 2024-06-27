@@ -54,6 +54,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
@@ -102,14 +103,14 @@ public class DFSFileSystem extends RemoteFileSystem {
         Configuration conf;
         if (configSitePath.isPresent()) {
             conf = new Configuration(false);
-            File cfgFile = new File(configSitePath.get());
+            File cfgFile = new File(conf.getResource(configSitePath.get()).getPath());
             if (!cfgFile.isDirectory()) {
                 throw new IllegalArgumentException("The path is not a directory: " + cfgFile.getAbsolutePath());
             }
             if (cfgFile.isDirectory()) {
                 File[] siteFiles = cfgFile.listFiles();
                 if (siteFiles == null) {
-                    throw new IllegalStateException("No site files found in " + cfgFile.getAbsolutePath());
+                    return conf;
                 }
                 for (File siteFile : siteFiles) {
                     conf.addResource(siteFile.getPath());
