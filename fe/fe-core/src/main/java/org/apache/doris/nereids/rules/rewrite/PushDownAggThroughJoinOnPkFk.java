@@ -200,6 +200,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         return newOutput;
     }
 
+    // try to extract primary key table and foreign key table
     private @Nullable Pair<Plan, Plan> tryExtractPrimaryForeign(LogicalJoin<?, ?> join) {
         Plan primary;
         Plan foreign;
@@ -215,6 +216,33 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         return Pair.of(primary, foreign);
     }
 
+    /**
+     * This class flattens nested join clusters and optimizes aggregation pushdown.
+     *
+     * Example of flattening:
+     *     Join1                   Join1         Join2
+     *    /    \                   /  \         /    \
+     *   a    Join2      =====>   a    b       b      c
+     *       /     \
+     *      b       c
+     *
+     * After flattening, we attempt to push down aggregations for each join.
+     * For instance, if b is a primary key table and c is a foreign key table:
+     *
+     * Original (can't push down):     After flattening (can push down):
+     *    agg(Join1)                       Join1         Join2
+     *    /    \                           /  \         /    \
+     *   a    Join2            =====>     a    b       b   agg(c)
+     *       /     \
+     *      b       c
+     *
+     * Finally, we can reorganize the join tree:
+     *     Join2
+     *    /     \
+     * agg(c)   Join1
+     *         /     \
+     *        a       b
+     */
     static class InnerJoinCluster {
         private final Map<BitSet, LogicalJoin<?, ?>> innerJoins = new HashMap<>();
         private final List<Plan> leaf = new ArrayList<>();
