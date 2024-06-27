@@ -644,12 +644,12 @@ void MetaServiceImpl::check_create_table(std::string instance_id, const CheckKVR
             continue;
         } else if (err == TxnErrorCode::TXN_OK) {
             // find not match, prepare commit
-            *code = MetaServiceCode::INVALID_ARGUMENT;
+            *code = MetaServiceCode::ALREADY_EXISTED;
             *msg = "prepare and commit rpc not match, recycle key remained";
             return;
         } else {
             // err != TXN_OK, fdb read err
-            *code = MetaServiceCode::INVALID_ARGUMENT;
+            *code = cast_as<ErrCategory::READ>(err);
             *msg = "ms read key error";
             return;
         }
