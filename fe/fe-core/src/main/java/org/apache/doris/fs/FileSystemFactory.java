@@ -18,9 +18,9 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.fs.remote.AzureFileSystem;
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
