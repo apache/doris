@@ -68,8 +68,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         return ImmutableList.of(
                 logicalAggregate(
                         innerLogicalJoin()
-                                .when(j -> j.getJoinType().isInnerJoin()
-                                        && !j.isMarkJoin()
+                                .when(j -> !j.isMarkJoin()
                                         && j.getOtherJoinConjuncts().isEmpty()))
                         .when(agg -> agg.getGroupByExpressions().stream().allMatch(Slot.class::isInstance))
                         .thenApply(ctx -> pushAgg(ctx.root, ctx.root.child()))
