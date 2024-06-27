@@ -48,7 +48,7 @@ public:
 
     ObjectStorageResponse check_versioning(const ObjectStoragePathOptions& opts) override;
 
-    const std::shared_ptr<Aws::S3::S3Client>& s3_client() { return s3_client_; }
+    const std::shared_ptr<Aws::S3::S3Client>& s3_client() override { return s3_client_; }
 
 private:
     std::shared_ptr<Aws::S3::S3Client> s3_client_;

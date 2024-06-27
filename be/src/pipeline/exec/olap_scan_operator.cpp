@@ -27,10 +27,10 @@
 #include "olap/parallel_scanner_builder.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/scan_operator.h"
 #include "service/backend_options.h"
 #include "util/to_string.h"
-#include "vec/exec/runtime_filter_consumer.h"
 #include "vec/exec/scan/new_olap_scanner.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vcompound_pred.h"
@@ -60,6 +60,7 @@ Status OlapScanLocalState::_init_profile() {
     _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
     _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
+    _sync_rowset_timer = ADD_TIMER(_scanner_profile, "SyncRowsetTime");
     _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
@@ -173,13 +174,14 @@ bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
     return res != p._olap_scan_node.key_column_name.end();
 }
 
-Status OlapScanLocalState::_should_push_down_function_filter(
-        vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-        StringRef* constant_str, doris::FunctionContext** fn_ctx,
-        vectorized::VScanNode::PushDownType& pdt) {
+Status OlapScanLocalState::_should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
+                                                             vectorized::VExprContext* expr_ctx,
+                                                             StringRef* constant_str,
+                                                             doris::FunctionContext** fn_ctx,
+                                                             PushDownType& pdt) {
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
-        pdt = vectorized::VScanNode::PushDownType::UNACCEPTABLE;
+        pdt = PushDownType::UNACCEPTABLE;
         return Status::OK();
     }
 
@@ -195,7 +197,7 @@ Status OlapScanLocalState::_should_push_down_function_filter(
         }
         if (!children[1 - i]->is_constant()) {
             // only handle constant value
-            pdt = vectorized::VScanNode::PushDownType::UNACCEPTABLE;
+            pdt = PushDownType::UNACCEPTABLE;
             return Status::OK();
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
@@ -206,13 +208,13 @@ Status OlapScanLocalState::_should_push_down_function_filter(
                                 const_col_wrapper->column_ptr)) {
                 *constant_str = const_column->get_data_at(0);
             } else {
-                pdt = vectorized::VScanNode::PushDownType::UNACCEPTABLE;
+                pdt = PushDownType::UNACCEPTABLE;
                 return Status::OK();
             }
         }
     }
     *fn_ctx = func_cxt;
-    pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
+    pdt = PushDownType::ACCEPTABLE;
     return Status::OK();
 }
 
@@ -277,8 +279,9 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                         scan_range->version.data() + scan_range->version.size(), version);
         tablets.emplace_back(std::move(tablet), version);
     }
-
+    int64_t duration_ns = 0;
     if (config::is_cloud_mode()) {
+        SCOPED_RAW_TIMER(&duration_ns);
         std::vector<std::function<Status()>> tasks;
         tasks.reserve(_scan_ranges.size());
         for (auto&& [tablet, version] : tablets) {
@@ -288,6 +291,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         }
         RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
     }
+    _sync_rowset_timer->update(duration_ns);
 
     if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
         p._push_down_agg_type == TPushAggOp::NONE &&
@@ -301,9 +305,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             key_ranges.emplace_back(range.get());
         }
 
-        ParallelScannerBuilder<OlapScanLocalState> scanner_builder(
-                this, tablets, _scanner_profile, key_ranges, state(), p._limit_per_scanner, true,
-                p._olap_scan_node.is_preaggregation);
+        ParallelScannerBuilder scanner_builder(this, tablets, _scanner_profile, key_ranges, state(),
+                                               p._limit, true, p._olap_scan_node.is_preaggregation);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
@@ -341,7 +344,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                               std::move(tablet),
                               version,
                               {},
-                              p._limit_per_scanner,
+                              p._limit,
                               p._olap_scan_node.is_preaggregation,
                       });
         RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));

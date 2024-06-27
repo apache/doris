@@ -58,7 +58,7 @@ public class AuditStreamLoader {
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod("PUT");
         conn.setRequestProperty("token", clusterToken);
-        conn.setRequestProperty("Authorization", "Basic ");
+        conn.setRequestProperty("Authorization", "Basic YWRtaW46"); // admin
         conn.addRequestProperty("Expect", "100-continue");
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
         conn.addRequestProperty("label", label);
@@ -67,6 +67,7 @@ public class AuditStreamLoader {
         conn.addRequestProperty("columns",
                 InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
                         Collectors.joining(",")));
+        conn.addRequestProperty("redirect-policy", "random-be");
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;
@@ -75,13 +76,14 @@ public class AuditStreamLoader {
     private String toCurl(HttpURLConnection conn) {
         StringBuilder sb = new StringBuilder("curl -v ");
         sb.append("-X ").append(conn.getRequestMethod()).append(" \\\n  ");
-        sb.append("-H \"").append("Authorization\":").append("\"Basic ").append("\" \\\n  ");
+        sb.append("-H \"").append("Authorization\":").append("\"Basic YWRtaW46").append("\" \\\n  ");
         sb.append("-H \"").append("Expect\":").append("\"100-continue\" \\\n  ");
         sb.append("-H \"").append("Content-Type\":").append("\"text/plain; charset=UTF-8\" \\\n  ");
         sb.append("-H \"").append("max_filter_ratio\":").append("\"1.0\" \\\n  ");
         sb.append("-H \"").append("columns\":")
                 .append("\"" + InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
                         Collectors.joining(",")) + "\" \\\n  ");
+        sb.append("-H \"").append("redirect-policy\":").append("\"random-be").append("\" \\\n  ");
         sb.append("\"").append(conn.getURL()).append("\"");
         return sb.toString();
     }

@@ -387,6 +387,11 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             contains "QUERY: SELECT `k8` FROM `doris_test`.`test1`"
         }
         explain {
+            sql("select k12 from test1 where negative(k12) = 1;")
+
+            contains "QUERY: SELECT `k12` FROM `doris_test`.`test1`"
+        }
+        explain {
             sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05';")
 
             contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt`"

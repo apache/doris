@@ -68,7 +68,7 @@ statementBase
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
       LIKE existedTable=multipartIdentifier
       (WITH ROLLUP (rollupNames=identifierList)?)?           #createTableLike
-    | explain? INSERT (INTO | OVERWRITE TABLE)
+    | explain? cte? INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
@@ -113,6 +113,7 @@ statementBase
     | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #pauseMTMV
     | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #resumeMTMV
     | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier      #cancelMTMVTask
+    | SHOW CREATE MATERIALIZED VIEW mvName=multipartIdentifier #showCreateMTMV
     | ALTER TABLE table=multipartIdentifier
         ADD CONSTRAINT constraintName=errorCapturingIdentifier
         constraint                                                        #addConstraint
@@ -384,7 +385,7 @@ columnAliases
     ;
 
 selectClause
-    : SELECT selectHint? DISTINCT? selectColumnClause
+    : SELECT selectHint? (DISTINCT|ALL)? selectColumnClause
     ;
 
 selectColumnClause
@@ -584,14 +585,15 @@ columnDef
     : colName=identifier type=dataType
         KEY?
         (aggType=aggTypeDef)?
+        ((GENERATED ALWAYS)? AS LEFT_PAREN generatedExpr=expression RIGHT_PAREN)?
         ((NOT)? nullable=NULL)?
         (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
-        (DEFAULT (nullValue=NULL | INTEGER_VALUE | DECIMAL_VALUE | stringValue=STRING_LITERAL
+        (DEFAULT (nullValue=NULL | INTEGER_VALUE | DECIMAL_VALUE | PI | stringValue=STRING_LITERAL
            | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
-    
+
 indexDefs
     : indexes+=indexDef (COMMA indexes+=indexDef)*
     ;
@@ -774,7 +776,7 @@ primaryExpression
     | name=CURRENT_USER                                                                        #currentUser
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
-    | name=CAST LEFT_PAREN expression AS dataType RIGHT_PAREN                                  #cast
+    | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
     | constant                                                                                 #constantDefault
     | interval                                                                                 #intervalLiteral
     | ASTERISK                                                                                 #star
@@ -782,9 +784,9 @@ primaryExpression
     | CHAR LEFT_PAREN
                 arguments+=expression (COMMA arguments+=expression)*
                 (USING charSet=identifierOrText)?
-          RIGHT_PAREN                                                                         #charFunction
-    | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN       #convertCharSet
-    | CONVERT LEFT_PAREN argument=expression COMMA type=dataType RIGHT_PAREN                  #convertType
+          RIGHT_PAREN                                                                          #charFunction
+    | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN        #convertCharSet
+    | CONVERT LEFT_PAREN argument=expression COMMA castDataType RIGHT_PAREN                    #convertType
     | functionCallExpression                                                                   #functionCall
     | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
     | value=primaryExpression LEFT_BRACKET begin=valueExpression
@@ -801,6 +803,10 @@ primaryExpression
     | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
     ;
 
+castDataType
+    : dataType
+    |(SIGNED|UNSIGNED) (INT|INTEGER)?
+    ;
 
 functionCallExpression
     : functionIdentifier
@@ -921,7 +927,7 @@ dataType
 primitiveColType:
     | type=TINYINT
     | type=SMALLINT
-    | (SIGNED | UNSIGNED)? type=(INT | INTEGER)
+    | type=(INT | INTEGER)
     | type=BIGINT
     | type=LARGEINT
     | type=BOOLEAN
@@ -1023,6 +1029,7 @@ nonReserved
     | AGG_STATE
     | AGGREGATE
     | ALIAS
+    | ALWAYS
     | ANALYZED
     | ARRAY
     | ARRAY_RANGE
@@ -1047,6 +1054,7 @@ nonReserved
     | BUILD
     | BUILTIN
     | BULK
+    | CACHE
     | CACHED
     | CALL
     | CATALOG
@@ -1059,18 +1067,21 @@ nonReserved
     | CLUSTERS
     | COLLATION
     | COLLECT
+    | COLOCATE
     | COLUMNS
     | COMMENT
     | COMMIT
     | COMMITTED
     | COMPACT
     | COMPLETE
+    | COMPRESS_TYPE
     | CONFIG
     | CONNECTION
     | CONNECTION_ID
     | CONSISTENT
     | CONSTRAINTS
     | CONVERT
+    | CONVERT_LSC
     | COPY
     | COUNT
     | CREATION
@@ -1133,6 +1144,7 @@ nonReserved
     | FREE
     | FRONTENDS
     | FUNCTION
+    | GENERATED
     | GENERIC
     | GLOBAL
     | GRAPH
@@ -1144,6 +1156,7 @@ nonReserved
     | HISTOGRAM
     | HLL_UNION
     | HOSTNAME
+    | HOTSPOT
     | HOUR
     | HUB
     | IDENTIFIED
@@ -1224,10 +1237,12 @@ nonReserved
     | PERIOD
     | PERMISSIVE
     | PHYSICAL
+    | PI
     | PLAN
     | PLUGIN
     | PLUGINS
     | POLICY
+    | PRIVILEGES
     | PROC
     | PROCESS
     | PROCESSLIST
@@ -1239,6 +1254,7 @@ nonReserved
     | QUERY
     | QUOTA
     | RANDOM
+    | RECENT
     | RECOVER
     | RECYCLE
     | REFRESH
@@ -1273,6 +1289,8 @@ nonReserved
     | SNAPSHOT
     | SONAME
     | SPLIT
+    | SQL
+    | STAGES
     | START
     | STARTS
     | STATS
@@ -1303,6 +1321,7 @@ nonReserved
     | TYPES
     | UNCOMMITTED
     | UNLOCK
+    | UP
     | USER
     | VALUE
     | VARCHAR
@@ -1312,6 +1331,7 @@ nonReserved
     | VERBOSE
     | VERSION
     | VIEW
+    | WARM
     | WARNINGS
     | WEEK
     | WORK

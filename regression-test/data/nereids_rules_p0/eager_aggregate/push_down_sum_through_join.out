@@ -21,7 +21,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[sum_t]
 --------PhysicalOlapScan[sum_t]
 
@@ -122,14 +122,14 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
+----------PhysicalOlapScan[sum_t]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[sum_t]
 ------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[sum_t]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[sum_t]
 
 -- !groupby_pushdown_with_order_by --
 PhysicalResultSink

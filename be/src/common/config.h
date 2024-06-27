@@ -174,10 +174,13 @@ DECLARE_mString(process_full_gc_size);
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
-//waibibabu
+
 // gc will release cache, cancel task, and task will wait for gc to release memory,
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
+
+// Allocator check failed log stacktrace if not catch exception
+DECLARE_mBool(enable_stacktrace_in_allocator_check_failed);
 
 // malloc or new large memory larger than large_memory_check_bytes, default 2G,
 // will print a warning containing the stacktrace, but not prevent memory alloc.
@@ -301,6 +304,9 @@ DECLARE_mInt32(thrift_connect_timeout_seconds);
 DECLARE_mInt32(fetch_rpc_timeout_seconds);
 // default thrift client retry interval (in milliseconds)
 DECLARE_mInt64(thrift_client_retry_interval_ms);
+// max message size of thrift request
+// default: 100 * 1024 * 1024
+DECLARE_mInt64(thrift_max_message_size);
 // max row count number for single scan range, used in segmentv1
 DECLARE_mInt32(doris_scan_range_row_count);
 // max bytes number for single scan range, used in segmentv2
@@ -501,7 +507,7 @@ DECLARE_mInt64(pick_rowset_to_compact_interval_sec);
 // Compaction priority schedule
 DECLARE_mBool(enable_compaction_priority_scheduling);
 DECLARE_mInt32(low_priority_compaction_task_num_per_disk);
-DECLARE_mDouble(low_priority_tablet_version_num_ratio);
+DECLARE_mInt32(low_priority_compaction_score_threshold);
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DECLARE_Int32(max_meta_checkpoint_threads);
@@ -1039,6 +1045,8 @@ DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
+// only cache index pages (prerequisite: enable_file_cache = true)
+DECLARE_Bool(file_cache_index_only);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
@@ -1172,6 +1180,9 @@ DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
+// USED FOR DEBUGING
+// core directly if the compaction found there's duplicate key on mow table
+DECLARE_mBool(enable_mow_compaction_correctness_check_core);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
 // When the number of missing versions is more than this value, do not directly
@@ -1366,6 +1377,20 @@ DECLARE_Int64(s3_file_system_local_upload_buffer_size);
 
 //JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues.
 DECLARE_Bool(enable_jvm_monitor);
+
+// Num threads to load data dirs, default value -1 indicates the same number of threads as the number of data dirs
+DECLARE_Int32(load_data_dirs_threads);
+
+// Skip loading stale rowset meta when initializing `TabletMeta` from protobuf
+DECLARE_mBool(skip_loading_stale_rowset_meta);
+// Whether to use file to record log. When starting BE with --console,
+// all logs will be written to both standard output and file.
+// Disable this option will no longer use file to record log.
+// Only works when starting BE with --console.
+DECLARE_Bool(enable_file_logger);
+
+// The minimum row group size when exporting Parquet files.
+DECLARE_Int64(min_row_group_size);
 
 #ifdef BE_TEST
 // test s3

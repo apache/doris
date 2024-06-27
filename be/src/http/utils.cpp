@@ -77,30 +77,31 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     const auto& token = req.header("token");
     const auto& auth_code = req.header(HTTP_AUTH_CODE);
+
+    std::tuple<std::string, std::string, std::string> tmp;
+    auto& [user, pass, cluster] = tmp;
+    bool valid_basic_auth = parse_basic_auth(req, &user, &pass);
+    if (valid_basic_auth) { // always set the basic auth, the user may be useful
+        auto pos = user.find('@');
+        if (pos != std::string::npos) {
+            cluster.assign(user.c_str() + pos + 1);
+            user.assign(user.c_str(), pos); // user is updated
+        }
+        auth->user = user;
+        auth->passwd = pass;
+        auth->cluster = cluster;
+    }
+
     if (!token.empty()) {
         auth->token = token;
     } else if (!auth_code.empty()) {
         auth->auth_code = std::stoll(auth_code);
-    } else {
-        std::string full_user;
-        if (!parse_basic_auth(req, &full_user, &auth->passwd)) {
-            return false;
-        }
-        auto pos = full_user.find('@');
-        if (pos != std::string::npos) {
-            auth->user.assign(full_user.data(), pos);
-            auth->cluster.assign(full_user.data() + pos + 1);
-        } else {
-            auth->user = full_user;
-        }
+    } else if (!valid_basic_auth) {
+        return false;
     }
 
     // set user ip
-    if (req.remote_host() != nullptr) {
-        auth->user_ip.assign(req.remote_host());
-    } else {
-        auth->user_ip.assign("");
-    }
+    auth->user_ip.assign(req.remote_host() != nullptr ? req.remote_host() : "");
 
     return true;
 }

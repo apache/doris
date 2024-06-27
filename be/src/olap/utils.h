@@ -67,8 +67,8 @@ private:
 // @param base 原串
 // @param separator 分隔符
 // @param result 切分结果
-template <typename T>
-Status split_string(const std::string& base, const T separator, std::vector<std::string>* result) {
+template <typename Str, typename T>
+Status split_string(const Str& base, const T separator, std::vector<std::string>* result) {
     if (!result) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>("split_string meet nullptr result input");
     }
@@ -84,10 +84,10 @@ Status split_string(const std::string& base, const T separator, std::vector<std:
     while (offset < base.length()) {
         size_t next = base.find(separator, offset);
         if (next == std::string::npos) {
-            result->push_back(base.substr(offset));
+            result->emplace_back(base.substr(offset));
             break;
         } else {
-            result->push_back(base.substr(offset, next - offset));
+            result->emplace_back(base.substr(offset, next - offset));
             offset = next + 1;
         }
     }

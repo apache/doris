@@ -688,8 +688,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     }
                 } else {
                     if (tablet_schema.has_inverted_index()) {
-                        auto index_file = InvertedIndexDescriptor::get_index_path_v2(
-                                InvertedIndexDescriptor::get_index_path_prefix(segment_file_path));
+                        auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(
+                                        segment_file_path));
                         auto snapshot_segment_index_file_path =
                                 fmt::format("{}/{}_{}.binlog-index", schema_full_path, rowset_id,
                                             segment_index);

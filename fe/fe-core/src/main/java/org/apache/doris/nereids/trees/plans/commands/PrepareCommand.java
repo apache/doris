@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -101,6 +102,10 @@ public class PrepareCommand extends Command {
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",
                     name, ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE);
+        }
+        if (logicalPlan instanceof InsertIntoTableCommand
+                    && ((InsertIntoTableCommand) logicalPlan).getLabelName().isPresent()) {
+            throw new org.apache.doris.common.UserException("Only support prepare InsertStmt without label now");
         }
         ctx.addPreparedStatementContext(name,
                 new PreparedStatementContext(this, ctx, ctx.getStatementContext(), name));

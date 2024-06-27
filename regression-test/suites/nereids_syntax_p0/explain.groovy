@@ -68,4 +68,10 @@ suite("nereids_explain") {
 
     def explainStr = sql("select sum(if(lo_tax=1,lo_tax,0)) from lineorder where false").toString()
     assertTrue(!explainStr.contains("projections"))
+
+    explain {
+        sql("select week(cast('0000-01-01' as DATEV2), cast(2 as INT));")
+        notContains "week"
+        contains "1"
+    }
 }

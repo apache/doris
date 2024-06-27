@@ -29,7 +29,6 @@ suite("regression_test_variant_rowstore", "variant_type"){
  
     def table_name = "var_rowstore"
     sql "DROP TABLE IF EXISTS ${table_name}"
-    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
 
     sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -63,4 +62,50 @@ suite("regression_test_variant_rowstore", "variant_type"){
     """
     sql """insert into ${table_name} select k, cast(v as string), cast(v as string) from var_rowstore"""
     qt_sql "select * from ${table_name} order by k limit 10"
+
+    // Parse url
+    def user = context.config.jdbcUser
+    def password = context.config.jdbcPassword
+    def realDb = "regression_test_variant_p0"
+    String jdbcUrl = context.config.jdbcUrl
+    String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
+    def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
+    def sql_port
+    if (urlWithoutSchema.indexOf("/") >= 0) {
+        // e.g: jdbc:mysql://locahost:8080/?a=b
+        sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
+    } else {
+        // e.g: jdbc:mysql://locahost:8080
+        sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
+    }
+    // set server side prepared statement url
+    def prepare_url = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
+    table_name = "var_rs_pq"
+    sql "DROP TABLE IF EXISTS ${table_name}"
+    sql """
+            CREATE TABLE IF NOT EXISTS ${table_name} (
+                k bigint,
+                v variant,
+                v1 variant
+            )
+            UNIQUE KEY(`k`)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            properties("replication_num" = "1", "disable_auto_compaction" = "false", "store_row_column" = "true", "enable_unique_key_merge_on_write" = "true");
+    """
+    sql """insert into ${table_name} select k, cast(v as string), cast(v as string) from var_rowstore"""
+    def result1 = connect(user=user, password=password, url=prepare_url) {
+        def stmt = prepareStatement "select * from var_rs_pq where k = ?"
+        assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        stmt.setInt(1, -3)
+        qe_point_select stmt
+        stmt.setInt(1, -2)
+        qe_point_select stmt
+        stmt.setInt(1, -1)
+        qe_point_select stmt
+
+        // def stmt1 = prepareStatement "select var['a'] from var_rs_pq where k = ?"
+        // assertEquals(stmt1.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        // stmt.setInt(1, -3)
+        // qe_point_select stmt
+    }
 }

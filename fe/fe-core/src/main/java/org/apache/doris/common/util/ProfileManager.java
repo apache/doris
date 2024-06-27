@@ -340,7 +340,7 @@ public class ProfileManager {
         try {
             queryId = DebugUtil.parseTUniqueIdFromString(id);
         } catch (NumberFormatException e) {
-            LOG.warn("Failed to parse TUniqueId from string {} when fetch profile", id, e);
+            LOG.warn("Failed to parse TUniqueId from string {} when fetch profile", id);
         }
         List<QueryIdAndAddress> involvedBackends = Lists.newArrayList();
 

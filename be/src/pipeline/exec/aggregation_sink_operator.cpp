@@ -24,6 +24,7 @@
 #include "pipeline/exec/operator.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/hash_table/hash.h"
+#include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
 
@@ -110,25 +111,24 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     } else {
         RETURN_IF_ERROR(_init_hash_method(Base::_shared_state->probe_expr_ctxs));
 
-        std::visit(vectorized::Overload {
-                           [&](std::monostate& arg) {
-                               throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                      "uninited hash table");
-                           },
-                           [&](auto& agg_method) {
-                               using HashTableType = std::decay_t<decltype(agg_method)>;
-                               using KeyType = typename HashTableType::Key;
+        std::visit(vectorized::Overload {[&](std::monostate& arg) {
+                                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                                    "uninited hash table");
+                                         },
+                                         [&](auto& agg_method) {
+                                             using HashTableType =
+                                                     std::decay_t<decltype(agg_method)>;
+                                             using KeyType = typename HashTableType::Key;
 
-                               /// some aggregate functions (like AVG for decimal) have align issues.
-                               Base::_shared_state->aggregate_data_container =
-                                       std::make_unique<vectorized::AggregateDataContainer>(
-
-                                               sizeof(KeyType),
-                                               ((p._total_size_of_aggregate_states +
-                                                 p._align_aggregate_states - 1) /
-                                                p._align_aggregate_states) *
-                                                       p._align_aggregate_states);
-                           }},
+                                             /// some aggregate functions (like AVG for decimal) have align issues.
+                                             Base::_shared_state->aggregate_data_container =
+                                                     std::make_unique<AggregateDataContainer>(
+                                                             sizeof(KeyType),
+                                                             ((p._total_size_of_aggregate_states +
+                                                               p._align_aggregate_states - 1) /
+                                                              p._align_aggregate_states) *
+                                                                     p._align_aggregate_states);
+                                         }},
                    _agg_data->method_variant);
         if (p._is_merge) {
             _executor = std::make_unique<Executor<false, true>>();
@@ -151,7 +151,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     // this could cause unable to get JVM
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_agg_status(_agg_data->without_key));
+        RETURN_IF_ERROR(_create_agg_status(_agg_data->without_key));
         _shared_state->agg_data_created_without_key = true;
     }
     return Status::OK();
@@ -498,22 +498,14 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
 
             if (_should_limit_output && !Base::_shared_state->enable_spill) {
                 const size_t hash_table_size = _get_hash_table_size();
-                if (Base::_parent->template cast<AggSinkOperatorX>()._can_short_circuit) {
-                    _shared_state->reach_limit =
-                            hash_table_size >=
-                            Base::_parent->template cast<AggSinkOperatorX>()._limit;
-                    if (_shared_state->reach_limit) {
-                        Base::_dependency->set_ready_to_read();
-                        return Status::Error<ErrorCode::END_OF_FILE>("");
-                    }
-                } else {
-                    _shared_state->reach_limit =
-                            hash_table_size >= _shared_state->do_sort_limit
-                                    ? Base::_parent->template cast<AggSinkOperatorX>()._limit * 5
-                                    : Base::_parent->template cast<AggSinkOperatorX>()._limit;
-                    if (_shared_state->reach_limit && _shared_state->do_sort_limit) {
-                        _shared_state->build_limit_heap(hash_table_size);
-                    }
+
+                _shared_state->reach_limit =
+                        hash_table_size >=
+                        (_shared_state->do_sort_limit
+                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit * 5
+                                 : Base::_parent->template cast<AggSinkOperatorX>()._limit);
+                if (_shared_state->reach_limit && _shared_state->do_sort_limit) {
+                    _shared_state->build_limit_heap(hash_table_size);
                 }
             }
         }
@@ -726,10 +718,11 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPla
           _limit(tnode.limit),
           _have_conjuncts((tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) ||
                           (tnode.__isset.conjuncts && !tnode.conjuncts.empty())),
-          _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
-                                                               : std::vector<TExpr> {}),
-          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate &&
-                       require_bucket_distribution),
+          _partition_exprs(tnode.__isset.distribute_expr_lists && require_bucket_distribution
+                                   ? tnode.distribute_expr_lists[0]
+                                   : tnode.agg_node.grouping_exprs),
+          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
+          _require_bucket_distribution(require_bucket_distribution),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
 
 Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -740,10 +733,6 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
     // init aggregate functions
     _aggregate_evaluators.reserve(tnode.agg_node.aggregate_functions.size());
-    // In case of : `select * from (select GoodEvent from hits union select CounterID from hits) as h limit 10;`
-    // only union with limit: we can short circuit query the pipeline exec engine.
-    _can_short_circuit =
-            tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_x_exec();
 
     TSortInfo dummy;
     for (int i = 0; i < tnode.agg_node.aggregate_functions.size(); ++i) {

@@ -82,9 +82,8 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TP
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read),
           _merge_by_exchange(tnode.sort_node.merge_by_exchange),
-          _is_colocate(tnode.sort_node.__isset.is_colocate
-                               ? tnode.sort_node.is_colocate && require_bucket_distribution
-                               : require_bucket_distribution),
+          _is_colocate(tnode.sort_node.__isset.is_colocate && tnode.sort_node.is_colocate),
+          _require_bucket_distribution(require_bucket_distribution),
           _is_analytic_sort(tnode.sort_node.__isset.is_analytic_sort
                                     ? tnode.sort_node.is_analytic_sort
                                     : false),

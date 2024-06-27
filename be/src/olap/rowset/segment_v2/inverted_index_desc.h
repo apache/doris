@@ -32,14 +32,19 @@ public:
     static constexpr std::string_view index_suffix = ".idx";
     static std::string get_temporary_index_path(std::string_view tmp_dir_path,
                                                 std::string_view rowset_id, int64_t seg_id,
-                                                uint64_t uuid, std::string_view index_path_suffix);
+                                                int64_t index_id,
+                                                std::string_view index_path_suffix);
     // InvertedIndexStorageFormat V1
-    static std::string get_index_path_v1(std::string_view index_path_prefix, uint64_t uuid,
-                                         std::string_view index_path_suffix);
+    static std::string get_index_file_path_v1(std::string_view index_path_prefix, int64_t index_id,
+                                              std::string_view index_path_suffix);
     // InvertedIndexStorageFormat V2
-    static std::string get_index_path_v2(std::string_view index_path_prefix);
+    static std::string get_index_file_path_v2(std::string_view index_path_prefix);
 
-    static std::string_view get_index_path_prefix(std::string_view segment_path);
+    static std::string_view get_index_file_path_prefix(std::string_view segment_path);
+
+    static std::string get_index_file_cache_key(std::string_view index_path_prefix,
+                                                int64_t index_id,
+                                                std::string_view index_path_suffix);
 
     static const char* get_temporary_null_bitmap_file_name() { return "null_bitmap"; }
     static const char* get_temporary_bkd_index_data_file_name() { return "bkd"; }

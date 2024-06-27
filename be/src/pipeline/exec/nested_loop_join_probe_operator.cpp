@@ -165,7 +165,7 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
         }
 
         if constexpr (set_probe_side_flag) {
-            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+            RETURN_IF_ERROR(
                     (_do_filtering_and_update_visited_flags<set_build_side_flag,
                                                             set_probe_side_flag, ignore_null>(
                             &_join_block, !p._is_left_semi_anti)));
@@ -185,10 +185,9 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
     }
 
     if constexpr (!set_probe_side_flag) {
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
-                (_do_filtering_and_update_visited_flags<set_build_side_flag, set_probe_side_flag,
-                                                        ignore_null>(&_join_block,
-                                                                     !p._is_right_semi_anti)));
+        RETURN_IF_ERROR((_do_filtering_and_update_visited_flags<set_build_side_flag,
+                                                                set_probe_side_flag, ignore_null>(
+                &_join_block, !p._is_right_semi_anti)));
         _update_additional_flags(&_join_block);
     }
 
@@ -499,8 +498,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
                                           bool* eos) const {
     auto& local_state = get_local_state(state);
     if (_is_output_left_side_only) {
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
-                local_state._build_output_block(local_state._child_block.get(), block));
+        RETURN_IF_ERROR(local_state._build_output_block(local_state._child_block.get(), block));
         *eos = local_state._shared_state->left_side_eos;
         local_state._need_more_input_data = !local_state._shared_state->left_side_eos;
     } else {
@@ -522,8 +520,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
                 RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
                         local_state._conjuncts, &tmp_block, tmp_block.columns()));
             }
-            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
-                    local_state._build_output_block(&tmp_block, block, false));
+            RETURN_IF_ERROR(local_state._build_output_block(&tmp_block, block, false));
             local_state._reset_tuple_is_null_column();
         }
         local_state._join_block.clear_column_data();

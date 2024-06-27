@@ -76,7 +76,7 @@ public:
 
     std::optional<StorageResource> get_storage_resource(const std::string& vault_id) const {
         if (vault_id.empty()) {
-            return StorageResource {latest_fs(), 0};
+            return StorageResource {latest_fs()};
         }
 
         if (auto storage_resource = doris::get_storage_resource(vault_id); storage_resource) {

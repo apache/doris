@@ -73,7 +73,7 @@ private:
     bool _stop_emplace_flag = false;
     const int batch_size;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
-    vectorized::AggregatedDataVariantsUPtr _agg_data = nullptr;
+    AggregatedDataVariantsUPtr _agg_data = nullptr;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
@@ -106,12 +106,14 @@ public:
 
     DataDistribution required_data_distribution() const override {
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
-            return _is_colocate
+            return _is_colocate && _require_bucket_distribution
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
         return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution();
     }
+
+    bool require_data_distribution() const override { return _is_colocate; }
 
 private:
     friend class DistinctStreamingAggLocalState;
@@ -124,6 +126,7 @@ private:
     const bool _is_first_phase;
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
+    const bool _require_bucket_distribution;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;

@@ -144,7 +144,7 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
 
 template <bool is_intersect>
 void SetSourceOperatorX<is_intersect>::_add_result_columns(
-        SetSourceLocalState<is_intersect>& local_state, vectorized::RowRefListWithFlags& value,
+        SetSourceLocalState<is_intersect>& local_state, RowRefListWithFlags& value,
         int& block_size) {
     auto& build_col_idx = local_state._shared_state->build_col_idx;
     auto& build_block = local_state._shared_state->build_block;

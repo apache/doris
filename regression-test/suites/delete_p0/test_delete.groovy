@@ -32,6 +32,11 @@ suite("test_delete") {
     qt_sql """select count(c1) from ${tableName};"""
     qt_sql """select count(c1) from ${tableName} where c1 = 'abcdef';"""
 
+    // test delete after light schema change
+    sql """ALTER TABLE ${tableName} ADD COLUMN c4 int;"""
+    sql """delete from ${tableName} where `c4` = 1;"""
+    qt_sql """select count(*) from ${tableName};"""
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     sql """ CREATE TABLE IF NOT EXISTS delete_regression_test (k1 varchar(190) NOT NULL COMMENT "", k2 DATEV2 NOT NULL COMMENT "", k3 DATETIMEV2 NOT NULL COMMENT "", k4 DATETIMEV2(3) NOT NULL COMMENT "", v1 DATEV2 NOT NULL COMMENT "", v2 DATETIMEV2 NOT NULL COMMENT "", v3 DATETIMEV2(3) NOT NULL COMMENT "" ) ENGINE=OLAP DUPLICATE KEY(k1, k2, k3, k4) COMMENT "OLAP" DISTRIBUTED BY HASH(k1, k2, k3, k4) BUCKETS 3

@@ -66,16 +66,16 @@ public class StatisticsRepository {
             + " WHERE `id` = '${id}' AND `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}'";
 
     private static final String FETCH_PARTITION_STATISTIC_TEMPLATE = "SELECT `catalog_id`, `db_id`, `tbl_id`, `idx_id`,"
-            + "`col_id`, `count`, hll_to_base64(`ndv`) as ndv, `null_count`, `min`, `max`, `data_size_in_bytes`, "
-            + "`update_time` FROM " + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
+            + " `part_name`, `col_id`, `count`, hll_to_base64(`ndv`) as ndv, `null_count`, `min`, `max`, "
+            + "`data_size_in_bytes`, `update_time` FROM " + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
             + " WHERE `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}' AND `tbl_id` = ${tableId}"
-            + " AND `idx_id` = '${indexId}' AND `part_id` = '${partId}' AND `col_id` = '${columnId}'";
+            + " AND `idx_id` = '${indexId}' AND `part_name` IN (${partName}) AND `col_id` = '${columnId}'";
 
-    private static final String FETCH_PARTITIONS_STATISTIC_TEMPLATE = "SELECT col_id, part_id, idx_id, count, "
+    private static final String FETCH_PARTITIONS_STATISTIC_TEMPLATE = "SELECT col_id, part_name, idx_id, count, "
             + "hll_cardinality(ndv) as ndv, null_count, min, max, data_size_in_bytes, update_time FROM "
             + FULL_QUALIFIED_PARTITION_STATISTICS_NAME
             + " WHERE `catalog_id` = '${catalogId}' AND `db_id` = '${dbId}' AND `tbl_id` = ${tableId}"
-            + " AND `part_id` in (${partitionInfo}) AND `col_id` in (${columnInfo})";
+            + " AND `part_name` in (${partitionInfo}) AND `col_id` in (${columnInfo})";
 
     private static final String FETCH_COLUMN_HISTOGRAM_TEMPLATE = "SELECT * FROM "
             + FULL_QUALIFIED_COLUMN_HISTOGRAM_NAME
@@ -113,7 +113,7 @@ public class StatisticsRepository {
                     + "LIMIT ${limit} OFFSET ${offset}";
 
     private static final String FETCH_PARTITION_STATS_FULL_NAME =
-            "SELECT \"\" as id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
+            "SELECT \"\" as id, catalog_id, db_id, tbl_id, idx_id, col_id, part_name FROM "
                     + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.PARTITION_STATISTIC_TBL_NAME
                     + " ORDER BY update_time "
                     + "LIMIT ${limit} OFFSET ${offset}";
@@ -207,50 +207,78 @@ public class StatisticsRepository {
 
     public static void dropStatistics(
             long ctlId, long dbId, long tblId, Set<String> colNames, Set<String> partNames) throws DdlException {
-        if (colNames == null) {
+        if (colNames == null && partNames == null) {
             executeDropStatisticsAllColumnSql(ctlId, dbId, tblId);
         } else {
-            dropStatisticsByColName(ctlId, dbId, tblId, colNames);
+            dropStatisticsByColAndPartitionName(ctlId, dbId, tblId, colNames, partNames);
         }
     }
 
-    private static void dropStatisticsByColName(long ctlId, long dbId, long tblId, Set<String> colNames)
-            throws DdlException {
+    public static void dropPartitionsColumnStatistics(long ctlId, long dbId, long tblId,
+            String columnCondition, String partitionCondition) throws DdlException {
         Map<String, String> params = new HashMap<>();
-        Iterator<String> iterator = colNames.iterator();
-        int columnCount = 0;
-        StringBuilder inPredicate = new StringBuilder();
-        while (iterator.hasNext()) {
-            inPredicate.append("'");
-            inPredicate.append(iterator.next());
-            inPredicate.append("'");
-            inPredicate.append(",");
-            columnCount++;
-            if (columnCount == Config.max_allowed_in_element_num_of_delete) {
-                executeDropStatisticsByColumnSql(inPredicate, ctlId, dbId, tblId, params);
-                columnCount = 0;
-                inPredicate.setLength(0);
-            }
-        }
-        if (inPredicate.length() > 0) {
-            executeDropStatisticsByColumnSql(inPredicate, ctlId, dbId, tblId, params);
-        }
-    }
-
-    private static void executeDropStatisticsByColumnSql(
-            StringBuilder inPredicate, long ctlId, long dbId, long tblId, Map<String, String> params)
-            throws DdlException {
         generateCtlDbIdParams(ctlId, dbId, params);
         params.put("tblId", String.valueOf(tblId));
-        if (inPredicate.length() > 0) {
-            inPredicate.delete(inPredicate.length() - 1, inPredicate.length());
-        }
-        String predicate = String.format("AND %s IN (%s)", "col_id", inPredicate);
-        params.put("columnCondition", predicate);
-        params.put("partitionCondition", "");
+        params.put("columnCondition", columnCondition);
+        params.put("partitionCondition", partitionCondition);
         try {
             StatisticsUtil.execUpdate(
-                new StringSubstitutor(params).replace(DELETE_TABLE_STATISTICS_BY_COLUMN_TEMPLATE));
+                new StringSubstitutor(params).replace(DELETE_PARTITION_STATISTICS_TEMPLATE));
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+    }
+
+    private static void dropStatisticsByColAndPartitionName(long ctlId, long dbId, long tblId,
+                                                Set<String> colNames, Set<String> partNames)
+            throws DdlException {
+        Map<String, String> params = new HashMap<>();
+        String columnCondition = "";
+        String partitionCondition = "";
+        if (colNames != null) {
+            Iterator<String> iterator = colNames.iterator();
+            StringBuilder inPredicate = new StringBuilder();
+            while (iterator.hasNext()) {
+                inPredicate.append("'");
+                inPredicate.append(iterator.next());
+                inPredicate.append("'");
+                inPredicate.append(",");
+            }
+            if (inPredicate.length() > 0) {
+                inPredicate.delete(inPredicate.length() - 1, inPredicate.length());
+            }
+            columnCondition = String.format("AND %s IN (%s)", "col_id", inPredicate);
+        }
+        if (partNames != null) {
+            Iterator<String> iterator = partNames.iterator();
+            StringBuilder inPredicate = new StringBuilder();
+            while (iterator.hasNext()) {
+                inPredicate.append("'");
+                inPredicate.append(iterator.next());
+                inPredicate.append("'");
+                inPredicate.append(",");
+            }
+            if (inPredicate.length() > 0) {
+                inPredicate.delete(inPredicate.length() - 1, inPredicate.length());
+            }
+            partitionCondition = String.format("AND %s IN (%s)", "part_name", inPredicate);
+        }
+        executeDropStatisticsByColumnAndPartitionSql(
+                columnCondition, partitionCondition, ctlId, dbId, tblId, params, partNames == null);
+
+    }
+
+    private static void executeDropStatisticsByColumnAndPartitionSql(String columnCondition, String partitionCondition,
+            long ctlId, long dbId, long tblId, Map<String, String> params, boolean tableLevel) throws DdlException {
+        generateCtlDbIdParams(ctlId, dbId, params);
+        params.put("tblId", String.valueOf(tblId));
+        params.put("columnCondition", columnCondition);
+        params.put("partitionCondition", partitionCondition);
+        try {
+            if (tableLevel) {
+                StatisticsUtil.execUpdate(
+                    new StringSubstitutor(params).replace(DELETE_TABLE_STATISTICS_BY_COLUMN_TEMPLATE));
+            }
             StatisticsUtil.execUpdate(
                 new StringSubstitutor(params).replace(DELETE_PARTITION_STATISTICS_TEMPLATE));
         } catch (Exception e) {
@@ -389,7 +417,7 @@ public class StatisticsRepository {
         generateCtlDbIdParams(ctlId, dbId, params);
         params.put("tableId", String.valueOf(tableId));
         params.put("indexId", String.valueOf(idxId));
-        params.put("partId", partName);
+        params.put("partName", partName);
         params.put("columnId", colName);
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
             .replace(FETCH_PARTITION_STATISTIC_TEMPLATE));

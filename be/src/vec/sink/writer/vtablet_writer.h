@@ -51,7 +51,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -545,7 +544,7 @@ class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    Status write(Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status) override;
 

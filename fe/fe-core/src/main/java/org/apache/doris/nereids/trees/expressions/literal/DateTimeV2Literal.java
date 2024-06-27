@@ -29,6 +29,7 @@ import org.apache.doris.nereids.util.StandardDateFormat;
 import com.google.common.base.Preconditions;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 /**
  * date time v2 literal for nereids
@@ -270,5 +271,20 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                         dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
                         dateTime.getMinute(), dateTime.getSecond(),
                         (dateTime.getNano() / 1000) / value * value);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        DateTimeV2Literal literal = (DateTimeV2Literal) o;
+        return Objects.equals(dataType, literal.dataType);
     }
 }

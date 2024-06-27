@@ -63,7 +63,7 @@ under the License.
             <id>protoc_rosetta</id>
             <activation>
                 <os>
-                    <name>Mac OS X</name>
+                    <family>mac</family>
                     <arch>aarch64</arch>
                 </os>
             </activation>
@@ -828,6 +828,19 @@ under the License.
             <groupId>org.apache.hbase</groupId>
             <artifactId>hbase-hadoop-compat</artifactId>
             <version>2.5.2-hadoop3</version>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-blob</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-blob-batch</artifactId>
+            <version>${azure.sdk.batch.version}</version>
         </dependency>
     </dependencies>
     <repositories>

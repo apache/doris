@@ -38,7 +38,7 @@ public:
     RowsetMeta() = default;
     ~RowsetMeta();
 
-    bool init(const std::string& pb_rowset_meta);
+    bool init(std::string_view pb_rowset_meta);
 
     bool init(const RowsetMeta* rowset_meta);
 
@@ -341,7 +341,7 @@ public:
     RowsetMeta operator=(const RowsetMeta&) = delete;
 
 private:
-    bool _deserialize_from_pb(const std::string& value);
+    bool _deserialize_from_pb(std::string_view value);
 
     bool _serialize_to_pb(std::string* value);
 

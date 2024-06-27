@@ -28,8 +28,12 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.proto.Cloud.AbortSubTxnRequest;
+import org.apache.doris.cloud.proto.Cloud.AbortSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.BeginSubTxnRequest;
+import org.apache.doris.cloud.proto.Cloud.BeginSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictRequest;
@@ -50,6 +54,7 @@ import org.apache.doris.cloud.proto.Cloud.LoadJobSourceTypePB;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
@@ -63,6 +68,7 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -75,6 +81,7 @@ import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
@@ -124,10 +131,12 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
@@ -139,6 +148,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private static final int CALCULATE_DELETE_BITMAP_TASK_TIMEOUT_SECONDS = 15;
 
     private TxnStateCallbackFactory callbackFactory;
+    private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -186,6 +196,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
+
+        MTMVUtil.checkModifyMTMVData(db, tableIdList, ConnectContext.get());
 
         switch (sourceType) {
             case BACKEND_STREAMING:
@@ -328,7 +340,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
     }
 
+    /**
+     * Post process of commitTxn
+     * 1. update some stats
+     * 2. produce event for further processes like async MV
+     * @param commitTxnResponse commit txn call response from meta-service
+     */
     public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse) {
+        // ========================================
+        // update some table stats
+        // ========================================
         long dbId = commitTxnResponse.getTxnInfo().getDbId();
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
         // 1. update rowCountfor AnalysisManager
@@ -379,6 +400,25 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         if (sb.length() > 0) {
             LOG.info("notify partition first load. {}", sb);
+        }
+
+        // ========================================
+        // produce event
+        // ========================================
+        List<Long> tableList = commitTxnResponse.getTxnInfo().getTableIdsList()
+                .stream().distinct().collect(Collectors.toList());
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of transaction
+        try {
+            for (Long tableId : tableList) {
+                Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DataChangeEvent(InternalCatalog.INTERNAL_CATALOG_ID, dbId, tableId));
+            }
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("produceEvent failed, db {}, tables {} ", dbId, tableList, t);
         }
     }
 
@@ -453,6 +493,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         final CommitTxnRequest commitTxnRequest = builder.build();
+        commitTxn(commitTxnRequest, transactionId, is2PC, dbId, tableList);
+    }
+
+    private void commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC, long dbId,
+            List<Table> tableList) throws UserException {
         CommitTxnResponse commitTxnResponse = null;
         int retryTime = 0;
 
@@ -514,23 +559,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
         }
         afterCommitTxnResp(commitTxnResponse);
-        // Here, we only wait for the EventProcessor to finish processing the event,
-        // but regardless of the success or failure of the result,
-        // it does not affect the logic of transaction
-        try {
-            produceEvent(dbId, tableList);
-        } catch (Throwable t) {
-            // According to normal logic, no exceptions will be thrown,
-            // but in order to avoid bugs affecting the original logic, all exceptions are caught
-            LOG.warn("produceEvent failed: ", t);
-        }
-    }
-
-    private void produceEvent(long dbId, List<Table> tableList) {
-        for (Table table : tableList) {
-            Env.getCurrentEnv().getEventProcessor().processEvent(
-                    new DataChangeEvent(InternalCatalog.INTERNAL_CATALOG_ID, dbId, table.getId()));
-        }
     }
 
     private List<OlapTable> getMowTableList(List<Table> tableList) {
@@ -783,7 +811,35 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public boolean commitAndPublishTransaction(DatabaseIf db, long transactionId,
             List<SubTransactionState> subTransactionStates, long timeoutMillis) throws UserException {
-        throw new UnsupportedOperationException("commitAndPublishTransaction is not supported in cloud");
+        if (Config.disable_load_job) {
+            throw new TransactionCommitFailedException(
+                    "disable_load_job is set to true, all load jobs are not allowed");
+        }
+        LOG.info("try to commit transaction, txnId: {}, subTxnStates: {}", transactionId, subTransactionStates);
+        cleanSubTransactions(transactionId);
+        CommitTxnRequest.Builder builder = CommitTxnRequest.newBuilder();
+        builder.setDbId(db.getId())
+                .setTxnId(transactionId)
+                .setIs2Pc(false)
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setIsTxnLoad(true);
+        // add sub txn infos
+        for (SubTransactionState subTransactionState : subTransactionStates) {
+            builder.addSubTxnInfos(SubTxnInfo.newBuilder().setSubTxnId(subTransactionState.getSubTransactionId())
+                    .setTableId(subTransactionState.getTable().getId())
+                    .addAllBaseTabletIds(
+                            getBaseTabletsFromTables(Lists.newArrayList(subTransactionState.getTable()),
+                                    subTransactionState.getTabletCommitInfos().stream()
+                                            .map(c -> new TabletCommitInfo(c.getTabletId(), c.getBackendId()))
+                                            .collect(Collectors.toList())))
+                    .build());
+        }
+
+        final CommitTxnRequest commitTxnRequest = builder.build();
+        commitTxn(commitTxnRequest, transactionId, false, db.getId(),
+                subTransactionStates.stream().map(SubTransactionState::getTable)
+                        .collect(Collectors.toList()));
+        return true;
     }
 
     @Override
@@ -812,6 +868,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason) throws UserException {
+        cleanSubTransactions(transactionId);
         abortTransaction(dbId, transactionId, reason, null, null);
     }
 
@@ -1117,13 +1174,49 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit) {
+    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime) {
+        // do nothing in cloud mode
+    }
+
+    @Override
+    public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit) {
         // do nothing in cloud mode
     }
 
     @Override
     public TransactionStatus getLabelState(long dbId, String label) throws AnalysisException {
-        throw new AnalysisException(NOT_SUPPORTED_MSG);
+        GetTxnRequest.Builder builder = GetTxnRequest.newBuilder();
+        builder.setDbId(dbId).setCloudUniqueId(Config.cloud_unique_id).setLabel(label);
+        final GetTxnRequest getTxnRequest = builder.build();
+        GetTxnResponse getTxnResponse = null;
+        int retryTime = 0;
+
+        try {
+            while (retryTime < 3) {
+                getTxnResponse = MetaServiceProxy.getInstance().getTxn(getTxnRequest);
+                if (getTxnResponse.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+                LOG.info("getLabelState KV_TXN_CONFLICT, dbId:{}, label:{}, retryTime:{}", dbId, label, retryTime);
+                backoff();
+                retryTime++;
+                continue;
+            }
+
+            Preconditions.checkNotNull(getTxnResponse);
+            Preconditions.checkNotNull(getTxnResponse.getStatus());
+        } catch (Exception e) {
+            LOG.warn("getLabelState failed, dbId:{}, exception:", dbId, e);
+            throw new AnalysisException("getLabelState failed, errMsg:" + e.getMessage());
+        }
+
+        if (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            LOG.warn("getLabelState failed, dbId:{} label:{} retryTime:{} getTxnResponse:{}",
+                    dbId, label, retryTime, getTxnResponse);
+            throw new AnalysisException("getLabelState failed, errMsg:" + getTxnResponse.getStatus().getMsg());
+        }
+
+        return TxnUtil.transactionStateFromPb(getTxnResponse.getTxnInfo()).getTransactionStatus();
     }
 
     @Override
@@ -1133,6 +1226,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public TransactionState getTransactionState(long dbId, long transactionId) {
+        if (subTxnIdToTxnId.containsKey(transactionId)) {
+            LOG.info("try to get transaction state, subTxnId:{}, transactionId:{}", transactionId,
+                    subTxnIdToTxnId.get(transactionId));
+            transactionId = subTxnIdToTxnId.get(transactionId);
+        }
         LOG.info("try to get transaction state, dbId:{}, transactionId:{}", dbId, transactionId);
         GetTxnRequest.Builder builder = GetTxnRequest.newBuilder();
         builder.setDbId(dbId);
@@ -1351,11 +1449,101 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public void addSubTransaction(long dbId, long transactionId, long subTransactionId) {
-        throw new UnsupportedOperationException("addSubTransaction is not supported in cloud");
+        subTxnIdToTxnId.put(subTransactionId, transactionId);
     }
 
     @Override
     public void removeSubTransaction(long dbId, long subTransactionId) {
-        throw new UnsupportedOperationException("removeSubTransaction is not supported in cloud");
+        subTxnIdToTxnId.remove(subTransactionId);
+    }
+
+    private void cleanSubTransactions(long transactionId) {
+        Iterator<Entry<Long, Long>> iterator = subTxnIdToTxnId.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Entry<Long, Long> entry = iterator.next();
+            if (entry.getValue() == transactionId) {
+                iterator.remove();
+            }
+        }
+    }
+
+    public Pair<Long, TransactionState> beginSubTxn(long txnId, long dbId, Set<Long> tableIds, String label,
+            long subTxnNum) throws UserException {
+        LOG.info("try to begin sub transaction, txnId: {}, dbId: {}, tableIds: {}, label: {}, subTxnNum: {}", txnId,
+                dbId, tableIds, label, subTxnNum);
+        BeginSubTxnRequest request = BeginSubTxnRequest.newBuilder().setCloudUniqueId(Config.cloud_unique_id)
+                .setTxnId(txnId).setDbId(dbId).addAllTableIds(tableIds).setLabel(label).setSubTxnNum(subTxnNum).build();
+        BeginSubTxnResponse response = null;
+        int retryTime = 0;
+        try {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, beginSubTxnRequest:{}", retryTime, request);
+                }
+                response = MetaServiceProxy.getInstance().beginSubTxn(request);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, beginSubTxnResponse:{}", retryTime, response);
+                }
+
+                if (response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+                LOG.info("beginSubTxn KV_TXN_CONFLICT, retryTime:{}", retryTime);
+                backoff();
+                retryTime++;
+            }
+
+            Preconditions.checkNotNull(response);
+            Preconditions.checkNotNull(response.getStatus());
+        } catch (Exception e) {
+            LOG.warn("beginSubTxn failed, exception:", e);
+            throw new UserException("beginSubTxn failed, errMsg:" + e.getMessage());
+        }
+
+        if (response.getStatus().getCode() != MetaServiceCode.OK) {
+            throw new UserException(response.getStatus().getMsg());
+        }
+        return Pair.of(response.hasSubTxnId() ? response.getSubTxnId() : 0,
+                TxnUtil.transactionStateFromPb(response.getTxnInfo()));
+    }
+
+    public TransactionState abortSubTxn(long txnId, long subTxnId, long dbId, Set<Long> tableIds, long subTxnNum)
+            throws UserException {
+        LOG.info("try to abort sub transaction, txnId: {}, subTxnId: {}, dbId: {}, tableIds: {}, subTxnNum: {}", txnId,
+                subTxnId, dbId, tableIds, subTxnNum);
+        AbortSubTxnRequest request = AbortSubTxnRequest.newBuilder().setCloudUniqueId(Config.cloud_unique_id)
+                .setTxnId(txnId).setSubTxnId(subTxnId).setDbId(dbId).addAllTableIds(tableIds).setSubTxnNum(subTxnId)
+                .build();
+        AbortSubTxnResponse response = null;
+        int retryTime = 0;
+        try {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, abortSubTxnRequest:{}", retryTime, request);
+                }
+                response = MetaServiceProxy.getInstance().abortSubTxn(request);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("retryTime:{}, abortSubTxnResponse:{}", retryTime, response);
+                }
+
+                if (response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+                LOG.info("abortSubTxn KV_TXN_CONFLICT, retryTime:{}", retryTime);
+                backoff();
+                retryTime++;
+            }
+
+            Preconditions.checkNotNull(response);
+            Preconditions.checkNotNull(response.getStatus());
+        } catch (Exception e) {
+            LOG.warn("abortSubTxn failed, exception:", e);
+            throw new UserException("abortSubTxn failed, errMsg:" + e.getMessage());
+        }
+
+        if (response.getStatus().getCode() != MetaServiceCode.OK) {
+            throw new UserException(response.getStatus().getMsg());
+        }
+        return TxnUtil.transactionStateFromPb(response.getTxnInfo());
     }
 }

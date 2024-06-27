@@ -19,6 +19,8 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <memory>
+
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/file_writer.h"
@@ -31,6 +33,7 @@
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
+#include "vec/common/schema_util.h"
 
 namespace doris {
 
@@ -40,7 +43,7 @@ RowsetMeta::~RowsetMeta() {
     }
 }
 
-bool RowsetMeta::init(const std::string& pb_rowset_meta) {
+bool RowsetMeta::init(std::string_view pb_rowset_meta) {
     bool ret = _deserialize_from_pb(pb_rowset_meta);
     if (!ret) {
         return false;
@@ -167,16 +170,15 @@ void RowsetMeta::set_tablet_schema(const TabletSchemaPB& tablet_schema) {
     _schema = pair.second;
 }
 
-bool RowsetMeta::_deserialize_from_pb(const std::string& value) {
-    RowsetMetaPB rowset_meta_pb;
-    if (!rowset_meta_pb.ParseFromString(value)) {
+bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
+    if (!_rowset_meta_pb.ParseFromArray(value.data(), value.size())) {
+        _rowset_meta_pb.Clear();
         return false;
     }
-    if (rowset_meta_pb.has_tablet_schema()) {
-        set_tablet_schema(rowset_meta_pb.tablet_schema());
-        rowset_meta_pb.clear_tablet_schema();
+    if (_rowset_meta_pb.has_tablet_schema()) {
+        set_tablet_schema(_rowset_meta_pb.tablet_schema());
+        _rowset_meta_pb.set_allocated_tablet_schema(nullptr);
     }
-    _rowset_meta_pb = rowset_meta_pb;
     return true;
 }
 
@@ -229,6 +231,17 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
         other._rowset_meta_pb.enable_segments_file_size()) {
         for (auto fsize : other.segments_file_size()) {
             _rowset_meta_pb.add_segments_file_size(fsize);
+        }
+    }
+    // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
+    // Otherwise the schema is stale and lead to wrong data read
+    if (tablet_schema()->num_variant_columns() > 0) {
+        // merge extracted columns
+        TabletSchemaSPtr merged_schema;
+        static_cast<void>(vectorized::schema_util::get_least_common_schema(
+                {tablet_schema(), other.tablet_schema()}, nullptr, merged_schema));
+        if (*_schema != *merged_schema) {
+            set_tablet_schema(merged_schema);
         }
     }
     if (rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {

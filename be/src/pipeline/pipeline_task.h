@@ -30,7 +30,6 @@
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class QueryContext;
@@ -136,6 +135,7 @@ public:
     OperatorXPtr source() const { return _source; }
 
     int task_id() const { return _index; };
+    bool is_finalized() const { return _finalized; }
 
     void clear_blocking_state() {
         // We use a lock to assure all dependencies are not deconstructed here.

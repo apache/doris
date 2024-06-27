@@ -42,11 +42,11 @@ import java.util.Set;
  */
 public class PhysicalFileScan extends PhysicalCatalogRelation {
 
-    private final DistributionSpec distributionSpec;
-    private final Set<Expression> conjuncts;
-    private final SelectedPartitions selectedPartitions;
-    private final Optional<TableSample> tableSample;
-    private final Optional<TableSnapshot> tableSnapshot;
+    protected final DistributionSpec distributionSpec;
+    protected final Set<Expression> conjuncts;
+    protected final SelectedPartitions selectedPartitions;
+    protected final Optional<TableSample> tableSample;
+    protected final Optional<TableSnapshot> tableSnapshot;
 
     /**
      * Constructor for PhysicalFileScan.
@@ -56,12 +56,8 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
             LogicalProperties logicalProperties, Set<Expression> conjuncts,
             SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
             Optional<TableSnapshot> tableSnapshot) {
-        super(id, PlanType.PHYSICAL_FILE_SCAN, table, qualifier, groupExpression, logicalProperties);
-        this.distributionSpec = distributionSpec;
-        this.conjuncts = conjuncts;
-        this.selectedPartitions = selectedPartitions;
-        this.tableSample = tableSample;
-        this.tableSnapshot = tableSnapshot;
+        this(id, PlanType.PHYSICAL_FILE_SCAN, table, qualifier, distributionSpec, groupExpression,
+                logicalProperties, conjuncts, selectedPartitions, tableSample, tableSnapshot);
     }
 
     /**
@@ -72,7 +68,33 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, Set<Expression> conjuncts, SelectedPartitions selectedPartitions,
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot) {
-        super(id, PlanType.PHYSICAL_FILE_SCAN, table, qualifier, groupExpression, logicalProperties,
+        this(id, PlanType.PHYSICAL_FILE_SCAN, table, qualifier, distributionSpec, groupExpression,
+                logicalProperties, physicalProperties, statistics, conjuncts, selectedPartitions, tableSample,
+                tableSnapshot);
+    }
+
+    /**
+     * For hudi file scan to specified PlanTye
+     */
+    protected PhysicalFileScan(RelationId id, PlanType type, ExternalTable table, List<String> qualifier,
+            DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, Set<Expression> conjuncts,
+            SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
+            Optional<TableSnapshot> tableSnapshot) {
+        super(id, type, table, qualifier, groupExpression, logicalProperties);
+        this.distributionSpec = distributionSpec;
+        this.conjuncts = conjuncts;
+        this.selectedPartitions = selectedPartitions;
+        this.tableSample = tableSample;
+        this.tableSnapshot = tableSnapshot;
+    }
+
+    protected PhysicalFileScan(RelationId id, PlanType type, ExternalTable table, List<String> qualifier,
+            DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            Statistics statistics, Set<Expression> conjuncts, SelectedPartitions selectedPartitions,
+            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot) {
+        super(id, type, table, qualifier, groupExpression, logicalProperties,
                 physicalProperties, statistics);
         this.distributionSpec = distributionSpec;
         this.conjuncts = conjuncts;

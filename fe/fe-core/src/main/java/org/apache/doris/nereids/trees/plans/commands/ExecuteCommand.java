@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.Queriable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -24,10 +25,13 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.PointQueryExecutor;
 import org.apache.doris.qe.PreparedStatementContext;
+import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -65,8 +69,26 @@ public class ExecuteCommand extends Command {
         LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(prepareCommand.getLogicalPlan(), executor.getContext()
                 .getStatementContext());
         executor.setParsedStmt(planAdapter);
-        // execute real statement
-        executor.execute();
+        // If it's not a short circuit query or schema version is different(indicates schema changed),
+        // need to do reanalyze and plan
+        boolean needAnalyze = !executor.getContext().getStatementContext().isShortCircuitQuery()
+                || (preparedStmtCtx.shortCircuitQueryContext.isPresent()
+                    && preparedStmtCtx.shortCircuitQueryContext.get().tbl.getBaseSchemaVersion()
+                != preparedStmtCtx.shortCircuitQueryContext.get().schemaVersion);
+        if (needAnalyze) {
+            // execute real statement
+            preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
+            statementContext.setShortCircuitQueryContext(null);
+            executor.execute();
+            if (executor.getContext().getStatementContext().isShortCircuitQuery()) {
+                // cache short-circuit plan
+                preparedStmtCtx.shortCircuitQueryContext = Optional.of(
+                        new ShortCircuitQueryContext(executor.planner(), (Queriable) executor.getParsedStmt()));
+                statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
+            }
+            return;
+        }
+        PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
     }
 
     /**

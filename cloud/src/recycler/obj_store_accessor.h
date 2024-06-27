@@ -18,8 +18,13 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
+
+namespace Aws::S3 {
+class S3Client;
+} // namespace Aws::S3
 
 namespace doris::cloud {
 
@@ -32,6 +37,7 @@ struct ObjectMeta {
 enum class AccessorType {
     S3,
     HDFS,
+    AZURE,
 };
 
 // TODO(plat1ko): Redesign `Accessor` interface to adapt to storage vaults other than S3 style
@@ -86,11 +92,12 @@ struct ObjectStorageDeleteExpiredOptions {
 struct ObjectCompleteMultiParts {};
 
 struct ObjectStorageResponse {
-    ObjectStorageResponse(int r, std::string msg = "") : ret(r), error_msg(std::move(msg)) {}
+    ObjectStorageResponse(int r = 0, std::string msg = "") : ret(r), error_msg(std::move(msg)) {}
     // clang-format off
     int ret {0}; // To unify the error handle logic with BE, we'd better use the same error code as BE
     // clang-format on
     std::string error_msg;
+    static ObjectStorageResponse OK() { return {0}; }
 };
 
 // wrapper class owned by concret fs
@@ -124,6 +131,8 @@ public:
                                                  int64_t* expiration_days) = 0;
     // Check if the objects' versioning is on or off
     virtual ObjectStorageResponse check_versioning(const ObjectStoragePathOptions& opts) = 0;
+
+    virtual const std::shared_ptr<Aws::S3::S3Client>& s3_client() = 0;
 };
 
 } // namespace doris::cloud

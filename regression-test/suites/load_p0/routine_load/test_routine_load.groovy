@@ -20,7 +20,7 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
-suite("test_routine_load","p0") {
+suite("test_routine_load","p0,nonConcurrent") {
 
     sql "create workload group if not exists create_routine_load_group properties ( 'cpu_share'='123');"
     sql "create workload group if not exists alter_routine_load_group properties ( 'cpu_share'='123');"

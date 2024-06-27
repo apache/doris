@@ -1464,6 +1464,151 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         ASSERT_EQ(get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb), -2);
         ASSERT_EQ(check_recycle_txn_keys(txn_kv, mock_instance, db_id, txn_id, label), 0);
     }
+
+    label = "recycle_expired_txn_label_with_sub_txn";
+    int64_t table2_id = 12131278;
+    {
+        // 1. begin_txn
+        // 2. begin_sub_txn2
+        // 3. begin_sub_txn3
+        // 4. abort_sub_txn3
+        // 5. commit_txn
+        // 6. recycle_expired_txn_label
+        // 7. check
+        [[maybe_unused]] int64_t sub_txn_id1 = -1;
+        int64_t sub_txn_id2 = -1;
+        int64_t sub_txn_id3 = -1;
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+
+            req.set_cloud_unique_id(cloud_unique_id);
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_db_id(db_id);
+            txn_info_pb.set_label(label);
+            txn_info_pb.add_table_ids(table_id);
+            txn_info_pb.set_timeout_ms(10000);
+            req.mutable_txn_info()->CopyFrom(txn_info_pb);
+            BeginTxnResponse res;
+            meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            txn_id = res.txn_id();
+            sub_txn_id1 = txn_id;
+            ASSERT_GT(txn_id, -1);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+        InstanceInfoPB instance;
+        instance.set_instance_id(mock_instance);
+        InstanceRecycler recycler(txn_kv, instance);
+        ASSERT_EQ(recycler.init(), 0);
+        sleep(1);
+        recycler.abort_timeout_txn();
+        TxnInfoPB txn_info_pb;
+        get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb);
+        ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_PREPARED);
+
+        // 2. begin sub_txn2
+        {
+            brpc::Controller cntl;
+            BeginSubTxnRequest req;
+            req.set_cloud_unique_id(cloud_unique_id);
+            req.set_txn_id(txn_id);
+            req.set_sub_txn_num(0);
+            req.set_db_id(db_id);
+            req.set_label("test_sub_label1");
+            req.mutable_table_ids()->Add(table_id);
+            req.mutable_table_ids()->Add(table2_id);
+            BeginSubTxnResponse res;
+            meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().table_ids().size(), 2);
+            ASSERT_EQ(res.txn_info().sub_txn_ids().size(), 1);
+            ASSERT_TRUE(res.has_sub_txn_id());
+            sub_txn_id2 = res.sub_txn_id();
+            ASSERT_EQ(sub_txn_id2, res.txn_info().sub_txn_ids()[0]);
+        }
+
+        // 3. begin sub_txn3
+        {
+            brpc::Controller cntl;
+            BeginSubTxnRequest req;
+            req.set_cloud_unique_id(cloud_unique_id);
+            req.set_txn_id(txn_id);
+            req.set_sub_txn_num(1);
+            req.set_db_id(db_id);
+            req.set_label("test_sub_label2");
+            req.mutable_table_ids()->Add(table_id);
+            req.mutable_table_ids()->Add(table2_id);
+            req.mutable_table_ids()->Add(table_id);
+            BeginSubTxnResponse res;
+            meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.txn_info().table_ids().size(), 3);
+            ASSERT_EQ(res.txn_info().sub_txn_ids().size(), 2);
+            ASSERT_TRUE(res.has_sub_txn_id());
+            sub_txn_id3 = res.sub_txn_id();
+            ASSERT_EQ(sub_txn_id2, res.txn_info().sub_txn_ids()[0]);
+            ASSERT_EQ(sub_txn_id3, res.txn_info().sub_txn_ids()[1]);
+        }
+
+        // 4. abort sub_txn3
+        {
+            brpc::Controller cntl;
+            AbortSubTxnRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_txn_id(txn_id);
+            req.set_sub_txn_num(2);
+            req.set_sub_txn_id(sub_txn_id3);
+            req.set_db_id(db_id);
+            req.mutable_table_ids()->Add(table_id);
+            req.mutable_table_ids()->Add(table2_id);
+            AbortSubTxnResponse res;
+            meta_service->abort_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            // check txn state
+            ASSERT_EQ(res.txn_info().table_ids().size(), 2);
+            ASSERT_EQ(res.txn_info().sub_txn_ids().size(), 2);
+            ASSERT_EQ(sub_txn_id2, res.txn_info().sub_txn_ids()[0]);
+            ASSERT_EQ(sub_txn_id3, res.txn_info().sub_txn_ids()[1]);
+        }
+
+        // 4. commit_txn
+        {
+            brpc::Controller cntl;
+            CommitTxnRequest req;
+            req.set_cloud_unique_id(cloud_unique_id);
+            req.set_db_id(db_id);
+            req.set_txn_id(txn_id);
+            req.set_is_txn_load(true);
+            CommitTxnResponse res;
+            meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+        // check txn_index_key for sub_txn_id exist
+        for (auto i : {sub_txn_id2, sub_txn_id3}) {
+            std::string key = txn_index_key({mock_instance, i});
+            std::string val;
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        }
+        // 5. recycle
+        recycler.recycle_expired_txn_label();
+        ASSERT_EQ(get_txn_info(txn_kv, mock_instance, db_id, txn_id, txn_info_pb), -2);
+        ASSERT_EQ(check_recycle_txn_keys(txn_kv, mock_instance, db_id, txn_id, label), 0);
+        // check txn_index_key for sub_txn_id are deleted
+        for (auto i : {sub_txn_id2, sub_txn_id3}) {
+            std::string key = txn_index_key({mock_instance, i});
+            std::string val;
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        }
+    }
 }
 
 void create_object_file_pb(std::string prefix, std::vector<ObjectFilePB>* object_files,

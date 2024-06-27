@@ -21,11 +21,14 @@
 #include <mutex>
 
 #include "common/logging.h"
-#include "pipeline/local_exchange/local_exchanger.h"
+#include "exprs/runtime_filter.h"
+#include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "vec/exprs/vectorized_agg_fn.h"
+#include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -297,7 +300,7 @@ Status AggSharedState::reset_hash_table() {
                             RETURN_IF_ERROR(st);
                         }
 
-                        aggregate_data_container.reset(new vectorized::AggregateDataContainer(
+                        aggregate_data_container.reset(new AggregateDataContainer(
                                 sizeof(typename HashTableType::key_type),
                                 ((total_size_of_aggregate_states + align_aggregate_states - 1) /
                                  align_aggregate_states) *
@@ -370,4 +373,25 @@ void SpillSortSharedState::close() {
     }
     sorted_streams.clear();
 }
+
+MultiCastSharedState::MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool,
+                                           int cast_sender_count)
+        : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
+                  row_desc, pool, cast_sender_count, true)) {}
+
+int AggSharedState::get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
+    auto ctxs = evaluator->input_exprs_ctxs();
+    CHECK(ctxs.size() == 1 && ctxs[0]->root()->is_slot_ref())
+            << "input_exprs_ctxs is invalid, input_exprs_ctx[0]="
+            << ctxs[0]->root()->debug_string();
+    return ((vectorized::VSlotRef*)ctxs[0]->root().get())->column_id();
+}
+
+Status AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
+    for (int i = 0; i < aggregate_evaluators.size(); ++i) {
+        aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
+    }
+    return Status::OK();
+}
+
 } // namespace doris::pipeline

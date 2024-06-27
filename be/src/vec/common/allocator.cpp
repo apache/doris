@@ -89,8 +89,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                 doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
                 doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
 
-        if (size > 1024L * 1024 * 1024 && !doris::enable_thread_catch_bad_alloc &&
-            !doris::config::disable_memory_gc) { // 1G
+        if (!doris::enable_thread_catch_bad_alloc &&
+            (size > 1024L * 1024 * 1024 ||
+             doris::config::enable_stacktrace_in_allocator_check_failed)) {
             err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
         }
 
@@ -113,7 +114,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
             while (wait_milliseconds < doris::config::thread_wait_gc_max_milliseconds) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 if (!doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
-                    doris::MemInfo::refresh_interval_memory_growth += size;
+                    doris::GlobalMemoryArbitrator::refresh_interval_memory_growth += size;
                     break;
                 }
                 if (doris::thread_context()->thread_mem_tracker_mgr->is_query_cancelled()) {
@@ -210,13 +211,9 @@ template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
         const std::string& err) const {
     LOG(WARNING) << err
-                 << fmt::format(
-                            " os physical memory {}. process memory used {}, sys available memory "
-                            "{}, Stacktrace: {}",
-                            doris::PrettyPrinter::print(doris::MemInfo::physical_mem(),
-                                                        doris::TUnit::BYTES),
-                            doris::PerfCounters::get_vm_rss_str(),
-                            doris::MemInfo::sys_mem_available_str(), doris::get_stack_trace());
+                 << fmt::format("{}, Stacktrace: {}",
+                                doris::GlobalMemoryArbitrator::process_mem_log_str(),
+                                doris::get_stack_trace());
     doris::MemTrackerLimiter::print_log_process_usage();
     throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
 }

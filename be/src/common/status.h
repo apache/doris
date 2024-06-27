@@ -49,7 +49,7 @@ namespace ErrorCode {
     TStatusError(IO_ERROR, true);                         \
     TStatusError(NOT_FOUND, true);                        \
     TStatusError(ALREADY_EXIST, true);                    \
-    TStatusError(NOT_IMPLEMENTED_ERROR, true);            \
+    TStatusError(NOT_IMPLEMENTED_ERROR, false);           \
     TStatusError(END_OF_FILE, false);                     \
     TStatusError(INTERNAL_ERROR, true);                   \
     TStatusError(RUNTIME_ERROR, true);                    \
@@ -63,7 +63,7 @@ namespace ErrorCode {
     TStatusError(UNINITIALIZED, false);                   \
     TStatusError(INCOMPLETE, false);                      \
     TStatusError(OLAP_ERR_VERSION_ALREADY_MERGED, false); \
-    TStatusError(ABORTED, true);                          \
+    TStatusError(ABORTED, false);                         \
     TStatusError(DATA_QUALITY_ERROR, false);              \
     TStatusError(LABEL_ALREADY_EXISTS, true);             \
     TStatusError(NOT_AUTHORIZED, true);                   \

@@ -63,6 +63,9 @@ public final class GlobalVariable {
     public static final String DEFAULT_USING_META_CACHE_FOR_EXTERNAL_CATALOG
             = "default_using_meta_cache_for_external_catalog";
 
+    public static final String PARTITION_ANALYZE_BATCH_SIZE = "partition_analyze_batch_size";
+    public static final String HUGE_PARTITION_LOWER_BOUND_ROWS = "huge_partition_lower_bound_rows";
+
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
             + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
@@ -154,6 +157,18 @@ public final class GlobalVariable {
             description = {"仅用于兼容MySQL生态，暂无实际意义",
                     "Only for compatibility with MySQL ecosystem, no practical meaning"})
     public static boolean super_read_only = true;
+
+    @VariableMgr.VarAttr(name = PARTITION_ANALYZE_BATCH_SIZE, flag = VariableMgr.GLOBAL,
+            description = {
+                "批量收集分区信息的分区数",
+                "Number of partitions to collect in one batch."})
+    public static int partitionAnalyzeBatchSize = 10;
+
+    @VariableMgr.VarAttr(name = HUGE_PARTITION_LOWER_BOUND_ROWS, flag = VariableMgr.GLOBAL,
+            description = {
+                "行数超过该值的分区将跳过自动分区收集",
+                "This defines the lower size bound for large partitions, which will skip auto partition analyze."})
+    public static long hugePartitionLowerBoundRows = 100000000L;
 
     // Don't allow creating instance.
     private GlobalVariable() {

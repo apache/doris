@@ -31,14 +31,16 @@
 #include <aws/s3/model/PutObjectRequest.h>
 
 #include <algorithm>
+#include <azure/storage/blobs/blob_container_client.hpp>
+#include <azure/storage/common/storage_credential.hpp>
 #include <execution>
-#include <type_traits>
+#include <memory>
 #include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "rate-limiter/s3_rate_limiter.h"
+#include "recycler/azure_obj_client.h"
 #include "recycler/obj_store_accessor.h"
 #include "recycler/s3_obj_client.h"
 
@@ -138,6 +140,17 @@ std::string S3Accessor::get_relative_path(const std::string& key) const {
 
 int S3Accessor::init() {
     static S3Environment s3_env;
+    if (type() == AccessorType::AZURE) {
+        auto cred =
+                std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
+        const std::string container_name = conf_.bucket;
+        const std::string uri =
+                fmt::format("http://{}.blob.core.windows.net/{}", conf_.ak, container_name);
+        auto container_client =
+                std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
+        obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
+        return 0;
+    }
     Aws::Auth::AWSCredentials aws_cred(conf_.ak, conf_.sk);
     Aws::Client::ClientConfiguration aws_config;
     aws_config.endpointOverride = conf_.endpoint;

@@ -33,7 +33,6 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -85,8 +84,8 @@ public class AliasUdfBuilder extends UdfBuilder {
 
         // replace the placeholder slot to the input expressions.
         // adjust input, parameter and replaceMap to be corresponding.
-        Map<String, SlotReference> slots = ((Set<SlotReference>) boundFunction
-                .collect(SlotReference.class::isInstance))
+        Map<String, SlotReference> slots = (boundFunction
+                .<SlotReference>collect(SlotReference.class::isInstance))
                 .stream().collect(Collectors.toMap(SlotReference::getName, k -> k, (v1, v2) -> v2));
 
         Map<SlotReference, Expression> replaceMap = Maps.newHashMap();

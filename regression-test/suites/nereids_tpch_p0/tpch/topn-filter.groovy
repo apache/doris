@@ -156,4 +156,6 @@ suite("topn-filter") {
     }
 
     qt_groupingsets2 "select n_regionkey, sum(n_nationkey) from nation group by grouping sets((n_regionkey)) order by n_regionkey limit 2;"
+
+    sql """select * from (select 1 as id union all select 2 as id) tmp order by id limit 100"""
 }

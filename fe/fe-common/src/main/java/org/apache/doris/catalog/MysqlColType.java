@@ -60,6 +60,10 @@ public enum MysqlColType {
 
     private static final Map<Integer, MysqlColType> CODE_MAP = new HashMap<>();
 
+    public static final int MYSQL_CODE_MASK = 0xFF;
+
+    public static final int UNSIGNED_MASK = 0x8000;
+
     static {
         for (MysqlColType type : MysqlColType.values()) {
             CODE_MAP.put(type.code, type);
@@ -89,7 +93,12 @@ public enum MysqlColType {
     }
 
     public static MysqlColType fromCode(int code) {
-        return CODE_MAP.get(code);
+        // Use the lower 8 bits of the code.
+        return CODE_MAP.get(code & MYSQL_CODE_MASK);
+    }
+
+    public static boolean isUnsigned(int code) {
+        return (code & MysqlColType.UNSIGNED_MASK) != 0;
     }
 
     public String getJdbcColumnTypeName() {

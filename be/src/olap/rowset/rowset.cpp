@@ -37,7 +37,16 @@ Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
     DCHECK(!is_local() || !_tablet_path.empty()); // local rowset MUST has tablet path
 #endif
 
-    _is_pending = !_rowset_meta->has_version();
+    _is_pending = true;
+
+    // Generally speaking, as long as a rowset has a version, it can be considered not to be in a pending state.
+    // However, if the rowset was created through ingesting binlogs, it will have a version but should still be
+    // considered in a pending state because the ingesting txn has not yet been committed.
+    if (_rowset_meta->has_version() && _rowset_meta->start_version() > 0 &&
+        _rowset_meta->rowset_state() != COMMITTED) {
+        _is_pending = false;
+    }
+
     if (_is_pending) {
         _is_cumulative = false;
     } else {
@@ -138,6 +147,13 @@ Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
         prev = it;
     }
     return Status::OK();
+}
+
+void Rowset::merge_rowset_meta(const RowsetMeta& other) {
+    _rowset_meta->merge_rowset_meta(other);
+    // rowset->meta_meta()->tablet_schema() maybe updated so make sure _schema is
+    // consistent with rowset meta
+    _schema = _rowset_meta->tablet_schema();
 }
 
 } // namespace doris

@@ -18,7 +18,7 @@
 #pragma once
 
 #include "operator.h"
-#include "vec/sink/volap_table_sink_v2.h"
+#include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris::pipeline {
 

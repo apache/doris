@@ -44,7 +44,6 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
-#include "vec/exec/scan/vmeta_scan_node.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -55,15 +54,6 @@ class VScanNode;
 } // namespace doris
 
 namespace doris::vectorized {
-
-VMetaScanner::VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
-                           const TScanRangeParams& scan_range, int64_t limit,
-                           RuntimeProfile* profile, TUserIdentity user_identity)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
-          _meta_eos(false),
-          _tuple_id(tuple_id),
-          _user_identity(user_identity),
-          _scan_range(scan_range.scan_range) {}
 
 VMetaScanner::VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
                            int64_t tuple_id, const TScanRangeParams& scan_range, int64_t limit,
@@ -243,6 +233,9 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::MATERIALIZED_VIEWS:
         RETURN_IF_ERROR(_build_materialized_views_metadata_request(meta_scan_range, &request));
         break;
+    case TMetadataType::PARTITIONS:
+        RETURN_IF_ERROR(_build_partitions_metadata_request(meta_scan_range, &request));
+        break;
     case TMetadataType::JOBS:
         RETURN_IF_ERROR(_build_jobs_metadata_request(meta_scan_range, &request));
         break;
@@ -406,6 +399,26 @@ Status VMetaScanner::_build_materialized_views_metadata_request(
     metadata_table_params.__set_metadata_type(TMetadataType::MATERIALIZED_VIEWS);
     metadata_table_params.__set_materialized_views_metadata_params(
             meta_scan_range.materialized_views_params);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_partitions_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                        TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_partitions_metadata_request";
+    if (!meta_scan_range.__isset.partitions_params) {
+        return Status::InternalError(
+                "Can not find TPartitionsMetadataParams from meta_scan_range.");
+    }
+
+    // create request
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::PARTITIONS);
+    metadata_table_params.__set_partitions_metadata_params(meta_scan_range.partitions_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

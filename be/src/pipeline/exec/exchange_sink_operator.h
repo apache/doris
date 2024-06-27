@@ -28,7 +28,6 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
-class DataSink;
 class RuntimeState;
 class TDataSink;
 
@@ -219,6 +218,7 @@ public:
 
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
+    DataDistribution required_data_distribution() const override;
 
 private:
     friend class ExchangeSinkLocalState;
@@ -271,6 +271,7 @@ private:
     // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
     size_t _data_processed = 0;
     int _writer_count = 1;
+    const bool _enable_local_merge_sort;
 };
 
 } // namespace pipeline
