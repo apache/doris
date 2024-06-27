@@ -44,6 +44,9 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import cfjd.com.google.common.collect.Sets;
+
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -54,11 +57,13 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
@@ -199,6 +204,20 @@ public class ProfileManager {
         return this.queryIdToExecutionProfiles.get(queryId);
     }
 
+    public String debugAllProfile() {
+        StringBuilder sb = new StringBuilder();
+        readLock.lock();
+        try {
+            for (Map.Entry<String, ProfileElement> entry : queryIdToProfileMap.entrySet()) {
+                sb.append("ProfileId: ").append(entry.getKey()).append("\n");
+                // sb.append(entry.getValue().getProfileContent()).append("\n");
+            }
+        } finally {
+            readLock.unlock();
+        }
+        return sb.toString();
+    }
+
     public void pushProfile(Profile profile) {
         if (profile == null) {
             return;
@@ -232,6 +251,45 @@ public class ProfileManager {
         } finally {
             writeLock.unlock();
         }
+    }
+
+    private List<String> collectProfilesNeedToBeEjected() {
+        if (!writeLock.isHeldByCurrentThread()) {
+            return Lists.newArrayList();
+        }
+
+        int count = queryIdDeque.size() - Config.max_query_profile_num;
+
+        if (count <= 0) {
+            return Lists.newArrayList();
+        }
+        
+        List<String> toEject = Lists.newArrayList();
+        Iterator<String> profileIter = queryIdDeque.iterator();
+
+        while (profileIter.hasNext() && count > 0) {
+            String profileId = profileIter.next();
+            ProfileElement profileElem = queryIdToProfileMap.get(profileId);
+            if (profileElem == null)  {
+                LOG.warn("null profile element found in queryIdToProfileMap, profileId: {}", profileId);
+                continue;
+            }
+
+            AtomicBoolean reportFinished = new AtomicBoolean(true);
+
+            profileElem.profile.getExecutionProfiles().forEach((
+                    executionProfile -> {
+                        if (!executionProfile.isCompleted()) {
+                            reportFinished.set(false);
+                        }
+                    }));
+
+            if (reportFinished.get()) {
+                toEject.add(profileId);
+                count--;
+            }
+        }
+        return toEject;
     }
 
     public void removeProfile(String profileId) {
