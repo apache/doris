@@ -70,7 +70,7 @@ public class BeDownCancelCloneTest extends TestWithFeService {
         createTable("create table db1.tbl1(k1 int) distributed by hash(k1) buckets 1;");
         RebalancerTestUtil.updateReplicaPathHash();
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("db1");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1");
         Assertions.assertNotNull(tbl);
         Tablet tablet = tbl.getPartitions().iterator().next()
