@@ -349,7 +349,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
-        if (leftRowCount == rightRowCount) {
+        if ((long) leftRowCount == (long) rightRowCount) {
             // reorder by connectivity to be friendly to runtime filter.
             if (physicalHashJoin.getGroupExpression().isPresent()
                     && physicalHashJoin.getGroupExpression().get().getOwnerGroup() != null
