@@ -429,6 +429,7 @@ Status VRowDistribution::generate_rows_distribution(
         _batching_block = MutableBlock::create_unique(std::move(*tmp_block));
     }
 
+    auto num_cols = block->columns();
     auto num_rows = block->rows();
     _reset_find_tablets(num_rows);
 
@@ -468,8 +469,8 @@ Status VRowDistribution::generate_rows_distribution(
     }
 
     // remove extra columns added by auto partition calc
-    if (_vpartition->is_auto_partition()) {
-        block->erase_tail(input_block.columns());
+    if (_vpartition->is_projection_partition()) {
+        block->erase_tail(num_cols);
     }
 
     filtered_rows = _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() -
