@@ -290,15 +290,21 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
 
 void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
     if (buf.is_cancelled()) {
+        LOG_INFO("file {} skip part {} because previous failure {}",
+                 _obj_storage_path_opts.path.native(), part_num, _st);
         return;
     }
     const auto& client = _obj_client->get();
     if (nullptr == client) {
+        LOG_WARNING("failed at key: {}, load part {} bacause of invalid obj client",
+                    _obj_storage_path_opts.key, part_num);
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));
         return;
     }
     auto resp = client->upload_part(_obj_storage_path_opts, buf.get_string_view_data(), part_num);
     if (resp.resp.status.code != ErrorCode::OK) {
+        LOG_INFO("failed at key: {}, load part {}, st {}", _obj_storage_path_opts.key, part_num,
+                 resp.resp.status.msg);
         buf.set_status(Status(resp.resp.status.code, std::move(resp.resp.status.msg)));
         return;
     }
@@ -332,8 +338,10 @@ Status S3FileWriter::_complete() {
     if (!_used_by_s3_committer) { // S3 committer will complete multipart upload file on FE side.
         if (_failed || _completed_parts.size() != _cur_part_num) {
             _st = Status::InternalError(
-                    "error status {}, complete parts {}, cur part num {}, whole parts {}", _st,
-                    _completed_parts.size(), _cur_part_num, _dump_completed_part());
+                    "error status {}, have failed {}, complete parts {}, cur part num {}, whole "
+                    "parts {}, file path {}",
+                    _st, _failed, _completed_parts.size(), _cur_part_num, _dump_completed_part(),
+                    _obj_storage_path_opts.path.native());
             LOG(WARNING) << _st;
             return _st;
         }
@@ -343,6 +351,8 @@ Status S3FileWriter::_complete() {
         TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:2", &_completed_parts);
         auto resp = client->complete_multipart_upload(_obj_storage_path_opts, _completed_parts);
         if (resp.status.code != ErrorCode::OK) {
+            LOG_WARNING("Compltet multi part upload failed because {}, file path {}",
+                        resp.status.msg, _obj_storage_path_opts.path.native());
             return {resp.status.code, std::move(resp.status.msg)};
         }
     }
@@ -378,6 +388,8 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     TEST_SYNC_POINT_RETURN_WITH_VOID("S3FileWriter::_put_object", this, &buf);
     auto resp = client->put_object(_obj_storage_path_opts, buf.get_string_view_data());
     if (resp.status.code != ErrorCode::OK) {
+        LOG_WARNING("put object failed because {}, file path {}", resp.status.msg,
+                    _obj_storage_path_opts.path.native());
         buf.set_status({resp.status.code, std::move(resp.status.msg)});
         return;
     }

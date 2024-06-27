@@ -102,8 +102,7 @@ suite("test_seq_load", "load_p0") {
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing",
-                "provider" = "${getS3Provider()}"
+                "AWS_REGION" = "ap-beijing"
             )
             properties(
                 "use_new_load_scan_node" = "true"
