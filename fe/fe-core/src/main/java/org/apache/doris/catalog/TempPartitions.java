@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -28,7 +27,6 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -40,7 +38,7 @@ import java.util.Set;
 // user can load data into some of the temp partitions,
 // and then replace the formal partitions with these temp partitions
 // to make a overwrite load.
-public class TempPartitions implements Writable, GsonPostProcessable {
+public class TempPartitions implements GsonPostProcessable {
     @SerializedName(value = "idToPartition")
     private Map<Long, Partition> idToPartition = Maps.newHashMap();
     private Map<String, Partition> nameToPartition = Maps.newHashMap();
