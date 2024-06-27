@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Represents a direct graph where each node corresponds to a set of slots in a table,
@@ -67,6 +68,12 @@ public class FuncDepsDG {
             this.slots = ImmutableSet.copyOf(dgItem.slots);
             this.parents = new HashSet<>(dgItem.parents);
             this.children = new HashSet<>(dgItem.children);
+        }
+
+        public void replace(Map<Slot, Slot> replaceMap) {
+            this.slots = this.slots.stream()
+                    .map(s -> replaceMap.getOrDefault(s, s))
+                    .collect(Collectors.toSet());
         }
     }
 
@@ -209,6 +216,20 @@ public class FuncDepsDG {
                     addDeps(dgItem.slots, funcDepsDG.dgItems.get(childIdx).slots);
                 }
             }
+        }
+
+        public void replace(Map<Slot, Slot> replaceSlotMap) {
+            for (DGItem item : dgItems) {
+                item.replace(replaceSlotMap);
+            }
+            Map<Set<Slot>, Integer> newItemMap = new HashMap<>();
+            for (Entry<Set<Slot>, Integer> e : itemMap.entrySet()) {
+                Set<Slot> key = e.getKey().stream()
+                        .map(s -> replaceSlotMap.getOrDefault(s, s))
+                        .collect(Collectors.toSet());
+                newItemMap.put(key, e.getValue());
+            }
+            this.itemMap = newItemMap;
         }
 
         private DGItem getOrCreateNode(Set<Slot> slots) {

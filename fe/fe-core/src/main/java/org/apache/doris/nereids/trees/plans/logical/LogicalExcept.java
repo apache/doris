@@ -146,7 +146,7 @@ public class LogicalExcept extends LogicalSetOperation {
         for (int i = 0; i < output.size(); i++) {
             replaceMap.put(originalOutputs.get(i), output.get(i));
         }
-        builder.replace(replaceMap);
+        builder.replaceUniqueBy(replaceMap);
     }
 
     @Override
@@ -160,7 +160,7 @@ public class LogicalExcept extends LogicalSetOperation {
         for (int i = 0; i < output.size(); i++) {
             replaceMap.put(originalOutputs.get(i), output.get(i));
         }
-        builder.replace(replaceMap);
+        builder.replaceEqualSetBy(replaceMap);
     }
 
     @Override
@@ -174,7 +174,7 @@ public class LogicalExcept extends LogicalSetOperation {
         for (int i = 0; i < output.size(); i++) {
             replaceMap.put(originalOutputs.get(i), output.get(i));
         }
-        builder.replace(replaceMap);
+        builder.replaceFuncDepsBy(replaceMap);
     }
 
     @Override
@@ -188,6 +188,6 @@ public class LogicalExcept extends LogicalSetOperation {
         for (int i = 0; i < output.size(); i++) {
             replaceMap.put(originalOutputs.get(i), output.get(i));
         }
-        builder.replace(replaceMap);
+        builder.replaceUniformBy(replaceMap);
     }
 }
