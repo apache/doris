@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_wide_table", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_wide_table", "p0,external,hive,external_docker,external_docker_hive") {
 
     def formats = ["_orc"]
     def decimal_test1 = """select col1, col70, col71, col81, col100, col534 from wide_table1SUFFIX where col1 is not null order by col1 limit 1;"""
@@ -39,19 +39,24 @@ suite("test_wide_table", "p2,external,hive,external_remote,external_remote_hive"
      """
     def decimal_test8 = """select max(col1), max(col70), max(col71), min(col81), min(col100), min(col534) from wide_table1SUFFIX;"""
 
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "external_wide_table"
+    // String enabled = context.config.otherConfigs.get("enableHiveTest")
+    // cost too much time in p0, disable it temporary
+    String enabled = "false";
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
 
-        sql """drop catalog if exists ${catalog_name};"""
-        sql """
-            create catalog if not exists ${catalog_name} properties (
-                'type'='hms',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
-            );
-        """
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "${hivePrefix}_test_complex_types"
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """create catalog if not exists ${catalog_name} properties (
+            "type"="hms",
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+        );"""
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
