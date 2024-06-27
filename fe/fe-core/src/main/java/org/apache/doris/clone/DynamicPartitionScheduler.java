@@ -49,7 +49,6 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Strings;
