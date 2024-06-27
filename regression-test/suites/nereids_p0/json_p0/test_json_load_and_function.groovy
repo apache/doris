@@ -475,7 +475,7 @@ suite("test_json_load_and_function", "p0") {
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
 
     // json_parse
-    qt_sql_json_parse """SELECT json_parse('{"":"v1"}')"""
-    qt_sql_json_parse """SELECT json_parse('{"":1, "":"v1"}')"""
-    qt_sql_json_parse """SELECT json_parse('{"":1, "ab":"v1", "":"v1", "": 2}')"""
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":"v1"}')"""
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":1, "":"v1"}')"""
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":1, "ab":"v1", "":"v1", "": 2}')"""
 }

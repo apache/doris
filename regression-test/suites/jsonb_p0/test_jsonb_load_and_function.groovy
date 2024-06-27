@@ -580,7 +580,7 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('[123,456]' as json)) FROM ${testTable} ORDER BY id"""
 
     // json_parse
-    qt_sql_json_parse """SELECT json_parse('{"":"v1"}')"""
-    qt_sql_json_parse """SELECT json_parse('{"":1, "":"v1"}')"""
-    qt_sql_json_parse """SELECT json_parse('{"":1, "ab":"v1", "":"v1", "": 2}')"""
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":"v1"}')"""
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":1, "":"v1"}')"""
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":1, "ab":"v1", "":"v1", "": 2}')"""
 }
