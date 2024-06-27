@@ -463,7 +463,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns
         //  types by all format readers from file meta, maybe reading path columns types from BE then.
         for (String colName : pathPartitionKeys) {
-            columns.add(new Column(colName, Type.STRING, false));
+            columns.add(new Column(colName, ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH), false));
         }
     }
 
