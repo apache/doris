@@ -118,19 +118,6 @@ public class ColumnStats {
           "numNulls", numNulls).toString();
     }
 
-    public void readFields(DataInput in) throws IOException {
-        numDistinctValues = in.readLong();
-        avgSerializedSize = in.readFloat();
-        maxSize = in.readLong();
-        numNulls = in.readLong();
-    }
-
-    public static ColumnStats read(DataInput in) throws IOException {
-        ColumnStats columnStats = new ColumnStats();
-        columnStats.readFields(in);
-        return columnStats;
-    }
-
     @Override
     public int hashCode() {
         return Objects.hash(avgSerializedSize, maxSize, numDistinctValues, numNulls);

@@ -124,28 +124,9 @@ public class TempPartitions implements Writable, GsonPostProcessable {
         }
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
     public static TempPartitions read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, TempPartitions.class);
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Partition partition = Partition.read(in);
-            idToPartition.put(partition.getId(), partition);
-            nameToPartition.put(partition.getName(), partition);
-        }
-        if (in.readBoolean()) {
-            partitionInfo = (RangePartitionInfo) RangePartitionInfo.read(in);
-        }
     }
 
     @Override

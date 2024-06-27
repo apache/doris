@@ -29,7 +29,6 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -48,7 +47,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -60,7 +58,7 @@ import java.util.Set;
 /**
  * This class represents the column-related metadata.
  */
-public class Column implements Writable, GsonPostProcessable {
+public class Column implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
@@ -1063,33 +1061,6 @@ public class Column implements Writable, GsonPostProcessable {
                     other.getScale(), other.visible, other.children, other.realDefaultValue, other.clusterKeyId);
         }
         return ok;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        name = Text.readString(in);
-        type = ColumnType.read(in);
-        boolean notNull = in.readBoolean();
-        if (notNull) {
-            aggregationType = AggregateType.valueOf(Text.readString(in));
-            isAggregationTypeImplicit = in.readBoolean();
-        }
-        isKey = in.readBoolean();
-        isAllowNull = in.readBoolean();
-        notNull = in.readBoolean();
-        if (notNull) {
-            defaultValue = Text.readString(in);
-            realDefaultValue = defaultValue;
-        }
-        stats = ColumnStats.read(in);
-
-        comment = Text.readString(in);
     }
 
     public static Column read(DataInput in) throws IOException {

@@ -341,12 +341,14 @@ public class Partition extends MetaObject {
         return true;
     }
 
+    @Deprecated
     public static Partition read(DataInput in) throws IOException {
         Partition partition = EnvFactory.getInstance().createPartition();
         partition.readFields(in);
         return partition;
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

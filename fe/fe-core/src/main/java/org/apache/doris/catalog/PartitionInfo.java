@@ -29,7 +29,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
@@ -42,7 +41,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -56,7 +54,7 @@ import java.util.stream.Collectors;
 /*
  * Repository of a partition's related infos
  */
-public class PartitionInfo implements Writable {
+public class PartitionInfo {
     private static final Logger LOG = LogManager.getLogger(PartitionInfo.class);
 
     @SerializedName("Type")
@@ -361,6 +359,7 @@ public class PartitionInfo implements Writable {
         idToInMemory.put(partitionId, isInMemory);
     }
 
+    @Deprecated
     public static PartitionInfo read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
             PartitionInfo partitionInfo = new PartitionInfo();
@@ -429,11 +428,6 @@ public class PartitionInfo implements Writable {
             idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
             idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.get(entry.getValue()));
         }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     @Deprecated

@@ -358,6 +358,7 @@ public class CloudPartition extends Partition {
         return null;
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

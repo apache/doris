@@ -395,12 +395,6 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -418,6 +412,7 @@ public class Tablet extends MetaObject implements Writable {
         isConsistent = in.readBoolean();
     }
 
+    @Deprecated
     public static Tablet read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
             String json = Text.readString(in);
