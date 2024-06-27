@@ -137,7 +137,8 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         }
 
         Set<Expression> newGroupBySlots = constructNewGroupBy(agg, primaryOutputSet, primaryToForeignDeps);
-        List<NamedExpression> newOutput = constructNewOutput(agg, primaryOutputSet, primaryToForeignDeps, funcDeps);
+        List<NamedExpression> newOutput = constructNewOutput(
+                agg, primaryOutputSet, primaryToForeignDeps, funcDeps, primary);
         if (newGroupBySlots == null || newOutput == null) {
             return null;
         }
@@ -162,7 +163,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
     }
 
     private @Nullable List<NamedExpression> constructNewOutput(LogicalAggregate<?> agg, Set<Slot> primaryOutput,
-            Map<Slot, Slot> primaryToForeignDeps, FuncDeps funcDeps) {
+            Map<Slot, Slot> primaryToForeignDeps, FuncDeps funcDeps, Plan primaryPlan) {
         List<NamedExpression> newOutput = new ArrayList<>();
         for (NamedExpression expression : agg.getOutputExpressions()) {
             // There are three cases for output expressions:
@@ -172,9 +173,12 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
             // 2. Count: the count is from primary plan,
             //             we need to replace the slot in the count with the corresponding slot
             //             from foreign plan
-            // 3. Others: the expression is not from primary plan, we need to keep it
-            if (expression instanceof Slot && primaryToForeignDeps.containsKey(expression)) {
-                expression = primaryToForeignDeps.getOrDefault(expression, expression.toSlot());
+            if (expression instanceof Slot && primaryPlan.getOutput().contains(expression)) {
+                if (primaryToForeignDeps.containsKey(expression)) {
+                    expression = primaryToForeignDeps.getOrDefault(expression, expression.toSlot());
+                } else {
+                    continue;
+                }
             }
             if (expression instanceof Alias
                     && expression.child(0) instanceof Count
