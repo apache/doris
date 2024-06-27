@@ -124,6 +124,7 @@ public class TempPartitions implements Writable, GsonPostProcessable {
         }
     }
 
+    @Deprecated
     public static TempPartitions read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, TempPartitions.class);
