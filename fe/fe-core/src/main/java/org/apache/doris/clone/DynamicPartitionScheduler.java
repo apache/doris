@@ -201,7 +201,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         List<Partition> partitions = idToItems.stream()
                 .map(entry -> table.getPartition(entry.getKey()))
                 .filter(partition -> partition != null && !partition.getName().equals(nowPartitionName)
-                        && partitions.getVisibleVersion() >= 2)
+                        && partition.getVisibleVersion() >= 2)
                 .collect(Collectors.toList());
 
         // no exist history partition data
