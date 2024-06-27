@@ -152,9 +152,7 @@ Status S3FileWriter::close(bool non_block) {
 Status S3FileWriter::_close_impl() {
     VLOG_DEBUG << "S3FileWriter::close, path: " << _obj_storage_path_opts.path.native();
 
-    const auto& upload_id =
-            _obj_storage_path_opts.upload_id.has_value() ? *_obj_storage_path_opts.upload_id : "";
-    if (upload_id.empty() && _pending_buf) {
+    if (_cur_part_num == 1 && _pending_buf) {
         RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
     }
 
@@ -301,6 +299,8 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));
         return;
     }
+    LOG_INFO("begin upload for file path {}, part {}", _obj_storage_path_opts.path.native(),
+             part_num);
     auto resp = client->upload_part(_obj_storage_path_opts, buf.get_string_view_data(), part_num);
     if (resp.resp.status.code != ErrorCode::OK) {
         LOG_INFO("failed at key: {}, load part {}, st {}", _obj_storage_path_opts.key, part_num,
@@ -308,6 +308,8 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
         buf.set_status(Status(resp.resp.status.code, std::move(resp.resp.status.msg)));
         return;
     }
+    LOG_INFO("finish upload for file path {}, part {}", _obj_storage_path_opts.path.native(),
+             part_num);
     s3_bytes_written_total << buf.get_size();
 
     ObjectCompleteMultiPart completed_part {
@@ -339,9 +341,9 @@ Status S3FileWriter::_complete() {
         if (_failed || _completed_parts.size() != _cur_part_num) {
             _st = Status::InternalError(
                     "error status {}, have failed {}, complete parts {}, cur part num {}, whole "
-                    "parts {}, file path {}",
+                    "parts {}, file path {}, file size {}, has left buffer {}",
                     _st, _failed, _completed_parts.size(), _cur_part_num, _dump_completed_part(),
-                    _obj_storage_path_opts.path.native());
+                    _obj_storage_path_opts.path.native(), _bytes_appended, _pending_buf != nullptr);
             LOG(WARNING) << _st;
             return _st;
         }
