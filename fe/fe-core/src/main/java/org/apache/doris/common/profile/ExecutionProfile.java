@@ -76,6 +76,8 @@ public class ExecutionProfile {
     private Map<Integer, RuntimeProfile> fragmentProfiles;
     // Profile for load channels. Only for load job.
     private RuntimeProfile loadChannelProfile;
+    // FragmentId -> InstanceId -> RuntimeProfile
+    private Map<PlanFragmentId, Map<TUniqueId, RuntimeProfile>> fragmentInstancesProfiles;
 
     // use to merge profile from multi be
     private Map<Integer, Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
@@ -83,6 +85,8 @@ public class ExecutionProfile {
     // Not serialize this property, it is only used to get profile id.
     private SummaryProfile summaryProfile;
 
+    // BE only has instance id, does not have fragmentid, so should use this map to find fragmentid.
+    private Map<TUniqueId, PlanFragmentId> instanceIdToFragmentId;
     private Map<Integer, Integer> fragmentIdBeNum;
     private Map<Integer, Integer> seqNoToFragmentId;
 
@@ -108,6 +112,8 @@ public class ExecutionProfile {
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
         root.addChild(loadChannelProfile);
+        fragmentInstancesProfiles = Maps.newHashMap();
+        instanceIdToFragmentId = Maps.newHashMap();
     }
 
     private List<List<RuntimeProfile>> getMultiBeProfile(int fragmentId) {
@@ -291,6 +297,23 @@ public class ExecutionProfile {
         }
 
         multiBeProfile.get(params.fragment_id).put(backend.getHeartbeatAddress(), taskProfile);
+    }
+
+    // MultiInstances may update the profile concurrently
+    public synchronized void addInstanceProfile(PlanFragmentId fragmentId, TUniqueId instanceId,
+            RuntimeProfile instanceProfile) {
+        Map<TUniqueId, RuntimeProfile> instanceProfiles = fragmentInstancesProfiles.get(fragmentId);
+        if (instanceProfiles == null) {
+            instanceProfiles = Maps.newHashMap();
+            fragmentInstancesProfiles.put(fragmentId, instanceProfiles);
+        }
+        RuntimeProfile existingInstanceProfile = instanceProfiles.get(instanceId);
+        if (existingInstanceProfile == null) {
+            instanceProfiles.put(instanceId, instanceProfile);
+            instanceIdToFragmentId.put(instanceId, fragmentId);
+            fragmentProfiles.get(fragmentId.asInt()).addChild(instanceProfile);
+            return;
+        }
     }
 
     public synchronized void addFragmentBackend(PlanFragmentId fragmentId, Long backendId) {
