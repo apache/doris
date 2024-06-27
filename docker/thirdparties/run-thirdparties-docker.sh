@@ -314,6 +314,18 @@ if [[ "${RUN_HIVE2}" -eq 1 ]]; then
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+
+    # sed all s3 info in run.sh of each suite
+    find "${ROOT}/docker-compose/hive/scripts/data/" -type f -name "run.sh" | while read -r file; do
+        if [ -f "$file" ]; then
+            echo "Processing $file"
+            sed -i "s/s3Endpoint/${s3Endpoint}/g" "${file}"
+            sed -i "s/s3BucketName/${s3BucketName}/g" "${file}"
+        else
+            echo "File not found: $file"
+        fi
+    done
+
     # generate hive-2x.yaml
     export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
@@ -340,6 +352,18 @@ if [[ "${RUN_HIVE3}" -eq 1 ]]; then
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+
+    # sed all s3 info in run.sh of each suite
+    find "${ROOT}/docker-compose/hive/scripts/data" -type f -name "run.sh" | while read -r file; do
+        if [ -f "$file" ]; then
+            echo "Processing $file"
+            sed -i "s/s3Endpoint/${s3Endpoint}/g" "${file}"
+            sed -i "s/s3BucketName/${s3BucketName}/g" "${file}"
+        else
+            echo "File not found: $file"
+        fi
+    done
+
     # generate hive-3x.yaml
     export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
