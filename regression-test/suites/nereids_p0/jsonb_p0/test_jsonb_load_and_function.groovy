@@ -536,4 +536,9 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.x.y') FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', null) FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
+
+
+    // explode_json_object function
+    qt_order_select_explode_json_object "SELECT id, j, explode_json_object(j) FROM ${testTable} ORDER BY id"
+    qt_order_select_explode_json_object_out "SELECT id, j, explode_json_object(j) FROM ${testTable} ORDER BY id"
 }

@@ -572,4 +572,14 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k2":300}' as json)) FROM ${testTable} ORDER BY id"""
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k1":"v41","k2":400}' as json), '\$.a1') FROM ${testTable} ORDER BY id"""
     qt_select_json_contains """SELECT id, j, json_contains(j, cast('[123,456]' as json)) FROM ${testTable} ORDER BY id"""
+
+    // old planner do not support explode_json_object
+    test {
+        sql """ select /*+SET_VAR(experimental_enable_nereids_planner=false)*/ SELECT id, j, explode_json_object(j) FROM ${testTable} ORDER BY id """
+        exception "errCode = 2"
+    }
+    test {
+        sql """ select /*+SET_VAR(experimental_enable_nereids_planner=false)*/ SELECT id, j, explode_json_object_out(j) FROM ${testTable} ORDER BY id """
+        exception "errCode = 2"
+    }
 }
