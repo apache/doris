@@ -21,8 +21,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
-
 import org.apache.doris.persist.gson.GsonUtils;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
