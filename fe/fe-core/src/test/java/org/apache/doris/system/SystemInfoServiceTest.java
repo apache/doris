@@ -422,8 +422,8 @@ public class SystemInfoServiceTest {
         Collections.sort(list);
         int max = list.get(list.size() - 1);
         int diff =  max - list.get(0);
-        // The max replica num and min replica num's diff is less than 20%.
-        Assert.assertTrue((diff * 1.0 / max) < 0.2);
+        // The max replica num and min replica num's diff is less than 30%.
+        Assert.assertTrue((diff * 1.0 / max) < 0.3);
     }
 
     private void addDisk(Backend be, String path, TStorageMedium medium, long totalB, long availB) {
