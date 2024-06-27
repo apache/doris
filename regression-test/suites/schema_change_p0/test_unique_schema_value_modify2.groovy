@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_unique_model_schema_value_change2", "p0") {
+suite("test_unique_schema_value_modify2", "p0") {
     def tbName = "test_unique_model_value_change2"
     def tbName2 = "test_unique_model_value_change_2"
     def on_write = getRandomBoolean()
@@ -53,7 +53,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
     sql initTableData
     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1  "
     def errorMessage = ""
-    def insertSql = "insert into ${tbName} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+    def insertSql = "insert into ${tbName} values(923456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
 
 
     /**
@@ -95,7 +95,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city BOOLEAN  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.2, false, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.2, false, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -109,7 +109,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city TINYINT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.2, 1, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.2, 1, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 120
@@ -123,7 +123,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city SMALLINT   """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 3, 3, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 3, 3, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -137,7 +137,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city INT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 4.1, 23, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 4.1, 23, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -152,7 +152,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city BIGINT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.6, 2423, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.6, 2423, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -166,7 +166,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city LARGEINT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.36, 4561, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.36, 4561, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -180,7 +180,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city FLOAT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 1.25, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 1.25, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -194,7 +194,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DECIMAL(38,0)  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 56.98, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 56.98, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -209,7 +209,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATE  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.6, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.6, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -223,7 +223,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATEV2  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 6.3, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.3, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -238,7 +238,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATETIME  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 9.63, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 9.63, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -252,7 +252,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATETIMEV2  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -265,7 +265,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} MODIFY  column city VARCHAR(100)  """
-    insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, 'Yaan1', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+    insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, 'Yaan1', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -299,7 +299,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
             "               (456789012, 'Dave', 3.9456, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (567890123, 'Eve', 4.223, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00', {'a': 500, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (678901234, 'Frank', 2.5454, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00', {'a': 600, 'b': 200}, '[\"abc\", \"def\"]')," +
-            "               (123456689, 'Alice', 5.69, 'Yaan1', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\\\"abc\\\", \\\"def\\\"]')," +
+            "               (923456689, 'Alice', 5.69, 'Yaan1', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\\\"abc\\\", \\\"def\\\"]')," +
             "               (789012345, 'Grace', 2.19656, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00', {'a': 700, 'b': 200}, '[\"abc\", \"def\"]');"
 
 
@@ -312,7 +312,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} MODIFY  column city STRING  """
-    insertSql = "insert into ${tbName} values(123456689, 'Alice', 6.59, 'Yaan2', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+    insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.59, 'Yaan2', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -347,7 +347,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
             "               (456789012, 'Dave', 3.9456, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (567890123, 'Eve', 4.223, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00', {'a': 500, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (678901234, 'Frank', 2.5454, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00', {'a': 600, 'b': 200}, '[\"abc\", \"def\"]')," +
-            "               (123456689, 'Alice', 5.69, 'Yaan2', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\\\"abc\\\", \\\"def\\\"]')," +
+            "               (923456689, 'Alice', 5.69, 'Yaan2', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\\\"abc\\\", \\\"def\\\"]')," +
             "               (789012345, 'Grace', 2.19656, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00', {'a': 700, 'b': 200}, '[\"abc\", \"def\"]');"
 
 
@@ -365,7 +365,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city Map<STRING, INT>  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.98, {'a': 100, 'b': 200}, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.98, {'a': 100, 'b': 200}, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -379,7 +379,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city JSON  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 8.47, '{'a': 100, 'b': 200}', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 8.47, '{'a': 100, 'b': 200}', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -427,7 +427,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city BOOLEAN  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.2, false, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.2, false, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -441,7 +441,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city TINYINT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.2, 1, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.2, 1, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 120
@@ -455,7 +455,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city SMALLINT   """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 3, 3, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 3, 3, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -469,7 +469,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city INT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 4.1, 23, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 4.1, 23, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -484,7 +484,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city BIGINT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.6, 2423, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.6, 2423, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -498,7 +498,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city LARGEINT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.36, 4561, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.36, 4561, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -512,7 +512,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city FLOAT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 1.25, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 1.25, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -526,7 +526,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DECIMAL(38,0)  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 56.98, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 56.98, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -541,7 +541,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATE  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.6, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.6, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -555,7 +555,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATEV2  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 6.3, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.3, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -570,7 +570,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATETIME  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 9.63, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 9.63, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -584,7 +584,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATETIMEV2  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -599,7 +599,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} MODIFY  column city CHAR(3)  """
-    insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, 'Yaan1', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+    insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, 'Yaan1', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -611,7 +611,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} MODIFY  column city STRING  """
-    insertSql = "insert into ${tbName} values(123456689, 'Alice', 6.59, 'Yaan2', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+    insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.59, 'Yaan2', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -646,7 +646,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
             "               (456789012, 'Dave', 3.9456, 'Shenzhen', 35, 1, 13680864279, 'No. 987 Street, Shenzhen', '2022-04-04 16:00:00', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (567890123, 'Eve', 4.223, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00', {'a': 500, 'b': 200}, '[\"abc\", \"def\"]')," +
             "               (678901234, 'Frank', 2.5454, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00', {'a': 600, 'b': 200}, '[\"abc\", \"def\"]')," +
-            "               (123456689, 'Alice', 5.69, 'Yaan2', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\\\"abc\\\", \\\"def\\\"]')," +
+            "               (923456689, 'Alice', 5.69, 'Yaan2', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\\\"abc\\\", \\\"def\\\"]')," +
             "               (789012345, 'Grace', 2.19656, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00', {'a': 700, 'b': 200}, '[\"abc\", \"def\"]');"
 
 
@@ -664,7 +664,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city Map<STRING, INT>  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.98, {'a': 100, 'b': 200}, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.98, {'a': 100, 'b': 200}, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -678,7 +678,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city JSON  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 8.47, '{'a': 100, 'b': 200}', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 8.47, '{'a': 100, 'b': 200}', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -725,7 +725,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city BOOLEAN  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.2, false, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.2, false, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -739,7 +739,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city TINYINT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.2, 1, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.2, 1, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 120
@@ -753,7 +753,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city SMALLINT   """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 3, 3, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 3, 3, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -767,7 +767,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city INT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 4.1, 23, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 4.1, 23, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -782,7 +782,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city BIGINT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.6, 2423, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.6, 2423, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -796,7 +796,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city LARGEINT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 2.36, 4561, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.36, 4561, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -810,7 +810,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city FLOAT  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 1.25, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 1.25, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -824,7 +824,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DECIMAL(38,0)  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 1.23, 56.98, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 56.98, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -839,7 +839,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATE  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.6, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.6, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -853,7 +853,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATEV2  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 6.3, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.3, '2003-12-31', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -868,7 +868,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATETIME  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 9.63, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 9.63, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -882,7 +882,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city DATETIMEV2  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, '2003-12-31 20:12:12', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -897,7 +897,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city CHAR(3)  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.69, 'Yaan1', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, 'Yaan1', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -911,7 +911,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
     sql initTable
     sql initTableData
     sql """ alter  table ${tbName} MODIFY  column city VARCHAR(256)  """
-    insertSql = "insert into ${tbName} values(123456689, 'Alice', 6.59, 'Yaan2', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+    insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.59, 'Yaan2', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 60
@@ -926,7 +926,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city Map<STRING, INT>  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 5.98, {'a': 100, 'b': 200}, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.98, {'a': 100, 'b': 200}, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
@@ -940,7 +940,7 @@ suite("test_unique_model_schema_value_change2", "p0") {
         sql initTable
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column city JSON  """
-        insertSql = "insert into ${tbName} values(123456689, 'Alice', 8.47, '{'a': 100, 'b': 200}', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
+        insertSql = "insert into ${tbName} values(923456689, 'Alice', 8.47, '{'a': 100, 'b': 200}', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_unique_model_schema_value_drop", "p0") {
+suite("test_unique_schema_value_drop", "p0") {
     def tbName = "test_unique_model_schema_value_drop"
     def tbName2 = "test_unique_model_schema_value_drop_1"
     def on_write = getRandomBoolean()
