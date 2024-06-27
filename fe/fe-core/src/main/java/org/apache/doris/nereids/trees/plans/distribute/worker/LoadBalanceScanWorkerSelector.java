@@ -224,7 +224,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             minWorkload.recordOneScanTask(tabletBytes);
             ScanRanges scanRanges = new ScanRanges();
             TScanRangeParams scanReplicaParams =
-                    buildScanReplicaParams(tabletLocation, selectedReplicaLocation);
+                    ScanWorkerSelector.buildScanReplicaParams(tabletLocation, selectedReplicaLocation);
             scanRanges.addScanRange(scanReplicaParams, tabletBytes);
             return new WorkerScanRanges(minWorkLoadWorker, scanRanges);
         }
@@ -241,7 +241,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
                 boolean foundTabletInThisWorker = false;
                 for (TScanRangeLocation replicaLocation : onePartitionOneTabletLocation.getLocations()) {
                     if (replicaLocation.getBackendId() == filterWorkerId) {
-                        TScanRangeParams scanReplicaParams = buildScanReplicaParams(
+                        TScanRangeParams scanReplicaParams = ScanWorkerSelector.buildScanReplicaParams(
                                 onePartitionOneTabletLocation, replicaLocation);
                         Long replicaSize = ((OlapScanNode) scanNode).getTabletSingleReplicaSize(tabletId);
                         selectedReplicasInOneBucket.add(Pair.of(scanReplicaParams, replicaSize));
@@ -255,7 +255,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
                 }
             } else if (onePartitionOneTabletLocation.getLocations().size() == 1) {
                 TScanRangeLocation replicaLocation = onePartitionOneTabletLocation.getLocations().get(0);
-                TScanRangeParams scanReplicaParams = buildScanReplicaParams(
+                TScanRangeParams scanReplicaParams = ScanWorkerSelector.buildScanReplicaParams(
                         onePartitionOneTabletLocation, replicaLocation);
                 Long replicaSize = 0L;
                 selectedReplicasInOneBucket.add(Pair.of(scanReplicaParams, replicaSize));
