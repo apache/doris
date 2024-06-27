@@ -299,8 +299,6 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));
         return;
     }
-    LOG_INFO("begin upload for file path {}, part {}", _obj_storage_path_opts.path.native(),
-             part_num);
     auto resp = client->upload_part(_obj_storage_path_opts, buf.get_string_view_data(), part_num);
     if (resp.resp.status.code != ErrorCode::OK) {
         LOG_INFO("failed at key: {}, load part {}, st {}", _obj_storage_path_opts.key, part_num,
@@ -308,8 +306,6 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
         buf.set_status(Status(resp.resp.status.code, std::move(resp.resp.status.msg)));
         return;
     }
-    LOG_INFO("finish upload for file path {}, part {}", _obj_storage_path_opts.path.native(),
-             part_num);
     s3_bytes_written_total << buf.get_size();
 
     ObjectCompleteMultiPart completed_part {
