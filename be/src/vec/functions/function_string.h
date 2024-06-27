@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2272,14 +2273,14 @@ public:
                         size_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map_data = null_map->get_data();
-
+        DCHECK_GE(3, arguments.size());
         auto res = ColumnString::create();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
 
         size_t argument_size = arguments.size();
-        const bool has_key = argument_size >= 3;
+        const bool has_key = argument_size == 3;
 
         std::vector<ColumnPtr> argument_columns(argument_size);
         std::vector<UInt8> col_const(argument_size);
@@ -2342,8 +2343,8 @@ public:
                                ColumnUInt8::Container& null_map_data,
                                ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets) {
         for (size_t i = 0; i < size; ++i) {
-            UrlParser::UrlPart& url_part = url_parts[part_const ? 0 : i];
-            StringRef url_val = url_col->get_data_at(url_const ? 0 : i);
+            UrlParser::UrlPart& url_part = url_parts[index_check_const<part_const>(i)];
+            StringRef url_val = url_col->get_data_at(index_check_const<url_const>(i));
             StringRef parse_res;
             if (UrlParser::parse_url(url_val, url_part, &parse_res)) {
                 StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
@@ -2363,9 +2364,9 @@ public:
                                    ColumnString::Chars& res_chars,
                                    ColumnString::Offsets& res_offsets) {
         for (size_t i = 0; i < size; ++i) {
-            UrlParser::UrlPart& url_part = url_parts[part_const ? 0 : i];
-            StringRef url_val = url_col->get_data_at(url_const ? 0 : i);
-            StringRef url_key = key_col->get_data_at(key_const ? 0 : i);
+            UrlParser::UrlPart& url_part = url_parts[index_check_const<part_const>(i)];
+            StringRef url_val = url_col->get_data_at(index_check_const<url_const>(i));
+            StringRef url_key = key_col->get_data_at(index_check_const<key_const>(i));
             StringRef parse_res;
             if (UrlParser::parse_url_key(url_val, url_part, url_key, &parse_res)) {
                 StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
