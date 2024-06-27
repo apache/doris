@@ -45,16 +45,13 @@ import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
@@ -63,7 +60,6 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
@@ -79,12 +75,6 @@ import java.util.stream.Collectors;
 public class FunctionBinder extends AbstractExpressionRewriteRule {
 
     public static final FunctionBinder INSTANCE = new FunctionBinder();
-
-    // Keep track of which element_at function's level
-    // e.g. element_at(element_at(v, 'repo'), 'name') level 1
-    //      element_at(v, 'repo') level 2
-    // Only works with function ElementAt which satisfy condition PushDownToProjectionFunction.validToPushDown
-    private int currentElementAtLevel = 0;
 
     @Override
     public Expression visit(Expression expr, ExpressionRewriteContext context) {
@@ -147,9 +137,6 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
-        if (unboundFunction.getName().equalsIgnoreCase("element_at")) {
-            ++currentElementAtLevel;
-        }
         if (unboundFunction.isHighOrder()) {
             unboundFunction = bindHighOrderFunction(unboundFunction, context);
         } else {
@@ -197,16 +184,6 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 // so wrap COUNT with Nvl to ensure it's result is 0 instead of null to get the correct result
                 boundFunction = new Nvl(boundFunction, new BigIntLiteral(0));
             }
-            if (currentElementAtLevel == 1
-                    && PushDownToProjectionFunction.validToPushDown(boundFunction)) {
-                // Only rewrite the top level of PushDownToProjectionFunction, otherwise invalid slot will be generated
-                // currentElementAtLevel == 1 means at the top of element_at function, other levels will be ignored.
-                currentElementAtLevel = 0;
-                return visitElementAt((ElementAt) boundFunction, context);
-            }
-            if (boundFunction instanceof ElementAt) {
-                --currentElementAtLevel;
-            }
             return boundFunction;
         }
     }
@@ -215,26 +192,6 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
-    }
-
-    @Override
-    public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
-        Expression boundFunction = visitBoundFunction(elementAt, context);
-
-        if (PushDownToProjectionFunction.validToPushDown(boundFunction)) {
-            if (ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable() != null
-                    && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
-                return boundFunction;
-            }
-            Slot slot = elementAt.getInputSlots().stream().findFirst().get();
-            if (slot.hasUnbound()) {
-                slot = (Slot) super.visit(slot, context);
-            }
-            // rewrite to slot and bound this slot
-            return PushDownToProjectionFunction.rewriteToSlot(elementAt, (SlotReference) slot);
-        }
-        return boundFunction;
     }
 
     /**

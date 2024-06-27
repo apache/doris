@@ -44,6 +44,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
+import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
@@ -132,11 +133,15 @@ import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoin;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoinProject;
+import org.apache.doris.nereids.rules.rewrite.VariantSubPathPruning;
 import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
 import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithoutAggregate;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -146,7 +151,7 @@ import java.util.stream.Collectors;
  */
 public class Rewriter extends AbstractBatchJobExecutor {
 
-    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS = jobs(
+    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN = jobs(
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
@@ -396,9 +401,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("adjust preagg status",
                     topDown(new AdjustPreAggStatus())
             ),
-            topic("topn optimize",
-                    topDown(new DeferMaterializeTopNResult())
-            ),
             topic("Point query short circuit",
                     topDown(new LogicalResultSinkToShortCircuitPointQuery())),
             topic("eliminate",
@@ -410,6 +412,25 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // these rules should be put after mv optimization to avoid mv matching fail
                 topDown(new SumLiteralRewrite(),
                         new MergePercentileToArray())
+            ),
+            topic("Push project and filter on cte consumer to cte producer",
+                    topDown(
+                            new CollectFilterAboveConsumer(),
+                            new CollectCteConsumerOutput()
+                    )
+            )
+    );
+
+    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN = jobs(
+            // after variant sub path pruning, we need do column pruning again
+            custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+            bottomUp(ImmutableList.of(
+                    new PushDownFilterThroughProject(),
+                    new MergeProjects()
+            )),
+            custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
+            topic("topn optimize",
+                    topDown(new DeferMaterializeTopNResult())
             ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
@@ -423,12 +444,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new CheckAfterRewrite()
                     )
             ),
-            topic("Push project and filter on cte consumer to cte producer",
-                    topDown(
-                            new CollectFilterAboveConsumer(),
-                            new CollectCteConsumerOutput()
-                    )
-            )
+            topDown(new CollectCteConsumerOutput())
     );
 
     private static final List<RewriteJob> WHOLE_TREE_REWRITE_JOBS
@@ -456,19 +472,30 @@ public class Rewriter extends AbstractBatchJobExecutor {
         return new Rewriter(cascadesContext, jobs);
     }
 
+    /**
+     * only
+     */
     public static Rewriter getWholeTreeRewriterWithCustomJobs(CascadesContext cascadesContext, List<RewriteJob> jobs) {
-        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(jobs));
+        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false, false, jobs, ImmutableList.of()));
     }
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(boolean withCostBased) {
-        List<RewriteJob> withoutCostBased = Rewriter.CTE_CHILDREN_REWRITE_JOBS.stream()
+        List<RewriteJob> withoutCostBased = Rewriter.CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN.stream()
                 .filter(j -> !(j instanceof CostBasedRewriteJob))
                 .collect(Collectors.toList());
-        return getWholeTreeRewriteJobs(withCostBased ? CTE_CHILDREN_REWRITE_JOBS : withoutCostBased);
+        return getWholeTreeRewriteJobs(true, true,
+                withCostBased ? CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN : withoutCostBased,
+                CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN);
     }
 
-    private static List<RewriteJob> getWholeTreeRewriteJobs(List<RewriteJob> jobs) {
-        return jobs(
+    private static List<RewriteJob> getWholeTreeRewriteJobs(
+            boolean needSubPathPushDown,
+            boolean needOrExpansion,
+            List<RewriteJob> beforePushDownJobs,
+            List<RewriteJob> afterPushDownJobs) {
+
+        List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
+        rewriteJobs.addAll(jobs(
                 topic("cte inline and pull up all cte anchor",
                         custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),
                         custom(RuleType.CTE_INLINE, CTEInline::new)
@@ -476,15 +503,30 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("process limit session variables",
                         custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new)
                 ),
-                topic("rewrite cte sub-tree",
-                        custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(jobs))
+                topic("rewrite cte sub-tree before sub path push down",
+                        custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(beforePushDownJobs))
+                )));
+        if (needOrExpansion) {
+            rewriteJobs.addAll(jobs(topic("or expansion",
+                    custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
+        }
+        if (needSubPathPushDown) {
+            rewriteJobs.addAll(jobs(
+                    topic("variant element_at push down",
+                            custom(RuleType.VARIANT_SUB_PATH_PRUNING, VariantSubPathPruning::new)
+                    )
+            ));
+        }
+        rewriteJobs.addAll(jobs(
+                topic("rewrite cte sub-tree after sub path push down",
+                        custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
+                        custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(afterPushDownJobs))
                 ),
-                topic("or expansion",
-                        custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE)),
                 topic("whole plan check",
                         custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
                 )
-        );
+        ));
+        return rewriteJobs;
     }
 
     @Override
