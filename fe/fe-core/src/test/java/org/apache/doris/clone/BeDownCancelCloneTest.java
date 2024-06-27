@@ -48,14 +48,13 @@ public class BeDownCancelCloneTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         FeConstants.default_scheduler_interval_millisecond = 1000;
         Config.enable_debug_points = true;
-        Config.tablet_checker_interval_ms = 100;
-        Config.tablet_schedule_interval_ms = 100;
+        FeConstants.tablet_checker_interval_ms = 100;
         Config.tablet_repair_delay_factor_second = 1;
         Config.allow_replica_on_same_host = true;
         Config.disable_balance = true;
         Config.schedule_batch_size = 1000;
         Config.schedule_slot_num_per_hdd_path = 1000;
-        Config.heartbeat_interval_second = 5;
+        FeConstants.heartbeat_interval_second = 5;
         Config.max_backend_heartbeat_failure_tolerance_count = 1;
         Config.min_clone_task_timeout_sec = 20 * 60 * 1000;
     }
@@ -115,7 +114,7 @@ public class BeDownCancelCloneTest extends TestWithFeService {
         params2.put("deadBeIds", String.valueOf(destBeId));
         DebugPointUtil.addDebugPointWithParams("HeartbeatMgr.BackendHeartbeatHandler", params2);
 
-        Thread.sleep((Config.heartbeat_interval_second
+        Thread.sleep((FeConstants.heartbeat_interval_second
                 * Config.max_backend_heartbeat_failure_tolerance_count + 4) * 1000L);
 
         destBe = Env.getCurrentSystemInfo().getBackend(destBeId);

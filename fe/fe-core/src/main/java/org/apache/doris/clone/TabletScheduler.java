@@ -1859,18 +1859,27 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     public List<List<String>> getPendingTabletsInfo(int limit) {
-        List<TabletSchedCtx> tabletCtxs = getCopiedTablets(pendingTablets, limit);
-        return collectTabletCtx(tabletCtxs);
+        return collectTabletCtx(getPendingTablets(limit));
+    }
+
+    public List<TabletSchedCtx> getPendingTablets(int limit) {
+        return getCopiedTablets(pendingTablets, limit);
     }
 
     public List<List<String>> getRunningTabletsInfo(int limit) {
-        List<TabletSchedCtx> tabletCtxs = getCopiedTablets(runningTablets.values(), limit);
-        return collectTabletCtx(tabletCtxs);
+        return collectTabletCtx(getRunningTablets(limit));
+    }
+
+    public List<TabletSchedCtx> getRunningTablets(int limit) {
+        return getCopiedTablets(runningTablets.values(), limit);
     }
 
     public List<List<String>> getHistoryTabletsInfo(int limit) {
-        List<TabletSchedCtx> tabletCtxs = getCopiedTablets(schedHistory, limit);
-        return collectTabletCtx(tabletCtxs);
+        return collectTabletCtx(getHistoryTablets(limit));
+    }
+
+    public List<TabletSchedCtx> getHistoryTablets(int limit) {
+        return getCopiedTablets(schedHistory, limit);
     }
 
     private List<List<String>> collectTabletCtx(List<TabletSchedCtx> tabletCtxs) {
