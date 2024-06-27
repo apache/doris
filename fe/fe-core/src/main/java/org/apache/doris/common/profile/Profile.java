@@ -111,7 +111,6 @@ public class Profile {
                 summaryInfo.put(SummaryProfile.PHYSICAL_PLAN,
                         builder.toString().replace("\n", "\n     "));
 
-
                 FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
                 if (distributedPlans != null) {
                     summaryInfo.put(SummaryProfile.DISTRIBUTED_PLAN,

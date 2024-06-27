@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans.distribute;
 
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.nereids.worker.job.UnassignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
 
 import java.util.List;
 import java.util.Objects;

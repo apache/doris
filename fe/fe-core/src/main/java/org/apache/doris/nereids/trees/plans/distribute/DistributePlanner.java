@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.distribute;
 
-import org.apache.doris.nereids.worker.job.AssignedJob;
-import org.apache.doris.nereids.worker.job.AssignedJobBuilder;
-import org.apache.doris.nereids.worker.job.UnassignedJob;
-import org.apache.doris.nereids.worker.job.UnassignedJobBuilder;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJobBuilder;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJobBuilder;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 

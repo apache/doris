@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -1250,7 +1249,13 @@ public class SessionVariable implements Serializable, Writable {
     private boolean nereidsStarSchemaSupport = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DISTRIBUTE_PLANNER, needForward = true,
-            fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL)
+            fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
+        "使用新的nereids的分布式规划器的开关，这个分布式规划器可以规划出一些更高效的查询计划，比如在某些情况下，"
+                + "可以把左表shuffle到右表去做bucket shuffle join",
+        "The switch to use new DistributedPlanner of nereids, this planner can planning some " +
+                "more efficient query plans, e.g. in certain situations, shuffle left side to " 
+                + "right side to do bucket shuffle join"
+    })
     private boolean enableNereidsDistributePlanner = false;
 
     @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
@@ -3080,6 +3085,7 @@ public class SessionVariable implements Serializable, Writable {
 
     /** canUseNereidsDistributePlanner */
     public static boolean canUseNereidsDistributePlanner() {
+        // TODO: support cloud mode
         if (Config.isCloudMode()) {
             return false;
         }
@@ -3087,21 +3093,14 @@ public class SessionVariable implements Serializable, Writable {
         if (connectContext == null) {
             return false;
         }
-        if (!connectContext.getState().isNereids()) {
-            return false;
-        }
         StatementContext statementContext = connectContext.getStatementContext();
         if (statementContext == null) {
             return false;
         }
-        StatementBase parsedStatement = statementContext.getParsedStatement();
-        if (!(parsedStatement instanceof LogicalPlanAdapter)) {
-            return false;
-        }
-        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) statementContext.getParsedStatement()).getLogicalPlan();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        if (logicalPlan instanceof UnboundResultSink
-                && sessionVariable.enableNereidsDistributePlanner && sessionVariable.enablePipelineXEngine) {
+        // TODO: support other sink
+        if (logicalPlan instanceof UnboundResultSink && sessionVariable.enableNereidsDistributePlanner) {
             return true;
         }
         return false;

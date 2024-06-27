@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans.distribute;
 
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.nereids.worker.job.AssignedJob;
-import org.apache.doris.nereids.worker.job.UnassignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
 import org.apache.doris.thrift.TExplainLevel;
 
 import java.util.List;

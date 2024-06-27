@@ -22,13 +22,11 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
@@ -93,14 +91,6 @@ public class Numbers extends TableValuedFunction {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitNumbers(this, context);
-    }
-
-    @Override
-    public PhysicalProperties getPhysicalProperties() {
-        if (SessionVariable.canUseNereidsDistributePlanner()) {
-            return PhysicalProperties.ANY;
-        }
-        return super.getPhysicalProperties();
     }
 
     @Override

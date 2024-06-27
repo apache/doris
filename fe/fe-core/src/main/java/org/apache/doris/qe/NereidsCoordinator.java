@@ -24,14 +24,14 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
-import org.apache.doris.nereids.worker.Worker;
-import org.apache.doris.nereids.worker.job.AssignedJob;
-import org.apache.doris.nereids.worker.job.BucketScanSource;
-import org.apache.doris.nereids.worker.job.DefaultScanSource;
-import org.apache.doris.nereids.worker.job.LocalShuffleAssignedJob;
-import org.apache.doris.nereids.worker.job.ScanRanges;
-import org.apache.doris.nereids.worker.job.ScanSource;
-import org.apache.doris.nereids.worker.job.UnassignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanRanges;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -96,7 +96,7 @@ public class NereidsCoordinator extends Coordinator {
             }
 
             for (AssignedJob instanceJob : instanceJobs) {
-                Worker worker = instanceJob.getAssignedWorker();
+                DistributedPlanWorker worker = instanceJob.getAssignedWorker();
                 TNetworkAddress address = new TNetworkAddress(worker.host(), worker.port());
                 FInstanceExecParam instanceExecParam = new FInstanceExecParam(
                         null, address, 0, fragmentExecParams);

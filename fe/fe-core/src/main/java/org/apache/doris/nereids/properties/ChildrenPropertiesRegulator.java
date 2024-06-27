@@ -214,7 +214,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                 || joinType == JoinType.FULL_OUTER_JOIN);
         boolean isSpecInScope = (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                 || rightHashSpec.getShuffleType() == ShuffleType.NATURAL);
-        return isJoinTypeInScope && isSpecInScope;
+        return isJoinTypeInScope && isSpecInScope && !SessionVariable.canUseNereidsDistributePlanner();
     }
 
     @Override
@@ -249,8 +249,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
             // check colocate join with scan
             return true;
-        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)
-                && !SessionVariable.canUseNereidsDistributePlanner()) {
+        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)) {
             // right anti, right outer, full outer join could not do bucket shuffle join
             // TODO remove this after we refactor coordinator
             updatedForLeft = Optional.of(calAnotherSideRequired(
@@ -307,6 +306,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                 && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
             if (SessionVariable.canUseNereidsDistributePlanner()) {
                 // nereids coordinator can exchange left side to right side to do bucket shuffle join
+                // TODO: maybe we should check if left child is PhysicalDistribute.
+                //  If so add storage bucketed shuffle on left side. Other wise,
+                //  add execution bucketed shuffle on right side.
                 updatedForLeft = Optional.of(calAnotherSideRequired(
                         ShuffleType.STORAGE_BUCKETED, rightHashSpec, leftHashSpec,
                         (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
