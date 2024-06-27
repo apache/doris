@@ -29,7 +29,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
@@ -357,17 +356,6 @@ public class PartitionInfo {
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicaAllocation.put(partitionId, replicaAlloc);
         idToInMemory.put(partitionId, isInMemory);
-    }
-
-    @Deprecated
-    public static PartitionInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            PartitionInfo partitionInfo = new PartitionInfo();
-            partitionInfo.readFields(in);
-            return partitionInfo;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), PartitionInfo.class);
-        }
     }
 
     public boolean isMultiColumnPartition() {
