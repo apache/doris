@@ -788,7 +788,7 @@ public class AnalysisManager implements Writable {
         StringBuilder partNamePredicate = new StringBuilder();
         while (iterator.hasNext()) {
             partNamePredicate.append("'");
-            partNamePredicate.append(iterator.next());
+            partNamePredicate.append(StatisticsUtil.escapeSQL(iterator.next()));
             partNamePredicate.append("'");
             partNamePredicate.append(",");
         }
