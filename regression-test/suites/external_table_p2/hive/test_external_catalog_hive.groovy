@@ -153,7 +153,7 @@ suite("test_external_catalog_hive", "p2") {
             exception "Failed to init access controller: bound must be positive"
         }
 
-	 sql """DROP CATALOG if exists ctl_not_exist_not_exist"""
+	sql """DROP CATALOG if exists ctl_not_exist_not_exist"""
         def res4 = sql """ALTER CATALOG ctl_not_exist_not_exist SET PROPERTIES ('s3.access_key' = 'xxxx')"""
         assertTrue(res4.contains("No catalog found with name"))
     }
