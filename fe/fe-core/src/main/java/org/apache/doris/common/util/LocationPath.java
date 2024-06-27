@@ -61,6 +61,7 @@ public class LocationPath {
         COSN, // Tencent
         OFS, // Tencent CHDFS
         GFS, // Tencent GooseFs,
+        LAKEFS, // used by Tencent DLC
         OSS, // Alibaba,
         OSS_HDFS, // JindoFS on OSS
         JFS, // JuiceFS,
@@ -157,6 +158,10 @@ public class LocationPath {
                     // if treat cosn(tencent hadoop-cos) as a s3 file system, may bring incompatible issues
                     locationType = LocationType.COSN;
                     this.location = location;
+                    break;
+                case FeConstants.FS_PREFIX_LAKEFS:
+                    locationType = LocationType.COSN;
+                    this.location = normalizedLakefsPath(location);
                     break;
                 case FeConstants.FS_PREFIX_VIEWFS:
                     locationType = LocationType.VIEWFS;
@@ -270,6 +275,15 @@ public class LocationPath {
         }
     }
 
+    private static String normalizedLakefsPath(String location) {
+        int atIndex = location.indexOf("@dlc");
+        if (atIndex != -1) {
+            return "lakefs://" + location.substring(atIndex + 1);
+        } else {
+            return location;
+        }
+    }
+
     public static Pair<FileSystemType, String> getFSIdentity(String location, String bindBrokerName) {
         LocationPath locationPath = new LocationPath(location);
         FileSystemType fsType = (bindBrokerName != null) ? FileSystemType.BROKER : locationPath.getFileSystemType();
@@ -337,6 +351,7 @@ public class LocationPath {
             case GCS:
                 // ATTN, for COSN, on FE side, use HadoopFS to access, but on BE, use S3 client to access.
             case COSN:
+            case LAKEFS:
                 // now we only support S3 client for object storage on BE
                 return TFileType.FILE_S3;
             case HDFS:
