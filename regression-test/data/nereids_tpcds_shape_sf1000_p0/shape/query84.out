@@ -15,7 +15,7 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[customer_demographics] apply RFs: RF3
 ------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((household_demographics.hd_demo_sk = customer.c_current_hdemo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[c_current_hdemo_sk]
+----------------------hashJoin[INNER_JOIN] hashCondition=((household_demographics.hd_demo_sk = customer.c_current_hdemo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[c_current_hdemo_sk]bc 5: 14,054.92 vs 2,594.62
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[c_current_addr_sk]
 ----------------------------PhysicalProject

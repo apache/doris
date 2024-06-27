@@ -20,17 +20,20 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MutableState;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -206,6 +209,24 @@ public class PhysicalHashJoin<
         if (!runtimeFilters.isEmpty()) {
             builder.append(" build RFs:").append(runtimeFilters.stream()
                     .map(rf -> rf.shapeInfo()).collect(Collectors.joining(";")));
+        }
+        long l = (long) ((AbstractPlan) left()).getStats().getRowCount();
+        long r = (long) ((AbstractPlan) right()).getStats().getRowCount();
+        if (!joinType.isSemiOrAntiJoin()) {
+            if (right() instanceof PhysicalDistribute
+                    && ((PhysicalDistribute<?>) right()).getDistributionSpec() == DistributionSpecReplicated.INSTANCE) {
+                    if ((l / r) < 10) {
+                        builder.append("bc ").append(l / r).append(": ").append(((AbstractPlan) left()).getStats())
+                                .append(" vs ")
+                                .append(((AbstractPlan) right()).getStats());
+                    }
+            } else if (left() instanceof PhysicalDistribute && right() instanceof PhysicalDistribute && (l / r) > 10
+                    && r < ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit()) {
+                builder.append("shuffle ").append(l/r).append(": ")
+                        .append(((PhysicalDistribute<?>) left()).getStats())
+                        .append(" vs ")
+                        .append(((PhysicalDistribute<?>) right()).getStats());
+            }
         }
         return builder.toString();
     }

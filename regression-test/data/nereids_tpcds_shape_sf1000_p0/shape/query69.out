@@ -48,7 +48,7 @@ PhysicalResultSink
 --------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]shuffle 34: 12,000,000 vs 346,153.85
 --------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[customer] apply RFs: RF0

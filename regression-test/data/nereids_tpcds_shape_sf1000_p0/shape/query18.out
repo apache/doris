@@ -15,7 +15,7 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF4 d_date_sk->[cs_sold_date_sk]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[cs_bill_customer_sk]
+------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[cs_bill_customer_sk]shuffle 111: 103,093,726.92 vs 926,384.53
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF2 cd_demo_sk->[cs_bill_cdemo_sk]
