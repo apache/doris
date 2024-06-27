@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJso
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayJsonOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayString;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayStringOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonObject;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonObjectOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbers;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbersOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
@@ -38,6 +40,14 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.TableGener
  */
 public interface TableGeneratingFunctionVisitor<R, C> {
     R visitTableGeneratingFunction(TableGeneratingFunction tableGeneratingFunction, C context);
+
+    default R visitExplodeJsonObject(ExplodeJsonObject explode, C context) {
+        return visitTableGeneratingFunction(explode, context);
+    }
+
+    default R visitExplodeJsonObjectOuter(ExplodeJsonObjectOuter explodeOuter, C context) {
+        return visitTableGeneratingFunction(explodeOuter, context);
+    }
 
     default R visitExplodeNumbers(ExplodeNumbers explodeNumbers, C context) {
         return visitTableGeneratingFunction(explodeNumbers, context);

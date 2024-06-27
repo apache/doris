@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJso
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayJsonOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayString;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayStringOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonObject;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonObjectOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbers;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbersOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
@@ -44,6 +46,8 @@ import java.util.List;
  */
 public class BuiltinTableGeneratingFunctions implements FunctionHelper {
     public final List<TableGeneratingFunc> tableGeneratingFunctions = ImmutableList.of(
+            tableGenerating(ExplodeJsonObject.class, "explode_json_object"),
+            tableGenerating(ExplodeJsonObjectOuter.class, "explode_json_object_outer"),
             tableGenerating(ExplodeNumbers.class, "explode_numbers"),
             tableGenerating(ExplodeNumbersOuter.class, "explode_numbers_outer"),
             tableGenerating(ExplodeBitmap.class, "explode_bitmap"),
