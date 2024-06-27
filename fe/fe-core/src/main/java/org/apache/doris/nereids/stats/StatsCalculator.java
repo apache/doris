@@ -350,7 +350,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private ColumnStatistic getColumnStatsFromTableCache(CatalogRelation catalogRelation, SlotReference slot) {
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
-            idxId = ((OlapScan) catalogRelation).getSelectedIndexIdForMV();
+            idxId = ((OlapScan) catalogRelation).getSelectedIndexId();
         }
         return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId);
     }
@@ -359,7 +359,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             List<String> partitionNames) {
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
-            idxId = ((OlapScan) catalogRelation).getSelectedIndexIdForMV();
+            idxId = ((OlapScan) catalogRelation).getSelectedIndexId();
         }
         return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId, partitionNames);
     }
@@ -434,7 +434,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             for (Slot slot : olapScan.getOutput()) {
                 if (isVisibleSlotReference(slot)) {
                     ColumnStatistic cache = getColumnStatistic(olapTable, slot.getName(),
-                            olapScan.getSelectedIndexIdForMV());
+                            olapScan.getSelectedIndexId());
                     rowCount = Math.max(rowCount, cache.count);
                 }
                 builder.putColumnStatistics(slot,
