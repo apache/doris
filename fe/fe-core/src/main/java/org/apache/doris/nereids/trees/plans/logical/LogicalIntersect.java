@@ -120,7 +120,9 @@ public class LogicalIntersect extends LogicalSetOperation {
             List<? extends Slot> originOutputs = this.regularChildrenOutputs.isEmpty()
                     ? child(i).getOutput()
                     : regularChildrenOutputs.get(i);
-            replaceMap.put(originOutputs.get(i), getOutput().get(i));
+            for (int j = 0; j < originOutputs.size(); j++) {
+                replaceMap.put(originOutputs.get(j), getOutput().get(j));
+            }
         }
         return replaceMap;
     }
