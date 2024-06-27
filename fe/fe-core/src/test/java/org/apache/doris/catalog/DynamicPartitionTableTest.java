@@ -1736,7 +1736,7 @@ public class DynamicPartitionTableTest {
                 + " \"replication_allocation\" = \"tag.location.default: 1\"\n"
                 + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt));
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("default:test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("test_autobucket_dynamic_partition");
         List<Partition> partitions = Lists.newArrayList(table.getAllPartitions());
         Assert.assertEquals(2, partitions.size());
