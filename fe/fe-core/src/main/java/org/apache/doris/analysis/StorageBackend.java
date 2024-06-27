@@ -27,6 +27,7 @@ import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.thrift.TStorageBackendType;
 
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
@@ -153,6 +154,7 @@ public class StorageBackend implements ParseNode {
         STREAM("Stream load pipe"),
         AZURE("MicroSoft Azure Blob");
 
+        @SerializedName("desc")
         private final String description;
 
         StorageType(String description) {

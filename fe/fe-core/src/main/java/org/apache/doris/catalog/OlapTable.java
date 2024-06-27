@@ -72,7 +72,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFetchOption;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
@@ -108,6 +108,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -151,7 +152,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private PartitionInfo partitionInfo;
     @SerializedName("idToPartition")
     @Getter
-    private Map<Long, Partition> idToPartition = new HashMap<>();
+    private ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
     // handled in postgsonprocess
     @Getter
     private Map<String, Partition> nameToPartition = Maps.newTreeMap();
@@ -669,7 +670,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // reset partition info and idToPartition map
         Map<Long, Long> partitionMap = Maps.newHashMap();
         Map<Long, Partition> origIdToPartition = idToPartition;
-        idToPartition = Maps.newHashMap();
+        idToPartition = new ConcurrentHashMap<>();
         for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
             long newPartId = env.getNextId();
             idToPartition.put(newPartId, origIdToPartition.get(entry.getValue()));
@@ -1304,6 +1305,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
         return null;
+    }
+
+    public void setEnableDeleteOnDeletePredicate(boolean enable) {
+        getOrCreatTableProperty().setEnableDeleteOnDeletePredicate(enable);
+    }
+
+    public boolean getEnableDeleteOnDeletePredicate() {
+        return getOrCreatTableProperty().getEnableDelteOnDeletePredicate();
     }
 
     public void setGroupCommitIntervalMs(int groupCommitInterValMs) {
@@ -2484,11 +2493,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildStorageFormat();
     }
 
-    public void setInvertedIndexStorageFormat(TInvertedIndexStorageFormat invertedIndexStorageFormat) {
+    public void setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
-                invertedIndexStorageFormat.name());
-        tableProperty.buildInvertedIndexStorageFormat();
+                invertedIndexFileStorageFormat.name());
+        tableProperty.buildInvertedIndexFileStorageFormat();
     }
 
     public TStorageFormat getStorageFormat() {
@@ -2498,11 +2507,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return tableProperty.getStorageFormat();
     }
 
-    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
+    public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormat() {
         if (tableProperty == null) {
-            return TInvertedIndexStorageFormat.V2;
+            return TInvertedIndexFileStorageFormat.V2;
         }
-        return tableProperty.getInvertedIndexStorageFormat();
+        return tableProperty.getInvertedIndexFileStorageFormat();
     }
 
     public TCompressionType getCompressionType() {

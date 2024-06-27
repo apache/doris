@@ -347,6 +347,7 @@ public class StreamLoadPlanner {
 
         params.setQueryGlobals(queryGlobals);
         params.setTableName(destTable.getName());
+        params.setIsMowTable(destTable.getEnableUniqueKeyMergeOnWrite());
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
     }
