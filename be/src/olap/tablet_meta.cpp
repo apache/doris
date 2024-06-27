@@ -465,6 +465,12 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
 Status TabletMeta::serialize(string* meta_binary) {
     TabletMetaPB tablet_meta_pb;
     if (config::clear_rs_meta && config::tmp_tablet_id == _tablet_id) {
+        LOG(INFO) << "clear stale rs meta, tablet id " << _tablet_id
+                  << " stale rs meta size " << _stale_rs_metas.size();
+        for (int i = 0; i < _stale_rs_metas.size(); ++i) {
+            LOG(INFO) << "clear rs id " << _stale_rs_metas[i]->rowset_id().to_string()
+                      << " tablet id " << _table_id;
+        }
         _stale_rs_metas.clear();
     }
 
@@ -771,9 +777,18 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
             }
         }
     }
-    if (!same_version && config::need_add_stable_rowset) {
+    if (!same_version) {
         // put to_delete rowsets in _stale_rs_metas.
-        _stale_rs_metas.insert(_stale_rs_metas.end(), to_delete.begin(), to_delete.end());
+        if (!config::need_add_stable_rowset && _table_id == config::tmp_tablet_id) {
+            LOG(INFO) << "skip to add stale rs meta, tablet_id " << _tablet_id
+                      << "to delete size " << to_delete.size();
+            for (int i = 0; i < to_delete.size(); ++i) {
+                LOG(INFO) << "skip rs id " << to_delete[i]->rowset_id().to_string()
+                          << " tablet id " << _tablet_id;
+            }
+        } else {
+            _stale_rs_metas.insert(_stale_rs_metas.end(), to_delete.begin(), to_delete.end());
+        }
     }
     // put to_add rowsets in _rs_metas.
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
