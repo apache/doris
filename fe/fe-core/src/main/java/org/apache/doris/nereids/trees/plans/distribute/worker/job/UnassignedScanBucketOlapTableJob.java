@@ -23,7 +23,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
-import org.apache.doris.nereids.trees.plans.distribute.worker.WorkerManager;
+import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
@@ -75,7 +75,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
 
     @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
-            WorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         // for every bucket tablet, select its replica and worker.
         // for example, colocate join:
         // {
@@ -296,7 +296,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
     }
 
     private List<DistributedPlanWorker> getWorkersByReplicas(Tablet tablet) {
-        WorkerManager workerManager = scanWorkerSelector.getWorkerManager();
+        DistributedPlanWorkerManager workerManager = scanWorkerSelector.getWorkerManager();
         List<Replica> replicas = tablet.getReplicas();
         List<DistributedPlanWorker> workers = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {

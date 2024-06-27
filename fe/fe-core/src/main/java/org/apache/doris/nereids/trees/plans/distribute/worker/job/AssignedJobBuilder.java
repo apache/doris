@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
-import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorkerManager;
+import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragmentId;
 
@@ -34,7 +34,7 @@ public class AssignedJobBuilder {
     /** buildJobs */
     public static ListMultimap<PlanFragmentId, AssignedJob> buildJobs(
             Map<PlanFragmentId, UnassignedJob> unassignedJobs) {
-        BackendWorkerManager workerManager = new BackendWorkerManager();
+        BackendDistributedPlanWorkerManager workerManager = new BackendDistributedPlanWorkerManager();
         ListMultimap<PlanFragmentId, AssignedJob> allAssignedJobs = ArrayListMultimap.create();
         for (Entry<PlanFragmentId, UnassignedJob> kv : unassignedJobs.entrySet()) {
             PlanFragmentId fragmentId = kv.getKey();

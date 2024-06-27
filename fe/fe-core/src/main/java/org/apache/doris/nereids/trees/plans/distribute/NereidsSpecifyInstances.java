@@ -40,6 +40,7 @@ public abstract class NereidsSpecifyInstances<S extends ScanSource> {
                 "workerScanSources can not be null");
     }
 
+    /** buildAssignedJobs */
     public List<AssignedJob> buildAssignedJobs(UnassignedJob unassignedJob) {
         List<AssignedJob> instances = Lists.newArrayListWithCapacity(workerScanSources.size());
         int instanceNum = 0;

@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
-import org.apache.doris.nereids.trees.plans.distribute.worker.WorkerManager;
+import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
@@ -44,7 +44,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
     }
 
     @Override
-    public List<AssignedJob> computeAssignedJobs(WorkerManager workerManager,
+    public List<AssignedJob> computeAssignedJobs(DistributedPlanWorkerManager workerManager,
             ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
 
         Map<DistributedPlanWorker, UninstancedScanSource> workerToScanSource = multipleMachinesParallelization(
@@ -54,7 +54,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
     }
 
     protected abstract Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
-            WorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs);
+            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs);
 
     protected List<AssignedJob> insideMachineParallelization(
             Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
@@ -135,7 +135,8 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
         return instances;
     }
 
-    protected boolean useLocalShuffleToAddParallel(Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges) {
+    protected boolean useLocalShuffleToAddParallel(
+            Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges) {
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isForceToLocalShuffle()) {
             return true;
         }

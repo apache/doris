@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
-import org.apache.doris.nereids.trees.plans.distribute.worker.WorkerManager;
+import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
 import org.apache.doris.planner.DataGenScanNode;
 import org.apache.doris.planner.ExchangeNode;
@@ -61,7 +61,7 @@ public class UnassignedGatherScanMultiRemoteTablesJob extends AbstractUnassigned
     }
 
     @Override
-    public List<AssignedJob> computeAssignedJobs(WorkerManager workerManager,
+    public List<AssignedJob> computeAssignedJobs(DistributedPlanWorkerManager workerManager,
             ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         ConnectContext context = ConnectContext.get();
         Map<ScanNode, ScanRanges> scanNodeToScanRanges = Maps.newLinkedHashMap();

@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
-import org.apache.doris.nereids.trees.plans.distribute.worker.WorkerManager;
-import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
+import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
+import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
@@ -47,7 +47,7 @@ public class UnassignedScanSingleRemoteTableJob extends AbstractUnassignedScanJo
 
     @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
-            WorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         return scanWorkerSelector.selectReplicaAndWorkerWithoutBucket(scanNodes.get(0));
     }
 }

@@ -29,7 +29,7 @@ import java.util.Map;
 
 /** ScanWorkerSelector */
 public interface ScanWorkerSelector {
-    WorkerManager getWorkerManager();
+    DistributedPlanWorkerManager getWorkerManager();
 
     DistributedPlanWorker selectMinWorkloadWorker(List<DistributedPlanWorker> workers);
 

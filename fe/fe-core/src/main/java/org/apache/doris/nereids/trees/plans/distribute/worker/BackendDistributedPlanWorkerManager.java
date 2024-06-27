@@ -29,7 +29,7 @@ import com.google.common.collect.ImmutableMap;
 import java.util.function.Supplier;
 
 /** BackendWorkerManager */
-public class BackendWorkerManager implements WorkerManager {
+public class BackendDistributedPlanWorkerManager implements DistributedPlanWorkerManager {
     private final Supplier<ImmutableMap<Long, Backend>> backends = Suppliers.memoize(() -> {
         try {
             return Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();

@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
-import org.apache.doris.nereids.trees.plans.distribute.worker.WorkerManager;
-import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.nereids.trees.plans.distribute.NereidsSpecifyInstances;
+import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
+import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
 
@@ -42,7 +42,7 @@ public class UnassignedSpecifyInstancesJob extends AbstractUnassignedJob {
     }
 
     @Override
-    public List<AssignedJob> computeAssignedJobs(WorkerManager workerManager,
+    public List<AssignedJob> computeAssignedJobs(DistributedPlanWorkerManager workerManager,
             ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         return specifyInstances.buildAssignedJobs(this);
     }

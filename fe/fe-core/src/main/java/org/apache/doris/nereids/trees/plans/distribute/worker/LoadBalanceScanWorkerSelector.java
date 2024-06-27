@@ -50,11 +50,11 @@ import java.util.function.BiFunction;
 
 /** LoadBalanceScanWorkerSelector */
 public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
-    private final BackendWorkerManager workerManager = new BackendWorkerManager();
+    private final BackendDistributedPlanWorkerManager workerManager = new BackendDistributedPlanWorkerManager();
     private final Map<DistributedPlanWorker, WorkerWorkload> workloads = Maps.newLinkedHashMap();
 
     @Override
-    public WorkerManager getWorkerManager() {
+    public DistributedPlanWorkerManager getWorkerManager() {
         return workerManager;
     }
 

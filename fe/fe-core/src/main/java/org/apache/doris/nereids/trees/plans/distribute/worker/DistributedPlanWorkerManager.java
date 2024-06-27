@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker;
 
-/** WorkerManager */
-public interface WorkerManager {
+/** DistributedPlanWorkerManager */
+public interface DistributedPlanWorkerManager {
     DistributedPlanWorker getWorker(long backendId);
 
     DistributedPlanWorker randomAvailableWorker();
