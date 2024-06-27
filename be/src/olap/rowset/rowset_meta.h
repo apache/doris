@@ -269,6 +269,21 @@ public:
         return score;
     }
 
+    uint32_t get_merge_way_num() const {
+        uint32_t way_num = 0;
+        if (!is_segments_overlapping()) {
+            if (num_segments() == 0) {
+                way_num = 0;
+            } else {
+                way_num = 1;
+            }
+        } else {
+            way_num = num_segments();
+            CHECK(way_num > 0);
+        }
+        return way_num;
+    }
+
     void get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) const {
         for (const KeyBoundsPB& key_range : _rowset_meta_pb.segments_key_bounds()) {
             segments_key_bounds->push_back(key_range);
