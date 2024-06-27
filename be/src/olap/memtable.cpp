@@ -255,7 +255,7 @@ Status MemTable::_put_into_output(vectorized::Block& in_block) {
         row_pos_vec.emplace_back(_row_in_blocks[i]->_row_pos);
     }
     return _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
-                                          row_pos_vec.data() + in_block.rows(), &_column_offset);
+                                          row_pos_vec.data() + in_block.rows());
 }
 
 size_t MemTable::_sort() {
