@@ -144,63 +144,9 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
 LOCATION
-  '/user/doris/suites/test_hive_compress_type/test_compress_partitioned'
+  '/user/doris/suites/multi_catalog/test_compress_partitioned'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1692589095');
 
-CREATE TABLE `parquet_lz4_compression`(
-  `col_int` int,
-  `col_smallint` smallint,
-  `col_tinyint` tinyint,
-  `col_bigint` bigint,
-  `col_float` float,
-  `col_double` double,
-  `col_boolean` boolean,
-  `col_string` string,
-  `col_char` char(10),
-  `col_varchar` varchar(25),
-  `col_date` date,
-  `col_timestamp` timestamp,
-  `col_decimal` decimal(10,2))
-ROW FORMAT SERDE
-  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
-STORED AS INPUTFORMAT
-  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
-OUTPUTFORMAT
-  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
-LOCATION
-  '/user/doris/suites/test_hive_compress_type/parquet_lz4_compression'
-TBLPROPERTIES (
-  'parquet.compression'='LZ4',
-  'transient_lastDdlTime'='1700723950');
-
-CREATE TABLE `parquet_lzo_compression`(
-  `col_int` int,
-  `col_smallint` smallint,
-  `col_tinyint` tinyint,
-  `col_bigint` bigint,
-  `col_float` float,
-  `col_double` double,
-  `col_boolean` boolean,
-  `col_string` string,
-  `col_char` char(10),
-  `col_varchar` varchar(25),
-  `col_date` date,
-  `col_timestamp` timestamp,
-  `col_decimal` decimal(10,2))
-ROW FORMAT SERDE
-  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
-STORED AS INPUTFORMAT
-  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
-OUTPUTFORMAT
-  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
-LOCATION
-  '/user/doris/suites/test_hive_compress_type/parquet_lzo_compression'
-TBLPROPERTIES (
-  'parquet.compression'='LZO',
-  'transient_lastDdlTime'='1701173147');
-
 msck repair table test_compress_partitioned;
-msck repair table parquet_lz4_compression;
-msck repair table parquet_lzo_compression;
 
