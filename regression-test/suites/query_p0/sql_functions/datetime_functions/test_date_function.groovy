@@ -441,6 +441,7 @@ suite("test_date_function") {
     // UNIX_TIMESTAMP
     def unin_timestamp_str = """ select unix_timestamp() """
     assertTrue(unin_timestamp_str[0].size() == 1)
+    sql """set DEBUG_SKIP_FOLD_CONSTANT = true;"""
     qt_sql_ustamp1 """ select unix_timestamp('2007-11-30 10:30:19') """
     qt_sql_ustamp2 """ select unix_timestamp('2007-11-30 10:30-19', '%Y-%m-%d %H:%i-%s') """
     qt_sql_ustamp3 """ select unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s') """
@@ -448,7 +449,8 @@ suite("test_date_function") {
     qt_sql_ustamp5 """ select unix_timestamp('2007-11-30 10:30:19.123456') """
     qt_sql_ustamp6 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(3))) """
     qt_sql_ustamp7 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(4))) """
-
+    qt_sql_ustamp8 """ select cast(unix_timestamp("2024-01-01",'yyyy-MM-dd') as bigint) """
+    sql """set DEBUG_SKIP_FOLD_CONSTANT = false;"""
     // UTC_TIMESTAMP
     def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """
     assertTrue(utc_timestamp_str[0].size() == 2)

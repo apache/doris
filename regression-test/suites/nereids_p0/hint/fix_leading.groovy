@@ -30,7 +30,7 @@ suite("fix_leading") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
-    sql "set ignore_shape_nodes='PhysicalProject'"
+    sql "set ignore_shape_nodes='PhysicalProject, PhysicalDistribute'"
 
 
     // create tables

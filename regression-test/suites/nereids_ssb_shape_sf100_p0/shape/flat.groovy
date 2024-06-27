@@ -25,6 +25,7 @@ suite("q1.1") {
     sql 'set exec_mem_limit=21G' 
     sql 'SET enable_pipeline_engine = true'
     sql 'set parallel_pipeline_task_num=8'
+    sql "set enable_parallel_result_sink=false;"
     
 sql 'set be_number_for_test=3'
 sql 'set enable_runtime_filter_prune=false'

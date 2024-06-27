@@ -498,22 +498,14 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
 
             if (_should_limit_output && !Base::_shared_state->enable_spill) {
                 const size_t hash_table_size = _get_hash_table_size();
-                if (Base::_parent->template cast<AggSinkOperatorX>()._can_short_circuit) {
-                    _shared_state->reach_limit =
-                            hash_table_size >=
-                            Base::_parent->template cast<AggSinkOperatorX>()._limit;
-                    if (_shared_state->reach_limit) {
-                        Base::_dependency->set_ready_to_read();
-                        return Status::Error<ErrorCode::END_OF_FILE>("");
-                    }
-                } else {
-                    _shared_state->reach_limit =
-                            hash_table_size >= _shared_state->do_sort_limit
-                                    ? Base::_parent->template cast<AggSinkOperatorX>()._limit * 5
-                                    : Base::_parent->template cast<AggSinkOperatorX>()._limit;
-                    if (_shared_state->reach_limit && _shared_state->do_sort_limit) {
-                        _shared_state->build_limit_heap(hash_table_size);
-                    }
+
+                _shared_state->reach_limit =
+                        hash_table_size >=
+                        (_shared_state->do_sort_limit
+                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit * 5
+                                 : Base::_parent->template cast<AggSinkOperatorX>()._limit);
+                if (_shared_state->reach_limit && _shared_state->do_sort_limit) {
+                    _shared_state->build_limit_heap(hash_table_size);
                 }
             }
         }
@@ -741,9 +733,6 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
     // init aggregate functions
     _aggregate_evaluators.reserve(tnode.agg_node.aggregate_functions.size());
-    // In case of : `select * from (select GoodEvent from hits union select CounterID from hits) as h limit 10;`
-    // only union with limit: we can short circuit query the pipeline exec engine.
-    _can_short_circuit = tnode.agg_node.aggregate_functions.empty();
 
     TSortInfo dummy;
     for (int i = 0; i < tnode.agg_node.aggregate_functions.size(); ++i) {

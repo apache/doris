@@ -393,8 +393,6 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
 
         logger.info("hive sql: " + """ truncate table all_types_${format_compression}; """)
         hive_docker """ truncate table all_types_${format_compression}; """
-        order_qt_q06 """ select * from all_types_${format_compression};
-        """
     }
 
     def q02 = { String format_compression, String catalog_name ->
@@ -444,9 +442,6 @@ suite("test_hive_write_insert", "p0,external,hive,external_docker,external_docke
 
         logger.info("hive sql: " + """ truncate table all_types_${format_compression}; """)
         hive_docker """ truncate table all_types_${format_compression}; """
-        order_qt_q05 """
-        select * from all_types_${format_compression};
-        """
     }
     def q03 = { String format_compression, String catalog_name ->
         logger.info("hive sql: " + """ DROP TABLE IF EXISTS all_types_par_${format_compression}_${catalog_name}_q03; """)

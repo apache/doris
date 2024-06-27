@@ -91,4 +91,35 @@ suite("test_date_function_prune") {
         sql "select * from dp where date_time > str_to_date('2020-01-02','%Y-%m-%d')"
         contains("partitions=2/3 (p2,p3)")
     }
+
+    sql "drop table if exists test_to_date_trunc"
+    sql """
+        CREATE TABLE test_to_date_trunc(
+            event_day DATETIME NOT NULL
+        )
+        DUPLICATE KEY(event_day)
+        AUTO PARTITION BY range (date_trunc(event_day, "day")) (
+            PARTITION `p20230807` values [(20230807 ), (20230808 )),
+            PARTITION `p20020106` values [(20020106 ), (20020107 ))
+        )
+        DISTRIBUTED BY HASH(event_day) BUCKETS 4
+        PROPERTIES("replication_num" = "1");
+    """
+    explain {
+        sql """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from test_to_date_trunc where date_trunc(event_day, "day")= "2023-08-07 11:00:00" """
+        contains("partitions=0/2")
+    }
+    explain {
+        sql """ select * from test_to_date_trunc where date_trunc(event_day, "day")= "2023-08-07 11:00:00" """
+        contains("VEMPTYSET")
+    }
+    sql """ insert into test_to_date_trunc values ("20230807000000"); """
+    explain {
+        sql """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from test_to_date_trunc where date_trunc(event_day, "day")= "2023-08-07 11:00:00" """
+        contains("partitions=1/2 (p20230807)")
+    }
+    explain {
+        sql """ select * from test_to_date_trunc where date_trunc(event_day, "day")= "2023-08-07 11:00:00" """
+        contains("partitions=1/2 (p20230807)")
+    }
 }

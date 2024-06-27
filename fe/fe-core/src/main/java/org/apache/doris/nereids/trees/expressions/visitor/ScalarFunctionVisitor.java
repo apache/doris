@@ -225,6 +225,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
@@ -309,6 +310,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
@@ -330,6 +332,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplace
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplaceOne;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Repeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Replace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ReplaceEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Reverse;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Right;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
@@ -1318,6 +1321,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonExtract, context);
     }
 
+    default R visitJsonKeys(JsonKeys jsonKeys, C context) {
+        return visitScalarFunction(jsonKeys, context);
+    }
+
     default R visitJsonInsert(JsonInsert jsonInsert, C context) {
         return visitScalarFunction(jsonInsert, context);
     }
@@ -1610,6 +1617,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(nvl, context);
     }
 
+    default R visitOverlay(Overlay overlay, C context) {
+        return visitScalarFunction(overlay, context);
+    }
+
     default R visitParseUrl(ParseUrl parseUrl, C context) {
         return visitScalarFunction(parseUrl, context);
     }
@@ -1696,6 +1707,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitReplace(Replace replace, C context) {
         return visitScalarFunction(replace, context);
+    }
+
+    default R visitReplaceEmpty(ReplaceEmpty replaceEmpty, C context) {
+        return visitScalarFunction(replaceEmpty, context);
     }
 
     default R visitReverse(Reverse reverse, C context) {

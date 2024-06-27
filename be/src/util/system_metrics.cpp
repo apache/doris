@@ -869,6 +869,10 @@ void SystemMetrics::get_disks_io_time(std::map<std::string, int64_t>* map) {
     }
 }
 
+double SystemMetrics::get_load_average_1_min() {
+    return _load_average_metrics->load_average_1_minutes->value();
+}
+
 void SystemMetrics::get_network_traffic(std::map<std::string, int64_t>* send_map,
                                         std::map<std::string, int64_t>* rcv_map) {
     send_map->clear();

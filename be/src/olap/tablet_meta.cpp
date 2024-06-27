@@ -62,6 +62,22 @@ TabletMetaSharedPtr TabletMeta::create(
     if (request.__isset.binlog_config) {
         binlog_config = request.binlog_config;
     }
+    TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format =
+            request.inverted_index_file_storage_format;
+
+    // We will discard this format. Don't make any further changes here.
+    if (request.__isset.inverted_index_storage_format) {
+        switch (request.inverted_index_storage_format) {
+        case TInvertedIndexStorageFormat::V1:
+            inverted_index_file_storage_format = TInvertedIndexFileStorageFormat::V1;
+            break;
+        case TInvertedIndexStorageFormat::V2:
+            inverted_index_file_storage_format = TInvertedIndexFileStorageFormat::V2;
+            break;
+        default:
+            break;
+        }
+    }
     return std::make_shared<TabletMeta>(
             request.table_id, request.partition_id, request.tablet_id, request.replica_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
@@ -76,7 +92,7 @@ TabletMetaSharedPtr TabletMeta::create(
             request.time_series_compaction_file_count_threshold,
             request.time_series_compaction_time_threshold_seconds,
             request.time_series_compaction_empty_rowsets_threshold,
-            request.time_series_compaction_level_threshold, request.inverted_index_storage_format);
+            request.time_series_compaction_level_threshold, inverted_index_file_storage_format);
 }
 
 TabletMeta::TabletMeta()
@@ -97,7 +113,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        int64_t time_series_compaction_time_threshold_seconds,
                        int64_t time_series_compaction_empty_rowsets_threshold,
                        int64_t time_series_compaction_level_threshold,
-                       TInvertedIndexStorageFormat::type inverted_index_storage_format)
+                       TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -175,15 +191,15 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         break;
     }
 
-    switch (inverted_index_storage_format) {
-    case TInvertedIndexStorageFormat::V1:
+    switch (inverted_index_file_storage_format) {
+    case TInvertedIndexFileStorageFormat::V1:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         break;
-    case TInvertedIndexStorageFormat::V2:
+    case TInvertedIndexFileStorageFormat::V2:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
         break;
     default:
-        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
         break;
     }
 
@@ -304,6 +320,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.skip_write_index_on_load) {
         schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
     }
+    if (tablet_schema.__isset.row_store_col_cids) {
+        schema->mutable_row_store_column_unique_ids()->Add(tablet_schema.row_store_col_cids.begin(),
+                                                           tablet_schema.row_store_col_cids.end());
+    }
     if (binlog_config.has_value()) {
         BinlogConfig tmp_binlog_config;
         tmp_binlog_config = binlog_config.value();
@@ -365,6 +385,10 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
 
     if (tcolumn.__isset.result_is_nullable) {
         column->set_result_is_nullable(tcolumn.result_is_nullable);
+    }
+
+    if (tcolumn.__isset.be_exec_version) {
+        column->set_be_exec_version(tcolumn.be_exec_version);
     }
 
     if (tcolumn.column_type.type == TPrimitiveType::VARCHAR ||

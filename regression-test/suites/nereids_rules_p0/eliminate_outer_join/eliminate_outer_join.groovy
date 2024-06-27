@@ -21,6 +21,7 @@ suite("eliminate_outer_join") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set be_number_for_test=3'
+    sql "set enable_parallel_result_sink=false;"
 
     sql """
         DROP TABLE IF EXISTS t

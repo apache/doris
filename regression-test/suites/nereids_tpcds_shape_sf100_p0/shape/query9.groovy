@@ -31,6 +31,7 @@ suite("query9") {
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    sql "set enable_parallel_result_sink=false;"
 
     def ds = """select case when (select count(*) 
                   from store_sales 

@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_single_compaction_with_variant_inverted", "p2") {
+    if (isCloudMode()) {
+        return;
+    }
     def tableName = "test_single_compaction_with_variant_inverted"
   
     def set_be_config = { key, value ->

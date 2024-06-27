@@ -35,6 +35,7 @@
 #include <ostream>
 #include <string>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gutil/endian.h"
 #include "io/fs/file_writer.h"
@@ -69,8 +70,6 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
-
-const uint64_t min_row_group_size = 128 * 1024 * 1024; // 128MB
 
 ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
@@ -148,39 +147,40 @@ void ParquetBuildHelper::build_compression_type(
         const TParquetCompressionType::type& compression_type) {
     switch (compression_type) {
     case TParquetCompressionType::SNAPPY: {
-        builder.compression(parquet::Compression::SNAPPY);
+        builder.compression(arrow::Compression::SNAPPY);
         break;
     }
     case TParquetCompressionType::GZIP: {
-        builder.compression(parquet::Compression::GZIP);
+        builder.compression(arrow::Compression::GZIP);
         break;
     }
     case TParquetCompressionType::BROTLI: {
-        builder.compression(parquet::Compression::BROTLI);
+        builder.compression(arrow::Compression::BROTLI);
         break;
     }
     case TParquetCompressionType::ZSTD: {
-        builder.compression(parquet::Compression::ZSTD);
+        builder.compression(arrow::Compression::ZSTD);
         break;
     }
     case TParquetCompressionType::LZ4: {
-        builder.compression(parquet::Compression::LZ4);
+        builder.compression(arrow::Compression::LZ4);
         break;
     }
-    case TParquetCompressionType::LZO: {
-        builder.compression(parquet::Compression::LZO);
-        break;
-    }
-    case TParquetCompressionType::BZ2: {
-        builder.compression(parquet::Compression::BZ2);
-        break;
-    }
+    // arrow do not support lzo and bz2 compression type.
+    // case TParquetCompressionType::LZO: {
+    //     builder.compression(arrow::Compression::LZO);
+    //     break;
+    // }
+    // case TParquetCompressionType::BZ2: {
+    //     builder.compression(arrow::Compression::BZ2);
+    //     break;
+    // }
     case TParquetCompressionType::UNCOMPRESSED: {
-        builder.compression(parquet::Compression::UNCOMPRESSED);
+        builder.compression(arrow::Compression::UNCOMPRESSED);
         break;
     }
     default:
-        builder.compression(parquet::Compression::UNCOMPRESSED);
+        builder.compression(arrow::Compression::SNAPPY);
     }
 }
 
@@ -247,6 +247,7 @@ Status VParquetTransformer::_parse_properties() {
         }
         builder.created_by(
                 fmt::format("{}({})", doris::get_short_version(), parquet::DEFAULT_CREATED_BY));
+        builder.max_row_group_length(std::numeric_limits<int64_t>::max());
         _parquet_writer_properties = builder.build();
         _arrow_properties = parquet::ArrowWriterProperties::Builder()
                                     .enable_deprecated_int96_timestamps()
@@ -296,7 +297,7 @@ Status VParquetTransformer::write(const Block& block) {
 
     RETURN_DORIS_STATUS_IF_ERROR(_writer->WriteRecordBatch(*result));
     _write_size += block.bytes();
-    if (_write_size >= min_row_group_size) {
+    if (_write_size >= doris::config::min_row_group_size) {
         RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
         _write_size = 0;
     }

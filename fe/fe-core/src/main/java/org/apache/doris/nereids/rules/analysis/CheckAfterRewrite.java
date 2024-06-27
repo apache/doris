@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -187,9 +186,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         for (Expression expression : plan.getExpressions()) {
             if (expression instanceof Match) {
                 if (plan instanceof LogicalFilter && (plan.child(0) instanceof LogicalOlapScan
-                        || plan.child(0) instanceof LogicalDeferMaterializeOlapScan
-                        || plan.child(0) instanceof LogicalProject
-                        && ((LogicalProject<?>) plan.child(0)).hasPushedDownToProjectionFunctions())) {
+                        || plan.child(0) instanceof LogicalDeferMaterializeOlapScan)) {
                     return;
                 } else {
                     throw new AnalysisException(String.format(

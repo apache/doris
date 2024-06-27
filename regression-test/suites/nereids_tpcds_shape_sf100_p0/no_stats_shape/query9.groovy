@@ -33,6 +33,7 @@ sql 'set enable_runtime_filter_prune=false'
     sql 'set enable_nereids_timeout = false'
     sql 'SET enable_pipeline_engine = true'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    sql "set enable_parallel_result_sink=false;"
 
     qt_ds_shape_9 '''
     explain shape plan

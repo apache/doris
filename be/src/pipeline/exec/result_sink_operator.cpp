@@ -18,6 +18,7 @@
 #include "result_sink_operator.h"
 
 #include <memory>
+#include <utility>
 
 #include "common/object_pool.h"
 #include "exec/rowid_fetcher.h"
@@ -44,11 +45,14 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
     _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
 
-    // create sender
-    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), RESULT_SINK_BUFFER_SIZE, &_sender,
-            state->execution_timeout()));
-    _sender->set_dependency(_dependency->shared_from_this());
+    if (state->query_options().enable_parallel_result_sink) {
+        _sender = _parent->cast<ResultSinkOperatorX>()._sender;
+    } else {
+        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+                fragment_instance_id, RESULT_SINK_BUFFER_SIZE, &_sender, state->execution_timeout(),
+                state->batch_size()));
+    }
+    _sender->set_dependency(fragment_instance_id, _dependency->shared_from_this());
     return Status::OK();
 }
 
@@ -76,8 +80,7 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
         std::shared_ptr<arrow::Schema> arrow_schema;
         RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));
-        state->exec_env()->result_mgr()->register_arrow_schema(state->fragment_instance_id(),
-                                                               arrow_schema);
+        state->exec_env()->result_mgr()->register_arrow_schema(state->query_id(), arrow_schema);
         _writer.reset(new (std::nothrow) vectorized::VArrowFlightResultWriter(
                 _sender.get(), _output_vexpr_ctxs, _profile, arrow_schema));
         break;
@@ -104,9 +107,6 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& r
 }
 
 Status ResultSinkOperatorX::prepare(RuntimeState* state) {
-    auto fragment_instance_id = state->fragment_instance_id();
-    auto title = fmt::format("VDataBufferSender (dst_fragment_instance_id={:x}-{:x})",
-                             fragment_instance_id.hi, fragment_instance_id.lo);
     // prepare output_expr
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
@@ -118,6 +118,12 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     }
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+
+    if (state->query_options().enable_parallel_result_sink) {
+        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+                state->query_id(), RESULT_SINK_BUFFER_SIZE, &_sender, state->execution_timeout(),
+                state->batch_size()));
+    }
     return Status::OK();
 }
 
@@ -133,7 +139,7 @@ Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, 
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
     }
-    RETURN_IF_ERROR(local_state._writer->write(*block));
+    RETURN_IF_ERROR(local_state._writer->write(state, *block));
     if (_fetch_option.use_two_phase_fetch) {
         // Block structure may be changed by calling _second_phase_fetch_data().
         // So we should clear block in case of unmatched columns
@@ -179,7 +185,7 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
         if (_writer) {
             _sender->update_return_rows(_writer->get_written_rows());
         }
-        RETURN_IF_ERROR(_sender->close(final_status));
+        RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status));
     }
     state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,

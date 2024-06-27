@@ -131,4 +131,31 @@ suite("select_random_distributed_tbl") {
     }
 
     sql "drop table ${tableName};"
+
+    // test all keys are NOT NULL for AGG table
+    sql "drop table if exists random_distributed_tbl_test_2;"
+    sql """ CREATE TABLE random_distributed_tbl_test_2 (
+        `k1` LARGEINT NOT NULL
+    ) ENGINE=OLAP
+    AGGREGATE KEY(`k1`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY RANDOM BUCKETS 10
+    PROPERTIES (
+        "replication_num" = "1"
+    );
+    """
+
+    sql """ insert into random_distributed_tbl_test_2 values(1); """
+    sql """ insert into random_distributed_tbl_test_2 values(1); """
+    sql """ insert into random_distributed_tbl_test_2 values(1); """
+
+    sql "set enable_nereids_planner = false;"
+    qt_sql_17 "select k1 from random_distributed_tbl_test_2;"
+    qt_sql_18 "select distinct k1 from random_distributed_tbl_test_2;"
+
+    sql "set enable_nereids_planner = true;"
+    qt_sql_19 "select k1 from random_distributed_tbl_test_2;"
+    qt_sql_20 "select distinct k1 from random_distributed_tbl_test_2;"
+
+    sql "drop table random_distributed_tbl_test_2;"
 }

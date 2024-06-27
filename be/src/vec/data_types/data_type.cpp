@@ -97,6 +97,16 @@ Status IDataType::from_string(ReadBuffer& rb, IColumn* column) const {
     return Status::OK();
 }
 
+void IDataType::to_string_batch(const IColumn& column, ColumnString& column_to) const {
+    const auto size = column.size();
+    column_to.reserve(size * 2);
+    VectorBufferWriter write_buffer(column_to);
+    for (size_t i = 0; i < size; ++i) {
+        to_string(column, i, write_buffer);
+        write_buffer.commit();
+    }
+}
+
 void IDataType::insert_default_into(IColumn& column) const {
     column.insert_default();
 }

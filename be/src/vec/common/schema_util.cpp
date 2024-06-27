@@ -236,28 +236,6 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
     return result;
 }
 
-TabletColumn get_least_type_column(const TabletColumn& original, const DataTypePtr& new_type,
-                                   const ExtraInfo& ext_info, bool* changed) {
-    TabletColumn result_column;
-    vectorized::DataTypePtr original_type = original.get_vec_type();
-    vectorized::DataTypePtr common_type;
-    vectorized::get_least_supertype<vectorized::LeastSupertypeOnError::Jsonb>(
-            vectorized::DataTypes {original_type, new_type}, &common_type);
-    if (!original_type->equals(*common_type)) {
-        // update to common type
-        *changed = true;
-        vectorized::schema_util::get_column_by_type(common_type, original.name(), result_column,
-                                                    ext_info);
-    } else {
-        *changed = false;
-        result_column = original;
-        result_column.set_parent_unique_id(ext_info.parent_unique_id);
-        result_column.set_unique_id(ext_info.unique_id);
-        result_column.set_path_info(ext_info.path_info);
-    }
-    return result_column;
-}
-
 void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
                                   TabletSchemaSPtr& common_schema, bool update_sparse_column,
                                   int32_t variant_col_unique_id,
@@ -286,7 +264,7 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
             continue;
         }
         DataTypePtr common_type;
-        get_least_supertype<LeastSupertypeOnError::Jsonb>(subtypes, &common_type);
+        get_least_supertype_jsonb(subtypes, &common_type);
         if (!common_type->is_nullable()) {
             common_type = make_nullable(common_type);
         }
@@ -389,7 +367,8 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
         // add index meta
         TabletIndex index_info = *source_index_meta;
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        const auto* target_index_meta = target_schema->get_inverted_index(target);
+        // get_inverted_index: No need to check, just inherit directly
+        const auto* target_index_meta = target_schema->get_inverted_index(target, false);
         if (target_index_meta != nullptr) {
             // already exist
             target_schema->update_index(target, index_info);
@@ -682,7 +661,7 @@ void rebuild_schema_and_block(const TabletSchemaSPtr& original,
                 {}, root->data.get_finalized_column_ptr()->assume_mutable(),
                 root->data.get_least_common_type());
         // // set for rowstore
-        if (original->store_row_column()) {
+        if (original->has_row_store_for_all_columns()) {
             static_cast<vectorized::ColumnObject*>(obj.get())->set_rowstore_column(
                     object_column.get_rowstore_column());
         }

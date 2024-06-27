@@ -259,8 +259,7 @@ public class PartitionKeyTest {
         PartitionKey rKeyEmpty = PartitionKey.read(dis);
         Assert.assertEquals(keyEmpty, rKeyEmpty);
 
-        PartitionKey rKey = new PartitionKey();
-        rKey.readFields(dis);
+        PartitionKey rKey = PartitionKey.read(dis);
         Assert.assertEquals(key, rKey);
         Assert.assertEquals(key, key);
         Assert.assertNotEquals(key, this);

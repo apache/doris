@@ -155,13 +155,13 @@ setup_java_env() {
     elif [[ -d "${JAVA_HOME}/jre" ]]; then
         export LD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
         if [[ "$(uname -s)" == 'Darwin' ]]; then
-            export DYLD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${DYLD_LIBRARY_PATH}"
+            export DYLD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/server:${JAVA_HOME}/jre/lib:${DYLD_LIBRARY_PATH}"
         fi
         # JAVA_HOME is jre
     else
         export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
         if [[ "$(uname -s)" == 'Darwin' ]]; then
-            export DYLD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${DYLD_LIBRARY_PATH}"
+            export DYLD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${DYLD_LIBRARY_PATH}"
         fi
     fi
 }
@@ -416,7 +416,11 @@ else
 fi
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
-    nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        nohup env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
+    else
+        nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
+    fi
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null

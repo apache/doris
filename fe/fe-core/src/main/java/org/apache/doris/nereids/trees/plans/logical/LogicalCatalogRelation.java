@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
@@ -103,7 +102,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     public List<Slot> computeOutput() {
         return table.getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(table, col, qualified(), this))
+                .map(col -> SlotReference.fromColumn(table, col, qualified()))
                 .collect(ImmutableList.toImmutableList());
     }
 
@@ -128,20 +127,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
         Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
-        if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
-            ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
-            for (Slot slot : outputSet) {
-                if (!(slot instanceof SlotReference)) {
-                    continue;
-                }
-                SlotReference slotRef = (SlotReference) slot;
-                if (slotRef.getColumn().isPresent() && slotRef.getColumn().get().isKey()) {
-                    uniqSlots.add(slot);
-                }
-            }
-            builder.addUniqueSlot(uniqSlots.build());
-        }
-
         for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
             Set<Column> columns = c.getPrimaryKeys(table);
             builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));

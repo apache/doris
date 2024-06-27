@@ -389,7 +389,7 @@ public class DateTimeExtractAndTransform {
     /**
      * from_days.
      */
-    @ExecFunction(name = "from_days", argTypes = {"INT"}, returnType = "DATE")
+    @ExecFunction(name = "from_days", argTypes = {"INT"}, returnType = "DATEV2")
     public static Expression fromDays(IntegerLiteral n) {
         // doris treat 0000AD as ordinary year but java LocalDateTime treat it as lunar year.
         LocalDateTime res = LocalDateTime.of(0, 1, 1, 0, 0, 0)
@@ -397,7 +397,7 @@ public class DateTimeExtractAndTransform {
         if (res.isBefore(LocalDateTime.of(0, 3, 1, 0, 0, 0))) {
             res = res.plusDays(-1);
         }
-        return DateLiteral.fromJavaDateType(res);
+        return DateV2Literal.fromJavaDateType(res);
     }
 
     @ExecFunction(name = "last_day", argTypes = {"DATE"}, returnType = "DATE")
@@ -704,7 +704,7 @@ public class DateTimeExtractAndTransform {
                 // mode 2 is start with a Sunday day as first week in this year.
                 // and special case for 0000-01-01, as it's SATURDAY, calculate result of 52 is
                 // last year, so it's meaningless.
-                if (localDateTime.equals(LocalDateTime.of(0, 1, 1, 0, 0))) {
+                if (checkIsSpecificDate(localDateTime)) {
                     return new TinyIntLiteral((byte) 1);
                 }
                 return new TinyIntLiteral(
@@ -767,9 +767,15 @@ public class DateTimeExtractAndTransform {
         return yearWeek(dateTime.toJavaDateType(), 0);
     }
 
-    private static Expression yearWeek(LocalDateTime localDateTime, int mode) {
+    /**
+     * the impl of function yearWeek(date/datetime, mode)
+     */
+    public static Expression yearWeek(LocalDateTime localDateTime, int mode) {
         switch (mode) {
             case 0: {
+                if (checkIsSpecificDate(localDateTime)) {
+                    return new IntegerLiteral(1);
+                }
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
@@ -780,6 +786,9 @@ public class DateTimeExtractAndTransform {
                         + localDateTime.get(WeekFields.ISO.weekOfWeekBasedYear()));
             }
             case 2: {
+                if (checkIsSpecificDate(localDateTime)) {
+                    return new IntegerLiteral(1);
+                }
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
@@ -818,6 +827,13 @@ public class DateTimeExtractAndTransform {
                         String.format("unknown mode %d in week function", mode));
             }
         }
+    }
+
+    /**
+     * 0000-01-01 is specific date, sometime need handle it alone.
+     */
+    private static boolean checkIsSpecificDate(LocalDateTime localDateTime) {
+        return localDateTime.getYear() == 0 && localDateTime.getMonthValue() == 1 && localDateTime.getDayOfMonth() == 1;
     }
 
     @ExecFunction(name = "weekofyear", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")

@@ -24,3 +24,6 @@ tblproperties (
 );
 insert into demo.test_db.location_s3_table values (1,'a');
 update demo.test_db.location_s3_table set val='b' where id=1;
+
+create table demo.test_db.tb_ts_ntz_filter (ts timestamp_ntz) using iceberg;
+insert into demo.test_db.tb_ts_ntz_filter values (timestamp_ntz '2024-06-11 12:34:56.123456');

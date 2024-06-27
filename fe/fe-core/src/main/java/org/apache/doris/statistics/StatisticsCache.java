@@ -30,6 +30,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
@@ -142,13 +143,27 @@ public class StatisticsCache {
         return Optional.empty();
     }
 
-    public void invalidate(long ctlId, long dbId, long tblId, long idxId, String partId, String colName) {
-        if (partId == null) {
-            columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
-        } else {
-            partitionColumnStatisticCache.synchronous().invalidate(
-                new PartitionColumnStatisticCacheKey(ctlId, dbId, tblId, idxId, partId, colName));
+    public void invalidateColumnStatsCache(long ctlId, long dbId, long tblId, long idxId, String colName) {
+        columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
+    }
+
+    public void invalidatePartitionColumnStatsCache(long ctlId, long dbId, long tblId, long idxId,
+                                                    String partName, String colName) {
+        if (partName == null) {
+            return;
         }
+        partitionColumnStatisticCache.synchronous().invalidate(
+            new PartitionColumnStatisticCacheKey(ctlId, dbId, tblId, idxId, partName, colName));
+    }
+
+    public void invalidateAllPartitionStatsCache() {
+        partitionColumnStatisticCache.synchronous().invalidateAll();
+    }
+
+    public void updatePartitionColStatsCache(long ctlId, long dbId, long tblId, long idxId,
+                                             String partName, String colName, PartitionColumnStatistic statistic) {
+        partitionColumnStatisticCache.synchronous().put(
+            new PartitionColumnStatisticCacheKey(ctlId, dbId, tblId, idxId, partName, colName), Optional.of(statistic));
     }
 
     public void updateColStatsCache(long ctlId, long dbId, long tblId, long idxId, String colName,
@@ -229,7 +244,7 @@ public class StatisticsCache {
                 statsId.idxId, statsId.colId);
         ColumnStatistic columnStatistic = data.toColumnStatistic();
         if (columnStatistic == ColumnStatistic.UNKNOWN) {
-            invalidate(k.catalogId, k.dbId, k.tableId, k.idxId, null, k.colName);
+            invalidateColumnStatsCache(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName);
         } else {
             putCache(k, columnStatistic);
         }
@@ -285,5 +300,23 @@ public class StatisticsCache {
         CompletableFuture<Optional<ColumnStatistic>> f = new CompletableFuture<Optional<ColumnStatistic>>();
         f.obtrudeValue(Optional.of(c));
         columnStatisticsCache.put(k, f);
+    }
+
+    @VisibleForTesting
+    public boolean updatePartitionStats(Frontend frontend, TUpdateFollowerPartitionStatsCacheRequest request) {
+        TNetworkAddress address = new TNetworkAddress(frontend.getHost(), frontend.getRpcPort());
+        FrontendService.Client client = null;
+        try {
+            client = ClientPool.frontendPool.borrowObject(address);
+            client.updatePartitionStatsCache(request);
+        } catch (Throwable t) {
+            LOG.warn("Failed to update partition stats cache of follower: {}", address, t);
+            return false;
+        } finally {
+            if (client != null) {
+                ClientPool.frontendPool.returnObject(address, client);
+            }
+        }
+        return true;
     }
 }

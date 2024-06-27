@@ -20,9 +20,10 @@ package org.apache.doris.nereids.rules.expression;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
-import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -525,6 +526,18 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    void testDateError() {
+        boolean isError = false;
+        try {
+            new DateV2Literal("0000-02-29");
+        } catch (AnalysisException e) {
+            Assertions.assertEquals(e.getMessage(), "date/datetime literal [0000-02-29] is out of range");
+            isError = true;
+        }
+        Assertions.assertEquals(isError, true);
+    }
+
+    @Test
     void testDateTimeV2TypeDateTimeArithmeticFunctions() {
         DateTimeV2Literal dateLiteral = new DateTimeV2Literal(DateTimeV2Type.SYSTEM_DEFAULT, "1999-12-31 23:59:59");
         IntegerLiteral integerLiteral = new IntegerLiteral(30);
@@ -715,7 +728,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 MemoTestUtils.createCascadesContext(new UnboundRelation(new RelationId(1), ImmutableList.of("test_table"))));
         NereidsParser parser = new NereidsParser();
         Expression e1 = parser.parseExpression(actualExpression);
-        e1 = new ExpressionNormalization().rewrite(FunctionBinder.INSTANCE.rewrite(e1, context), context);
+        e1 = new ExpressionNormalization().rewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(e1, context), context);
         Assertions.assertTrue(e1.getDataType() instanceof VarcharType);
     }
 
@@ -725,7 +738,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         NereidsParser parser = new NereidsParser();
         Expression e1 = parser.parseExpression(actualExpression);
-        e1 = new ExpressionNormalization().rewrite(FunctionBinder.INSTANCE.rewrite(e1, context), context);
+        e1 = new ExpressionNormalization().rewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(e1, context), context);
         Assertions.assertEquals(expectedExpression, e1.toSql());
     }
 }
