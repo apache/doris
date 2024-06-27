@@ -97,6 +97,7 @@ private:
     std::unique_ptr<TopicSubscriber> _topic_subscriber;
     std::unique_ptr<TaskWorkerPool> _gc_binlog_workers;
     std::unique_ptr<TaskWorkerPool> _clean_trash_workers;
+    std::unique_ptr<TaskWorkerPool> _update_visible_version_workers;
 };
 
 } // end namespace doris
