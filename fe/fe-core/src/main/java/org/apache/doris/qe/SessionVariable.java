@@ -1231,7 +1231,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
 
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true, varType = VariableAnnotation.REMOVED)
     public String enableNereidsRules = "";
 
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
