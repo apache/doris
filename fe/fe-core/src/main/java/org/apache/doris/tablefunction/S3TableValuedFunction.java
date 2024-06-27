@@ -120,7 +120,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             }
         } else {
             String bucket = s3uri.getBucket();
-            String accountName = getOrDefaultAndRemove(properties, S3Properties.ACCESS_KEY, "");
+            String accountName = properties.getOrDefault(S3Properties.ACCESS_KEY, "");
             if (accountName.isEmpty()) {
                 throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ACCESS_KEY));
             }
