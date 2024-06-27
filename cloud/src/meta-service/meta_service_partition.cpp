@@ -633,7 +633,7 @@ void MetaServiceImpl::check_create_table(std::string instance_id, const CheckKVR
 
     if (keys.empty()) {
         *code = MetaServiceCode::INVALID_ARGUMENT;
-        *msg = "empty partition_ids";
+        *msg = "empty keys";
         return;
     }
 

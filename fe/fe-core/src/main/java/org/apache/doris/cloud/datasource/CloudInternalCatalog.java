@@ -418,6 +418,9 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     public void checkCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
             throws DdlException {
+        if (!Config.check_create_table_recycle_key_remained) {
+            return;
+        }
         if (partitionIds == null) {
             checkMaterializedIndex(dbId, tableId, indexIds);
         } else {
@@ -562,7 +565,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     private void checkPartition(long dbId, long tableId, List<Long> partitionIds)
             throws DdlException {
         Cloud.CheckKeyInfos.Builder checkKeyInfosBuilder = Cloud.CheckKeyInfos.newBuilder();
-        checkKeyInfosBuilder.addAllIndexIds(partitionIds);
+        checkKeyInfosBuilder.addAllPartitionIds(partitionIds);
         // for ms log
         checkKeyInfosBuilder.addDbIds(dbId);
         checkKeyInfosBuilder.addTableIds(tableId);
@@ -570,6 +573,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         Cloud.CheckKVRequest.Builder checkKvRequestBuilder = Cloud.CheckKVRequest.newBuilder();
         checkKvRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         checkKvRequestBuilder.setCheckKeys(checkKeyInfosBuilder.build());
+        checkKvRequestBuilder.setOp(Cloud.CheckKVRequest.Operation.CREATE_PARTITION_AFTER_FE_COMMIT);
         final Cloud.CheckKVRequest checkKVRequest = checkKvRequestBuilder.build();
 
         Cloud.CheckKVResponse response = null;
@@ -606,6 +610,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         Cloud.CheckKVRequest.Builder checkKvRequestBuilder = Cloud.CheckKVRequest.newBuilder();
         checkKvRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
         checkKvRequestBuilder.setCheckKeys(checkKeyInfosBuilder.build());
+        checkKvRequestBuilder.setOp(Cloud.CheckKVRequest.Operation.CREATE_INDEX_AFTER_FE_COMMIT);
         final Cloud.CheckKVRequest checkKVRequest = checkKvRequestBuilder.build();
 
         Cloud.CheckKVResponse response = null;

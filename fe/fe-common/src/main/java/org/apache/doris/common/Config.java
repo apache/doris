@@ -2891,6 +2891,10 @@ public class Config extends ConfigBase {
             "streamload route policy in cloud mode, availale options are public-private and empty string"})
     public static String streamload_redirect_policy = "";
 
+    @ConfField(description = {"存算分离模式下建表是否检查残留recycler key, 默认true",
+        "create table in cloud mode, check recycler key remained, default true"})
+    public static boolean check_create_table_recycle_key_remained = true;
+
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
