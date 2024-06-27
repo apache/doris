@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
@@ -54,18 +53,10 @@ public class ExplodeJsonObjectOuter extends TableGeneratingFunction implements U
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        if (!(child().getDataType() instanceof JsonType)) {
-            throw new AnalysisException("only support Json type for explode_json_object_outer function but got "
-                    + child().getDataType());
-        }
-    }
-
-    @Override
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(
                 FunctionSignature.ret(StructLiteral.constructStructType(
-                        ImmutableList.of(StringType.INSTANCE, JsonType.INSTANCE))).args(child().getDataType()));
+                        ImmutableList.of(StringType.INSTANCE, JsonType.INSTANCE))).args(JsonType.INSTANCE));
     }
 
     @Override
