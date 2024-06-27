@@ -1255,7 +1255,8 @@ public class SessionVariable implements Serializable, Writable {
                 "The switch to use new DistributedPlanner of nereids, this planner can planning some "
                         + "more efficient query plans, e.g. in certain situations, shuffle left side to "
                         + "right side to do bucket shuffle join"
-    })
+            }
+    )
     private boolean enableNereidsDistributePlanner = false;
 
     @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
