@@ -204,20 +204,6 @@ public class ProfileManager {
         return this.queryIdToExecutionProfiles.get(queryId);
     }
 
-    public String debugAllProfile() {
-        StringBuilder sb = new StringBuilder();
-        readLock.lock();
-        try {
-            for (Map.Entry<String, ProfileElement> entry : queryIdToProfileMap.entrySet()) {
-                sb.append("ProfileId: ").append(entry.getKey()).append("\n");
-                // sb.append(entry.getValue().getProfileContent()).append("\n");
-            }
-        } finally {
-            readLock.unlock();
-        }
-        return sb.toString();
-    }
-
     public void pushProfile(Profile profile) {
         if (profile == null) {
             return;
@@ -251,45 +237,6 @@ public class ProfileManager {
         } finally {
             writeLock.unlock();
         }
-    }
-
-    private List<String> collectProfilesNeedToBeEjected() {
-        if (!writeLock.isHeldByCurrentThread()) {
-            return Lists.newArrayList();
-        }
-
-        int count = queryIdDeque.size() - Config.max_query_profile_num;
-
-        if (count <= 0) {
-            return Lists.newArrayList();
-        }
-        
-        List<String> toEject = Lists.newArrayList();
-        Iterator<String> profileIter = queryIdDeque.iterator();
-
-        while (profileIter.hasNext() && count > 0) {
-            String profileId = profileIter.next();
-            ProfileElement profileElem = queryIdToProfileMap.get(profileId);
-            if (profileElem == null)  {
-                LOG.warn("null profile element found in queryIdToProfileMap, profileId: {}", profileId);
-                continue;
-            }
-
-            AtomicBoolean reportFinished = new AtomicBoolean(true);
-
-            profileElem.profile.getExecutionProfiles().forEach((
-                    executionProfile -> {
-                        if (!executionProfile.isCompleted()) {
-                            reportFinished.set(false);
-                        }
-                    }));
-
-            if (reportFinished.get()) {
-                toEject.add(profileId);
-                count--;
-            }
-        }
-        return toEject;
     }
 
     public void removeProfile(String profileId) {
