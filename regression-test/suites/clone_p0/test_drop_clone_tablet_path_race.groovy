@@ -19,9 +19,6 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.junit.Assert
 
 suite('test_drop_clone_tablet_path_race') {
-    if (isCloudMode()) {
-        return
-    }
     def options = new ClusterOptions()
     options.enableDebugPoints()
     options.feConfigs += [
