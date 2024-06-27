@@ -173,8 +173,6 @@ Status NewOlapScanNode::_init_profile() {
     _inverted_index_query_timer = ADD_TIMER(_segment_profile, "InvertedIndexQueryTime");
     _inverted_index_query_null_bitmap_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexQueryNullBitmapTime");
-    _inverted_index_query_file_exists_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexQueryFileExistsTime");
     _inverted_index_query_bitmap_copy_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapCopyTime");
     _inverted_index_query_bitmap_op_timer =

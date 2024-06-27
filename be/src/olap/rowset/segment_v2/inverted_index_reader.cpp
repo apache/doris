@@ -99,13 +99,6 @@ bool InvertedIndexReader::_is_match_query(InvertedIndexQueryType query_type) {
             query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY);
 }
 
-bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
-    // SCOPED_RAW_TIMER(&stats->inverted_index_query_file_exists_timer);
-    bool exists = false;
-    RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
-    return exists;
-}
-
 std::unique_ptr<lucene::analysis::Analyzer> InvertedIndexReader::create_analyzer(
         InvertedIndexCtx* inverted_index_ctx) {
     std::unique_ptr<lucene::analysis::Analyzer> analyzer;
