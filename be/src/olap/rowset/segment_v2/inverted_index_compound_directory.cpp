@@ -266,30 +266,26 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
     io::FileBlockCachePathPolicy cache_policy;
     auto type = config::enable_file_cache ? config::file_cache_type : "";
     io::FileReaderOptions reader_options(io::cache_type_from_string(type), cache_policy);
-    if (!fs->open_file(fd, reader_options, &h->_reader).ok()) {
-        error.set(CL_ERR_IO, "open file error");
+    auto st = fs->open_file(fd, reader_options, &h->_reader);
+    if (st.is_not_found()) {
+        error.set(CL_ERR_FileNotFound, "File does not exist");
+    } else if (st.is_io_error()) {
+        error.set(CL_ERR_IO, "File open io error");
+    } else if (st.code() == ErrorCode::PERMISSION_DENIED) {
+        error.set(CL_ERR_IO, "File Access denied");
+    } else {
+        error.set(CL_ERR_IO, "Could not open file");
     }
 
     //Check if a valid handle was retrieved
-    if (h->_reader) {
+    if (st.ok() && h->_reader) {
         //Store the file length
         h->_length = h->_reader->size();
         h->_fpos = 0;
         ret = _CLNEW FSIndexInput(h, buffer_size);
         return true;
-
-    } else {
-        int err = errno;
-        if (err == ENOENT) {
-            error.set(CL_ERR_IO, "File does not exist");
-        } else if (err == EACCES) {
-            error.set(CL_ERR_IO, "File Access denied");
-        } else if (err == EMFILE) {
-            error.set(CL_ERR_IO, "Too many open files");
-        } else {
-            error.set(CL_ERR_IO, "Could not open file");
-        }
     }
+
     delete h->_shared_lock;
     _CLDECDELETE(h)
     return false;
@@ -532,19 +528,6 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
     }
 
     lucene::store::Directory::setLockFactory(lock_factory);
-
-    // It's fail checking directory existence in S3.
-    if (fs->type() == io::FileSystemType::S3) {
-        return;
-    }
-    bool exists = false;
-    LOG_AND_THROW_IF_ERROR(fs->exists(directory, &exists),
-                           "Doris compound directory init IO error");
-    if (!exists) {
-        auto e = "Doris compound directory init error: " + directory + " is not a directory";
-        LOG(WARNING) << e;
-        _CLTHROWA(CL_ERR_IO, e.c_str());
-    }
 }
 
 void DorisCompoundDirectory::priv_getFN(char* buffer, const char* name) const {

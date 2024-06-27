@@ -210,21 +210,18 @@ Status InvertedIndexReader::read_null_bitmap(OlapReaderStatistics* stats,
             return Status::OK();
         }
 
-        bool exists = false;
-        {
-            SCOPED_RAW_TIMER(&stats->inverted_index_query_file_exists_timer);
-            RETURN_IF_ERROR(_fs->exists(index_file_path, &exists));
-        }
-        if (!exists) {
-            LOG(WARNING) << "inverted index: " << index_file_path.native() << " not exist.";
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                    "inverted index path: {} not exist.", index_file_path.native());
-        }
-
         if (!dir) {
-            dir = new DorisCompoundReader(
-                    DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
-                    index_file_name.c_str(), config::inverted_index_read_buffer_size);
+            try {
+                dir = new DorisCompoundReader(
+                        DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
+                        index_file_name.c_str(), config::inverted_index_read_buffer_size);
+            } catch (CLuceneError& err) {
+                if (err.number() == CL_ERR_FileNotFound) {
+                    return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                            "inverted index path: {} not exist.", index_file_path.native());
+                }
+                throw err;
+            }
             owned_dir = true;
         }
 
@@ -763,17 +760,18 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
     auto index_dir = io_path.parent_path();
     auto index_file_name = InvertedIndexDescriptor::get_index_file_name(io_path.filename(),
                                                                         index_meta->index_id());
-
-    // check index file existence
     auto index_file = index_dir / index_file_name;
-    if (!indexExists(index_file)) {
-        LOG(WARNING) << "bkd index: " << index_file.string() << " not exist.";
-        return;
-    }
     _file_full_path = index_file;
-    _compoundReader = std::make_unique<DorisCompoundReader>(
-            DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()),
-            index_file_name.c_str(), config::inverted_index_read_buffer_size);
+    try {
+        _compoundReader = std::make_unique<DorisCompoundReader>(
+                DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()),
+                index_file_name.c_str(), config::inverted_index_read_buffer_size);
+    } catch (CLuceneError& err) {
+        if (err.number() == CL_ERR_FileNotFound) {
+            LOG(WARNING) << "bkd index: " << index_file.string() << " not exist.";
+            return;
+        }
+    }
 }
 
 Status BkdIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
