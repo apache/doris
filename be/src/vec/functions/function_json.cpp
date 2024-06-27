@@ -826,14 +826,14 @@ struct FunctionJsonExtractImpl {
     static constexpr auto name = "json_extract";
 
     static rapidjson::Value parse_json(const ColumnString* json_col, const ColumnString* path_col,
-                                       rapidjson::Document::AllocatorType& allocator,
-                                       const int row) {
+                                       rapidjson::Document::AllocatorType& allocator, const int row,
+                                       const int col, std::vector<bool>& column_is_consts) {
         rapidjson::Value value;
         rapidjson::Document document;
 
-        const auto& obj = json_col->get_data_at(row);
+        const auto& obj = json_col->get_data_at(index_check_const(row, column_is_consts[0]));
         std::string_view json_string(obj.data, obj.size);
-        const auto& path = path_col->get_data_at(row);
+        const auto& path = path_col->get_data_at(index_check_const(row, column_is_consts[col]));
         std::string_view path_string(path.data, path.size);
         auto* root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
         if (root != nullptr) {
@@ -918,7 +918,8 @@ struct FunctionJsonExtractImpl {
                 value.SetArray();
                 value.Reserve(data_columns.size() - 1, allocator);
                 for (size_t col = 1; col < data_columns.size(); ++col) {
-                    value.PushBack(parse_json(json_col, data_columns[col], allocator, row),
+                    value.PushBack(parse_json(json_col, data_columns[col], allocator, row, col,
+                                              column_is_consts),
                                    allocator);
                 }
 
