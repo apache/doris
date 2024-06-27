@@ -49,8 +49,6 @@ suite("push_down_limit_distinct_through_join") {
     sql "insert into t values (9, 3, null)"
     sql "insert into t values (10, null, null)"
 
-    sql "SET ENABLE_NEREIDS_RULES=push_down_limit_distinct_through_join"
-
     qt_basic """
         explain shape plan (select id from t t1 union select id from t t2) limit 0, 200;
     """
