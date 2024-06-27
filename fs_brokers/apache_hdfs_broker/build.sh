@@ -28,7 +28,6 @@ export BROKER_HOME="${ROOT}"
 
 # prepare thrift
 mkdir -p "${BROKER_HOME}/src/main/resources/thrift"
-mkdir -p "${BROKER_HOME}/src/main/thrift"
 
 cp "${BROKER_HOME}/../../gensrc/thrift/PaloBrokerService.thrift" "${BROKER_HOME}/src/main/resources/thrift"/
 
