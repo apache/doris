@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.cloud.proto.Cloud;
@@ -104,9 +105,8 @@ public class CloudPartition extends Partition {
 
     @Override
     public long getVisibleVersion() {
-        if (Config.enable_check_compatibility_mode) {
-            LOG.info("return 1 as the visible version in the compatibility checking mode");
-            return 1;
+        if (Env.isCheckpointThread() || Config.enable_check_compatibility_mode) {
+            return super.getVisibleVersion();
         }
 
         if (LOG.isDebugEnabled()) {
