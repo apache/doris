@@ -599,7 +599,11 @@ int64_t DorisCompoundDirectory::fileLength(const char* name) const {
     char buffer[CL_MAX_DIR];
     priv_getFN(buffer, name);
     int64_t size = -1;
-    LOG_AND_THROW_IF_ERROR(fs->file_size(buffer, &size), "Get file size IO error");
+    auto st = fs->file_size(buffer, &size);
+    if (st.is_not_found()) {
+        _CLTHROWA(CL_ERR_FileNotFound, "File does not exist");
+    }
+    LOG_AND_THROW_IF_ERROR(st, "Get file size IO error");
     return size;
 }
 
