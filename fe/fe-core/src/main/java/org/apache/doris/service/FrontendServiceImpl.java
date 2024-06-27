@@ -2041,7 +2041,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ConnectContext.remove();
         }
         result.setPipelineParams(planFragmentParamsList);
-        LOG.info("receive stream load multi table put request result: {}", result);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive stream load multi table put request result: {}", result);
+        }
         return result;
     }
 
@@ -2130,6 +2132,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getPipelineParams().setTableName(httpStreamParams.getTable().getName());
             result.getPipelineParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
             result.getPipelineParams().setImportLabel(httpStreamParams.getLabel());
+            result.getPipelineParams()
+                    .setIsMowTable(((OlapTable) httpStreamParams.getTable()).getEnableUniqueKeyMergeOnWrite());
             result.setDbId(httpStreamParams.getDb().getId());
             result.setTableId(httpStreamParams.getTable().getId());
             result.setBaseSchemaVersion(((OlapTable) httpStreamParams.getTable()).getBaseSchemaVersion());

@@ -52,6 +52,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.CleanLabelOperationLog;
@@ -351,6 +352,7 @@ public class DatabaseTransactionMgr {
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
+        MTMVUtil.checkModifyMTMVData(db, tableIdList, ConnectContext.get());
         checkDatabaseDataQuota();
         Preconditions.checkNotNull(coordinator);
         Preconditions.checkNotNull(label);
@@ -1332,7 +1334,7 @@ public class DatabaseTransactionMgr {
         List<Replica> tabletSuccReplicas = Lists.newArrayList();
         List<Replica> tabletWriteFailedReplicas = Lists.newArrayList();
         List<Replica> tabletVersionFailedReplicas = Lists.newArrayList();
-        List<String> logs = Lists.newArrayList();
+        TabletsPublishResultLogs logs = new TabletsPublishResultLogs();
 
         Map<Long, List<PublishVersionTask>> publishTasks = transactionState.getPublishVersionTasks();
         PublishResult publishResult = PublishResult.QUORUM_SUCC;
@@ -1394,10 +1396,7 @@ public class DatabaseTransactionMgr {
                 || now - transactionState.getLastPublishLogTime() > Config.publish_fail_log_interval_second * 1000L;
         if (needLog) {
             transactionState.setLastPublishLogTime(now);
-            for (String log : logs) {
-                LOG.info("{}. publish times {}, whole txn publish result {}",
-                        log, transactionState.getPublishCount(), publishResult.name());
-            }
+            logs.log();
         }
 
         return publishResult;
@@ -2605,7 +2604,7 @@ public class DatabaseTransactionMgr {
                 && now >= firstPublishVersionTime + Config.publish_wait_time_second * 1000L) {
             allowPublishOneSucc = true;
         }
-        List<String> logs = Lists.newArrayList();
+        TabletsPublishResultLogs logs = new TabletsPublishResultLogs();
 
         Map<Long, List<PublishVersionTask>> publishTasks = transactionState.getPublishVersionTasks();
         PublishResult publishResult = PublishResult.QUORUM_SUCC;
@@ -2731,19 +2730,55 @@ public class DatabaseTransactionMgr {
                 || LOG.isDebugEnabled();
         if (needLog) {
             transactionState.setLastPublishLogTime(now);
-            for (String log : logs) {
-                LOG.info("{}. publish times {}, whole txn publish result {}",
-                        log, transactionState.getPublishCount(), publishResult.name());
-            }
+            logs.log();
         }
 
         return publishResult;
     }
 
+    private class TabletsPublishResultLogs {
+        public List<String> quorumSuccLogs = Lists.newArrayList();
+        public List<String> timeoutSuccLogs = Lists.newArrayList();
+        public List<String> failedLogs = Lists.newArrayList();
+
+        public void addQuorumSuccLog(String log) {
+            if (quorumSuccLogs.size() < 16) {
+                quorumSuccLogs.add(log);
+            }
+        }
+
+        public void addTimeoutSuccLog(String log) {
+            if (timeoutSuccLogs.size() < 16) {
+                timeoutSuccLogs.add(log);
+            }
+        }
+
+        public void addFailedLog(String log) {
+            if (failedLogs.size() < 16) {
+                failedLogs.add(log);
+            }
+        }
+
+        public void log() {
+            // log failed logs
+            for (String log : failedLogs) {
+                LOG.info(log);
+            }
+            // log timeout succ logs
+            for (String log : timeoutSuccLogs) {
+                LOG.info(log);
+            }
+            // log quorum succ logs
+            for (String log : quorumSuccLogs) {
+                LOG.info(log);
+            }
+        }
+    }
+
     private PublishResult checkQuorumReplicas(TransactionState transactionState, long tableId, Partition partition,
             Tablet tablet, int loadRequiredReplicaNum, boolean allowPublishOneSucc, long newVersion,
             List<Replica> tabletSuccReplicas, List<Replica> tabletWriteFailedReplicas,
-            List<Replica> tabletVersionFailedReplicas, PublishResult publishResult, List<String> logs) {
+            List<Replica> tabletVersionFailedReplicas, PublishResult publishResult, TabletsPublishResultLogs logs) {
         long partitionId = partition.getId();
         int healthReplicaNum = tabletSuccReplicas.size();
         if (healthReplicaNum >= loadRequiredReplicaNum) {
@@ -2751,11 +2786,11 @@ public class DatabaseTransactionMgr {
             if (hasFailedReplica) {
                 String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                         tabletVersionFailedReplicas);
-                logs.add(String.format("publish version quorum succ for transaction %s on tablet %s"
+                logs.addQuorumSuccLog(String.format("publish version quorum succ for transaction %s on tablet %s"
                                 + " with version %s, and has failed replicas, load require replica num %s. "
                                 + "table %s, partition: [ id=%s, commit version=%s ], tablet detail: %s",
-                        transactionState, tablet.getId(), newVersion, loadRequiredReplicaNum, tableId, partitionId,
-                        partition.getCommittedVersion(), writeDetail));
+                                transactionState, tablet.getId(), newVersion, loadRequiredReplicaNum, tableId,
+                                partitionId, partition.getCommittedVersion(), writeDetail));
             }
             return publishResult;
         }
@@ -2775,7 +2810,7 @@ public class DatabaseTransactionMgr {
             // that are being publised exists on a few replicas we should go
             // ahead, otherwise data may be lost and thre
             // publish task hangs forever.
-            logs.add(String.format("publish version timeout succ for transaction %s on tablet %s "
+            logs.addTimeoutSuccLog(String.format("publish version timeout succ for transaction %s on tablet %s "
                             + "with version %s, and has failed replicas, load require replica num %s. "
                             + "table %s, partition %s, tablet detail: %s", transactionState, tablet.getId(), newVersion,
                     loadRequiredReplicaNum, tableId, partitionId, writeDetail));
@@ -2786,7 +2821,7 @@ public class DatabaseTransactionMgr {
                             + " table: %d, partition: %d, publish version: %d", tablet.getId(), healthReplicaNum,
                     loadRequiredReplicaNum, tableId, partitionId, newVersion);
             transactionState.setErrorMsg(errMsg);
-            logs.add(String.format("publish version failed for transaction %s on tablet %s with version"
+            logs.addFailedLog(String.format("publish version failed for transaction %s on tablet %s with version"
                             + " %s, and has failed replicas, load required replica num %s. table %s, "
                             + "partition %s, tablet detail: %s", transactionState, tablet.getId(), newVersion,
                     loadRequiredReplicaNum, tableId, partitionId, writeDetail));

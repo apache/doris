@@ -733,3 +733,13 @@ function check_if_need_gcore() {
         echo "ERROR: unknown exit_flag ${exit_flag}" && return 1
     fi
 }
+
+function print_running_pipeline_tasks() {
+    webserver_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf webserver_port)
+    mkdir -p "${DORIS_HOME}"/be/log/
+    echo "------------------------${FUNCNAME[0]}--------------------------"
+    echo "curl -m 10 http://127.0.0.1:${webserver_port}/api/running_pipeline_tasks/30"
+    echo ""
+    curl -m 10 "http://127.0.0.1:${webserver_port}/api/running_pipeline_tasks/30" 2>&1 | tee "${DORIS_HOME}"/be/log/running_pipeline_tasks_30
+    echo "------------------------${FUNCNAME[0]}--------------------------"
+}

@@ -67,8 +67,8 @@ Status ResultBufferMgr::init() {
 }
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
-                                      std::shared_ptr<BufferControlBlock>* sender,
-                                      int exec_timout) {
+                                      std::shared_ptr<BufferControlBlock>* sender, int exec_timout,
+                                      int batch_size) {
     *sender = find_control_block(query_id);
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance " << query_id;
@@ -77,7 +77,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
 
     std::shared_ptr<BufferControlBlock> control_block = nullptr;
 
-    control_block = std::make_shared<BufferControlBlock>(query_id, buffer_size);
+    control_block = std::make_shared<BufferControlBlock>(query_id, buffer_size, batch_size);
 
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);

@@ -50,7 +50,7 @@ suite("test_bloom_filter_mtmv","mtmv") {
         SELECT * from ${tableName};
         """
 
-    def showCreateTableResult = sql """show create table ${mvName}"""
+    def showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('bloom_filter_columns" = "k2"'))
 
@@ -68,7 +68,7 @@ suite("test_bloom_filter_mtmv","mtmv") {
         ALTER TABLE ${mvName} SET ("bloom_filter_columns" = "k3");
         """
     assertEquals("FINISHED", getAlterColumnFinalState("${mvName}"))
-    showCreateTableResult = sql """show create table ${mvName}"""
+    showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains('bloom_filter_columns" = "k3"'))
 
@@ -77,7 +77,7 @@ suite("test_bloom_filter_mtmv","mtmv") {
         ALTER TABLE ${mvName} SET ("bloom_filter_columns" = "");
         """
     assertEquals("FINISHED", getAlterColumnFinalState("${mvName}"))
-    showCreateTableResult = sql """show create table ${mvName}"""
+    showCreateTableResult = sql """show create materialized view ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertFalse(showCreateTableResult.toString().contains('bloom_filter_columns" = "k3"'))
 

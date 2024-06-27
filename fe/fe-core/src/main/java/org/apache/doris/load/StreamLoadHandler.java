@@ -238,6 +238,7 @@ public class StreamLoadHandler {
             result = planner.plan(streamLoadTask.getId(), index);
             result.setTableName(table.getName());
             result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
+            result.setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
             fragmentParams.add(result);
 
             if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {

@@ -354,11 +354,22 @@ public abstract class BaseAnalysisTask {
      * 1. Remove not exist partition stats
      * 2. Get stats of each partition
      * 3. insert partition in batch
-     * 4. calculate column stats based on partition stats
-     * 5. Skip large partition and fallback to sample analyze if large partition exists.
+     * 4. Skip large partition and fallback to sample analyze if large partition exists.
+     * 5. calculate column stats based on partition stats
      */
     protected void doPartitionTable() throws Exception {
-        deleteNotExistPartitionStats();
+        AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(tbl.getId());
+        // Find jobInfo for this task.
+        AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
+        // For sync job, get jobInfo from job.jobInfo.
+        boolean isSync = jobInfo == null;
+        jobInfo = isSync ? job.jobInfo : jobInfo;
+
+        // 1. Remove not exist partition stats
+        deleteNotExistPartitionStats(jobInfo);
+
+        // 2. Get stats of each partition
         Map<String, String> params = buildSqlParams();
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         boolean isAllPartitions = info.partitionNames.isEmpty();
@@ -367,27 +378,22 @@ public abstract class BaseAnalysisTask {
         Set<String> partNames = Sets.newHashSet();
         int count = 0;
         long batchRowCount = 0;
-        AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
-        TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(tbl.getId());
         String idxName = info.indexId == -1 ? tbl.getName() : ((OlapTable) tbl).getIndexNameById(info.indexId);
         ColStatsMeta columnStatsMeta = tableStatsStatus == null
                 ? null : tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
         boolean hasHughPartition = false;
         long hugePartitionThreshold = StatisticsUtil.getHugePartitionLowerBoundRows();
         int partitionBatchSize = StatisticsUtil.getPartitionAnalyzeBatchSize();
-        // Find jobInfo for this task.
-        AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
-        // For sync job, get jobInfo from job.jobInfo.
-        boolean isSync = jobInfo == null;
-        jobInfo = isSync ? job.jobInfo : jobInfo;
         for (String part : partitionNames) {
             // External table partition is null.
             Partition partition = tbl.getPartition(part);
             if (partition != null) {
                 // For huge partition, skip analyze it.
                 long partitionRowCount = partition.getBaseIndex().getRowCount();
-                if (partitionRowCount > hugePartitionThreshold) {
+                if (partitionRowCount > hugePartitionThreshold && AnalysisInfo.JobType.SYSTEM.equals(info.jobType)) {
                     hasHughPartition = true;
+                    // -1 means it's skipped because this partition is too large.
+                    jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), -1L);
                     LOG.info("Partition {} in table {} is too large, skip it.", part, tbl.getName());
                     continue;
                 }
@@ -417,6 +423,7 @@ public abstract class BaseAnalysisTask {
             sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
             count++;
             partNames.add(part);
+            // 3. insert partition in batch
             if (count == partitionBatchSize || batchRowCount > hugePartitionThreshold) {
                 String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
                         + Joiner.on(" UNION ALL ").join(sqls);
@@ -429,6 +436,7 @@ public abstract class BaseAnalysisTask {
                 batchRowCount = 0;
             }
         }
+        // 3. insert partition in batch
         if (count > 0) {
             String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
                     + Joiner.on(" UNION ALL ").join(sqls);
@@ -436,17 +444,23 @@ public abstract class BaseAnalysisTask {
             analysisManager.updatePartitionStatsCache(info.catalogId, info.dbId, info.tblId, info.indexId,
                     partNames, info.colName);
         }
+        // 4. Skip large partition and fallback to sample analyze if large partition exists.
         if (hasHughPartition) {
             tableSample = new TableSample(false, StatisticsUtil.getHugeTableSampleRows());
             if (!isSync) {
+                long startTime = jobInfo.startTime;
                 jobInfo = new AnalysisInfoBuilder(jobInfo).setAnalysisMethod(AnalysisMethod.SAMPLE).build();
+                jobInfo.markStartTime(startTime);
                 analysisManager.replayCreateAnalysisJob(jobInfo);
             }
             if (tableStatsStatus == null || columnStatsMeta == null
                     || tableStatsStatus.updatedRows.get() > columnStatsMeta.updatedRows) {
                 doSample();
+            } else {
+                job.taskDoneWithoutData(this);
             }
         } else {
+            // 5. calculate column stats based on partition stats
             if (isAllPartitions) {
                 params = buildSqlParams();
                 params.put("min", castToNumeric("min"));
@@ -459,7 +473,7 @@ public abstract class BaseAnalysisTask {
         }
     }
 
-    protected abstract void deleteNotExistPartitionStats() throws DdlException;
+    protected abstract void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException;
 
     protected String getPartitionInfo(String partitionName) {
         return "";

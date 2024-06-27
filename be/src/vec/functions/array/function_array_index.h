@@ -119,7 +119,7 @@ public:
      * eval inverted index. we can filter array rows with inverted index iter
      */
     Status eval_inverted_index(FunctionContext* context,
-                               const vectorized::NameAndTypePair& data_type_with_name,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
                                segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
                                roaring::Roaring* bitmap) const override {
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();

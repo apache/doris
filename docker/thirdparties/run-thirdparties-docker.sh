@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,lakesoul
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,lakesoul,kerberos
   "
     exit 1
 }
@@ -59,7 +59,7 @@ eval set -- "${OPTS}"
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg"
+    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,kerberos"
 else
     while true; do
         case "$1" in
@@ -91,7 +91,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,lakesoul"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,kerberos,lakesoul"
         fi
     fi
 fi
@@ -136,6 +136,7 @@ RUN_SPARK=0
 RUN_MARIADB=0
 RUN_DB2=0
 RUN_LAKESOUL=0
+RUN_KERBEROS=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -170,6 +171,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_DB2=1
     elif [[ "${element}"x == "lakesoul"x ]]; then
         RUN_LAKESOUL=1
+    elif [[ "${element}"x == "kerberos"x ]]; then
+        RUN_KERBEROS=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -319,6 +322,18 @@ if [[ "${RUN_HIVE2}" -eq 1 ]]; then
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+
+    # sed all s3 info in run.sh of each suite
+    find "${ROOT}/docker-compose/hive/scripts/suites" -type f -name "run.sh" | while read -r file; do
+        if [ -f "$file" ]; then
+            echo "Processing $file"
+            sed -i "s/s3Endpoint/${s3Endpoint}/g" "${file}"
+            sed -i "s/s3BucketName/${s3BucketName}/g" "${file}"
+        else
+            echo "File not found: $file"
+        fi
+    done
+
     # generate hive-2x.yaml
     export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
@@ -345,6 +360,18 @@ if [[ "${RUN_HIVE3}" -eq 1 ]]; then
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+
+    # sed all s3 info in run.sh of each suite
+    find "${ROOT}/docker-compose/hive/scripts/suites" -type f -name "run.sh" | while read -r file; do
+        if [ -f "$file" ]; then
+            echo "Processing $file"
+            sed -i "s/s3Endpoint/${s3Endpoint}/g" "${file}"
+            sed -i "s/s3BucketName/${s3BucketName}/g" "${file}"
+        else
+            echo "File not found: $file"
+        fi
+    done
+
     # generate hive-3x.yaml
     export IP_HOST=${IP_HOST}
     export CONTAINER_UID=${CONTAINER_UID}
@@ -521,5 +548,26 @@ if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
 #    git checkout doris_dev
     cd LakeSoul/rust
     cargo test load_tpch_data --package lakesoul-datafusion --features=ci -- --nocapture
+fi
 
+if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+    echo "RUN_KERBEROS"
+    cp "${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl "${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml down
+    sudo rm -rf "${ROOT}"/docker-compose/kerberos/data
+    if [[ "${STOP}" -ne 1 ]]; then
+        echo "PREPARE KERBEROS DATA"
+        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.keytab
+        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
+        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
+        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up -d
+        sudo rm -f /keytabs
+        sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
+        sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
+        sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf
+
+        echo '172.31.71.25 hadoop-master' >> /etc/hosts
+        echo '172.31.71.26 hadoop-master-2' >> /etc/hosts
+    fi
 fi

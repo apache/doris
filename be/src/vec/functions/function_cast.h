@@ -544,15 +544,8 @@ struct ConvertImplGenericToString {
         const IDataType& type = *col_with_type_and_name.type;
         const IColumn& col_from = *col_with_type_and_name.column;
 
-        size_t size = col_from.size();
-
         auto col_to = ColumnString::create();
-        col_to->reserve(size * 2);
-        VectorBufferWriter write_buffer(*col_to.get());
-        for (size_t i = 0; i < size; ++i) {
-            type.to_string(col_from, i, write_buffer);
-            write_buffer.commit();
-        }
+        type.to_string_batch(col_from, *col_to);
 
         block.replace_by_position(result, std::move(col_to));
         return Status::OK();

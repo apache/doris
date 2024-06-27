@@ -153,13 +153,12 @@ public:
 
             for (int i = 0; i < rows; i++) {
                 auto row_ref = row_refs[i];
-
                 for (int j = key_number; j < columns; j++) {
                     const auto* column_ptr = row_ref.get_column(j).get();
                     agg_functions[j - key_number]->add(
                             agg_places[j - key_number],
                             const_cast<const vectorized::IColumn**>(&column_ptr), row_ref.position,
-                            nullptr);
+                            &_arena);
                 }
 
                 if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
@@ -245,6 +244,7 @@ private:
 
     BaseTabletSPtr _tablet;
     RowRefComparator _cmp;
+    vectorized::Arena _arena;
 };
 
 BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)

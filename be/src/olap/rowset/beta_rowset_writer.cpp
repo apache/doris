@@ -448,16 +448,18 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                                                        _context.rowset_id.to_string(), seg_id)
                                   : BetaRowset::local_segment_path_segcompacted(
                                             _context.tablet_path, _context.rowset_id, begin, end);
-    auto src_index_path_prefix = InvertedIndexDescriptor::get_index_path_prefix(src_seg_path);
+    auto src_index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(src_seg_path);
     auto dst_seg_path = local_segment_path(_context.tablet_path, _context.rowset_id.to_string(),
                                            _num_segcompacted);
-    auto dst_index_path_prefix = InvertedIndexDescriptor::get_index_path_prefix(dst_seg_path);
+    auto dst_index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(dst_seg_path);
 
-    if (_context.tablet_schema->get_inverted_index_storage_format() !=
-        InvertedIndexStorageFormatPB::V1) {
+    if (_context.tablet_schema->get_inverted_index_storage_format() >=
+        InvertedIndexStorageFormatPB::V2) {
         if (_context.tablet_schema->has_inverted_index()) {
-            auto src_idx_path = InvertedIndexDescriptor::get_index_path_v2(src_index_path_prefix);
-            auto dst_idx_path = InvertedIndexDescriptor::get_index_path_v2(dst_index_path_prefix);
+            auto src_idx_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(src_index_path_prefix);
+            auto dst_idx_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(dst_index_path_prefix);
 
             ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
             if (ret) {
@@ -472,12 +474,12 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
         if (_context.tablet_schema->has_inverted_index(*column)) {
             const auto* index_info = _context.tablet_schema->get_inverted_index(*column);
             auto index_id = index_info->index_id();
-            auto src_idx_path = InvertedIndexDescriptor::get_index_path_v1(
-                    src_index_path_prefix, index_id, index_info->get_index_suffix());
-            auto dst_idx_path = InvertedIndexDescriptor::get_index_path_v1(
-                    dst_index_path_prefix, index_id, index_info->get_index_suffix());
             if (_context.tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
+                auto src_idx_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                        src_index_path_prefix, index_id, index_info->get_index_suffix());
+                auto dst_idx_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                        dst_index_path_prefix, index_id, index_info->get_index_suffix());
                 VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
                            << dst_idx_path;
                 ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
@@ -488,8 +490,12 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                 }
             }
             // Erase the origin index file cache
-            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
-            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
+            auto src_idx_cache_key = InvertedIndexDescriptor::get_index_file_cache_key(
+                    src_index_path_prefix, index_id, index_info->get_index_suffix());
+            auto dst_idx_cache_key = InvertedIndexDescriptor::get_index_file_cache_key(
+                    dst_index_path_prefix, index_id, index_info->get_index_suffix());
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_cache_key));
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(dst_idx_cache_key));
         }
     }
     return Status::OK();

@@ -305,7 +305,10 @@ struct TQueryOptions {
   114: optional bool enable_parallel_result_sink = false;
   
   115: optional bool enable_short_circuit_query_access_column_store = false;
+
+  116: optional bool enable_no_need_read_data_opt = true;
   
+  117: optional bool read_csv_empty_line_as_null = false
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
@@ -532,6 +535,8 @@ struct TExecPlanFragmentParams {
   30: optional list<TPipelineWorkloadGroup> workload_groups
 
   31: optional bool is_nereids = true;
+
+  32: optional Types.TNetworkAddress current_connect_fe
 
   // For cloud
   1000: optional bool is_mow_table;
@@ -770,6 +775,7 @@ struct TPipelineFragmentParams {
   40: optional bool is_nereids = true;
   41: optional i64 wal_id
   42: optional i64 content_length
+  43: optional Types.TNetworkAddress current_connect_fe
 
   // For cloud
   1000: optional bool is_mow_table;

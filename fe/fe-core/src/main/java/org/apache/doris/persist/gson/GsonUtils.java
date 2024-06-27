@@ -58,34 +58,61 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.StructLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
+import org.apache.doris.backup.BackupJob;
+import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.AggStateType;
+import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.AliasFunction;
+import org.apache.doris.catalog.AnyElementType;
+import org.apache.doris.catalog.AnyStructType;
+import org.apache.doris.catalog.AnyType;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
+import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.HiveTable;
+import org.apache.doris.catalog.InlineView;
 import org.apache.doris.catalog.JdbcResource;
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.ListPartitionInfo;
+import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.MultiRowType;
+import org.apache.doris.catalog.MysqlDBTable;
+import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcCatalogResource;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
+import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TemplateType;
+import org.apache.doris.catalog.VariantType;
+import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
@@ -94,6 +121,8 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.load.CloudBrokerLoadJob;
+import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.util.RangeUtils;
@@ -139,16 +168,30 @@ import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
-import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.fs.remote.BrokerFileSystem;
+import org.apache.doris.fs.remote.ObjFileSystem;
+import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.fs.remote.dfs.JFSFileSystem;
+import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
+import org.apache.doris.load.loadv2.BrokerLoadJob;
+import org.apache.doris.load.loadv2.BulkLoadJob;
+import org.apache.doris.load.loadv2.InsertLoadJob;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
+import org.apache.doris.load.loadv2.MiniLoadJob;
 import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
+import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.KafkaProgress;
+import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadProgress;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
@@ -170,6 +213,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
@@ -189,6 +233,7 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
 import com.google.gson.ReflectionAccessFilter;
+import com.google.gson.ToNumberPolicy;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
@@ -207,6 +252,7 @@ import java.lang.reflect.Type;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -226,7 +272,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * See the following "GuavaTableAdapter" and "GuavaMultimapAdapter" for example.
  */
 public class GsonUtils {
-
     // runtime adapter for class "Type"
     private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory
             = RuntimeTypeAdapterFactory
@@ -236,7 +281,13 @@ public class GsonUtils {
             .registerSubtype(ArrayType.class, ArrayType.class.getSimpleName())
             .registerSubtype(MapType.class, MapType.class.getSimpleName())
             .registerSubtype(StructType.class, StructType.class.getSimpleName())
-            .registerSubtype(AggStateType.class, AggStateType.class.getSimpleName());
+            .registerSubtype(AggStateType.class, AggStateType.class.getSimpleName())
+            .registerSubtype(AnyElementType.class, AnyElementType.class.getSimpleName())
+            .registerSubtype(AnyStructType.class, AnyStructType.class.getSimpleName())
+            .registerSubtype(AnyType.class, AnyType.class.getSimpleName())
+            .registerSubtype(MultiRowType.class, MultiRowType.class.getSimpleName())
+            .registerSubtype(TemplateType.class, TemplateType.class.getSimpleName())
+            .registerSubtype(VariantType.class, VariantType.class.getSimpleName());
 
     // runtime adapter for class "Expr"
     private static final RuntimeTypeAdapterFactory<org.apache.doris.analysis.Expr> exprAdapterFactory
@@ -373,10 +424,11 @@ public class GsonUtils {
             RuntimeTypeAdapterFactory.of(
                             AbstractDataSourceProperties.class, "clazz")
                     .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
-    private static RuntimeTypeAdapterFactory<AbstractJob> jobExecutorRuntimeTypeAdapterFactory =
-            RuntimeTypeAdapterFactory.of(AbstractJob.class, "clazz")
-                    .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName())
-                    .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName());
+    private static RuntimeTypeAdapterFactory<org.apache.doris.job.base.AbstractJob>
+            jobExecutorRuntimeTypeAdapterFactory
+                    = RuntimeTypeAdapterFactory.of(org.apache.doris.job.base.AbstractJob.class, "clazz")
+                            .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName())
+                            .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<MTMVSnapshotIf> mtmvSnapshotTypeAdapterFactory =
             RuntimeTypeAdapterFactory.of(MTMVSnapshotIf.class, "clazz")
@@ -412,7 +464,19 @@ public class GsonUtils {
             .registerSubtype(ExternalInfoSchemaTable.class, ExternalInfoSchemaTable.class.getSimpleName())
             .registerSubtype(ExternalMysqlTable.class, ExternalMysqlTable.class.getSimpleName())
             .registerSubtype(TrinoConnectorExternalTable.class, TrinoConnectorExternalTable.class.getSimpleName())
-            .registerSubtype(TestExternalTable.class, TestExternalTable.class.getSimpleName());
+            .registerSubtype(TestExternalTable.class, TestExternalTable.class.getSimpleName())
+            .registerSubtype(BrokerTable.class, BrokerTable.class.getSimpleName())
+            .registerSubtype(EsTable.class, EsTable.class.getSimpleName())
+            .registerSubtype(FunctionGenTable.class, FunctionGenTable.class.getSimpleName())
+            .registerSubtype(HiveTable.class, HiveTable.class.getSimpleName())
+            .registerSubtype(InlineView.class, InlineView.class.getSimpleName())
+            .registerSubtype(JdbcTable.class, JdbcTable.class.getSimpleName())
+            .registerSubtype(MTMV.class, MTMV.class.getSimpleName())
+            .registerSubtype(MysqlDBTable.class, MysqlDBTable.class.getSimpleName())
+            .registerSubtype(MysqlTable.class, MysqlTable.class.getSimpleName())
+            .registerSubtype(OdbcTable.class, OdbcTable.class.getSimpleName())
+            .registerSubtype(SchemaTable.class, SchemaTable.class.getSimpleName())
+            .registerSubtype(View.class, View.class.getSimpleName());
 
     // runtime adapter for class "PartitionInfo"
     private static RuntimeTypeAdapterFactory<PartitionInfo> partitionInfoTypeAdapterFactory
@@ -427,6 +491,13 @@ public class GsonUtils {
             .registerSubtype(BackendHbResponse.class, BackendHbResponse.class.getSimpleName())
             .registerSubtype(FrontendHbResponse.class, FrontendHbResponse.class.getSimpleName())
             .registerSubtype(BrokerHbResponse.class, BrokerHbResponse.class.getSimpleName());
+
+    // runtime adapter for class "Function"
+    private static RuntimeTypeAdapterFactory<Function> functionAdapterFactory
+            = RuntimeTypeAdapterFactory.of(Function.class, "clazz")
+            .registerSubtype(ScalarFunction.class, ScalarFunction.class.getSimpleName())
+            .registerSubtype(AggregateFunction.class, AggregateFunction.class.getSimpleName())
+            .registerSubtype(AliasFunction.class, AliasFunction.class.getSimpleName());
 
     // runtime adapter for class "CloudReplica".
     private static RuntimeTypeAdapterFactory<Replica> replicaTypeAdapterFactory = RuntimeTypeAdapterFactory
@@ -471,15 +542,53 @@ public class GsonUtils {
             .registerDefaultSubtype(RoutineLoadProgress.class)
             .registerSubtype(KafkaProgress.class, KafkaProgress.class.getSimpleName());
 
+    private static RuntimeTypeAdapterFactory<RoutineLoadJob> routineLoadJobTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(RoutineLoadJob.class, "clazz")
+            .registerDefaultSubtype(RoutineLoadJob.class)
+            .registerSubtype(KafkaRoutineLoadJob.class, KafkaRoutineLoadJob.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<PersistentFileSystem> remoteFileSystemTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(PersistentFileSystem.class, "clazz")
+            .registerSubtype(BrokerFileSystem.class, BrokerFileSystem.class.getSimpleName())
+            .registerSubtype(DFSFileSystem.class, DFSFileSystem.class.getSimpleName())
+            .registerSubtype(JFSFileSystem.class, JFSFileSystem.class.getSimpleName())
+            .registerSubtype(OFSFileSystem.class, OFSFileSystem.class.getSimpleName())
+            .registerSubtype(ObjFileSystem.class, ObjFileSystem.class.getSimpleName())
+            .registerSubtype(S3FileSystem.class, S3FileSystem.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<org.apache.doris.backup.AbstractJob>
+            jobBackupTypeAdapterFactory
+                    = RuntimeTypeAdapterFactory.of(org.apache.doris.backup.AbstractJob.class, "clazz")
+                    .registerSubtype(BackupJob.class, BackupJob.class.getSimpleName())
+                    .registerSubtype(RestoreJob.class, RestoreJob.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<LoadJob> loadJobTypeAdapterFactory
+                    = RuntimeTypeAdapterFactory.of(LoadJob.class, "clazz")
+                    .registerSubtype(BrokerLoadJob.class, BrokerLoadJob.class.getSimpleName())
+                    .registerSubtype(BulkLoadJob.class, BulkLoadJob.class.getSimpleName())
+                    .registerSubtype(CloudBrokerLoadJob.class, CloudBrokerLoadJob.class.getSimpleName())
+                    .registerSubtype(CopyJob.class, CopyJob.class.getSimpleName())
+                    .registerSubtype(InsertLoadJob.class, InsertLoadJob.class.getSimpleName())
+                    .registerSubtype(MiniLoadJob.class, MiniLoadJob.class.getSimpleName())
+                    .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<PartitionItem> partitionItemTypeAdapterFactory
+                    = RuntimeTypeAdapterFactory.of(PartitionItem.class, "clazz")
+                    .registerSubtype(ListPartitionItem.class, ListPartitionItem.class.getSimpleName())
+                    .registerSubtype(RangePartitionItem.class, RangePartitionItem.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
-    private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
+    private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
+            .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
+            .addSerializationExclusionStrategy(
                     new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
+            .registerTypeAdapterFactory(new PreProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(new ExprAdapterFactory())
             .registerTypeAdapterFactory(exprAdapterFactory)
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
@@ -495,13 +604,20 @@ public class GsonUtils {
             .registerTypeAdapterFactory(partitionTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
+            .registerTypeAdapterFactory(functionAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
             .registerTypeAdapterFactory(mtmvSnapshotTypeAdapterFactory)
             .registerTypeAdapterFactory(constraintTypeAdapterFactory)
             .registerTypeAdapterFactory(txnCommitAttachmentTypeAdapterFactory)
             .registerTypeAdapterFactory(routineLoadTypeAdapterFactory)
+            .registerTypeAdapterFactory(routineLoadJobTypeAdapterFactory)
+            .registerTypeAdapterFactory(remoteFileSystemTypeAdapterFactory)
+            .registerTypeAdapterFactory(jobBackupTypeAdapterFactory)
+            .registerTypeAdapterFactory(loadJobTypeAdapterFactory)
+            .registerTypeAdapterFactory(partitionItemTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
+            .registerTypeAdapter(ImmutableList.class, new ImmutableListDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
             .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer()).setExclusionStrategies(
@@ -656,7 +772,6 @@ public class GsonUtils {
         private static final String EXPR_PROP = "expr";
 
         public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-
             final Class<T> rawType = (Class<T>) type.getRawType();
             final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
 
@@ -785,6 +900,40 @@ public class GsonUtils {
             final Type type2 = TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
             final Map<?, ?> map = context.deserialize(json, type2);
             return ImmutableMap.copyOf(map);
+        }
+    }
+
+    public static final class ImmutableListDeserializer implements JsonDeserializer<ImmutableList<?>> {
+        @Override
+        public ImmutableList<?> deserialize(final JsonElement json, final Type type,
+                final JsonDeserializationContext context) throws JsonParseException {
+            final Type type2 = TypeUtils.parameterize(List.class, ((ParameterizedType) type).getActualTypeArguments());
+            final List<?> list = context.deserialize(json, type2);
+            return ImmutableList.copyOf(list);
+        }
+    }
+
+    public static class PreProcessTypeAdapterFactory implements TypeAdapterFactory {
+
+        public PreProcessTypeAdapterFactory() {
+        }
+
+        @Override
+        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
+            TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
+
+            return new TypeAdapter<T>() {
+                public void write(JsonWriter out, T value) throws IOException {
+                    if (value instanceof GsonPreProcessable) {
+                        ((GsonPreProcessable) value).gsonPreProcess();
+                    }
+                    delegate.write(out, value);
+                }
+
+                public T read(JsonReader reader) throws IOException {
+                    return delegate.read(reader);
+                }
+            };
         }
     }
 

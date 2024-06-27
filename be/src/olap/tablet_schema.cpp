@@ -540,9 +540,12 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
         _aggregation_name = column.aggregation();
     }
-    if (column.has_result_is_nullable()) {
+
+    if (_type == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
         _result_is_nullable = column.result_is_nullable();
+        _be_exec_version = column.be_exec_version();
     }
+
     if (column.has_visible()) {
         _visible = column.visible();
     }
@@ -610,6 +613,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         column->set_aggregation(_aggregation_name);
     }
     column->set_result_is_nullable(_result_is_nullable);
+    column->set_be_exec_version(_be_exec_version);
     if (_has_bitmap_index) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
@@ -657,28 +661,32 @@ bool TabletColumn::is_row_store_column() const {
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
         vectorized::DataTypePtr type) const {
-    auto state_type = assert_cast<const vectorized::DataTypeAggState*>(type.get());
+    const auto* state_type = assert_cast<const vectorized::DataTypeAggState*>(type.get());
     return vectorized::AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);
 }
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
+    vectorized::AggregateFunctionPtr function = nullptr;
+
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
     if (type && type->get_type_as_type_descriptor().type == PrimitiveType::TYPE_AGG_STATE) {
-        return get_aggregate_function_union(type);
+        function = get_aggregate_function_union(type);
+    } else {
+        std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
+        std::string agg_name = origin_name + suffix;
+        std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        function = vectorized::AggregateFunctionSimpleFactory::instance().get(agg_name, {type},
+                                                                              type->is_nullable());
+        if (!function) {
+            LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
+                         << ", column_type=" << type->get_name();
+        }
     }
-
-    std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
-    std::string agg_name = origin_name + suffix;
-    std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-
-    auto function = vectorized::AggregateFunctionSimpleFactory::instance().get(agg_name, {type},
-                                                                               type->is_nullable());
     if (function) {
+        function->set_version(_be_exec_version);
         return function;
     }
-    LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
-                 << ", column_type=" << type->get_name();
     return nullptr;
 }
 
@@ -1289,6 +1297,10 @@ Result<const TabletColumn*> TabletSchema::column(const std::string& field_name) 
 std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
         const TabletColumn& col) const {
     std::vector<const TabletIndex*> indexes_for_column;
+    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabltetIndex.
+    if (!segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
+        return indexes_for_column;
+    }
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path =
             col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
@@ -1371,7 +1383,13 @@ const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
     return nullptr;
 }
 
-const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col) const {
+const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col,
+                                                    bool check_valid) const {
+    // With check_valid set to true by default
+    // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
+    if (check_valid && !segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
+        return nullptr;
+    }
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();

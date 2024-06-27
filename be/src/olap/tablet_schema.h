@@ -153,6 +153,7 @@ public:
     bool is_row_store_column() const;
     std::string get_aggregation_name() const { return _aggregation_name; }
     bool get_result_is_nullable() const { return _result_is_nullable; }
+    int get_be_exec_version() const { return _be_exec_version; }
     bool has_path_info() const { return _column_path != nullptr && !_column_path->empty(); }
     const vectorized::PathInDataPtr& path_info_ptr() const { return _column_path; }
     // If it is an extracted column from variant column
@@ -221,6 +222,7 @@ private:
     uint32_t _sub_column_count = 0;
 
     bool _result_is_nullable = false;
+    int _be_exec_version = -1;
     vectorized::PathInDataPtr _column_path;
 
     // Record information about columns merged into a sparse column within a variant
@@ -372,7 +374,10 @@ public:
     bool has_inverted_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
     const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
                                                         const std::string& suffix_name) const;
-    const TabletIndex* get_inverted_index(const TabletColumn& col) const;
+    // check_valid: check if this column supports inverted index
+    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
+    // If returned, the index file will not be found.
+    const TabletIndex* get_inverted_index(const TabletColumn& col, bool check_valid = true) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id,
                                           const std::string& suffix_path) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;

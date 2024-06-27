@@ -29,6 +29,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.PredicateUtils;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -407,7 +408,8 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 if (null == partitionColumnFilter) {
                     partitionColumnFilter = new PartitionColumnFilter();
                 }
-                LiteralExpr literal = (LiteralExpr) slotBinding;
+                LiteralExpr literal = slotBinding instanceof PlaceHolderExpr
+                        ? ((PlaceHolderExpr) slotBinding).getLiteral() : (LiteralExpr) slotBinding;
                 BinaryPredicate.Operator op = binPredicate.getOp();
                 if (!binPredicate.slotIsLeft()) {
                     op = op.commutative();

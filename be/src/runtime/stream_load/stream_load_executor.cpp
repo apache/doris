@@ -294,7 +294,7 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
     request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
     request.sync = true;
-    request.commitInfos = std::move(ctx->commit_infos);
+    request.commitInfos = ctx->commit_infos;
     request.__isset.commitInfos = true;
     request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
     request.tbls = ctx->table_list;
