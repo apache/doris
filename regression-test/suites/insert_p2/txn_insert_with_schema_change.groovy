@@ -129,6 +129,7 @@ suite("txn_insert_with_schema_change") {
             statement.execute(sqls[1])
             logger.info("execute sql: commit")
             statement.execute("commit")
+            statement.execute("sync")
         } catch (Throwable e) {
             logger.error("txn insert failed", e)
             errors.add("txn insert failed " + e.getMessage())
