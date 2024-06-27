@@ -15,21 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_external_credit_data", "p2,external,hive,external_remote,external_remote_hive") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "test_external_credit_data"
+suite("test_external_credit_data", "p0,external,hive,external_docker,external_docker_hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "${hivePrefix}_test_external_credit_data"
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-        sql """drop catalog if exists ${catalog_name};"""
-
-        sql """
-            create catalog if not exists ${catalog_name} properties (
-                'type'='hms',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
-            );
-        """
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """create catalog if not exists ${catalog_name} properties (
+            "type"="hms",
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+        );"""
 
         sql """switch ${catalog_name};"""
         sql """use regression;"""
