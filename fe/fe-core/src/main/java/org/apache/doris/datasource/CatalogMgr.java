@@ -348,10 +348,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
-            Map<String, String> oldProperties = catalog.getProperties();
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
+            Map<String, String> oldProperties = catalog.getProperties();
             if (stmt.getNewProperties().containsKey("type") && !catalog.getType()
                     .equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
