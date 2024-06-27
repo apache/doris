@@ -102,6 +102,7 @@ public class CreatePolicyStmt extends DdlStmt {
                             + "Enable it by setting 'enable_storage_policy=true' in fe.conf");
                 }
                 // check auth
+                // check if can create policy and use storage_resource
                 if (!Env.getCurrentEnv().getAccessManager()
                         .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,

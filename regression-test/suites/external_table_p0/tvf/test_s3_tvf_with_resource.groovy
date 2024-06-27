@@ -176,4 +176,24 @@ suite("test_s3_tvf_with_resource", "p0") {
     } finally {
     }
 
+    // test auth
+    String user = 'test_s3_tvf_with_resource_user'
+    String pwd = 'C123_567p'
+    try_sql("DROP USER ${user}")
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        test {
+                sql """
+                    SELECT * FROM S3 (
+                                        "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
+                                        "format" = "hive_text",
+                                        "csv_schema"="k1:int;k2:string;k3:double",
+                                        "resource" = "${resource_name}"
+                                    )  where k1 > 100  order by k3,k2,k1;
+                    """
+                exception "Access denied"
+            }
+    }
+    try_sql("DROP USER ${user}")
+
 }

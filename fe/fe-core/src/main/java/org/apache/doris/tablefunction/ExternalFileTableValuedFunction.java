@@ -575,8 +575,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (resourceName.isPresent()) {
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkResourcePriv(ctx, resourceName.get(), PrivPredicate.USAGE)) {
-                String message = ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg(
-                        PrivPredicate.USAGE.getPrivs().toString());
+                String message = ErrorCode.ERR_RESOURCE_ACCESS_DENIED_ERROR.formatErrorMsg(
+                        PrivPredicate.USAGE.getPrivs().toString(), resourceName.get());
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
             }
         }
