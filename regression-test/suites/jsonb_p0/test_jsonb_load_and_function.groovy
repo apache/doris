@@ -571,11 +571,11 @@ suite("test_jsonb_load_and_function", "p0") {
 
     // old planner do not support explode_json_object
     test {
-        sql """ select /*+SET_VAR(experimental_enable_nereids_planner=false)*/ select id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id; """
+        sql """ select /*+SET_VAR(experimental_enable_nereids_planner=false)*/ id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id; """
         exception "errCode = 2"
     }
     test {
-        sql """ select /*+SET_VAR(experimental_enable_nereids_planner=false)*/ select id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id; """
+        sql """ select /*+SET_VAR(experimental_enable_nereids_planner=false)*/ id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id; """
         exception "errCode = 2"
     }
 }

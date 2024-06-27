@@ -146,7 +146,7 @@ int VExplodeJsonObjectTableFunction::get_value(MutableColumnPtr& column, int max
         }
         if (!struct_column || struct_column->tuple_size() != 2) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "only support map column explode to two column, but given:  ",
+                            "only support expand json object int to kv pair column, but given:  ",
                             struct_column->tuple_size());
         }
         struct_column->get_column(0).insert_range_from(*_object_pairs.first, _cur_offset, max_step);
