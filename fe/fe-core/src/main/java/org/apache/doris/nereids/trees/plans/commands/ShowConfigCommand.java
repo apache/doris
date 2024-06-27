@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -34,9 +33,10 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.NodeType;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.doris.system.SystemInfoService;
+import com.google.common.collect.Lists;
 import org.json.JSONArray;
 
 import java.io.BufferedReader;
@@ -48,12 +48,15 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-public class ShowConfigCommand extends Command implements NoForward{
+/**
+ * show frontend/backend config
+*/
+public class ShowConfigCommand extends Command implements NoForward {
 
     public static final ImmutableList<String> FE_TITLE_NAMES = new ImmutableList.Builder<String>().add("Key").add(
-        "Value").add("Type").add("IsMutable").add("MasterOnly").add("Comment").build();
+            "Value").add("Type").add("IsMutable").add("MasterOnly").add("Comment").build();
     public static final ImmutableList<String> BE_TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
-        .add("Host").add("Key").add("Value").add("Type").add("IsMutable").build();
+            .add("Host").add("Key").add("Value").add("Type").add("IsMutable").build();
 
     private final NodeType nodeType;
     private String pattern;
@@ -74,7 +77,7 @@ public class ShowConfigCommand extends Command implements NoForward{
         this.isShowSingleBackend = true;
     }
 
-    public ShowResultSetMetaData getMetaData(ImmutableList<String> metaNames) {
+    private ShowResultSetMetaData getMetaData(ImmutableList<String> metaNames) {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : metaNames) {
             builder.addColumn(new Column(title, ScalarType.createStringType()));
@@ -94,7 +97,7 @@ public class ShowConfigCommand extends Command implements NoForward{
         return new ShowResultSet(getMetaData(FE_TITLE_NAMES), results);
     }
 
-    private ShowResultSet handShowBackendConfig() throws AnalysisException{
+    private ShowResultSet handShowBackendConfig() throws AnalysisException {
         List<List<String>> results = new ArrayList<>();
         List<Long> backendIds;
         final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();

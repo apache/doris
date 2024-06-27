@@ -17,17 +17,16 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.AdminSetConfigStmt.ConfigType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.system.NodeType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -39,7 +38,7 @@ public class ShowConfigStmt extends ShowStmt {
     public static final ImmutableList<String> BE_TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
             .add("Host").add("Key").add("Value").add("Type").add("IsMutable").build();
 
-    private ConfigType type;
+    private NodeType type;
 
     private String pattern;
 
@@ -47,19 +46,19 @@ public class ShowConfigStmt extends ShowStmt {
 
     private boolean isShowSingleBackend;
 
-    public ShowConfigStmt(ConfigType type, String pattern) {
+    public ShowConfigStmt(NodeType type, String pattern) {
         this.type = type;
         this.pattern = pattern;
     }
 
-    public ShowConfigStmt(ConfigType type, String pattern, long backendId) {
+    public ShowConfigStmt(NodeType type, String pattern, long backendId) {
         this.type = type;
         this.pattern = pattern;
         this.backendId = backendId;
         this.isShowSingleBackend = true;
     }
 
-    public ConfigType getType() {
+    public NodeType getType() {
         return type;
     }
 
@@ -83,16 +82,12 @@ public class ShowConfigStmt extends ShowStmt {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-
-        if (type != ConfigType.FRONTEND && type != ConfigType.BACKEND) {
-            throw new AnalysisException("Only support setting Frontend and Backend configs now");
-        }
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        if (type == ConfigType.FRONTEND) {
+        if (type == NodeType.FRONTEND) {
             for (String title : FE_TITLE_NAMES) {
                 builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
             }
@@ -107,7 +102,7 @@ public class ShowConfigStmt extends ShowStmt {
     @Override
     public RedirectStatus getRedirectStatus() {
         // no need forward to master for backend config
-        if (type == ConfigType.BACKEND) {
+        if (type == NodeType.BACKEND) {
             return RedirectStatus.NO_FORWARD;
         }
         if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {

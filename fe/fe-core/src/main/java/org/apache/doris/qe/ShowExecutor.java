@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminCopyTabletStmt;
-import org.apache.doris.analysis.AdminSetConfigStmt.ConfigType;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.DiagnoseTabletStmt;
@@ -233,6 +232,7 @@ import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
+import org.apache.doris.system.NodeType;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentClient;
@@ -2391,7 +2391,7 @@ public class ShowExecutor {
 
     private void handleAdminShowConfig() throws AnalysisException {
         ShowConfigStmt showStmt = (ShowConfigStmt) stmt;
-        if (showStmt.getType() == ConfigType.FRONTEND) {
+        if (showStmt.getType() == NodeType.FRONTEND) {
             List<List<String>> results;
             PatternMatcher matcher = null;
             if (showStmt.getPattern() != null) {

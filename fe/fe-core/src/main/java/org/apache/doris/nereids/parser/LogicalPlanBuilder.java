@@ -474,6 +474,7 @@ import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.NodeType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -487,7 +488,6 @@ import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
 import org.antlr.v4.runtime.tree.TerminalNode;
-import org.apache.doris.system.NodeType;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -3694,7 +3694,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String pattern = ((Literal) like.child(1)).getStringValue();
             command.setPattern(pattern);
         }
-        if (ctx.FROM() !=null &&  ctx.backendId != null) {
+        if (ctx.FROM() != null && ctx.backendId != null) {
             long backendId = Long.parseLong(ctx.backendId.getText());
             command.setBackendId(backendId);
         }
