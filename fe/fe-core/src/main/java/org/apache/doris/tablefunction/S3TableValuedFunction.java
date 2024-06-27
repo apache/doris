@@ -96,8 +96,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
         locationProperties = S3Properties.credentialToMap(credential);
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
-        // For Azure's compatibility, we need bucket to connect to the blob storage's container
-        locationProperties.put(S3Properties.BUCKET, s3uri.getBucket());
+        if (isAzureTvf) {
+            // For Azure's compatibility, we need bucket to connect to the blob storage's container
+            locationProperties.put(S3Properties.BUCKET, s3uri.getBucket());
+        }
         locationProperties.putAll(S3ClientBEProperties.getBeFSProperties(locationProperties));
         locationProperties.putAll(otherProps);
 
