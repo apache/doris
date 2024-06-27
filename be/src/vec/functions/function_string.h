@@ -1372,16 +1372,16 @@ public:
             str_index.clear();
             pad_index.clear();
             buffer.clear();
-            const auto len = col_len_data[len_const ? 0 : i];
+            const auto len = col_len_data[index_check_const(i, len_const)];
             if (len < 0) {
                 // return NULL when input length is invalid number
                 null_map_data[i] = true;
                 StringOP::push_empty_string(i, res_chars, res_offsets);
             } else {
-                const auto str_idx = str_const ? 0 : i;
+                const auto str_idx = index_check_const(i, str_const);
                 const int str_len = strcol_offsets[str_idx] - strcol_offsets[str_idx - 1];
                 const auto* str_data = &strcol_chars[strcol_offsets[str_idx - 1]];
-                const auto pad_idx = pad_const ? 0 : i;
+                const auto pad_idx = index_check_const(i, pad_const);
                 const int pad_len = padcol_offsets[pad_idx] - padcol_offsets[pad_idx - 1];
                 const auto* pad_data = &padcol_chars[padcol_offsets[pad_idx - 1]];
                 // get utf8 len
