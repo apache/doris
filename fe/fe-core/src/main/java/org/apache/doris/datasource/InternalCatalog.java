@@ -44,6 +44,7 @@ import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
@@ -165,7 +166,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TCompressionType;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -215,8 +216,8 @@ public class InternalCatalog implements CatalogIf<Database> {
     private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
 
     private QueryableReentrantLock lock = new QueryableReentrantLock(true);
-    private ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
-    private ConcurrentHashMap<String, Database> fullNameToDb = new ConcurrentHashMap<>();
+    private transient ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
+    private transient ConcurrentHashMap<String, Database> fullNameToDb = new ConcurrentHashMap<>();
 
     // Add transient to fix gson issue.
     @Getter
@@ -2054,7 +2055,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             objectPool);
 
                     task.setStorageFormat(tbl.getStorageFormat());
-                    task.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
+                    task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
                     task.setClusterKeyIndexes(clusterKeyIndexes);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -2409,13 +2410,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setStorageFormat(storageFormat);
 
-        TInvertedIndexStorageFormat invertedIndexStorageFormat;
+        TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
         try {
-            invertedIndexStorageFormat = PropertyAnalyzer.analyzeInvertedIndexStorageFormat(properties);
+            invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        olapTable.setInvertedIndexStorageFormat(invertedIndexStorageFormat);
+        olapTable.setInvertedIndexFileStorageFormat(invertedIndexFileStorageFormat);
 
         // get compression type
         TCompressionType compressionType = TCompressionType.LZ4;
@@ -2442,6 +2443,20 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+
+        boolean enableDeleteOnDeletePredicate = false;
+        if (keysType == KeysType.UNIQUE_KEYS) {
+            try {
+                enableDeleteOnDeletePredicate = PropertyAnalyzer.analyzeEnableDeleteOnDeletePredicate(properties);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+            if (enableDeleteOnDeletePredicate && !enableUniqueKeyMergeOnWrite) {
+                throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE
+                        + " property is not supported for unique merge-on-read table");
+            }
+        }
+        olapTable.setEnableDeleteOnDeletePredicate(enableDeleteOnDeletePredicate);
 
         boolean enableSingleReplicaCompaction = false;
         try {
@@ -3288,7 +3303,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             // if table currently has no partitions, this sql like empty command and do nothing, should return directly.
             // but if truncate whole table, the temporary partitions also need drop
-            if (origPartitions.isEmpty() && (!truncateEntireTable || olapTable.getTempPartitions().isEmpty())) {
+            if (origPartitions.isEmpty() && (!truncateEntireTable || olapTable.getAllTempPartitions().isEmpty())) {
                 LOG.info("finished to truncate table {}, no partition contains data, do nothing",
                         tblRef.getName().toSql());
                 return;
@@ -3439,10 +3454,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         erasePartitionDropBackendReplicas(oldPartitions);
 
-        if (truncateEntireTable) {
-            // Drop the whole table stats after truncate the entire table
-            Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
-        }
+        PartitionNames partitionNames = truncateEntireTable ? null
+                : new PartitionNames(false, tblRef.getPartitionNames().getPartitionNames());
+        Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, partitionNames);
         Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(updateRecords, db.getId(), olapTable.getId());
         LOG.info("finished to truncate table {}, partitions: {}", tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
@@ -3465,7 +3479,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         if (isEntireTable) {
             Set<Long> oldPartitionsIds = oldPartitions.stream().map(Partition::getId).collect(Collectors.toSet());
-            for (Partition partition : olapTable.getTempPartitions()) {
+            for (Partition partition : olapTable.getAllTempPartitions()) {
                 if (!oldPartitionsIds.contains(partition.getId())) {
                     oldPartitions.add(partition);
                 }
@@ -3581,8 +3595,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         int dbCount = dis.readInt();
         long newChecksum = checksum ^ dbCount;
         for (long i = 0; i < dbCount; ++i) {
-            Database db = new Database();
-            db.readFields(dis);
+            Database db = Database.read(dis);
             newChecksum ^= db.getId();
 
             Database dbPrev = fullNameToDb.get(db.getFullName());

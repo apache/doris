@@ -148,12 +148,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     }
 
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> tabletIds,
-                           long selectedIndexId, PreAggStatus preAggStatus, List<String> hints,
-                           Optional<TableSample> tableSample) {
+                           List<Long> selectedPartitionIds, long selectedIndexId, PreAggStatus preAggStatus,
+                           List<Long> specifiedPartitions, List<String> hints, Optional<TableSample> tableSample) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                table.getPartitionIds(), false, tabletIds,
+                selectedPartitionIds, false, tabletIds,
                 selectedIndexId, true, preAggStatus,
-                ImmutableList.of(), hints, Maps.newHashMap(), tableSample, true, ImmutableMap.of());
+                specifiedPartitions, hints, Maps.newHashMap(), tableSample, true, ImmutableMap.of());
     }
 
     /**
@@ -331,6 +331,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     @Override
     public long getSelectedIndexId() {
         return selectedIndexId;
+    }
+
+    @Override
+    public long getSelectedIndexIdForMV() {
+        if (getTable().getBaseIndexId() != selectedIndexId) {
+            return selectedIndexId;
+        }
+        return -1;
     }
 
     public boolean isIndexSelected() {

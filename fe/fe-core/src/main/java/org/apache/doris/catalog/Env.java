@@ -266,6 +266,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CleanTrashTask;
+import org.apache.doris.task.CleanUDFCacheTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
@@ -290,6 +291,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -2085,10 +2087,12 @@ public class Env {
     }
 
     public long loadBackends(DataInputStream dis, long checksum) throws IOException {
+        LOG.info("start loading backends from image");
         return systemInfo.loadBackends(dis, checksum);
     }
 
     public long loadDb(DataInputStream dis, long checksum) throws IOException, DdlException {
+        LOG.info("start loading db from image");
         return getInternalCatalog().loadDb(dis, checksum);
     }
 
@@ -2206,7 +2210,7 @@ public class Env {
     }
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
-        recycleBin.readFields(dis);
+        recycleBin = CatalogRecycleBin.read(dis);
         // add tablet in Recycle bin to TabletInvertedIndex
         recycleBin.addTabletToInvertedIndex();
         // create DatabaseTransactionMgr for db in recycle bin.
@@ -2315,6 +2319,7 @@ public class Env {
      * Load catalogs through file.
      **/
     public long loadCatalog(DataInputStream in, long checksum) throws IOException {
+        LOG.info("start loading catalog from image");
         CatalogMgr mgr = CatalogMgr.read(in);
         // When enable the multi catalog in the first time, the "mgr" will be a null value.
         // So ignore it to use default catalog manager.
@@ -3443,7 +3448,7 @@ public class Env {
 
         // inverted index storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
-        sb.append(olapTable.getInvertedIndexStorageFormat()).append("\"");
+        sb.append(olapTable.getInvertedIndexFileStorageFormat()).append("\"");
 
         // compression type
         if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
@@ -3581,6 +3586,13 @@ public class Env {
         // group commit data bytes
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
         sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
+
+        // enable delete on delete predicate
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)
+                    .append("\" = \"");
+            sb.append(olapTable.getEnableDeleteOnDeletePredicate()).append("\"");
+        }
 
         // enable duplicate without keys by default
         if (olapTable.isDuplicateWithoutKey()) {
@@ -4911,7 +4923,14 @@ public class Env {
             }
 
             // check if have materialized view on rename column
+            // and check whether colName is referenced by generated columns
             for (Column column : entry.getValue().getSchema()) {
+                if (column.getName().equals(colName) && !column.getGeneratedColumnsThatReferToThis().isEmpty()) {
+                    throw new DdlException(
+                            "Cannot rename column, because column '" + colName
+                                    + "' has a generated column dependency on :"
+                                    + column.getGeneratedColumnsThatReferToThis());
+                }
                 Expr expr = column.getDefineExpr();
                 if (expr == null) {
                     continue;
@@ -5602,6 +5621,7 @@ public class Env {
             Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
             db.dropFunction(stmt.getFunction(), stmt.isIfExists());
         }
+        cleanUDFCacheTask(stmt); // BE will cache classload, when drop function, BE need clear cache
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
@@ -6092,6 +6112,18 @@ public class Env {
             CleanTrashTask cleanTrashTask = new CleanTrashTask(backend.getId());
             batchTask.addTask(cleanTrashTask);
             LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
+        }
+        AgentTaskExecutor.submit(batchTask);
+    }
+
+    public void cleanUDFCacheTask(DropFunctionStmt stmt) {
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
+        String functionSignature = stmt.signatureString();
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (Backend backend : backendsInfo.values()) {
+            CleanUDFCacheTask cleanUDFCacheTask = new CleanUDFCacheTask(backend.getId(), functionSignature);
+            batchTask.addTask(cleanUDFCacheTask);
+            LOG.info("clean udf cache in be {}, beId {}", backend.getHost(), backend.getId());
         }
         AgentTaskExecutor.submit(batchTask);
     }

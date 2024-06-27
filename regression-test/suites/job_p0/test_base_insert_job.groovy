@@ -145,9 +145,21 @@ suite("test_base_insert_job") {
     Thread.sleep(5000)
     def pressJob = sql """ select * from jobs("type"="insert") where name='press' """
     println pressJob
-    
+    sql """
+        DROP JOB IF EXISTS where jobname =  'past_start_time'
+    """
+    sql """
+          CREATE JOB past_start_time  ON SCHEDULE every 10 hour starts '2023-11-13 14:18:07'  comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', 99, 99);
+     """
+
+    def past_start_time_job = sql """ select status from jobs("type"="insert") where name='past_start_time'"""
+    println past_start_time_job
+    assert past_start_time_job.get(0).get(0) == "RUNNING"
     def recurringTableDatas = sql """ select count(1) from ${tableName} where user_id=99 and type=99 """
     assert recurringTableDatas.get(0).get(0) == 1
+    sql """
+        DROP JOB IF EXISTS where jobname =  'past_start_time'
+    """
     sql """
         DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
@@ -190,6 +202,7 @@ suite("test_base_insert_job") {
             CREATE JOB ${jobName}  ON SCHEDULE at '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
+        println e.getMessage()
         assert e.getMessage().contains("startTimeMs must be greater than current time")
     }
     // assert end time less than start time
@@ -213,7 +226,7 @@ suite("test_base_insert_job") {
             CREATE JOB test_error_starts  ON SCHEDULE every 1 second ends '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
-        assert e.getMessage().contains("end time cannot be less than start time")
+        assert e.getMessage().contains("endTimeMs must be greater than the start time")
     }
     // assert interval time unit can not be years
     try {

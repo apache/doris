@@ -42,7 +42,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -208,6 +208,11 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_GROUP_COMMIT_DATA_BYTES = "group_commit_data_bytes";
     public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
             = Config.group_commit_data_bytes_default_value;
+
+    public static final String PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE =
+            "enable_mow_delete_on_delete_predicate";
+    public static final boolean PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE_DEFAULT_VALUE
+            = Config.enable_mow_delete_on_predicate;
 
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
@@ -1032,32 +1037,32 @@ public class PropertyAnalyzer {
         }
     }
 
-    public static TInvertedIndexStorageFormat analyzeInvertedIndexStorageFormat(Map<String, String> properties)
+    public static TInvertedIndexFileStorageFormat analyzeInvertedIndexFileStorageFormat(Map<String, String> properties)
             throws AnalysisException {
-        String invertedIndexStorageFormat = "";
+        String invertedIndexFileStorageFormat = "";
         if (properties != null && properties.containsKey(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
-            invertedIndexStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+            invertedIndexFileStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
             properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
         } else {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexStorageFormat.V1;
+                return TInvertedIndexFileStorageFormat.V1;
             } else {
-                return TInvertedIndexStorageFormat.V2;
+                return TInvertedIndexFileStorageFormat.V2;
             }
         }
 
-        if (invertedIndexStorageFormat.equalsIgnoreCase("v1")) {
-            return TInvertedIndexStorageFormat.V1;
-        } else if (invertedIndexStorageFormat.equalsIgnoreCase("v2")) {
-            return TInvertedIndexStorageFormat.V2;
-        } else if (invertedIndexStorageFormat.equalsIgnoreCase("default")) {
+        if (invertedIndexFileStorageFormat.equalsIgnoreCase("v1")) {
+            return TInvertedIndexFileStorageFormat.V1;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v2")) {
+            return TInvertedIndexFileStorageFormat.V2;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
-                return TInvertedIndexStorageFormat.V1;
+                return TInvertedIndexFileStorageFormat.V1;
             } else {
-                return TInvertedIndexStorageFormat.V2;
+                return TInvertedIndexFileStorageFormat.V2;
             }
         } else {
-            throw new AnalysisException("unknown inverted index storage format: " + invertedIndexStorageFormat);
+            throw new AnalysisException("unknown inverted index storage format: " + invertedIndexFileStorageFormat);
         }
     }
 
@@ -1411,6 +1416,25 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
+    }
+
+    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE);
+        if (value == null) {
+            return false;
+        }
+        properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE);
+        if (value.equals("true")) {
+            return true;
+        } else if (value.equals("false")) {
+            return false;
+        }
+        throw new AnalysisException(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE + " must be `true` or `false`");
     }
 
     /**

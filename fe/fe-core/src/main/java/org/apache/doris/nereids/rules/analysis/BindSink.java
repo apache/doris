@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -276,28 +277,18 @@ public class BindSink implements AnalysisRuleFactory {
         Map<String, NamedExpression> columnToOutput = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         NereidsParser expressionParser = new NereidsParser();
 
+        List<Column> generatedColumns = Lists.newArrayList();
+        List<Column> materializedViewColumn = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
         for (Column column : boundSink.getTargetTable().getFullSchema()) {
-            if (column.isMaterializedViewColumn()) {
-                List<SlotRef> refs = column.getRefColumns();
-                // now we have to replace the column to slots.
-                Preconditions.checkArgument(refs != null,
-                        "mv column %s 's ref column cannot be null", column);
-                Expression parsedExpression = expressionParser.parseExpression(
-                        column.getDefineExpr().toSqlWithoutTbl());
-                Expression boundSlotExpression = SlotReplacer.INSTANCE
-                        .replace(parsedExpression, columnToOutput);
-                // the boundSlotExpression is an expression whose slots are bound but function
-                // may not be bound, we have to bind it again.
-                // for example: to_bitmap.
-                Expression boundExpression = FunctionBinder.INSTANCE.rewrite(
-                        boundSlotExpression, new ExpressionRewriteContext(ctx.cascadesContext));
-                if (boundExpression instanceof Alias) {
-                    boundExpression = ((Alias) boundExpression).child();
-                }
-                NamedExpression slot = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
-                columnToOutput.put(column.getName(), slot);
-            } else if (columnToChildOutput.containsKey(column)
+            if (column.getGeneratedColumnInfo() != null) {
+                generatedColumns.add(column);
+                continue;
+            } else if (column.isMaterializedViewColumn()) {
+                materializedViewColumn.add(column);
+                continue;
+            }
+            if (columnToChildOutput.containsKey(column)
                     // do not process explicitly use DEFAULT value here:
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
@@ -379,6 +370,43 @@ public class BindSink implements AnalysisRuleFactory {
                         throw new AnalysisException(e.getMessage(), e.getCause());
                     }
                 }
+            }
+        }
+        // the generated columns can use all ordinary columns,
+        // if processed in upper for loop, will lead to not found slot error
+        //It's the same reason for moving the processing of materialized columns down.
+        for (Column column : generatedColumns) {
+            GeneratedColumnInfo info = column.getGeneratedColumnInfo();
+            Expression parsedExpression = new NereidsParser().parseExpression(info.getExpr().toSqlWithoutTbl());
+            Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(parsedExpression, columnToOutput);
+            Expression boundExpression = FunctionBinder.INSTANCE.rewrite(boundSlotExpression,
+                    new ExpressionRewriteContext(ctx.cascadesContext));
+            if (boundExpression instanceof Alias) {
+                boundExpression = ((Alias) boundExpression).child();
+            }
+            NamedExpression slot = new Alias(boundExpression, info.getExprSql());
+            columnToOutput.put(column.getName(), slot);
+        }
+        for (Column column : materializedViewColumn) {
+            if (column.isMaterializedViewColumn()) {
+                List<SlotRef> refs = column.getRefColumns();
+                // now we have to replace the column to slots.
+                Preconditions.checkArgument(refs != null,
+                        "mv column %s 's ref column cannot be null", column);
+                Expression parsedExpression = expressionParser.parseExpression(
+                        column.getDefineExpr().toSqlWithoutTbl());
+                Expression boundSlotExpression = SlotReplacer.INSTANCE
+                        .replace(parsedExpression, columnToOutput);
+                // the boundSlotExpression is an expression whose slots are bound but function
+                // may not be bound, we have to bind it again.
+                // for example: to_bitmap.
+                Expression boundExpression = FunctionBinder.INSTANCE.rewrite(
+                        boundSlotExpression, new ExpressionRewriteContext(ctx.cascadesContext));
+                if (boundExpression instanceof Alias) {
+                    boundExpression = ((Alias) boundExpression).child();
+                }
+                NamedExpression slot = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
+                columnToOutput.put(column.getName(), slot);
             }
         }
         return columnToOutput;
@@ -543,6 +571,9 @@ public class BindSink implements AnalysisRuleFactory {
                         ++extraColumnsNum;
                         processedColsName.add(col.getName());
                     }
+                } else if (col.getGeneratedColumnInfo() != null) {
+                    ++extraColumnsNum;
+                    processedColsName.add(col.getName());
                 }
             }
             if (!processedColsName.contains(Column.SEQUENCE_COL) && (childHasSeqCol || needExtraSeqCol)) {

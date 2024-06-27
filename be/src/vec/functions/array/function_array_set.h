@@ -181,7 +181,11 @@ private:
         constexpr auto execute_left_column_first = Impl::Action::execute_left_column_first;
         size_t current = 0;
         Impl impl;
-        for (size_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
+        size_t row_size = left_data.offsets_ptr->size();
+        if constexpr (LCONST) {
+            row_size = right_data.offsets_ptr->size();
+        }
+        for (size_t row = 0; row < row_size; ++row) {
             size_t count = 0;
             size_t left_off = (*left_data.offsets_ptr)[index_check_const(row, LCONST) - 1];
             size_t left_len = (*left_data.offsets_ptr)[index_check_const(row, LCONST)] - left_off;

@@ -33,6 +33,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
@@ -86,6 +87,8 @@ public:
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
+
+    virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
     // only for compound type now.
     virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
 

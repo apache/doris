@@ -72,7 +72,7 @@ public:
     Status add_block(RuntimeState* runtime_state, std::shared_ptr<vectorized::Block> block,
                      bool write_wal, UniqueId& load_id);
     Status get_block(RuntimeState* runtime_state, vectorized::Block* block, bool* find_block,
-                     bool* eos);
+                     bool* eos, std::shared_ptr<pipeline::Dependency> get_block_dep);
     Status add_load_id(const UniqueId& load_id,
                        const std::shared_ptr<pipeline::Dependency> put_block_dep);
     void remove_load_id(const UniqueId& load_id);
@@ -85,6 +85,7 @@ public:
     Status close_wal();
     bool has_enough_wal_disk_space(size_t estimated_wal_bytes);
     void append_dependency(std::shared_ptr<pipeline::Dependency> finish_dep);
+    void append_read_dependency(std::shared_ptr<pipeline::Dependency> read_dep);
 
     std::string debug_string() const {
         fmt::memory_buffer debug_string_buffer;
@@ -120,6 +121,7 @@ private:
 
     // the set of load ids of all blocks in this queue
     std::map<UniqueId, std::shared_ptr<pipeline::Dependency>> _load_ids_to_write_dep;
+    std::vector<std::shared_ptr<pipeline::Dependency>> _read_deps;
     std::list<BlockData> _block_queue;
 
     // wal
@@ -159,7 +161,8 @@ public:
                                       std::shared_ptr<pipeline::Dependency> create_plan_dep,
                                       std::shared_ptr<pipeline::Dependency> put_block_dep);
     Status get_load_block_queue(const TUniqueId& instance_id,
-                                std::shared_ptr<LoadBlockQueue>& load_block_queue);
+                                std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                std::shared_ptr<pipeline::Dependency> get_block_dep);
 
 private:
     Status _create_group_commit_load(int be_exe_version,
@@ -184,6 +187,7 @@ private:
     // fragment_instance_id to load_block_queue
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
     bool _is_creating_plan_fragment = false;
+    std::vector<std::shared_ptr<pipeline::Dependency>> _create_plan_deps;
 };
 
 class GroupCommitMgr {
@@ -195,7 +199,8 @@ public:
 
     // used when init group_commit_scan_node
     Status get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
-                                std::shared_ptr<LoadBlockQueue>& load_block_queue);
+                                std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                std::shared_ptr<pipeline::Dependency> get_block_dep);
     Status get_first_block_load_queue(int64_t db_id, int64_t table_id, int64_t base_schema_version,
                                       const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
