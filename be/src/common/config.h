@@ -1162,6 +1162,14 @@ DECLARE_Int32(download_binlog_rate_limit_kbs);
 // whether to enable /api/snapshot api
 DECLARE_Bool(enable_snapshot_action);
 
+DECLARE_mBool(need_add_stable_rowset);
+
+DECLARE_mBool(enable_checkpoint);
+
+DECLARE_mBool(clear_rs_meta);
+
+DECLARE_mInt64(tmp_tablet_id);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

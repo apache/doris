@@ -395,11 +395,13 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
     int64_t interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     do {
         LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
-        for (auto data_dir : data_dirs) {
-            auto st = _tablet_meta_checkpoint_thread_pool->submit_func(
-                    [data_dir, this]() { _tablet_manager->do_tablet_meta_checkpoint(data_dir); });
-            if (!st.ok()) {
-                LOG(WARNING) << "submit tablet checkpoint tasks failed.";
+        if (config::enable_checkpoint) {
+            for (auto data_dir : data_dirs) {
+                auto st = _tablet_meta_checkpoint_thread_pool->submit_func(
+                        [data_dir, this]() { _tablet_manager->do_tablet_meta_checkpoint(data_dir); });
+                if (!st.ok()) {
+                    LOG(WARNING) << "submit tablet checkpoint tasks failed.";
+                }
             }
         }
         interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;

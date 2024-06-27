@@ -1105,6 +1105,14 @@ DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
 DEFINE_Bool(enable_snapshot_action, "false");
 
+DEFINE_mBool(need_add_stable_rowset, "true") ;
+
+DEFINE_mBool(enable_checkpoint, "true");
+
+DEFINE_mBool(clear_rs_meta, "false");
+
+DEFINE_mInt64(tmp_tablet_id, "-1");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

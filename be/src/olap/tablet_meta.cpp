@@ -464,7 +464,12 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
 
 Status TabletMeta::serialize(string* meta_binary) {
     TabletMetaPB tablet_meta_pb;
+    if (config::clear_rs_meta && config::tmp_tablet_id == _tablet_id) {
+        _stale_rs_metas.clear();
+    }
+
     to_meta_pb(&tablet_meta_pb);
+
     bool serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
     if (!serialize_success) {
         LOG(FATAL) << "failed to serialize meta " << full_name();
@@ -766,7 +771,7 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
             }
         }
     }
-    if (!same_version) {
+    if (!same_version && config::need_add_stable_rowset) {
         // put to_delete rowsets in _stale_rs_metas.
         _stale_rs_metas.insert(_stale_rs_metas.end(), to_delete.begin(), to_delete.end());
     }
