@@ -278,15 +278,9 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             }
         }
         set_be_config.call("inverted_index_compaction_enable", "true")
-        if (isCloudMode) {
-            set_be_config.call("disable_auto_compaction", "true")
-        }
         has_update_be_config = true
         // check updated config
         check_config.call("inverted_index_compaction_enable", "true");
-        if (isCloudMode) {
-            check_config.call("disable_auto_compaction", "true")
-        }
 
 
         /**
@@ -346,9 +340,6 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
     } finally {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
-            if (isCloudMode) {
-                set_be_config.call("disable_auto_compaction", disableAutoCompaction.toString())
-            }
         }
     }
 }
