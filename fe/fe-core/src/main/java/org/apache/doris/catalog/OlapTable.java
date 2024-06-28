@@ -72,7 +72,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFetchOption;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
@@ -743,12 +743,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
 
         // reset the indexes and update the indexes in materialized index meta too.
-        List<Index> indexes = this.indexes.getIndexes();
-        for (Index idx : indexes) {
-            idx.setIndexId(env.getNextId());
-        }
-        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
-            entry.getValue().setIndexes(indexes);
+        if (this.indexes != null) {
+            List<Index> indexes = this.indexes.getIndexes();
+            for (Index idx : indexes) {
+                idx.setIndexId(env.getNextId());
+            }
+            for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+                entry.getValue().setIndexes(indexes);
+            }
         }
 
         return Status.OK;
@@ -1307,6 +1309,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return null;
     }
 
+    public void setEnableDeleteOnDeletePredicate(boolean enable) {
+        getOrCreatTableProperty().setEnableDeleteOnDeletePredicate(enable);
+    }
+
+    public boolean getEnableDeleteOnDeletePredicate() {
+        return getOrCreatTableProperty().getEnableDelteOnDeletePredicate();
+    }
+
     public void setGroupCommitIntervalMs(int groupCommitInterValMs) {
         getOrCreatTableProperty().setGroupCommitIntervalMs(groupCommitInterValMs);
     }
@@ -1549,6 +1559,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -1786,7 +1797,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             t.readFields(in);
             return t;
         }
-        return (OlapTable) GsonUtils.GSON.fromJson(Text.readString(in), OlapTable.class);
+        return GsonUtils.GSON.fromJson(Text.readString(in), OlapTable.class);
     }
 
     /*
@@ -2485,11 +2496,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildStorageFormat();
     }
 
-    public void setInvertedIndexStorageFormat(TInvertedIndexStorageFormat invertedIndexStorageFormat) {
+    public void setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
-                invertedIndexStorageFormat.name());
-        tableProperty.buildInvertedIndexStorageFormat();
+                invertedIndexFileStorageFormat.name());
+        tableProperty.buildInvertedIndexFileStorageFormat();
     }
 
     public TStorageFormat getStorageFormat() {
@@ -2499,11 +2510,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return tableProperty.getStorageFormat();
     }
 
-    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
+    public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormat() {
         if (tableProperty == null) {
-            return TInvertedIndexStorageFormat.V2;
+            return TInvertedIndexFileStorageFormat.V2;
         }
-        return tableProperty.getInvertedIndexStorageFormat();
+        return tableProperty.getInvertedIndexFileStorageFormat();
     }
 
     public TCompressionType getCompressionType() {

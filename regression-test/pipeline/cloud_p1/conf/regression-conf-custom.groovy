@@ -20,3 +20,5 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 50
+
+s3Provider = "COS"

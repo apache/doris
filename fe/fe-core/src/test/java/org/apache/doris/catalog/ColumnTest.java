@@ -19,7 +19,9 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -53,26 +55,26 @@ public class ColumnTest {
 
         Column column1 = new Column("user",
                                 ScalarType.createChar(20), false, AggregateType.SUM, "", "");
-        column1.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(column1));
         Column column2 = new Column("age",
                                 ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20", "");
-        column2.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(column2));
 
         Column column3 = new Column("name", PrimitiveType.BIGINT);
         column3.setIsKey(true);
-        column3.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(column3));
 
         Column column4 = new Column("age",
                                 ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20",
                                     "");
-        column4.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(column4));
 
         dos.flush();
         dos.close();
 
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
-        Column rColumn1 = Column.read(dis);
+        Column rColumn1 = GsonUtils.GSON.fromJson(Text.readString(dis), Column.class);
         Assert.assertEquals("user", rColumn1.getName());
         Assert.assertEquals(PrimitiveType.CHAR, rColumn1.getDataType());
         Assert.assertEquals(AggregateType.SUM, rColumn1.getAggregationType());
@@ -83,16 +85,16 @@ public class ColumnTest {
         Assert.assertFalse(rColumn1.isAllowNull());
 
         // 3. Test read()
-        Column rColumn2 = Column.read(dis);
+        Column rColumn2 = GsonUtils.GSON.fromJson(Text.readString(dis), Column.class);
         Assert.assertEquals("age", rColumn2.getName());
         Assert.assertEquals(PrimitiveType.INT, rColumn2.getDataType());
         Assert.assertEquals(AggregateType.REPLACE, rColumn2.getAggregationType());
         Assert.assertEquals("20", rColumn2.getDefaultValue());
 
-        Column rColumn3 = Column.read(dis);
+        Column rColumn3 = GsonUtils.GSON.fromJson(Text.readString(dis), Column.class);
         Assert.assertEquals(rColumn3, column3);
 
-        Column rColumn4 = Column.read(dis);
+        Column rColumn4 = GsonUtils.GSON.fromJson(Text.readString(dis), Column.class);
         Assert.assertEquals(rColumn4, column4);
 
         Assert.assertEquals(rColumn2.toString(), column2.toString());

@@ -1305,6 +1305,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
         updateDbInfoForLowerVersion();
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         int count = in.readInt();
         for (int i = 0; i < count; i++) {
@@ -1439,6 +1440,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
             return table;
         }
 
+        @Deprecated
         public void readFields(DataInput in) throws IOException {
             dbId = in.readLong();
             table = Table.read(in);

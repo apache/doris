@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.cloud.proto.Cloud;
@@ -35,7 +36,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -104,9 +104,8 @@ public class CloudPartition extends Partition {
 
     @Override
     public long getVisibleVersion() {
-        if (Config.enable_check_compatibility_mode) {
-            LOG.info("return 1 as the visible version in the compatibility checking mode");
-            return 1;
+        if (Env.isCheckpointThread() || Config.enable_check_compatibility_mode) {
+            return super.getVisibleVersion();
         }
 
         if (LOG.isDebugEnabled()) {
@@ -359,18 +358,12 @@ public class CloudPartition extends Partition {
         return null;
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         this.dbId = in.readLong();
         this.tableId = in.readLong();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(this.dbId);
-        out.writeLong(this.tableId);
     }
 
     public boolean equals(Object obj) {

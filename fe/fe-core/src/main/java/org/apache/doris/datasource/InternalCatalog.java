@@ -166,7 +166,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TCompressionType;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -1325,7 +1325,19 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (resultExpr.getSrcSlotRef() != null
                             && resultExpr.getSrcSlotRef().getTable() != null
                             && !resultExpr.getSrcSlotRef().getTable().isManagedTable()) {
-                        typeDef = new TypeDef(ScalarType.createStringType());
+                        if (createTableStmt.getPartitionDesc().inIdentifierPartitions(
+                                resultExpr.getSrcSlotRef().getColumnName())
+                                || (createTableStmt.getDistributionDesc() != null
+                                && createTableStmt.getDistributionDesc().inDistributionColumns(
+                                        resultExpr.getSrcSlotRef().getColumnName()))) {
+                            // String type can not be used in partition/distributed column
+                            // so we replace it to varchar
+                            if (resultType.getPrimitiveType() == PrimitiveType.STRING) {
+                                typeDef = new TypeDef(ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH));
+                            }
+                        } else {
+                            typeDef = new TypeDef(ScalarType.createStringType());
+                        }
                     }
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
@@ -2055,7 +2067,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             objectPool);
 
                     task.setStorageFormat(tbl.getStorageFormat());
-                    task.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
+                    task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
                     task.setClusterKeyIndexes(clusterKeyIndexes);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -2410,13 +2422,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setStorageFormat(storageFormat);
 
-        TInvertedIndexStorageFormat invertedIndexStorageFormat;
+        TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
         try {
-            invertedIndexStorageFormat = PropertyAnalyzer.analyzeInvertedIndexStorageFormat(properties);
+            invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        olapTable.setInvertedIndexStorageFormat(invertedIndexStorageFormat);
+        olapTable.setInvertedIndexFileStorageFormat(invertedIndexFileStorageFormat);
 
         // get compression type
         TCompressionType compressionType = TCompressionType.LZ4;
@@ -2443,6 +2455,20 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+
+        boolean enableDeleteOnDeletePredicate = false;
+        if (keysType == KeysType.UNIQUE_KEYS) {
+            try {
+                enableDeleteOnDeletePredicate = PropertyAnalyzer.analyzeEnableDeleteOnDeletePredicate(properties);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+            if (enableDeleteOnDeletePredicate && !enableUniqueKeyMergeOnWrite) {
+                throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE
+                        + " property is not supported for unique merge-on-read table");
+            }
+        }
+        olapTable.setEnableDeleteOnDeletePredicate(enableDeleteOnDeletePredicate);
 
         boolean enableSingleReplicaCompaction = false;
         try {

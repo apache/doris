@@ -61,6 +61,8 @@ import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.AggStateType;
+import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.AnyElementType;
 import org.apache.doris.catalog.AnyStructType;
 import org.apache.doris.catalog.AnyType;
@@ -71,6 +73,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -99,6 +102,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
+import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.SinglePartitionInfo;
@@ -164,9 +168,9 @@ import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.ObjFileSystem;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.fs.remote.dfs.JFSFileSystem;
@@ -185,7 +189,9 @@ import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.KafkaProgress;
+import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadProgress;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
@@ -486,6 +492,13 @@ public class GsonUtils {
             .registerSubtype(FrontendHbResponse.class, FrontendHbResponse.class.getSimpleName())
             .registerSubtype(BrokerHbResponse.class, BrokerHbResponse.class.getSimpleName());
 
+    // runtime adapter for class "Function"
+    private static RuntimeTypeAdapterFactory<Function> functionAdapterFactory
+            = RuntimeTypeAdapterFactory.of(Function.class, "clazz")
+            .registerSubtype(ScalarFunction.class, ScalarFunction.class.getSimpleName())
+            .registerSubtype(AggregateFunction.class, AggregateFunction.class.getSimpleName())
+            .registerSubtype(AliasFunction.class, AliasFunction.class.getSimpleName());
+
     // runtime adapter for class "CloudReplica".
     private static RuntimeTypeAdapterFactory<Replica> replicaTypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(Replica.class, "clazz")
@@ -529,8 +542,13 @@ public class GsonUtils {
             .registerDefaultSubtype(RoutineLoadProgress.class)
             .registerSubtype(KafkaProgress.class, KafkaProgress.class.getSimpleName());
 
-    private static RuntimeTypeAdapterFactory<RemoteFileSystem> remoteFileSystemTypeAdapterFactory
-            = RuntimeTypeAdapterFactory.of(RemoteFileSystem.class, "clazz")
+    private static RuntimeTypeAdapterFactory<RoutineLoadJob> routineLoadJobTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(RoutineLoadJob.class, "clazz")
+            .registerDefaultSubtype(RoutineLoadJob.class)
+            .registerSubtype(KafkaRoutineLoadJob.class, KafkaRoutineLoadJob.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<PersistentFileSystem> remoteFileSystemTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(PersistentFileSystem.class, "clazz")
             .registerSubtype(BrokerFileSystem.class, BrokerFileSystem.class.getSimpleName())
             .registerSubtype(DFSFileSystem.class, DFSFileSystem.class.getSimpleName())
             .registerSubtype(JFSFileSystem.class, JFSFileSystem.class.getSimpleName())
@@ -570,6 +588,7 @@ public class GsonUtils {
             // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
+            .registerTypeAdapterFactory(new PreProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(new ExprAdapterFactory())
             .registerTypeAdapterFactory(exprAdapterFactory)
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
@@ -585,12 +604,14 @@ public class GsonUtils {
             .registerTypeAdapterFactory(partitionTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
+            .registerTypeAdapterFactory(functionAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
             .registerTypeAdapterFactory(mtmvSnapshotTypeAdapterFactory)
             .registerTypeAdapterFactory(constraintTypeAdapterFactory)
             .registerTypeAdapterFactory(txnCommitAttachmentTypeAdapterFactory)
             .registerTypeAdapterFactory(routineLoadTypeAdapterFactory)
+            .registerTypeAdapterFactory(routineLoadJobTypeAdapterFactory)
             .registerTypeAdapterFactory(remoteFileSystemTypeAdapterFactory)
             .registerTypeAdapterFactory(jobBackupTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobTypeAdapterFactory)
@@ -889,6 +910,30 @@ public class GsonUtils {
             final Type type2 = TypeUtils.parameterize(List.class, ((ParameterizedType) type).getActualTypeArguments());
             final List<?> list = context.deserialize(json, type2);
             return ImmutableList.copyOf(list);
+        }
+    }
+
+    public static class PreProcessTypeAdapterFactory implements TypeAdapterFactory {
+
+        public PreProcessTypeAdapterFactory() {
+        }
+
+        @Override
+        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
+            TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
+
+            return new TypeAdapter<T>() {
+                public void write(JsonWriter out, T value) throws IOException {
+                    if (value instanceof GsonPreProcessable) {
+                        ((GsonPreProcessable) value).gsonPreProcess();
+                    }
+                    delegate.write(out, value);
+                }
+
+                public T read(JsonReader reader) throws IOException {
+                    return delegate.read(reader);
+                }
+            };
         }
     }
 
