@@ -71,7 +71,7 @@ import java.util.stream.Collectors;
 public class PartitionsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId").add("PartitionName")
-            .add("VisibleVersion").add("VisibleVersionTime")
+            .add("VisibleVersion").add("VisibleVersionTime").add("CommittedVersion")
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
@@ -282,6 +282,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 String visibleTime = TimeUtils.longToTimeString(partition.getVisibleVersionTime());
                 partitionInfo.add(visibleTime);
                 trow.addToColumnValue(new TCell().setStringVal(visibleTime));
+                partitionInfo.add(partition.getCommittedVersion());
+                trow.addToColumnValue(new TCell().setLongVal(partition.getCommittedVersion()));
                 partitionInfo.add(partition.getState());
                 trow.addToColumnValue(new TCell().setStringVal(partition.getState().toString()));
                 if (tblPartitionInfo.getType() == PartitionType.RANGE
