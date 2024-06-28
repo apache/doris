@@ -743,12 +743,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
 
         // reset the indexes and update the indexes in materialized index meta too.
-        List<Index> indexes = this.indexes.getIndexes();
-        for (Index idx : indexes) {
-            idx.setIndexId(env.getNextId());
-        }
-        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
-            entry.getValue().setIndexes(indexes);
+        if (this.indexes != null) {
+            List<Index> indexes = this.indexes.getIndexes();
+            for (Index idx : indexes) {
+                idx.setIndexId(env.getNextId());
+            }
+            for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+                entry.getValue().setIndexes(indexes);
+            }
         }
 
         return Status.OK;
@@ -1557,6 +1559,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -1794,7 +1797,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             t.readFields(in);
             return t;
         }
-        return (OlapTable) GsonUtils.GSON.fromJson(Text.readString(in), OlapTable.class);
+        return GsonUtils.GSON.fromJson(Text.readString(in), OlapTable.class);
     }
 
     /*
