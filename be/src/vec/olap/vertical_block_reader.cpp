@@ -217,8 +217,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
     _reader_context.batch_size = read_params.batch_size;
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
-    _arena = std::make_unique<Arena>();
-    auto status = _init_collect_iter(read_params, sample_info);
+    auto status = _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
@@ -308,9 +307,6 @@ void VerticalBlockReader::_update_agg_data(MutableColumns& columns) {
 
 void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
                                             bool is_close) {
-    if (!_arena) [[unlikely]] {
-        return;
-    }
     for (size_t idx = 0; idx < _return_columns.size(); ++idx) {
         AggregateFunctionPtr function = _agg_functions[idx];
         AggregateDataPtr place = _agg_places[idx];
@@ -318,7 +314,7 @@ void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, 
 
         if (begin <= end) {
             function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      _arena.get(), _stored_has_null_tag[idx]);
+                                      &_arena, _stored_has_null_tag[idx]);
         }
 
         if (is_close) {
@@ -328,7 +324,7 @@ void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, 
         }
     }
     if (is_close) {
-        _arena->clear();
+        _arena.clear();
     }
 }
 
