@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_tvf_p2", "p2,external,tvf,external_remote,external_remote_tvf") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
+suite("test_tvf_p2", "p0,external,tvf,external_docker,hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
+        String nameNodeHost = context.config.otherConfigs.get("externalEnvIp")
+        String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
 
         qt_eof_check """select * from hdfs(
             "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/parquet/bad_store_sales.parquet",
