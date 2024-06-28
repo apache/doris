@@ -584,7 +584,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             C obj = (C) it.next();
             Integer count1 = (Integer) cMap1.get(obj);
             Integer count2 = (Integer) cMap2.get(obj);
-            if (count2 == null || count1 != count2) {
+            if (count2 == null || !count1.equals(count2)) {
                 return false;
             }
         }
