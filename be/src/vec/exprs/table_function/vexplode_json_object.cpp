@@ -113,7 +113,8 @@ void VExplodeJsonObjectTableFunction::get_same_many_values(MutableColumnPtr& col
         ret = assert_cast<ColumnStruct*>(column.get());
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "only support map column explode to struct column");
+                        "only support expand json object int to struct(kv pair), but given: ",
+                        column->get_name());
     }
     if (!ret || ret->tuple_size() != 2) {
         throw Exception(
