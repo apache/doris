@@ -987,6 +987,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
 
         std::string pred_result_sign = _gen_predicate_result_sign(pred);
         _rowid_result_for_index.emplace(pred_result_sign, std::make_pair(true, std::move(bitmap)));
+        _column_predicate_inverted_index_status[column_id][pred_result_sign] = true;
     }
 
     return Status::OK();
