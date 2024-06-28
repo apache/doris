@@ -1852,7 +1852,7 @@ RuntimeFilterType IRuntimeFilter::get_real_type() {
 bool IRuntimeFilter::need_sync_filter_size() {
     return (type() == RuntimeFilterType::IN_OR_BLOOM_FILTER ||
             type() == RuntimeFilterType::BLOOM_FILTER) &&
-           _wrapper->get_build_bf_cardinality() && !_is_broadcast_join;
+           _wrapper->get_build_bf_cardinality() && !_is_broadcast_join && _enable_pipeline_exec;
 }
 
 Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
