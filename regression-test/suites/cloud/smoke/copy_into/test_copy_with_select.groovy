@@ -11,7 +11,7 @@ suite("smoke_test_copy_with_select","smoke") {
         'prefix' = 'smoke-test' ,
         'ak' = '${getS3AK()}' ,
         'sk' = '${getS3SK()}' ,
-        'provider' = '${getProvider()}',
+        'provider' = '${getS3Provider()}',
         'access_type' = 'aksk',
         'default.file.column_separator' = "|");
     """

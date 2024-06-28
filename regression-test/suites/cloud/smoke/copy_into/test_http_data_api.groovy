@@ -22,7 +22,7 @@ suite("test_internal_stage_http_data_api", "smoke") {
     assertEquals(code, 0)
 
     // if aliyun, test internal endpoint
-    if ("oss".equals(getProvider())) {
+    if ("oss".equals(getS3Provider())) {
         def tmp = new StringBuilder(strBuilder)
         def tmp1 = new StringBuilder(strBuilder)
         // test internal
