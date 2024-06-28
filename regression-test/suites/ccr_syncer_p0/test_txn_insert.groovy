@@ -123,6 +123,7 @@ suite("test_txn_insert") {
         DISTRIBUTED BY HASH(id) BUCKETS 2 
         PROPERTIES ( "replication_num" = "1" )
     """
+    sql """ALTER TABLE ${txnTableName}_3 set ("binlog.enable" = "true")"""
     assertTrue(syncer.getSourceMeta("${txnTableName}_3"))
     target_sql "DROP TABLE IF EXISTS ${txnTableName}_3 force"
     target_sql """
@@ -170,6 +171,7 @@ suite("test_txn_insert") {
         DISTRIBUTED BY HASH(test) BUCKETS 2 
         PROPERTIES ( "replication_num" = "1" )
     """
+    sql """ALTER TABLE ${txnTableName}_u0 set ("binlog.enable" = "true")"""
     assertTrue(syncer.getSourceMeta("${txnTableName}_u0"))
     target_sql "DROP TABLE IF EXISTS ${txnTableName}_u0 force"
     target_sql """
