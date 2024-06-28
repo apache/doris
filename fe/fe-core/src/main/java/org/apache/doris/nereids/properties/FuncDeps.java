@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
  * Function dependence items.
  */
 public class FuncDeps {
-    class FuncDepsItem {
+    static class FuncDepsItem {
         final Set<Slot> determinants;
         final Set<Slot> dependencies;
 
@@ -163,6 +163,10 @@ public class FuncDeps {
     public boolean isCircleDeps(Set<Slot> dominate, Set<Slot> dependency) {
         return items.contains(new FuncDepsItem(dominate, dependency))
                 && items.contains(new FuncDepsItem(dependency, dominate));
+    }
+
+    public Set<FuncDeps.FuncDepsItem> getItems() {
+        return items;
     }
 
     /**
