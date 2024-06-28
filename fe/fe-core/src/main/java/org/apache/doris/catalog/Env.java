@@ -1590,8 +1590,15 @@ public class Env {
                                 SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
                     }
                 }
-                if (journalVersion <= FeMetaVersion.VERSION_133) {
-                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                if (journalVersion <= FeMetaVersion.VERSION_129) {
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0", SessionVariable.ENABLE_NEREIDS_PLANNER,
+                            "true");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0", SessionVariable.ENABLE_NEREIDS_DML,
+                            "true");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0",
+                            SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
+                            "false");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0",
                             SessionVariable.ENABLE_MATERIALIZED_VIEW_REWRITE,
                             "true");
                 }
