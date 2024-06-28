@@ -39,10 +39,11 @@ class PathSlotTest {
         List<Long> availPathHashs = Lists.newArrayList();
         List<Long> expectPathHashs = Lists.newArrayList();
         List<Long> gotPathHashs = Lists.newArrayList();
+        TStorageMedium medium = TStorageMedium.HDD;
         long startPath = 10001L;
         long endPath = 10006L;
         for (long pathHash = startPath; pathHash < endPath; pathHash++) {
-            paths.put(pathHash, TStorageMedium.HDD);
+            paths.put(pathHash, medium);
             availPathHashs.add(pathHash);
             expectPathHashs.add(pathHash);
         }
@@ -56,7 +57,7 @@ class PathSlotTest {
         PathSlot ps = new PathSlot(paths, 1L);
         for (int i = 0; i < expectPathHashs.size(); i++) {
             Collections.shuffle(availPathHashs);
-            gotPathHashs.add(ps.takeAnAvailBalanceSlotFrom(availPathHashs));
+            gotPathHashs.add(ps.takeAnAvailBalanceSlotFrom(availPathHashs, medium));
         }
         Assert.assertEquals(expectPathHashs, gotPathHashs);
     }
