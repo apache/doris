@@ -48,7 +48,7 @@ public:
     InvertedIndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
                             std::string rowset_id, int64_t seg_id,
                             InvertedIndexStorageFormatPB storage_format,
-                            io::FileWriterPtr file_writer)
+                            io::FileWriterPtr file_writer = nullptr)
             : _fs(std::move(fs)),
               _index_path_prefix(std::move(index_path_prefix)),
               _rowset_id(std::move(rowset_id)),

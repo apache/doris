@@ -169,7 +169,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
 
     int seg_id = this->_num_segment.fetch_add(1, std::memory_order_relaxed);
 
-    io::FileWriterPtr segment_file_writer;
+    io::FileWriterPtr file_writer;
     io::FileWriterOptions opts {
             .write_file_cache = this->_context.write_file_cache,
             .is_cold_data = this->_context.is_hot_data,
@@ -179,38 +179,22 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
                                                        this->_context.file_cache_ttl_sec
                                              : 0};
 
-    auto segment_path = context.segment_path(seg_id);
+    auto path = context.segment_path(seg_id);
     auto& fs = context.fs_ref();
-    Status st = fs.create_file(segment_path, &segment_file_writer, &opts);
+    Status st = fs.create_file(path, &file_writer, &opts);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to create writable file. segment_path=" << segment_path
-                     << ", err: " << st;
+        LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
     }
 
-    io::FileWriterPtr inverted_file_writer;
-    if (context.tablet_schema->has_inverted_index() &&
-        context.tablet_schema->get_inverted_index_storage_format() >=
-                InvertedIndexStorageFormatPB::V2) {
-        auto path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(segment_path);
-        auto idx_path = InvertedIndexDescriptor::get_index_file_path_v2(path_prefix);
-        Status st = fs.create_file(idx_path, &inverted_file_writer);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to create inverted idx file. idx_path=" << idx_path
-                         << ", err: " << st;
-            return st;
-        }
-    }
-
-    DCHECK(segment_file_writer != nullptr);
+    DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &context;
     *writer = std::make_unique<segment_v2::SegmentWriter>(
-            segment_file_writer.get(), seg_id, context.tablet_schema, context.tablet,
-            context.data_dir, context.max_rows_per_segment, writer_options, nullptr,
-            std::move(inverted_file_writer));
-    RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(segment_file_writer)));
+            file_writer.get(), seg_id, context.tablet_schema, context.tablet, context.data_dir,
+            context.max_rows_per_segment, writer_options, nullptr);
+    RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(file_writer)));
 
     auto s = (*writer)->init(column_ids, is_key);
     if (!s.ok()) {

@@ -651,30 +651,19 @@ Status Compaction::do_inverted_index_compaction() {
         bool open_idx_file_cache = false;
         auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
                                                    open_idx_file_cache);
-        auto create_idx_file_writer = [this, &ctx, &i, &inverted_index_file_writers,
-                                       &index_path_prefix]() -> Status {
-            io::FileWriterPtr idx_file_writer;
-            if (_cur_tablet_schema->get_inverted_index_storage_format() >=
-                InvertedIndexStorageFormatPB::V2) {
-                auto idx_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-                RETURN_IF_ERROR(ctx.fs()->create_file(idx_path, &idx_file_writer));
-            }
-            auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                    ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), i,
-                    _cur_tablet_schema->get_inverted_index_storage_format(),
-                    std::move(idx_file_writer));
-            inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
-            return Status::OK();
-        };
         if (st.ok()) {
             auto index_not_need_to_compact =
                     DORIS_TRY(inverted_index_file_reader->get_all_directories());
-            RETURN_IF_ERROR(create_idx_file_writer());
-            for (const auto& file_writer : inverted_index_file_writers) {
-                RETURN_IF_ERROR(file_writer->initialize(index_not_need_to_compact));
-            }
+            auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                    ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), i,
+                    _cur_tablet_schema->get_inverted_index_storage_format());
+            RETURN_IF_ERROR(inverted_index_file_writer->initialize(index_not_need_to_compact));
+            inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
         } else if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
-            RETURN_IF_ERROR(create_idx_file_writer());
+            auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                    ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), i,
+                    _cur_tablet_schema->get_inverted_index_storage_format());
+            inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
         } else {
             LOG(ERROR) << "inverted_index_file_reader init failed in index compaction, error:"
                        << st;

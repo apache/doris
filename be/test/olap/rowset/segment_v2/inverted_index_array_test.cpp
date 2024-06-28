@@ -133,7 +133,7 @@ public:
         idx_meta.init_from_pb(*index_meta_pb.get());
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V1, nullptr);
+                InvertedIndexStorageFormatPB::V1);
         std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
         EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
                                                     index_file_writer.get(), &idx_meta),
