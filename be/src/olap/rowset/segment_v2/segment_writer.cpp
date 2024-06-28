@@ -87,7 +87,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              DataDir* data_dir, uint32_t max_row_per_segment,
                              const SegmentWriterOptions& opts,
                              std::shared_ptr<MowContext> mow_context,
-                             io::FileWriterPtr inverted_file_writer == nullptr)
+                             io::FileWriterPtr inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
