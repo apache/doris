@@ -66,6 +66,7 @@ public class HashDistributionInfo extends DistributionInfo {
         this.bucketNum = bucketNum;
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

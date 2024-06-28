@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -35,42 +38,40 @@ public class ColumnStatTest {
         DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
         ColumnStats stats1 = new ColumnStats();
-        stats1.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(stats1));
 
         ColumnStats stats2 = new ColumnStats();
         stats2.setAvgSerializedSize(1.1f);
         stats2.setNumDistinctValues(100L);
         stats2.setMaxSize(1000L);
         stats2.setNumNulls(10000L);
-        stats2.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(stats2));
 
         ColumnStats stats3 = new ColumnStats();
         stats3.setAvgSerializedSize(3.3f);
         stats3.setNumDistinctValues(200L);
         stats3.setMaxSize(2000L);
         stats3.setNumNulls(20000L);
-        stats3.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(stats3));
 
         ColumnStats stats4 = new ColumnStats(stats3);
-        stats4.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(stats4));
 
         dos.flush();
         dos.close();
 
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
-        ColumnStats rStats1 = new ColumnStats();
-        rStats1.readFields(dis);
+        ColumnStats rStats1 = GsonUtils.GSON.fromJson(Text.readString(dis), ColumnStats.class);
         Assert.assertEquals(rStats1, stats1);
 
-        ColumnStats rStats2 = new ColumnStats();
-        rStats2.readFields(dis);
+        ColumnStats rStats2 = GsonUtils.GSON.fromJson(Text.readString(dis), ColumnStats.class);
         Assert.assertEquals(rStats2, stats2);
 
-        ColumnStats rStats3 = ColumnStats.read(dis);
+        ColumnStats rStats3 = GsonUtils.GSON.fromJson(Text.readString(dis), ColumnStats.class);
         Assert.assertEquals(rStats3, stats3);
 
-        ColumnStats rStats4 = ColumnStats.read(dis);
+        ColumnStats rStats4 = GsonUtils.GSON.fromJson(Text.readString(dis), ColumnStats.class);
         Assert.assertEquals(rStats4, stats4);
         Assert.assertEquals(rStats4, stats3);
 

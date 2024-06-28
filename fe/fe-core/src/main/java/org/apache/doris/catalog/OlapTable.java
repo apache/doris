@@ -1559,6 +1559,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -1796,7 +1797,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             t.readFields(in);
             return t;
         }
-        return (OlapTable) GsonUtils.GSON.fromJson(Text.readString(in), OlapTable.class);
+        return GsonUtils.GSON.fromJson(Text.readString(in), OlapTable.class);
     }
 
     /*
