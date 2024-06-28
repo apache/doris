@@ -271,7 +271,11 @@ int S3Accessor::check_bucket_versioning() {
 
 int GcsAccessor::delete_objects(const std::vector<std::string>& relative_paths) {
     std::vector<int> delete_rets(relative_paths.size());
+#ifdef USE_LIBCPP
+    std::transform(relative_paths.begin(), relative_paths.end(),
+#else
     std::transform(std::execution::par, relative_paths.begin(), relative_paths.end(),
+#endif
                    delete_rets.begin(),
                    [this](const std::string& path) { return delete_object(path); });
     int ret = 0;

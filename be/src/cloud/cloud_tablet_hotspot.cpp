@@ -89,20 +89,20 @@ void TabletHotspot::get_top_n_hot_partition(std::vector<THotTableMessage>* hot_t
                 hot_partition.qpd = std::max(hot_partition.qpd, counter->qpd());
                 hot_partition.qpw = std::max(hot_partition.qpw, counter->qpw());
                 hot_partition.last_access_time =
-                        std::max(hot_partition.last_access_time,
-                                 std::chrono::duration_cast<std::chrono::seconds>(
-                                         counter->last_access_time.time_since_epoch())
-                                         .count());
+                        std::max<int64_t>(hot_partition.last_access_time,
+                                          std::chrono::duration_cast<std::chrono::seconds>(
+                                                  counter->last_access_time.time_since_epoch())
+                                                  .count());
             } else if (counter->qpw() != 0) {
                 auto& hot_partition = week_hot_partitions[std::make_pair(
                         counter->table_id, counter->index_id)][counter->partition_id];
                 hot_partition.qpd = 0;
                 hot_partition.qpw = std::max(hot_partition.qpw, counter->qpw());
                 hot_partition.last_access_time =
-                        std::max(hot_partition.last_access_time,
-                                 std::chrono::duration_cast<std::chrono::seconds>(
-                                         counter->last_access_time.time_since_epoch())
-                                         .count());
+                        std::max<int64_t>(hot_partition.last_access_time,
+                                          std::chrono::duration_cast<std::chrono::seconds>(
+                                                  counter->last_access_time.time_since_epoch())
+                                                  .count());
             }
         }
     });
