@@ -404,6 +404,14 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
         break; // while (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write())
     }
 
+    DBUG_EXECUTE_IF("Tablet.revise_tablet_meta_fail", {
+        auto ptablet_id = dp->param("tablet_id", 0);
+        if (tablet_id() == ptablet_id) {
+            LOG(INFO) << "injected revies_tablet_meta failure for tabelt: " << ptablet_id;
+            calc_bm_status = Status::InternalError("fault injection error");
+        }
+    });
+
     // error handling
     if (!calc_bm_status.ok()) {
         if (is_incremental_clone) {
