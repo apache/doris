@@ -53,14 +53,14 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
+        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "store_row_column" = "true");
     """
     sql "insert into var_delete_update_mow select k, cast(v as string), cast(v as string) from var_delete_update"
     sql "delete from ${table_name} where k = 1"
     sql "delete from ${table_name} where k in (select k from var_delete_update_mow where k in (3, 4, 5))"
 
-    sql """insert into var_delete_update_mow values (6, '{"a":4,"b":[4],"c":4.0}', 'xxx')"""
-    sql """insert into var_delete_update_mow values (7, '{"a":4,"b":[4],"c":4.0}', 'yyy')"""
+    sql """insert into var_delete_update_mow values (6, '{"a":4,"b":[4],"c":4.1}', 'xxx')"""
+    sql """insert into var_delete_update_mow values (7, '{"a":4,"b":[4],"c":4.1}', 'yyy')"""
     sql """update var_delete_update_mow set vs = '{"updated_value" : 123}' where k = 6"""
     sql """update var_delete_update_mow set v = '{"updated_value":1111}' where k = 7"""
     qt_sql "select * from var_delete_update_mow order by k"
@@ -108,7 +108,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
                 `dft` int(11) DEFAULT "4321",
                 `var` variant NULL)
                 UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-                PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "disable_auto_compaction" = "true")
+                PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "disable_auto_compaction" = "true", "store_row_column" = "true")
     """
 
     sql """insert into ${tableName} values
