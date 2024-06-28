@@ -597,6 +597,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    public static final String OPTIMIZE_PUSH_DOWN_COUNT = "optimize_push_down_count";
+
     public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
 
     public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
@@ -1846,6 +1848,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
+
+    @VariableMgr.VarAttr(name = OPTIMIZE_PUSH_DOWN_COUNT,
+            description = {"对`COUNT`使用下推进行优化", "Optimize `COUNT` using pushdown"})
+    private boolean optimizePushDownCount = true;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
@@ -4105,6 +4111,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
+    }
+
+    public boolean isOptimizePushDownCount() {
+        return optimizePushDownCount;
     }
 
     public boolean isForceToLocalShuffle() {
