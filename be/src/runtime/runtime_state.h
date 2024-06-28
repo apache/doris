@@ -617,6 +617,10 @@ public:
 
     void set_task_id(int id) { _task_id = id; }
 
+    void set_task(pipeline::PipelineTask* task) { _task = task; }
+
+    pipeline::PipelineTask* get_task() const { return _task; }
+
     int task_id() const { return _task_id; }
 
     void set_task_num(int task_num) { _task_num = task_num; }
@@ -721,6 +725,7 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
+    pipeline::PipelineTask* _task = nullptr;
     int _task_id = -1;
     int _task_num = 0;
 
