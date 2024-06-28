@@ -217,7 +217,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
     _reader_context.batch_size = read_params.batch_size;
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
-    auto status = _init_collect_iter(read_params);
+    auto status = _init_collect_iter(read_params, sample_info);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
