@@ -913,6 +913,9 @@ struct FunctionJsonExtractImpl {
                         auto* root_val = match_value(parsed_paths, &document, allocator);
                         if (root_val != nullptr) {
                             value.CopyFrom(*root_val, allocator);
+                        } else {
+                            rapidjson::Value tmp;
+                            value.Swap(tmp);
                         }
                     }
                     insert_result_lambda(value, row);
@@ -924,7 +927,7 @@ struct FunctionJsonExtractImpl {
                     insert_result_lambda(value, row);
                 }
             }
-            
+
         } else {
             rapidjson::Value value;
             value.SetArray();
@@ -993,7 +996,6 @@ public:
                         size_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
         std::vector<const ColumnString*> data_columns;
         std::vector<bool> column_is_consts;
         for (int i = 0; i < arguments.size(); i++) {
@@ -1002,8 +1004,7 @@ public:
             std::tie(arg_col, arg_const) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
             column_is_consts.push_back(arg_const);
-            column_ptrs.push_back(arg_col);
-            data_columns.push_back(assert_cast<const ColumnString*>(column_ptrs.back().get()));
+            data_columns.push_back(assert_cast<const ColumnString*>(arg_col.get()));
         }
         Impl::execute(data_columns, *assert_cast<ColumnString*>(result_column.get()),
                       null_map->get_data(), input_rows_count, column_is_consts);
