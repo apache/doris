@@ -501,6 +501,13 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                     ++it;
                 }
             }
+            // 1. if all conditions in the compound hit the inverted index and there are no other expr to handle.
+            // 2. then there is no need to generate index_result_column.
+            if (_enable_common_expr_pushdown && _remaining_conjunct_roots.empty()) {
+                for (auto& iter : _rowid_result_for_index) {
+                    iter.second.first = false;
+                }
+            }
         }
         _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     }
