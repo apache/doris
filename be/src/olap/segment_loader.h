@@ -80,10 +80,11 @@ public:
         segment_v2::SegmentSharedPtr segment;
     };
 
-    SegmentCache(size_t capacity)
-            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::SEGMENT_CACHE, capacity,
-                                           LRUCacheType::SIZE,
-                                           config::tablet_rowset_stale_sweep_time_sec) {}
+    SegmentCache(size_t memory_bytes_limit, size_t segment_num_limit)
+            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::SEGMENT_CACHE,
+                                           memory_bytes_limit, LRUCacheType::SIZE,
+                                           config::tablet_rowset_stale_sweep_time_sec,
+                                           DEFAULT_LRU_CACHE_NUM_SHARDS * 3, segment_num_limit) {}
 
     // Lookup the given segment in the cache.
     // If the segment is found, the cache entry will be written into handle.
@@ -110,7 +111,9 @@ public:
     // After the estimation of segment memory usage is provided later, it is recommended
     // to use Memory as the capacity limit of the cache.
 
-    SegmentLoader(size_t capacity) { _segment_cache = std::make_unique<SegmentCache>(capacity); }
+    SegmentLoader(size_t memory_limit_bytes, size_t segment_num_count) {
+        _segment_cache = std::make_unique<SegmentCache>(memory_limit_bytes, segment_num_count);
+    }
 
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.

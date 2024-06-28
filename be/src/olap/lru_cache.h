@@ -349,6 +349,7 @@ public:
     uint64_t get_hit_count() const { return _hit_count; }
     size_t get_usage() const { return _usage; }
     size_t get_capacity() const { return _capacity; }
+    size_t get_element_count() const { return _table.element_count(); }
 
 private:
     void _lru_remove(LRUHandle* e);
@@ -433,6 +434,7 @@ private:
     std::shared_ptr<MetricEntity> _entity;
     IntGauge* cache_capacity = nullptr;
     IntGauge* cache_usage = nullptr;
+    IntGauge* cache_element_count = nullptr;
     DoubleGauge* cache_usage_ratio = nullptr;
     IntAtomicCounter* cache_lookup_count = nullptr;
     IntAtomicCounter* cache_hit_count = nullptr;
