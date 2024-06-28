@@ -49,23 +49,10 @@ public:
 
     Status create_reader(RowsetReaderSharedPtr* result) override;
 
-    std::string segment_file_path(int segment_id) const override;
-
-    static std::string segment_file_path(const std::string& rowset_dir, const RowsetId& rowset_id,
-                                         int segment_id);
-
     // Return the absolute path of local segcompacted segment file
     static std::string local_segment_path_segcompacted(const std::string& tablet_path,
                                                        const RowsetId& rowset_id, int64_t begin,
                                                        int64_t end);
-
-    // Return the relative path of remote segment file
-    static std::string remote_segment_path(int64_t tablet_id, const RowsetId& rowset_id,
-                                           int segment_id);
-
-    // Return the relative path of remote segment file
-    static std::string remote_segment_path(int64_t tablet_id, const std::string& rowset_id,
-                                           int segment_id);
 
     Status remove() override;
 
@@ -75,16 +62,14 @@ public:
 
     Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
-    Status upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_rowset_id) override;
+    Status upload_to(const StorageResource& dest_fs, const RowsetId& new_rowset_id) override;
 
     // only applicable to alpha rowset, no op here
     Status remove_old_files(std::vector<std::string>* files_to_remove) override {
         return Status::OK();
     }
 
-    bool check_path(const std::string& path) override;
-
-    bool check_file_exist() override;
+    Status check_file_exist() override;
 
     Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
@@ -102,8 +87,8 @@ public:
     Status calc_local_file_crc(uint32_t* crc_value, int64_t* file_count);
 
 protected:
-    BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
-               const RowsetMetaSharedPtr& rowset_meta);
+    BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,
+               std::string tablet_path);
 
     // init segment groups
     Status init() override;
@@ -112,17 +97,13 @@ protected:
 
     void do_close() override;
 
-    bool check_current_rowset_segment() override;
+    Status check_current_rowset_segment() override;
 
     void clear_inverted_index_cache() override;
 
 private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
-
-    // Remote format: {remote_fs_root}/data/{tablet_id}
-    // Local format: {local_storage_root}/data/{shard_id}/{tablet_id}/{schema_hash}
-    std::string _rowset_dir;
 };
 
 } // namespace doris

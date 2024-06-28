@@ -65,6 +65,11 @@ public class RollupRenameClause extends AlterTableClause {
 
     @Override
     public boolean allowOpMTMV() {
+        return true;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
         return false;
     }
 

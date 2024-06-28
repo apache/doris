@@ -19,17 +19,15 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
 
-public abstract class DistributionInfo implements Writable {
+public abstract class DistributionInfo {
 
     public enum DistributionInfoType {
         HASH,
@@ -84,11 +82,6 @@ public abstract class DistributionInfo implements Writable {
 
     public DistributionDesc toDistributionDesc() {
         throw new NotImplementedException("toDistributionDesc not implemented");
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
     }
 
     public void readFields(DataInput in) throws IOException {

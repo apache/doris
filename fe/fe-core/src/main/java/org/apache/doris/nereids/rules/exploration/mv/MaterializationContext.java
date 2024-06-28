@@ -27,6 +27,8 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.HashMultimap;
@@ -63,18 +66,21 @@ public abstract class MaterializationContext {
     protected List<Table> baseTables;
     protected List<Table> baseViews;
     // The plan of materialization def sql
-    protected Plan plan;
+    protected final Plan plan;
     // The original plan of materialization sql
-    protected Plan originalPlan;
+    protected final Plan originalPlan;
     // Should regenerate when materialization is already rewritten successfully because one query may hit repeatedly
     // make sure output is different in multi using
     protected Plan scanPlan;
     // The materialization plan output shuttled expression, this is used by generate field
     // exprToScanExprMapping
     protected List<? extends Expression> planOutputShuttledExpressions;
+    // Generated mapping from materialization plan out expr to materialization scan plan out slot mapping,
+    // this is used for later
+    protected Map<Expression, Expression> exprToScanExprMapping = new HashMap<>();
     // Generated mapping from materialization plan out shuttled expr to materialization scan plan out slot mapping,
-    // this is used for later used
-    protected ExpressionMapping exprToScanExprMapping;
+    // this is used for expression rewrite
+    protected ExpressionMapping shuttledExprToScanExprMapping;
     // This mark the materialization context is available or not,
     // will not be used in query transparent rewritten if false
     protected boolean available = true;
@@ -106,15 +112,19 @@ public abstract class MaterializationContext {
         StatementBase parsedStatement = cascadesContext.getStatementContext().getParsedStatement();
         this.enableRecordFailureDetail = parsedStatement != null && parsedStatement.isExplain()
                 && ExplainLevel.MEMO_PLAN == parsedStatement.getExplainOptions().getExplainLevel();
-
-        this.planOutputShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
-                originalPlan.getOutput(),
-                originalPlan,
-                new BitSet());
+        List<Slot> originalPlanOutput = originalPlan.getOutput();
+        List<Slot> scanPlanOutput = this.scanPlan.getOutput();
+        if (originalPlanOutput.size() == scanPlanOutput.size()) {
+            for (int slotIndex = 0; slotIndex < originalPlanOutput.size(); slotIndex++) {
+                this.exprToScanExprMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
+            }
+        }
+        this.planOutputShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(originalPlanOutput,
+                originalPlan, new BitSet());
         // materialization output expression shuttle, this will be used to expression rewrite
-        this.exprToScanExprMapping = ExpressionMapping.generate(
+        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(
                 this.planOutputShuttledExpressions,
-                this.scanPlan.getOutput());
+                scanPlanOutput);
         // Construct materialization struct info, catch exception which may cause planner roll back
         if (structInfo == null) {
             Optional<StructInfo> structInfoOptional = constructStructInfo(plan, cascadesContext, new BitSet());
@@ -170,9 +180,18 @@ public abstract class MaterializationContext {
     public void tryReGenerateScanPlan(CascadesContext cascadesContext) {
         this.scanPlan = doGenerateScanPlan(cascadesContext);
         // materialization output expression shuttle, this will be used to expression rewrite
-        this.exprToScanExprMapping = ExpressionMapping.generate(
+        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(
                 this.planOutputShuttledExpressions,
                 this.scanPlan.getOutput());
+        Map<Expression, Expression> regeneratedMapping = new HashMap<>();
+        List<Slot> originalPlanOutput = originalPlan.getOutput();
+        List<Slot> scanPlanOutput = this.scanPlan.getOutput();
+        if (originalPlanOutput.size() == scanPlanOutput.size()) {
+            for (int slotIndex = 0; slotIndex < originalPlanOutput.size(); slotIndex++) {
+                regeneratedMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
+            }
+        }
+        this.exprToScanExprMapping = regeneratedMapping;
     }
 
     public void addSlotMappingToCache(RelationMapping relationMapping, SlotMapping slotMapping) {
@@ -202,11 +221,32 @@ public abstract class MaterializationContext {
     abstract String getStringInfo();
 
     /**
-     * Get materialization plan statistics, the key is the identifier of statistics
-     * the value is Statistics.
+     * Get materialization plan statistics,
+     * the key is the identifier of statistics which is usual the scan plan relationId or something similar
+     * the value is original plan statistics.
      * the statistics is used by cost estimation when the materialization is used
+     * Which should be the materialization origin plan statistics
      */
     abstract Optional<Pair<Id, Statistics>> getPlanStatistics(CascadesContext cascadesContext);
+
+    // original plan statistics is generated by origin plan, and the column expression in statistics
+    // should be keep consistent to mv scan plan
+    protected Statistics normalizeStatisticsColumnExpression(Statistics originalPlanStatistics) {
+        Map<Expression, ColumnStatistic> normalizedExpressionMap = new HashMap<>();
+        // this statistics column expression is materialization origin plan, should normalize it to
+        // materialization scan plan
+        for (Map.Entry<Expression, ColumnStatistic> entry : originalPlanStatistics.columnStatistics().entrySet()) {
+            Expression targetExpression = entry.getKey();
+            Expression sourceExpression = this.getExprToScanExprMapping().get(targetExpression);
+            if (sourceExpression != null && targetExpression instanceof NamedExpression
+                    && sourceExpression instanceof NamedExpression) {
+                normalizedExpressionMap.put(AbstractMaterializedViewRule.normalizeExpression(
+                                (NamedExpression) sourceExpression, (NamedExpression) targetExpression).toSlot(),
+                        entry.getValue());
+            }
+        }
+        return originalPlanStatistics.withExpressionToColumnStats(normalizedExpressionMap);
+    }
 
     /**
      * Calc the relation is chosen finally or not
@@ -233,8 +273,12 @@ public abstract class MaterializationContext {
         return baseViews;
     }
 
-    public ExpressionMapping getExprToScanExprMapping() {
+    public Map<Expression, Expression> getExprToScanExprMapping() {
         return exprToScanExprMapping;
+    }
+
+    public ExpressionMapping getShuttledExprToScanExprMapping() {
+        return shuttledExprToScanExprMapping;
     }
 
     public boolean isAvailable() {

@@ -22,6 +22,7 @@
 
 #include "aggregation_sink_operator.h"
 #include "common/status.h"
+#include "runtime/fragment_mgr.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -159,6 +160,9 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
     RETURN_IF_ERROR(local_state.Base::_shared_state->sink_status);
     local_state._eos = eos;
     auto* runtime_state = local_state._runtime_state.get();
+    DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::sink", {
+        return Status::Error<INTERNAL_ERROR>("fault_inject partitioned_agg_sink sink failed");
+    });
     RETURN_IF_ERROR(_agg_sink_operator->sink(runtime_state, in_block, false));
     if (eos) {
         if (local_state._shared_state->is_spilled) {
@@ -260,6 +264,11 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
+    DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::revoke_memory_submit_func", {
+        status = Status::Error<INTERNAL_ERROR>(
+                "fault_inject partitioned_agg_sink revoke_memory submit_func failed");
+        return status;
+    });
     status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
             [this, &parent, state, query_id, mem_tracker, shared_state_holder, execution_context,
              submit_timer] {
@@ -274,6 +283,13 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
                               << " execution_context released, maybe query was cancelled.";
                     return Status::Cancelled("Cancelled");
                 }
+                DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::revoke_memory_cancel", {
+                    auto st = Status::InternalError(
+                            "fault_inject partitioned_agg_sink "
+                            "revoke_memory canceled");
+                    ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, st);
+                    return st;
+                });
                 _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
                 SCOPED_TIMER(Base::_spill_timer);
                 Defer defer {[&]() {

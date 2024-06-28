@@ -149,7 +149,6 @@ public class LakeSoulExternalTable extends ExternalTable {
         TableInfo tableInfo = ((LakeSoulExternalCatalog) catalog).getLakeSoulTable(dbName, name);
         String tableSchema = tableInfo.getTableSchema();
         DBUtil.TablePartitionKeys partitionKeys = DBUtil.parseTableInfoPartitions(tableInfo.getPartitions());
-        System.out.println(tableSchema);
         Schema schema;
         try {
             schema = Schema.fromJSON(tableSchema);

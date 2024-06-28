@@ -40,8 +40,10 @@ class RuntimeState;
 
 namespace vectorized {
 class VExprContext;
-struct ResultFileOptions;
 } // namespace vectorized
+namespace pipeline {
+struct ResultFileOptions;
+}
 } // namespace doris
 
 namespace doris::vectorized {
@@ -49,7 +51,7 @@ namespace doris::vectorized {
 // write result to file
 class VFileResultWriter final : public AsyncResultWriter {
 public:
-    VFileResultWriter(const ResultFileOptions* file_option,
+    VFileResultWriter(const pipeline::ResultFileOptions* file_option,
                       const TStorageBackendType::type storage_type,
                       const TUniqueId fragment_instance_id,
                       const VExprContextSPtrs& _output_vexpr_ctxs,
@@ -58,7 +60,7 @@ public:
 
     VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    Status write(Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status exec_status) override;
 
@@ -95,7 +97,7 @@ private:
     Status _delete_dir();
 
     RuntimeState* _state; // not owned, set when init
-    const ResultFileOptions* _file_opts = nullptr;
+    const pipeline::ResultFileOptions* _file_opts = nullptr;
     TStorageBackendType::type _storage_type;
     TUniqueId _fragment_instance_id;
 

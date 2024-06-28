@@ -174,6 +174,9 @@ public class LargeIntLiteral extends NumericLiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
         if (expr instanceof NullLiteral) {
             return 1;
         }
@@ -235,6 +238,11 @@ public class LargeIntLiteral extends NumericLiteralExpr {
             }
         }
         return super.uncheckedCastTo(targetType);
+    }
+
+    @Override
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
+        value = new BigInteger(Long.toUnsignedString(data.getLong()));
     }
 
     @Override

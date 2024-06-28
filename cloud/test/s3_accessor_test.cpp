@@ -397,6 +397,7 @@ TEST(S3AccessorTest, check_bucket_versioning) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -422,6 +423,7 @@ TEST(S3AccessorTest, check_bucket_versioning_error) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     return_error_for_error_s3_client = true;
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
@@ -444,6 +446,7 @@ TEST(S3AccessorTest, get_bucket_lifecycle) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -473,6 +476,7 @@ TEST(S3AccessorTest, get_bucket_lifecycle_error) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     return_error_for_error_s3_client = true;
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
@@ -496,6 +500,7 @@ TEST(S3AccessorTest, list) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -519,6 +524,7 @@ TEST(S3AccessorTest, list_error) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     return_error_for_error_s3_client = true;
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
@@ -543,6 +549,7 @@ TEST(S3AccessorTest, put) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -569,6 +576,7 @@ TEST(S3AccessorTest, put_error) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -601,6 +609,7 @@ TEST(S3AccessorTest, exist) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -624,6 +633,7 @@ TEST(S3AccessorTest, exist_error) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -649,6 +659,7 @@ TEST(S3AccessorTest, delete_object) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -675,6 +686,7 @@ TEST(S3AccessorTest, gcs_delete_objects) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<GcsAccessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -707,6 +719,7 @@ TEST(S3AccessorTest, gcs_delete_objects_error) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<GcsAccessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -744,6 +757,7 @@ TEST(S3AccessorTest, delete_objects) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -776,6 +790,7 @@ TEST(S3AccessorTest, delete_objects_error) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -817,6 +832,7 @@ TEST(S3AccessorTest, delete_expired_objects) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -871,6 +887,7 @@ TEST(S3AccessorTest, delete_object_by_prefix) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>();
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),
@@ -898,6 +915,7 @@ TEST(S3AccessorTest, delete_object_by_prefix_error) {
     _mock_fs = std::make_unique<cloud::MockS3Accessor>(cloud::S3Conf {});
     _mock_client = std::make_unique<MockS3Client>(std::make_unique<ErrorS3Client>());
     auto accessor = std::make_unique<S3Accessor>(S3Conf {});
+    ASSERT_EQ(0, accessor->init());
     auto sp = SyncPoint::get_instance();
     std::for_each(callbacks.begin(), callbacks.end(), [&](const MockCallable& mock_callback) {
         sp->set_call_back(fmt::format("{}::pred", mock_callback.point_name),

@@ -25,8 +25,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy.RelatedPolicy;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -65,12 +65,11 @@ public class CheckPolicy implements AnalysisRuleFactory {
                             Set<Expression> combineFilter = new LinkedHashSet<>();
 
                             // replace incremental params as AND expression
-                            if (relation instanceof LogicalFileScan) {
-                                LogicalFileScan fileScan = (LogicalFileScan) relation;
-                                if (fileScan.getTable() instanceof HMSExternalTable) {
-                                    HMSExternalTable hmsTable = (HMSExternalTable) fileScan.getTable();
-                                    combineFilter.addAll(hmsTable.generateIncrementalExpression(
-                                            fileScan.getLogicalProperties().getOutput()));
+                            if (relation instanceof LogicalHudiScan) {
+                                LogicalHudiScan hudiScan = (LogicalHudiScan) relation;
+                                if (hudiScan.getTable() instanceof HMSExternalTable) {
+                                    combineFilter.addAll(hudiScan.generateIncrementalExpression(
+                                            hudiScan.getLogicalProperties().getOutput()));
                                 }
                             }
 

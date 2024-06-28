@@ -20,23 +20,23 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include "common/status.h"
+
 namespace doris {
 
 class BeExecVersionManager {
 public:
     BeExecVersionManager() = delete;
 
-    static bool check_be_exec_version(int be_exec_version) {
+    static Status check_be_exec_version(int be_exec_version) {
         if (be_exec_version > max_be_exec_version || be_exec_version < min_be_exec_version) {
-            LOG(WARNING) << fmt::format(
+            return Status::InternalError(
                     "Received be_exec_version is not supported, be_exec_version={}, "
                     "min_be_exec_version={}, max_be_exec_version={}, maybe due to FE version not "
-                    "match "
-                    "with BE.",
+                    "match with BE.",
                     be_exec_version, min_be_exec_version, max_be_exec_version);
-            return false;
         }
-        return true;
+        return Status::OK();
     }
 
     static int get_newest_version() { return max_be_exec_version; }

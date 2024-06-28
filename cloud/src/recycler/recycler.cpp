@@ -1906,6 +1906,15 @@ int InstanceRecycler::recycle_expired_txn_label() {
             return -1;
         }
         txn->remove(info_key);
+        // Remove sub txn index kvs
+        std::vector<std::string> sub_txn_index_keys;
+        for (auto sub_txn_id : txn_info.sub_txn_ids()) {
+            auto sub_txn_index_key = txn_index_key({instance_id_, sub_txn_id});
+            sub_txn_index_keys.push_back(sub_txn_index_key);
+        }
+        for (auto& sub_txn_index_key : sub_txn_index_keys) {
+            txn->remove(sub_txn_index_key);
+        }
         // Update txn label
         std::string label_key, label_val;
         txn_label_key({instance_id_, db_id, txn_info.label()}, &label_key);

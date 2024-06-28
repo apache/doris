@@ -347,4 +347,26 @@ suite("aggregate") {
     sql "insert into table_10_undef_partitions2_keys3_properties4_distributed_by5(pk,col_bigint_undef_signed,col_varchar_10__undef_signed,col_varchar_64__undef_signed) values (0,111,'from','t'),(1,null,'h','out'),(2,3814,'get','q'),(3,5166561111626303305,'s','right'),(4,2688963514917402600,'b','hey'),(5,-5065987944147755706,'p','mean'),(6,31061,'v','d'),(7,122,'the','t'),(8,-2882446,'going','a'),(9,-43,'y','a');"
 
     sql "SELECT MIN( `pk` ) FROM table_10_undef_partitions2_keys3_properties4_distributed_by5  WHERE ( col_varchar_64__undef_signed  LIKE CONCAT ('come' , '%' ) OR col_varchar_10__undef_signed  IN ( 'could' , 'was' , 'that' ) ) OR ( `pk` IS  NULL OR  ( `pk` <> 186 ) ) AND ( `pk` IS NOT NULL OR `pk`  BETWEEN 255 AND -99 + 8 ) AND (  ( `pk` != 6 ) OR `pk` IS  NULL );"
+
+    sql "drop table if exists test_four_phase_full_distribute"
+    sql """CREATE TABLE `test_four_phase_full_distribute` (
+          `id` INT NULL,
+          `age` INT NULL,
+          `name` VARCHAR(65533) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );"""
+
+    sql "insert into test_four_phase_full_distribute values(1, 21, 'hello'), (2, 22, 'world')"
+    sql " sync "
+    order_qt_four_phase_full_distribute """select
+        /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT,THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI,THREE_PHASE_AGGREGATE_WITH_DISTINCT,FOUR_PHASE_AGGREGATE_WITH_DISTINCT')*/
+        name, count(distinct name), count(distinct age)
+        from test_four_phase_full_distribute
+        group by name
+        """
 }

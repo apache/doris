@@ -39,7 +39,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -62,6 +61,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -174,6 +174,8 @@ public class ExportJob implements Writable {
     private String withBom;
     @SerializedName("dataConsistency")
     private String dataConsistency;
+    @SerializedName("compressType")
+    private String compressType;
 
     private TableRef tableRef;
 
@@ -541,11 +543,10 @@ public class ExportJob implements Writable {
                 if (!isPartitionConsistency()) {
                     partitionToVersion.put(partition.getName(), partition.getVisibleVersion());
                 }
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                    List<Long> tablets = index.getTabletIdsInOrder();
-                    tabletsAllNum += tablets.size();
-                    tabletIdList.add(tablets);
-                }
+                MaterializedIndex index = partition.getBaseIndex();
+                List<Long> tablets = index.getTabletIdsInOrder();
+                tabletsAllNum += tablets.size();
+                tabletIdList.add(tablets);
             }
         } finally {
             table.readUnlock();
@@ -621,6 +622,12 @@ public class ExportJob implements Writable {
         if (format.equals("csv") || format.equals("csv_with_names") || format.equals("csv_with_names_and_types")) {
             outfileProperties.put(OutFileClause.PROP_COLUMN_SEPARATOR, columnSeparator);
             outfileProperties.put(OutFileClause.PROP_LINE_DELIMITER, lineDelimiter);
+        } else {
+            // orc / parquet
+            // compressType == null means outfile will use default compression type
+            if (compressType != null) {
+                outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
+            }
         }
         if (!maxFileSize.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_MAX_FILE_SIZE, maxFileSize);

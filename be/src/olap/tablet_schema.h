@@ -22,9 +22,8 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
@@ -33,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/consts.h"
 #include "common/status.h"
 #include "gutil/stringprintf.h"
 #include "olap/olap_common.h"
@@ -153,6 +153,7 @@ public:
     bool is_row_store_column() const;
     std::string get_aggregation_name() const { return _aggregation_name; }
     bool get_result_is_nullable() const { return _result_is_nullable; }
+    int get_be_exec_version() const { return _be_exec_version; }
     bool has_path_info() const { return _column_path != nullptr && !_column_path->empty(); }
     const vectorized::PathInDataPtr& path_info_ptr() const { return _column_path; }
     // If it is an extracted column from variant column
@@ -169,6 +170,23 @@ public:
     const TabletColumn& sparse_column_at(size_t oridinal) const;
     const std::vector<TabletColumnPtr>& sparse_columns() const;
     size_t num_sparse_columns() const { return _num_sparse_columns; }
+
+    Status check_valid() const {
+        if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
+            type() != FieldType::OLAP_FIELD_TYPE_STRUCT &&
+            type() != FieldType::OLAP_FIELD_TYPE_MAP) {
+            return Status::OK();
+        }
+        if (is_bf_column()) {
+            return Status::NotSupported("Do not support bloom filter index, type={}",
+                                        get_string_by_field_type(type()));
+        }
+        if (has_bitmap_index()) {
+            return Status::NotSupported("Do not support bitmap index, type={}",
+                                        get_string_by_field_type(type()));
+        }
+        return Status::OK();
+    }
 
 private:
     int32_t _unique_id = -1;
@@ -204,6 +222,7 @@ private:
     uint32_t _sub_column_count = 0;
 
     bool _result_is_nullable = false;
+    int _be_exec_version = -1;
     vectorized::PathInDataPtr _column_path;
 
     // Record information about columns merged into a sparse column within a variant
@@ -235,14 +254,14 @@ public:
     const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
     const std::map<string, string>& properties() const { return _properties; }
     int32_t get_gram_size() const {
-        if (_properties.count("gram_size")) {
+        if (_properties.contains("gram_size")) {
             return std::stoi(_properties.at("gram_size"));
         }
 
         return 0;
     }
     int32_t get_gram_bf_size() const {
-        if (_properties.count("bf_size")) {
+        if (_properties.contains("bf_size")) {
             return std::stoi(_properties.at("bf_size"));
         }
 
@@ -296,7 +315,7 @@ public:
     int32_t field_index(const vectorized::PathInData& path) const;
     int32_t field_index(int32_t col_unique_id) const;
     const TabletColumn& column(size_t ordinal) const;
-    const TabletColumn& column(const std::string& field_name) const;
+    Result<const TabletColumn*> column(const std::string& field_name) const;
     Status have_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     TabletColumn& mutable_column_by_uid(int32_t col_unique_id);
@@ -327,8 +346,10 @@ public:
         _enable_single_replica_compaction = enable_single_replica_compaction;
     }
     bool enable_single_replica_compaction() const { return _enable_single_replica_compaction; }
-    void set_store_row_column(bool store_row_column) { _store_row_column = store_row_column; }
-    bool store_row_column() const { return _store_row_column; }
+    // indicate if full row store column(all the columns encodes as row) exists
+    bool has_row_store_for_all_columns() const {
+        return _store_row_column && row_columns_uids().empty();
+    }
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
@@ -353,7 +374,10 @@ public:
     bool has_inverted_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
     const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
                                                         const std::string& suffix_name) const;
-    const TabletIndex* get_inverted_index(const TabletColumn& col) const;
+    // check_valid: check if this column supports inverted index
+    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
+    // If returned, the index file will not be found.
+    const TabletIndex* get_inverted_index(const TabletColumn& col, bool check_valid = true) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id,
                                           const std::string& suffix_path) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
@@ -451,13 +475,15 @@ public:
 
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
-    std::shared_ptr<TabletSchema> copy_without_extracted_columns();
+    std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
     InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
         return _inverted_index_storage_format;
     }
 
     void update_tablet_columns(const TabletSchema& tablet_schema,
                                const std::vector<TColumn>& t_columns);
+
+    const std::vector<int32_t>& row_columns_uids() const { return _row_store_column_unique_ids; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -500,6 +526,10 @@ private:
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
     InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
+
+    // Contains column ids of which columns should be encoded into row store.
+    // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
+    std::vector<int32_t> _row_store_column_unique_ids;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

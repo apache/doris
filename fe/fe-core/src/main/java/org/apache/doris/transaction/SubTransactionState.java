@@ -18,6 +18,7 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Table;
+import org.apache.doris.thrift.TSubTxnType;
 import org.apache.doris.thrift.TTabletCommitInfo;
 
 import lombok.Getter;
@@ -45,6 +46,28 @@ public class SubTransactionState {
         this.table = table;
         this.tabletCommitInfos = tabletCommitInfos;
         this.subTransactionType = subTransactionType;
+    }
+
+    public static SubTransactionType getSubTransactionType(TSubTxnType subTxnType) {
+        switch (subTxnType) {
+            case INSERT:
+                return SubTransactionType.INSERT;
+            case DELETE:
+                return SubTransactionType.DELETE;
+            default:
+                throw new IllegalArgumentException("Unknown sub txn type: " + subTxnType);
+        }
+    }
+
+    public static TSubTxnType getSubTransactionType(SubTransactionType subTxnType) {
+        switch (subTxnType) {
+            case INSERT:
+                return TSubTxnType.INSERT;
+            case DELETE:
+                return TSubTxnType.DELETE;
+            default:
+                throw new IllegalArgumentException("Unknown sub txn type: " + subTxnType);
+        }
     }
 
     @Override

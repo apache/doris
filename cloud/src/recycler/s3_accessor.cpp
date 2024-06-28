@@ -31,14 +31,18 @@
 #include <aws/s3/model/PutObjectRequest.h>
 
 #include <algorithm>
+#include <azure/storage/blobs/blob_container_client.hpp>
+#include <azure/storage/common/storage_credential.hpp>
 #include <execution>
+#include <memory>
 #include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "rate-limiter/s3_rate_limiter.h"
+#include "recycler/azure_obj_client.h"
 #include "recycler/obj_store_accessor.h"
+#include "recycler/s3_obj_client.h"
 
 namespace doris::cloud {
 
@@ -53,43 +57,28 @@ private:
     std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
 };
 
-[[maybe_unused]] static Aws::Client::AWSError<Aws::S3::S3Errors> s3_error_factory() {
-    return {Aws::S3::S3Errors::INTERNAL_FAILURE, "exceeds limit", "exceeds limit", false};
-}
-
 template <typename Func>
-auto do_s3_rate_limit(S3RateLimitType type, Func callback) -> decltype(callback()) {
+auto s3_rate_limit(S3RateLimitType op, Func callback) -> decltype(callback()) {
     using T = decltype(callback());
     if (!config::enable_s3_rate_limiter) {
         return callback();
     }
-    auto sleep_duration = AccessorRateLimiter::instance().rate_limiter(type)->add(1);
+    auto sleep_duration = AccessorRateLimiter::instance().rate_limiter(op)->add(1);
     if (sleep_duration < 0) {
-        return T(s3_error_factory());
+        return T(-1);
     }
     return callback();
 }
 
-#ifndef UNIT_TEST
-#define HELP_MACRO(ret, req, point_name)
-#else
-#define HELP_MACRO(ret, req, point_name)                       \
-    do {                                                       \
-        std::pair p {&ret, &req};                              \
-        [[maybe_unused]] auto ret_pair = [&p]() mutable {      \
-            TEST_SYNC_POINT_RETURN_WITH_VALUE(point_name, &p); \
-            return p;                                          \
-        }();                                                   \
-        return ret;                                            \
-    } while (false);
-#endif
-#define SYNC_POINT_HOOK_RETURN_VALUE(expr, request, point_name, type) \
-    [&]() -> decltype(auto) {                                         \
-        using T = decltype((expr));                                   \
-        [[maybe_unused]] T t;                                         \
-        HELP_MACRO(t, request, point_name)                            \
-        return do_s3_rate_limit(type, [&]() { return (expr); });      \
-    }()
+template <typename Func>
+auto s3_get_rate_limit(Func callback) -> decltype(callback()) {
+    return s3_rate_limit(S3RateLimitType::GET, std::move(callback));
+}
+
+template <typename Func>
+auto s3_put_rate_limit(Func callback) -> decltype(callback()) {
+    return s3_rate_limit(S3RateLimitType::PUT, std::move(callback));
+}
 
 AccessorRateLimiter::AccessorRateLimiter()
         : _rate_limiters {std::make_unique<S3RateLimiterHolder>(
@@ -151,89 +140,37 @@ std::string S3Accessor::get_relative_path(const std::string& key) const {
 
 int S3Accessor::init() {
     static S3Environment s3_env;
+    if (type() == AccessorType::AZURE) {
+        auto cred =
+                std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
+        const std::string container_name = conf_.bucket;
+        const std::string uri =
+                fmt::format("http://{}.blob.core.windows.net/{}", conf_.ak, container_name);
+        auto container_client =
+                std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
+        obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
+        return 0;
+    }
     Aws::Auth::AWSCredentials aws_cred(conf_.ak, conf_.sk);
     Aws::Client::ClientConfiguration aws_config;
     aws_config.endpointOverride = conf_.endpoint;
     aws_config.region = conf_.region;
     aws_config.retryStrategy = std::make_shared<Aws::Client::DefaultRetryStrategy>(
             /*maxRetries = 10, scaleFactor = 25*/);
-    s3_client_ = std::make_shared<Aws::S3::S3Client>(
+    auto s3_client = std::make_shared<Aws::S3::S3Client>(
             std::move(aws_cred), std::move(aws_config),
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
             true /* useVirtualAddressing */);
+    obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client));
     return 0;
 }
 
 int S3Accessor::delete_objects_by_prefix(const std::string& relative_path) {
-    Aws::S3::Model::ListObjectsV2Request request;
-    auto prefix = get_key(relative_path);
-    request.WithBucket(conf_.bucket).WithPrefix(prefix);
-
-    Aws::S3::Model::DeleteObjectsRequest delete_request;
-    delete_request.SetBucket(conf_.bucket);
-    bool is_truncated = false;
-    do {
-        auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-                s3_client_->ListObjectsV2(request), std::ref(request).get(),
-                "s3_client::list_objects_v2", S3RateLimitType::GET);
-        if (!outcome.IsSuccess()) {
-            LOG_WARNING("failed to list objects")
-                    .tag("endpoint", conf_.endpoint)
-                    .tag("bucket", conf_.bucket)
-                    .tag("prefix", prefix)
-                    .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                    .tag("error", outcome.GetError().GetMessage());
-            if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::FORBIDDEN) {
-                return 1;
-            }
-            return -1;
-        }
-        const auto& result = outcome.GetResult();
-        VLOG_DEBUG << "get " << result.GetContents().size() << " objects";
-        Aws::Vector<Aws::S3::Model::ObjectIdentifier> objects;
-        objects.reserve(result.GetContents().size());
-        for (const auto& obj : result.GetContents()) {
-            objects.emplace_back().SetKey(obj.GetKey());
-            LOG_INFO("delete object")
-                    .tag("endpoint", conf_.endpoint)
-                    .tag("bucket", conf_.bucket)
-                    .tag("key", obj.GetKey());
-        }
-        if (!objects.empty()) {
-            Aws::S3::Model::Delete del;
-            del.WithObjects(std::move(objects)).SetQuiet(true);
-            delete_request.SetDelete(std::move(del));
-            auto delete_outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-                    s3_client_->DeleteObjects(delete_request), std::ref(delete_request).get(),
-                    "s3_client::delete_objects", S3RateLimitType::PUT);
-            if (!delete_outcome.IsSuccess()) {
-                LOG_WARNING("failed to delete objects")
-                        .tag("endpoint", conf_.endpoint)
-                        .tag("bucket", conf_.bucket)
-                        .tag("prefix", prefix)
-                        .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                        .tag("error", outcome.GetError().GetMessage());
-                if (delete_outcome.GetError().GetResponseCode() ==
-                    Aws::Http::HttpResponseCode::FORBIDDEN) {
-                    return 1;
-                }
-                return -2;
-            }
-            if (!delete_outcome.GetResult().GetErrors().empty()) {
-                const auto& e = delete_outcome.GetResult().GetErrors().front();
-                LOG_WARNING("failed to delete object")
-                        .tag("endpoint", conf_.endpoint)
-                        .tag("bucket", conf_.bucket)
-                        .tag("key", e.GetKey())
-                        .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                        .tag("error", e.GetMessage());
-                return -3;
-            }
-        }
-        is_truncated = result.GetIsTruncated();
-        request.SetContinuationToken(result.GetNextContinuationToken());
-    } while (is_truncated);
-    return 0;
+    return s3_get_rate_limit([&]() {
+               return obj_client_->delete_objects_recursively(
+                       {.bucket = conf_.bucket, .prefix = get_key(relative_path)});
+           })
+            .ret;
 }
 
 int S3Accessor::delete_objects(const std::vector<std::string>& relative_paths) {
@@ -244,11 +181,8 @@ int S3Accessor::delete_objects(const std::vector<std::string>& relative_paths) {
     constexpr size_t max_delete_batch = 1000;
     auto path_iter = relative_paths.begin();
 
-    Aws::S3::Model::DeleteObjectsRequest delete_request;
-    delete_request.SetBucket(conf_.bucket);
     do {
-        Aws::S3::Model::Delete del;
-        Aws::Vector<Aws::S3::Model::ObjectIdentifier> objects;
+        Aws::Vector<std::string> objects;
         auto path_begin = path_iter;
         for (; path_iter != relative_paths.end() && (path_iter - path_begin < max_delete_batch);
              ++path_iter) {
@@ -258,36 +192,16 @@ int S3Accessor::delete_objects(const std::vector<std::string>& relative_paths) {
                     .tag("bucket", conf_.bucket)
                     .tag("key", key)
                     .tag("size", objects.size());
-            objects.emplace_back().SetKey(std::move(key));
+            objects.emplace_back(std::move(key));
         }
         if (objects.empty()) {
             return 0;
         }
-        del.WithObjects(std::move(objects)).SetQuiet(true);
-        delete_request.SetDelete(std::move(del));
-        auto delete_outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-                s3_client_->DeleteObjects(delete_request), std::ref(delete_request).get(),
-                "s3_client::delete_objects", S3RateLimitType::PUT);
-        if (!delete_outcome.IsSuccess()) {
-            LOG_WARNING("failed to delete objects")
-                    .tag("endpoint", conf_.endpoint)
-                    .tag("bucket", conf_.bucket)
-                    .tag("key[0]", delete_request.GetDelete().GetObjects().front().GetKey())
-                    .tag("responseCode",
-                         static_cast<int>(delete_outcome.GetError().GetResponseCode()))
-                    .tag("error", delete_outcome.GetError().GetMessage());
-            return -1;
-        }
-        if (!delete_outcome.GetResult().GetErrors().empty()) {
-            const auto& e = delete_outcome.GetResult().GetErrors().front();
-            LOG_WARNING("failed to delete object")
-                    .tag("endpoint", conf_.endpoint)
-                    .tag("bucket", conf_.bucket)
-                    .tag("key", e.GetKey())
-                    .tag("responseCode",
-                         static_cast<int>(delete_outcome.GetError().GetResponseCode()))
-                    .tag("error", e.GetMessage());
-            return -2;
+        if (auto delete_resp = s3_put_rate_limit([&]() {
+                return obj_client_->delete_objects({.bucket = conf_.bucket}, std::move(objects));
+            });
+            delete_resp.ret != 0) {
+            return delete_resp.ret;
         }
     } while (path_iter != relative_paths.end());
 
@@ -295,218 +209,64 @@ int S3Accessor::delete_objects(const std::vector<std::string>& relative_paths) {
 }
 
 int S3Accessor::delete_object(const std::string& relative_path) {
-    Aws::S3::Model::DeleteObjectRequest request;
-    auto key = get_key(relative_path);
-    request.WithBucket(conf_.bucket).WithKey(key);
-    auto outcome =
-            SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->DeleteObject(request), std::ref(request).get(),
-                                         "s3_client::delete_object", S3RateLimitType::PUT);
-    if (!outcome.IsSuccess()) {
-        LOG_WARNING("failed to delete object")
-                .tag("endpoint", conf_.endpoint)
-                .tag("bucket", conf_.bucket)
-                .tag("key", key)
-                .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                .tag("error", outcome.GetError().GetMessage())
-                .tag("exception", outcome.GetError().GetExceptionName());
-        return -1;
-    }
-    return 0;
+    return s3_put_rate_limit([&]() {
+        return obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(relative_path)})
+                .ret;
+    });
 }
 
 int S3Accessor::put_object(const std::string& relative_path, const std::string& content) {
-    Aws::S3::Model::PutObjectRequest request;
-    auto key = get_key(relative_path);
-    request.WithBucket(conf_.bucket).WithKey(key);
-    auto input = Aws::MakeShared<Aws::StringStream>("S3Accessor");
-    *input << content;
-    request.SetBody(input);
-    auto outcome =
-            SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->PutObject(request), std::ref(request).get(),
-                                         "s3_client::put_object", S3RateLimitType::PUT);
-    if (!outcome.IsSuccess()) {
-        LOG_WARNING("failed to put object")
-                .tag("endpoint", conf_.endpoint)
-                .tag("bucket", conf_.bucket)
-                .tag("key", key)
-                .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                .tag("error", outcome.GetError().GetMessage());
-        return -1;
-    }
-    return 0;
+    return s3_put_rate_limit([&]() {
+        return obj_client_
+                ->put_object({.bucket = conf_.bucket, .key = get_key(relative_path)}, content)
+                .ret;
+    });
 }
 
 int S3Accessor::list(const std::string& relative_path, std::vector<ObjectMeta>* files) {
-    Aws::S3::Model::ListObjectsV2Request request;
-    auto prefix = get_key(relative_path);
-    request.WithBucket(conf_.bucket).WithPrefix(prefix);
+    return s3_get_rate_limit([&]() {
+        auto resp = obj_client_->list_objects(
+                {.bucket = conf_.bucket, .prefix = get_key(relative_path)}, files);
 
-    bool is_truncated = false;
-    do {
-        auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-                s3_client_->ListObjectsV2(request), std::ref(request).get(),
-                "s3_client::list_objects_v2", S3RateLimitType::GET);
-        ;
-        if (!outcome.IsSuccess()) {
-            LOG_WARNING("failed to list objects")
-                    .tag("endpoint", conf_.endpoint)
-                    .tag("bucket", conf_.bucket)
-                    .tag("prefix", prefix)
-                    .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                    .tag("error", outcome.GetError().GetMessage());
-            return -1;
+        if (resp.ret == 0) {
+            auto pos = conf_.prefix.size() + 1;
+            for (auto&& file : *files) {
+                file.path = file.path.substr(pos);
+            }
         }
-        const auto& result = outcome.GetResult();
-        VLOG_DEBUG << "get " << result.GetContents().size() << " objects";
-        for (const auto& obj : result.GetContents()) {
-            files->push_back({obj.GetKey().substr(conf_.prefix.size() + 1), obj.GetSize()});
-        }
-        is_truncated = result.GetIsTruncated();
-        request.SetContinuationToken(result.GetNextContinuationToken());
-    } while (is_truncated);
-    return 0;
+
+        return resp.ret;
+    });
 }
 
 int S3Accessor::exist(const std::string& relative_path) {
-    Aws::S3::Model::HeadObjectRequest request;
-    auto key = get_key(relative_path);
-    request.WithBucket(conf_.bucket).WithKey(key);
-    auto outcome =
-            SYNC_POINT_HOOK_RETURN_VALUE(s3_client_->HeadObject(request), std::ref(request).get(),
-                                         "s3_client::head_object", S3RateLimitType::GET);
-    if (outcome.IsSuccess()) {
-        return 0;
-    } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        return 1;
-    } else {
-        LOG_WARNING("failed to head object")
-                .tag("endpoint", conf_.endpoint)
-                .tag("bucket", conf_.bucket)
-                .tag("key", key)
-                .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                .tag("error", outcome.GetError().GetMessage());
-        return -1;
-    }
+    return s3_get_rate_limit([&]() {
+        return obj_client_->head_object({.bucket = conf_.bucket, .key = get_key(relative_path)})
+                .ret;
+    });
 }
 
 int S3Accessor::delete_expired_objects(const std::string& relative_path, int64_t expired_time) {
-    Aws::S3::Model::ListObjectsV2Request request;
-    auto prefix = get_key(relative_path);
-    request.WithBucket(conf_.bucket).WithPrefix(prefix);
-
-    bool is_truncated = false;
-    do {
-        auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-                s3_client_->ListObjectsV2(request), std::ref(request).get(),
-                "s3_client::list_objects_v2", S3RateLimitType::GET);
-        if (!outcome.IsSuccess()) {
-            LOG_WARNING("failed to list objects")
-                    .tag("endpoint", conf_.endpoint)
-                    .tag("bucket", conf_.bucket)
-                    .tag("prefix", prefix)
-                    .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                    .tag("error", outcome.GetError().GetMessage());
-            return -1;
-        }
-        const auto& result = outcome.GetResult();
-        std::vector<std::string> expired_keys;
-        for (const auto& obj : result.GetContents()) {
-            if (obj.GetLastModified().Seconds() < expired_time) {
-                auto relative_key = get_relative_path(obj.GetKey());
-                if (relative_key.empty()) {
-                    LOG_WARNING("failed get relative path")
-                            .tag("prefix", conf_.prefix)
-                            .tag("key", obj.GetKey());
-                } else {
-                    expired_keys.push_back(relative_key);
-                    LOG_INFO("delete expired object")
-                            .tag("prefix", conf_.prefix)
-                            .tag("key", obj.GetKey())
-                            .tag("relative_key", relative_key)
-                            .tag("lastModifiedTime", obj.GetLastModified().Seconds())
-                            .tag("expiredTime", expired_time);
-                }
-            }
-        }
-
-        auto ret = delete_objects(expired_keys);
-        if (ret != 0) {
-            return ret;
-        }
-        LOG_INFO("delete expired objects")
-                .tag("endpoint", conf_.endpoint)
-                .tag("bucket", conf_.bucket)
-                .tag("prefix", conf_.prefix)
-                .tag("num_scanned", result.GetContents().size())
-                .tag("num_recycled", expired_keys.size());
-        is_truncated = result.GetIsTruncated();
-        request.SetContinuationToken(result.GetNextContinuationToken());
-    } while (is_truncated);
-    return 0;
+    return s3_put_rate_limit([&]() {
+        return obj_client_
+                ->delete_expired(
+                        {.path_opts = {.bucket = conf_.bucket, .prefix = get_key(relative_path)},
+                         .relative_path_factory =
+                                 [&](const std::string& key) { return get_relative_path(key); }},
+                        expired_time)
+                .ret;
+    });
 }
 
 int S3Accessor::get_bucket_lifecycle(int64_t* expiration_days) {
-    Aws::S3::Model::GetBucketLifecycleConfigurationRequest request;
-    request.SetBucket(conf_.bucket);
-
-    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-            s3_client_->GetBucketLifecycleConfiguration(request), std::ref(request).get(),
-            "s3_client::get_bucket_lifecycle_configuration", S3RateLimitType::GET);
-    bool has_lifecycle = false;
-    if (outcome.IsSuccess()) {
-        const auto& rules = outcome.GetResult().GetRules();
-        for (const auto& rule : rules) {
-            if (rule.NoncurrentVersionExpirationHasBeenSet()) {
-                has_lifecycle = true;
-                *expiration_days = rule.GetNoncurrentVersionExpiration().GetNoncurrentDays();
-            }
-        }
-    } else {
-        LOG_WARNING("Err for check interval: failed to get bucket lifecycle")
-                .tag("endpoint", conf_.endpoint)
-                .tag("bucket", conf_.bucket)
-                .tag("prefix", conf_.prefix)
-                .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                .tag("error", outcome.GetError().GetMessage());
-        return -1;
-    }
-
-    if (!has_lifecycle) {
-        LOG_WARNING("Err for check interval: bucket doesn't have lifecycle configuration")
-                .tag("endpoint", conf_.endpoint)
-                .tag("bucket", conf_.bucket)
-                .tag("prefix", conf_.prefix);
-        return -1;
-    }
-    return 0;
+    return s3_get_rate_limit([&]() {
+        return obj_client_->get_life_cycle({.bucket = conf_.bucket}, expiration_days).ret;
+    });
 }
 
 int S3Accessor::check_bucket_versioning() {
-    Aws::S3::Model::GetBucketVersioningRequest request;
-    request.SetBucket(conf_.bucket);
-    auto outcome = SYNC_POINT_HOOK_RETURN_VALUE(
-            s3_client_->GetBucketVersioning(request), std::ref(request).get(),
-            "s3_client::get_bucket_versioning", S3RateLimitType::GET);
-
-    if (outcome.IsSuccess()) {
-        const auto& versioning_configuration = outcome.GetResult().GetStatus();
-        if (versioning_configuration != Aws::S3::Model::BucketVersioningStatus::Enabled) {
-            LOG_WARNING("Err for check interval: bucket doesn't enable bucket versioning")
-                    .tag("endpoint", conf_.endpoint)
-                    .tag("bucket", conf_.bucket)
-                    .tag("prefix", conf_.prefix);
-            return -1;
-        }
-    } else {
-        LOG_WARNING("Err for check interval: failed to get status of bucket versioning")
-                .tag("endpoint", conf_.endpoint)
-                .tag("bucket", conf_.bucket)
-                .tag("prefix", conf_.prefix)
-                .tag("responseCode", static_cast<int>(outcome.GetError().GetResponseCode()))
-                .tag("error", outcome.GetError().GetMessage());
-        return -1;
-    }
-    return 0;
+    return s3_get_rate_limit(
+            [&]() { return obj_client_->check_versioning({.bucket = conf_.bucket}).ret; });
 }
 
 int GcsAccessor::delete_objects(const std::vector<std::string>& relative_paths) {
@@ -523,6 +283,4 @@ int GcsAccessor::delete_objects(const std::vector<std::string>& relative_paths) 
     }
     return ret;
 }
-#undef SYNC_POINT_HOOK_RETURN_VALUE
-#undef HELP_MACRO
 } // namespace doris::cloud

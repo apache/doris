@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/hash/string_hash.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/common.h"
@@ -35,6 +34,7 @@
 #include "util/faststring.h"
 #include "util/slice.h"
 #include "vec/common/arena.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
@@ -95,9 +95,7 @@ private:
 
     EncodingTypePB _encoding_type;
     struct HashOfSlice {
-        size_t operator()(const Slice& slice) const {
-            return HashStringThoroughly(slice.data, slice.size);
-        }
+        size_t operator()(const Slice& slice) const { return crc32_hash(slice.data, slice.size); }
     };
     // query for dict item -> dict id
     phmap::flat_hash_map<Slice, uint32_t, HashOfSlice> _dictionary;

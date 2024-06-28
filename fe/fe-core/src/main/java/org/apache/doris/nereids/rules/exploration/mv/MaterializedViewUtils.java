@@ -27,12 +27,18 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
+import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -48,13 +54,18 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashSet;
@@ -77,9 +88,11 @@ public class MaterializedViewUtils {
      * @param materializedViewPlan this should be rewritten or analyzed plan, should not be physical plan.
      * @param column ref column name.
      */
-    public static Optional<RelatedTableInfo> getRelatedTableInfo(String column, Plan materializedViewPlan) {
+    public static RelatedTableInfo getRelatedTableInfo(String column, String timeUnit,
+            Plan materializedViewPlan, CascadesContext cascadesContext) {
+
         List<Slot> outputExpressions = materializedViewPlan.getOutput();
-        Slot columnExpr = null;
+        NamedExpression columnExpr = null;
         // get column slot
         for (Slot outputSlot : outputExpressions) {
             if (outputSlot.getName().equalsIgnoreCase(column)) {
@@ -88,14 +101,12 @@ public class MaterializedViewUtils {
             }
         }
         if (columnExpr == null) {
-            return Optional.empty();
+            return RelatedTableInfo.failWith("partition column can not find from sql select column");
         }
-        if (!(columnExpr instanceof SlotReference)) {
-            return Optional.empty();
-        }
-        SlotReference columnSlot = (SlotReference) columnExpr;
-        if (!columnSlot.isColumnFromTable()) {
-            return Optional.empty();
+        if (timeUnit != null) {
+            Expression dateTrunc = new DateTrunc(columnExpr, new VarcharLiteral(timeUnit));
+            columnExpr = new Alias(dateTrunc);
+            materializedViewPlan = new LogicalProject<>(ImmutableList.of(columnExpr), materializedViewPlan);
         }
         // Collect table relation map which is used to identify self join
         List<CatalogRelation> catalogRelationObjs =
@@ -107,19 +118,20 @@ public class MaterializedViewUtils {
         }
         // Check sql pattern
         IncrementCheckerContext checkContext =
-                new IncrementCheckerContext(columnSlot, tableCatalogRelationMultimapBuilder.build());
+                new IncrementCheckerContext(columnExpr, tableCatalogRelationMultimapBuilder.build(), cascadesContext);
         materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, checkContext);
         Multimap<TableIf, Column> partitionRelatedTableAndColumnMap =
                 checkContext.getPartitionRelatedTableAndColumnMap();
         if (partitionRelatedTableAndColumnMap.isEmpty()) {
-            return Optional.empty();
+            return RelatedTableInfo.failWith(String.format("can't not find valid partition track column, because %s",
+                            String.join(",", checkContext.getFailReasons())));
         }
         // TODO support to return only one related table info, support multi later
         for (Map.Entry<TableIf, Column> entry : partitionRelatedTableAndColumnMap.entries()) {
-            return Optional.of(new RelatedTableInfo(new BaseTableInfo(entry.getKey()), true,
-                    entry.getValue().getName()));
+            return RelatedTableInfo.successWith(new BaseTableInfo(entry.getKey()), true,
+                    entry.getValue().getName(), checkContext.getPartitionExpression().orElseGet(() -> null));
         }
-        return Optional.empty();
+        return RelatedTableInfo.failWith("can't not find valid partition track column finally");
     }
 
     /**
@@ -195,19 +207,18 @@ public class MaterializedViewUtils {
      * should be different
      */
     public static Plan generateMvScanPlan(MTMV materializedView, CascadesContext cascadesContext) {
-        LogicalOlapScan mvScan = new LogicalOlapScan(
+        return new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
                 materializedView,
                 materializedView.getFullQualifiers(),
                 ImmutableList.of(),
+                materializedView.getPartitionIds(),
                 materializedView.getBaseIndexId(),
                 PreAggStatus.on(),
+                ImmutableList.of(),
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
                 Optional.empty());
-        List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
-                .collect(Collectors.toList());
-        return new LogicalProject<Plan>(mvProjects, mvScan);
     }
 
     /**
@@ -249,6 +260,17 @@ public class MaterializedViewUtils {
                 rewrittenPlan);
     }
 
+    /**
+     * Extract nondeterministic function form plan, if the function is in whiteExpressionSet,
+     * the function would be considered as deterministic function and will not return
+     * in the result expression result
+     */
+    public static List<Expression> extractNondeterministicFunction(Plan plan) {
+        List<Expression> nondeterministicFunctions = new ArrayList<>();
+        plan.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
+        return nondeterministicFunctions;
+    }
+
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
         public static final TableQueryOperatorChecker INSTANCE = new TableQueryOperatorChecker();
 
@@ -288,9 +310,16 @@ public class MaterializedViewUtils {
             DefaultPlanVisitor<Void, IncrementCheckerContext> {
 
         public static final MaterializedViewIncrementChecker INSTANCE = new MaterializedViewIncrementChecker();
+        public static final Set<Class<? extends Expression>> SUPPORT_EXPRESSION_TYPES =
+                ImmutableSet.of(DateTrunc.class, SlotReference.class, Literal.class);
 
         @Override
         public Void visitLogicalProject(LogicalProject<? extends Plan> project, IncrementCheckerContext context) {
+            List<Slot> output = project.getOutput();
+            boolean isValid = checkPartition(output, project, context);
+            if (!isValid) {
+                return null;
+            }
             return visit(project, context);
         }
 
@@ -303,6 +332,7 @@ public class MaterializedViewUtils {
         public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
                 IncrementCheckerContext context) {
             if (join.isMarkJoin()) {
+                context.addFailReason("partition track doesn't support mark join");
                 return null;
             }
             Plan left = join.child(0);
@@ -311,7 +341,11 @@ public class MaterializedViewUtils {
                             && slot.isColumnFromTable())
                     .map(slot -> ((SlotReference) slot).getColumn().get())
                     .collect(Collectors.toSet());
-            boolean useLeft = leftColumnSet.contains(context.getMvPartitionColumn().getColumn().get());
+            SlotReference contextPartitionColumn = getContextPartitionColumn(context);
+            if (contextPartitionColumn == null) {
+                return null;
+            }
+            boolean useLeft = leftColumnSet.contains(contextPartitionColumn.getColumn().get());
             JoinType joinType = join.getJoinType();
             if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
                 return visit(join, context);
@@ -324,12 +358,16 @@ public class MaterializedViewUtils {
                     || joinType.isRightSemiJoin()) && !useLeft) {
                 return visit(join.right(), context);
             }
+            context.addFailReason(String.format("partition column is in un supported join null generate side, "
+                    + "current join type is %s", joinType));
             return null;
         }
 
         @Override
         public Void visitLogicalRelation(LogicalRelation relation, IncrementCheckerContext context) {
             if (!(relation instanceof LogicalCatalogRelation)) {
+                context.addFailReason(String.format("relation should be LogicalCatalogRelation, "
+                        + "but now is %s", relation.getClass().getSimpleName()));
                 return null;
             }
             LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) relation;
@@ -337,25 +375,41 @@ public class MaterializedViewUtils {
             // if self join, self join can not partition track now, remove the partition column correspondingly
             if (context.getRelationByTable(table).size() > 1) {
                 context.getPartitionRelatedTableAndColumnMap().removeAll(table);
+                context.addFailReason(String.format("self join doesn't support partition update, "
+                        + "self join table name is %s", table.getName()));
                 return null;
             }
             // TODO: 2024/1/31 support only one partition referenced column, support multi later
             if (!context.getPartitionRelatedTableAndColumnMap().isEmpty()) {
+                context.addFailReason(String.format("partition track already has an related base table column,"
+                        + "track info is %s", context.getPartitionRelatedTableAndColumnMap()));
                 return null;
             }
             if (!(table instanceof MTMVRelatedTableIf)) {
+                context.addFailReason(String.format("relation base table is not MTMVRelatedTableIf, the table is %s",
+                        table.getName()));
                 return null;
             }
             MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
             PartitionType type = relatedTable.getPartitionType();
             if (PartitionType.UNPARTITIONED.equals(type)) {
+                context.addFailReason(String.format("related base table is not partition table, the table is %s",
+                        table.getName()));
                 return null;
             }
             Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
-            Column mvReferenceColumn = context.getMvPartitionColumn().getColumn().get();
+            SlotReference contextPartitionColumn = getContextPartitionColumn(context);
+            if (contextPartitionColumn == null) {
+                return null;
+            }
+            Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
             if (partitionColumnSet.contains(mvReferenceColumn)
                     && (!mvReferenceColumn.isAllowNull() || relatedTable.isPartitionColumnAllowNull())) {
                 context.addTableColumn(table, mvReferenceColumn);
+            } else {
+                context.addFailReason(String.format("related base table partition column doesn't contain the mv"
+                                + " partition or partition nullable check fail, the mvReferenceColumn is %s",
+                        mvReferenceColumn));
             }
             return visit(relation, context);
         }
@@ -365,15 +419,11 @@ public class MaterializedViewUtils {
                 IncrementCheckerContext context) {
             Set<Expression> groupByExprSet = new HashSet<>(aggregate.getGroupByExpressions());
             if (groupByExprSet.isEmpty()) {
+                context.addFailReason("group by sets is empty, doesn't contain the target partition");
                 return null;
             }
-            Set<Column> originalGroupbyExprSet = new HashSet<>();
-            groupByExprSet.forEach(groupExpr -> {
-                if (groupExpr instanceof SlotReference && groupExpr.isColumnFromTable()) {
-                    originalGroupbyExprSet.add(((SlotReference) groupExpr).getColumn().get());
-                }
-            });
-            if (!originalGroupbyExprSet.contains(context.getMvPartitionColumn().getColumn().get())) {
+            boolean isValid = checkPartition(groupByExprSet, aggregate, context);
+            if (!isValid) {
                 return null;
             }
             return visit(aggregate, context);
@@ -387,6 +437,7 @@ public class MaterializedViewUtils {
             }
             for (NamedExpression namedExpression : windowExpressions) {
                 if (!checkWindowPartition(namedExpression, context)) {
+                    context.addFailReason("window partition sets doesn't contain the target partition");
                     return null;
                 }
             }
@@ -404,6 +455,8 @@ public class MaterializedViewUtils {
                     || plan instanceof LogicalWindow) {
                 return super.visit(plan, context);
             }
+            context.addFailReason(String.format("Unsupported plan operate in track partition, "
+                    + "the invalid plan node is %s", plan.getClass().getSimpleName()));
             return null;
         }
 
@@ -419,8 +472,115 @@ public class MaterializedViewUtils {
                         originalPartitionbyExprSet.add(((SlotReference) groupExpr).getColumn().get());
                     }
                 });
-                if (!originalPartitionbyExprSet.contains(context.getMvPartitionColumn().getColumn().get())) {
+                SlotReference contextPartitionColumn = getContextPartitionColumn(context);
+                if (contextPartitionColumn == null) {
                     return false;
+                }
+                if (!originalPartitionbyExprSet.contains(contextPartitionColumn.getColumn().get())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private SlotReference getContextPartitionColumn(IncrementCheckerContext context) {
+            if (!context.getMvPartitionColumn().isColumnFromTable()) {
+                context.addFailReason(String.format("context partition column should be slot from column, "
+                                + "context column is %s",
+                        context.getMvPartitionColumn()));
+                return null;
+            }
+            return (SlotReference) context.getMvPartitionColumn();
+        }
+
+        /**
+         * Given a partition named expression and expressionsToCheck, check the partition is valid
+         * example 1:
+         * partition expression is date_trunc(date_alias#25, 'hour') AS `date_trunc(date_alias, 'hour')`#30
+         * expressionsToCheck is date_trunc(date_alias, 'hour')#30
+         * expressionsToCheck is the slot to partition expression, but they are expression
+         * example 2:
+         * partition expression is L_SHIPDATE#10
+         * expressionsToCheck isL_SHIPDATE#10
+         * both of them are slot
+         * example 3:
+         * partition expression is date_trunc(L_SHIPDATE#10, 'hour')#30
+         * expressionsToCheck is L_SHIPDATE#10
+         * all above should check successfully
+         * */
+        private static boolean checkPartition(Collection<? extends Expression> expressionsToCheck, Plan plan,
+                IncrementCheckerContext context) {
+            NamedExpression partitionColumn = context.getMvPartitionColumn();
+            for (Expression projectSlot : expressionsToCheck) {
+                if (projectSlot.isColumnFromTable() && projectSlot.equals(partitionColumn.toSlot())) {
+                    continue;
+                }
+                // check the expression which use partition column
+                Expression expressionToCheck =
+                        ExpressionUtils.shuttleExpressionWithLineage(projectSlot, plan, new BitSet());
+                // merge date_trunc
+                expressionToCheck = new ExpressionNormalization().rewrite(expressionToCheck,
+                        new ExpressionRewriteContext(context.getCascadesContext()));
+
+                Expression partitionExpression = context.getPartitionExpression().isPresent()
+                        ? context.getPartitionExpression().get() :
+                        ExpressionUtils.shuttleExpressionWithLineage(partitionColumn, plan, new BitSet());
+                // merge date_trunc
+                partitionExpression = new ExpressionNormalization().rewrite(partitionExpression,
+                        new ExpressionRewriteContext(context.getCascadesContext()));
+
+                Set<SlotReference> expressionToCheckColumns =
+                        expressionToCheck.collectToSet(SlotReference.class::isInstance);
+                Set<SlotReference> partitionColumns =
+                        partitionExpression.collectToSet(SlotReference.class::isInstance);
+                if (Sets.intersection(expressionToCheckColumns, partitionColumns).isEmpty()
+                        || expressionToCheckColumns.isEmpty() || partitionColumns.isEmpty()) {
+                    // this expression doesn't use partition column
+                    continue;
+                }
+                if (expressionToCheckColumns.size() > 1 || partitionColumns.size() > 1) {
+                    context.addFailReason(
+                            String.format("partition expression use more than one slot reference, invalid "
+                                            + "expressionToCheckColumns is %s, partitionColumnDateColumns is %s",
+                                    expressionToCheckColumns, partitionColumns));
+                    return false;
+                }
+                List<Expression> expressions = expressionToCheck.collectToList(Expression.class::isInstance);
+                for (Expression expression : expressions) {
+                    if (SUPPORT_EXPRESSION_TYPES.stream().noneMatch(
+                            supportExpression -> supportExpression.isAssignableFrom(expression.getClass()))) {
+                        context.addFailReason(
+                                String.format("column to check use invalid implicit expression, invalid "
+                                        + "expression is %s", expression));
+                        return false;
+                    }
+                }
+                List<Expression> partitionExpressions = partitionExpression.collectToList(
+                        Expression.class::isInstance);
+                for (Expression expression : partitionExpressions) {
+                    if (SUPPORT_EXPRESSION_TYPES.stream().noneMatch(
+                            supportExpression -> supportExpression.isAssignableFrom(expression.getClass()))) {
+                        context.addFailReason(
+                                String.format("partition column use invalid implicit expression, invalid "
+                                        + "expression is %s", expression));
+                        return false;
+                    }
+                }
+                List<DateTrunc> expressionToCheckDataTruncList =
+                        expressionToCheck.collectToList(DateTrunc.class::isInstance);
+                List<DateTrunc> partitionColumnDateTrucList =
+                        partitionExpression.collectToList(DateTrunc.class::isInstance);
+                if (expressionToCheckDataTruncList.size() > 1 || partitionColumnDateTrucList.size() > 1) {
+                    // mv time unit level is little then query
+                    context.addFailReason("partition column time unit level should be "
+                            + "greater than sql select column");
+                    return false;
+                }
+                if (!partitionColumn.isColumnFromTable()) {
+                    context.setMvPartitionColumn(partitionColumns.iterator().next());
+                }
+                if (!context.getPartitionExpression().isPresent()) {
+                    context.setPartitionExpression(partitionExpression);
                 }
             }
             return true;
@@ -428,18 +588,27 @@ public class MaterializedViewUtils {
     }
 
     private static final class IncrementCheckerContext {
-        private final SlotReference mvPartitionColumn;
+        private NamedExpression mvPartitionColumn;
+        private Optional<Expression> partitionExpression = Optional.empty();
         private final Multimap<TableIdentifier, CatalogRelation> tableAndCatalogRelationMap;
         private final Multimap<TableIf, Column> partitionRelatedTableAndColumnMap = HashMultimap.create();
+        private final Set<String> failReasons = new HashSet<>();
+        private final CascadesContext cascadesContext;
 
-        public IncrementCheckerContext(SlotReference mvPartitionColumn,
-                Multimap<TableIdentifier, CatalogRelation> tableAndCatalogRelationMap) {
+        public IncrementCheckerContext(NamedExpression mvPartitionColumn,
+                Multimap<TableIdentifier, CatalogRelation> tableAndCatalogRelationMap,
+                CascadesContext cascadesContext) {
             this.mvPartitionColumn = mvPartitionColumn;
             this.tableAndCatalogRelationMap = tableAndCatalogRelationMap;
+            this.cascadesContext = cascadesContext;
         }
 
-        public SlotReference getMvPartitionColumn() {
+        public NamedExpression getMvPartitionColumn() {
             return mvPartitionColumn;
+        }
+
+        public void setMvPartitionColumn(NamedExpression mvPartitionColumn) {
+            this.mvPartitionColumn = mvPartitionColumn;
         }
 
         public void addTableColumn(TableIf relatedTable, Column partitionColumn) {
@@ -457,20 +626,56 @@ public class MaterializedViewUtils {
         public void addTableAndRelation(TableIf tableIf, CatalogRelation relation) {
             tableAndCatalogRelationMap.put(new TableIdentifier(tableIf), relation);
         }
+
+        public Set<String> getFailReasons() {
+            return failReasons;
+        }
+
+        public void addFailReason(String failReason) {
+            this.failReasons.add(failReason);
+        }
+
+        public CascadesContext getCascadesContext() {
+            return cascadesContext;
+        }
+
+        public Optional<Expression> getPartitionExpression() {
+            return partitionExpression;
+        }
+
+        public void setPartitionExpression(Expression partitionExpression) {
+            this.partitionExpression = Optional.ofNullable(partitionExpression);
+        }
     }
 
     /**
      * The related table info that mv relate
      */
     public static final class RelatedTableInfo {
-        private BaseTableInfo tableInfo;
-        private boolean pctPossible;
-        private String column;
+        private final BaseTableInfo tableInfo;
+        private final boolean pctPossible;
+        private final String column;
+        private final Set<String> failReasons = new HashSet<>();
+        // This records the partition expression if exist
+        private Optional<Expression> partitionExpression;
 
-        public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column) {
+        public RelatedTableInfo(BaseTableInfo tableInfo, boolean pctPossible, String column, String failReason,
+                Expression partitionExpression) {
             this.tableInfo = tableInfo;
             this.pctPossible = pctPossible;
             this.column = column;
+            this.failReasons.add(failReason);
+            this.partitionExpression = Optional.ofNullable(partitionExpression);
+        }
+
+        public static RelatedTableInfo failWith(String failReason) {
+            return new RelatedTableInfo(null, false, null, failReason,
+                    null);
+        }
+
+        public static RelatedTableInfo successWith(BaseTableInfo tableInfo, boolean pctPossible, String column,
+                Expression partitionExpression) {
+            return new RelatedTableInfo(tableInfo, pctPossible, column, "", partitionExpression);
         }
 
         public BaseTableInfo getTableInfo() {
@@ -483,6 +688,18 @@ public class MaterializedViewUtils {
 
         public String getColumn() {
             return column;
+        }
+
+        public void addFailReason(String failReason) {
+            this.failReasons.add(failReason);
+        }
+
+        public String getFailReason() {
+            return String.join(",", failReasons);
+        }
+
+        public Optional<Expression> getPartitionExpression() {
+            return partitionExpression;
         }
     }
 }

@@ -31,7 +31,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/hdfs_file_reader.h"

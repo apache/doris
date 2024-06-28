@@ -253,11 +253,12 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        context.fs = _cloud_storage_engine.get_fs_by_vault_id(sc_params.vault_id);
-        if (context.fs == nullptr) {
+        context.storage_resource = _cloud_storage_engine.get_storage_resource(sc_params.vault_id);
+        if (!context.storage_resource) {
             return Status::InternalError("vault id not found, maybe not sync, vault id {}",
                                          sc_params.vault_id);
         }
+
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto rowset_writer = DORIS_TRY(_new_tablet->create_rowset_writer(context, false));
 
@@ -272,8 +273,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 DCHECK(existed_rs_meta != nullptr);
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
-                RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, _new_tablet->tablet_path(),
-                                                             existed_rs_meta, &rowset));
+                RETURN_IF_ERROR(
+                        RowsetFactory::create_rowset(nullptr, "", existed_rs_meta, &rowset));
                 _output_rowsets.push_back(std::move(rowset));
                 already_exist_any_version = true;
                 continue;
@@ -304,8 +305,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                 DCHECK(existed_rs_meta != nullptr);
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
-                RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, _new_tablet->tablet_path(),
-                                                             existed_rs_meta, &rowset));
+                RETURN_IF_ERROR(
+                        RowsetFactory::create_rowset(nullptr, "", existed_rs_meta, &rowset));
                 _output_rowsets.push_back(std::move(rowset));
                 continue;
             } else {

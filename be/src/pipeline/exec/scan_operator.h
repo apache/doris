@@ -23,10 +23,15 @@
 #include <string>
 
 #include "common/status.h"
+#include "exprs/function_filter.h"
 #include "operator.h"
+#include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/scan/vscan_node.h"
+#include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vin_predicate.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 class ScannerDelegate;
@@ -34,12 +39,33 @@ class ScannerDelegate;
 
 namespace doris::pipeline {
 
-class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
+enum class PushDownType {
+    // The predicate can not be pushed down to data source
+    UNACCEPTABLE,
+    // The predicate can be pushed down to data source
+    // and the data source can fully evaludate it
+    ACCEPTABLE,
+    // The predicate can be pushed down to data source
+    // but the data source can not fully evaluate it.
+    PARTIAL_ACCEPTABLE
+};
+
+struct FilterPredicates {
+    // Save all runtime filter predicates which may be pushed down to data source.
+    // column name -> bloom filter function
+    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+
+    std::vector<std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
+
+    std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
+};
+
+class ScanLocalStateBase : public PipelineXLocalState<>, public RuntimeFilterConsumer {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
-              vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
-                                                parent->row_descriptor(), _conjuncts) {}
+              RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
+                                    parent->row_descriptor(), _conjuncts) {}
     ~ScanLocalStateBase() override = default;
 
     virtual bool ready_to_read() = 0;
@@ -87,8 +113,6 @@ protected:
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
-    // time of prefilter input block from scanner
-    RuntimeProfile::Counter* _prefilter_timer = nullptr;
     // time of convert input block to output block from scanner
     RuntimeProfile::Counter* _convert_block_timer = nullptr;
     // time of filter output block from scanner
@@ -192,30 +216,26 @@ protected:
     virtual bool _storage_no_merge() { return false; }
     virtual bool _push_down_topn(const vectorized::RuntimePredicate& predicate) { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
-    virtual vectorized::VScanNode::PushDownType _should_push_down_bloom_filter() {
-        return vectorized::VScanNode::PushDownType::UNACCEPTABLE;
-    }
-    virtual vectorized::VScanNode::PushDownType _should_push_down_bitmap_filter() {
-        return vectorized::VScanNode::PushDownType::UNACCEPTABLE;
-    }
-    virtual vectorized::VScanNode::PushDownType _should_push_down_is_null_predicate() {
-        return vectorized::VScanNode::PushDownType::UNACCEPTABLE;
+    virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
+    virtual PushDownType _should_push_down_bitmap_filter() { return PushDownType::UNACCEPTABLE; }
+    virtual PushDownType _should_push_down_is_null_predicate() {
+        return PushDownType::UNACCEPTABLE;
     }
     virtual Status _should_push_down_binary_predicate(
             vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
             StringRef* constant_val, int* slot_ref_child,
-            const std::function<bool(const std::string&)>& fn_checker,
-            vectorized::VScanNode::PushDownType& pdt);
+            const std::function<bool(const std::string&)>& fn_checker, PushDownType& pdt);
 
-    virtual vectorized::VScanNode::PushDownType _should_push_down_in_predicate(
-            vectorized::VInPredicate* in_pred, vectorized::VExprContext* expr_ctx, bool is_not_in);
+    virtual PushDownType _should_push_down_in_predicate(vectorized::VInPredicate* in_pred,
+                                                        vectorized::VExprContext* expr_ctx,
+                                                        bool is_not_in);
 
     virtual Status _should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
                                                      vectorized::VExprContext* expr_ctx,
                                                      StringRef* constant_str,
                                                      doris::FunctionContext** fn_ctx,
-                                                     vectorized::VScanNode::PushDownType& pdt) {
-        pdt = vectorized::VScanNode::PushDownType::UNACCEPTABLE;
+                                                     PushDownType& pdt) {
+        pdt = PushDownType::UNACCEPTABLE;
         return Status::OK();
     }
 
@@ -233,17 +253,16 @@ protected:
                                 vectorized::VExprContext* context,
                                 vectorized::VExprSPtr& output_expr);
     Status _eval_const_conjuncts(vectorized::VExpr* vexpr, vectorized::VExprContext* expr_ctx,
-                                 vectorized::VScanNode::PushDownType* pdt);
+                                 PushDownType* pdt);
 
     Status _normalize_bloom_filter(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                   SlotDescriptor* slot, vectorized::VScanNode::PushDownType* pdt);
+                                   SlotDescriptor* slot, PushDownType* pdt);
 
     Status _normalize_bitmap_filter(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                    SlotDescriptor* slot, vectorized::VScanNode::PushDownType* pdt);
+                                    SlotDescriptor* slot, PushDownType* pdt);
 
     Status _normalize_function_filters(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                       SlotDescriptor* slot,
-                                       vectorized::VScanNode::PushDownType* pdt);
+                                       SlotDescriptor* slot, PushDownType* pdt);
 
     bool _is_predicate_acting_on_slot(
             vectorized::VExpr* expr,
@@ -255,23 +274,22 @@ protected:
     template <PrimitiveType T>
     Status _normalize_in_and_eq_predicate(vectorized::VExpr* expr,
                                           vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-                                          ColumnValueRange<T>& range,
-                                          vectorized::VScanNode::PushDownType* pdt);
+                                          ColumnValueRange<T>& range, PushDownType* pdt);
     template <PrimitiveType T>
     Status _normalize_not_in_and_not_eq_predicate(vectorized::VExpr* expr,
                                                   vectorized::VExprContext* expr_ctx,
                                                   SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                  vectorized::VScanNode::PushDownType* pdt);
+                                                  PushDownType* pdt);
 
     template <PrimitiveType T>
     Status _normalize_noneq_binary_predicate(vectorized::VExpr* expr,
                                              vectorized::VExprContext* expr_ctx,
                                              SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                             vectorized::VScanNode::PushDownType* pdt);
+                                             PushDownType* pdt);
 
     void _normalize_compound_predicate(
-            vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-            vectorized::VScanNode::PushDownType* pdt, bool is_runtimer_filter_predicate,
+            vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, PushDownType* pdt,
+            bool is_runtimer_filter_predicate,
             const std::function<bool(const vectorized::VExprSPtrs&,
                                      std::shared_ptr<vectorized::VSlotRef>&,
                                      vectorized::VExprSPtr&)>& in_predicate_checker,
@@ -280,26 +298,33 @@ protected:
                                      vectorized::VExprSPtr&)>& eq_predicate_checker);
 
     template <PrimitiveType T>
-    Status _normalize_binary_in_compound_predicate(vectorized::VExpr* expr,
-                                                   vectorized::VExprContext* expr_ctx,
-                                                   SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                   vectorized::VScanNode::PushDownType* pdt);
+    Status _normalize_binary_compound_predicate(vectorized::VExpr* expr,
+                                                vectorized::VExprContext* expr_ctx,
+                                                SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                                PushDownType* pdt);
 
     template <PrimitiveType T>
-    Status _normalize_match_in_compound_predicate(vectorized::VExpr* expr,
-                                                  vectorized::VExprContext* expr_ctx,
-                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                  vectorized::VScanNode::PushDownType* pdt);
+    Status _normalize_in_and_not_in_compound_predicate(vectorized::VExpr* expr,
+                                                       vectorized::VExprContext* expr_ctx,
+                                                       SlotDescriptor* slot,
+                                                       ColumnValueRange<T>& range,
+                                                       PushDownType* pdt);
+
+    template <PrimitiveType T>
+    Status _normalize_match_compound_predicate(vectorized::VExpr* expr,
+                                               vectorized::VExprContext* expr_ctx,
+                                               SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                               PushDownType* pdt);
 
     template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
                                         SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                        vectorized::VScanNode::PushDownType* pdt);
+                                        PushDownType* pdt);
 
     template <PrimitiveType T>
     Status _normalize_match_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
                                       SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                      vectorized::VScanNode::PushDownType* pdt);
+                                      PushDownType* pdt);
 
     bool _ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr);
 
@@ -330,7 +355,7 @@ protected:
 
     std::shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
 
-    vectorized::FilterPredicates _filter_predicates {};
+    FilterPredicates _filter_predicates {};
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;

@@ -28,6 +28,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
@@ -102,6 +103,10 @@ Segment::~Segment() {
     g_total_segment_num << -1;
 }
 
+io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t seg_id) {
+    return io::BlockFileCache::hash(fmt::format("{}_{}.dat", rowset_id, seg_id));
+}
+
 Status Segment::_open() {
     _footer_pb = std::make_unique<SegmentFooterPB>();
     RETURN_IF_ERROR(_parse_footer(_footer_pb.get()));
@@ -115,6 +120,9 @@ Status Segment::_open() {
 
     // An estimated memory usage of a segment
     _meta_mem_usage += _footer_pb->ByteSizeLong();
+    if (_pk_index_meta != nullptr) {
+        _meta_mem_usage += _pk_index_meta->ByteSizeLong();
+    }
     _meta_mem_usage += sizeof(*this);
     _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
 
@@ -128,7 +136,9 @@ Status Segment::_open() {
 
 Status Segment::_open_inverted_index() {
     _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
-            _fs, _file_reader->path().parent_path(), _file_reader->path().filename().native(),
+            _fs,
+            std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
+                    _file_reader->path().native())},
             _tablet_schema->get_inverted_index_storage_format());
     bool open_idx_file_cache = true;
     auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
@@ -532,24 +542,19 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
     auto sparse_node = tablet_column.has_path_info()
                                ? _sparse_column_tree.find_exact(*tablet_column.path_info_ptr())
                                : nullptr;
-    if (opt != nullptr && opt->io_ctx.reader_type == ReaderType::READER_ALTER_TABLE) {
-        CHECK(tablet_column.is_variant_type());
-        if (root == nullptr) {
-            // No such variant column in this segment, get a default one
-            RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
-            return Status::OK();
-        }
-        bool output_as_raw_json = true;
-        // Alter table operation should read the whole variant column, since it does not aware of
-        // subcolumns of variant during processing rewriting rowsets.
-        // This is slow, since it needs to read all sub columns and merge them into a single column
-        RETURN_IF_ERROR(
-                HierarchicalDataReader::create(iter, root_path, root, root, output_as_raw_json));
-        return Status::OK();
-    }
 
-    if (opt == nullptr || opt->io_ctx.reader_type != ReaderType::READER_QUERY) {
-        // Could be compaction ..etc and read flat leaves nodes data
+    // Currently only compaction and checksum need to read flat leaves
+    // They both use tablet_schema_with_merged_max_schema_version as read schema
+    auto type_to_read_flat_leaves = [](ReaderType type) {
+        return type == ReaderType::READER_BASE_COMPACTION ||
+               type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+               type == ReaderType::READER_COLD_DATA_COMPACTION ||
+               type == ReaderType::READER_SEGMENT_COMPACTION ||
+               type == ReaderType::READER_FULL_COMPACTION || type == ReaderType::READER_CHECKSUM;
+    };
+
+    if (opt != nullptr && type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
+        // compaction need to read flat leaves nodes data to prevent from amplification
         const auto* node = tablet_column.has_path_info()
                                    ? _sub_column_tree.find_leaf(*tablet_column.path_info_ptr())
                                    : nullptr;
@@ -629,7 +634,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         LOG(WARNING) << "different type between schema and column reader,"
                      << " column schema name: " << tablet_column.name()
                      << " column schema type: " << int(tablet_column.type())
-                     << " column reader meta type"
+                     << " column reader meta type: "
                      << int(_column_readers.at(tablet_column.unique_id())->get_meta_type());
         return Status::InternalError("different type between schema and column reader");
     }

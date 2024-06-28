@@ -20,8 +20,8 @@
 #include <stdint.h>
 
 #include "common/status.h"
+#include "exec/schema_scanner.h"
 #include "operator.h"
-#include "vec/exec/vschema_scan_node.h"
 
 namespace doris {
 class RuntimeState;

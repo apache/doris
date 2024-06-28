@@ -65,6 +65,13 @@ suite("test_iceberg_filter", "p0,external,doris,external_docker,external_docker_
             qt_qt12 """ select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56.1200' order by id """
             qt_qt13 """ select * from ${tb_ts_filter} where ts > '2024-05-30 20:34:56.1200' order by id """
 
+            String tb_ts_ntz_filter = "${catalog_name}.test_db.tb_ts_ntz_filter";
+            qt_qt14 """ select * from ${tb_ts_ntz_filter} where ts = '2024-06-11 12:34:56.123456' """
+            qt_qt15 """ select * from ${tb_ts_ntz_filter} where ts > '2024-06-11 12:34:56.123456' """
+            qt_qt16 """ select * from ${tb_ts_ntz_filter} where ts < '2024-06-11 12:34:56.123456' """
+            qt_qt17 """ select * from ${tb_ts_ntz_filter} where ts > '2024-06-11 12:34:56.12345' """
+            qt_qt18 """ select * from ${tb_ts_ntz_filter} where ts < '2024-06-11 12:34:56.123466' """
+
             // TODO support filter
             // explain {
             //     sql("select * from ${tb_ts_filter} where ts < '2024-05-30 20:34:56'")

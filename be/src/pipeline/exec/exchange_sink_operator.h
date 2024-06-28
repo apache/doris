@@ -28,7 +28,6 @@
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
-class DataSink;
 class RuntimeState;
 class TDataSink;
 
@@ -79,7 +78,6 @@ public:
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer* buffer);
-    Status get_next_available_buffer(std::shared_ptr<vectorized::BroadcastPBlockHolder>* holder);
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
@@ -152,7 +150,7 @@ private:
 
     // Sender instance id, unique within a fragment.
     int _sender_id;
-    std::shared_ptr<vectorized::BroadcastPBlockHolderQueue> _broadcast_pb_blocks;
+    std::shared_ptr<vectorized::BroadcastPBlockHolderMemLimiter> _broadcast_pb_mem_limiter;
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
@@ -220,6 +218,7 @@ public:
 
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
+    DataDistribution required_data_distribution() const override;
 
 private:
     friend class ExchangeSinkLocalState;
@@ -272,6 +271,7 @@ private:
     // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
     size_t _data_processed = 0;
     int _writer_count = 1;
+    const bool _enable_local_merge_sort;
 };
 
 } // namespace pipeline

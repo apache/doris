@@ -84,7 +84,7 @@ public class LocalJournal implements Journal {
         try {
             storage = new Storage(imageDir);
             if (journalId.get() == storage.getEditsSeq()) {
-                System.out.println("Does not need to roll!");
+                LOG.warn("Does not need to roll! journalId: {}, editsSeq: {}", journalId.get(), storage.getEditsSeq());
                 return;
             }
             if (outputStream != null) {
@@ -209,5 +209,10 @@ public class LocalJournal implements Journal {
     @Override
     public List<Long> getDatabaseNames() {
         throw new RuntimeException("Not Support");
+    }
+
+    @Override
+    public boolean exceedMaxJournalSize(short op, Writable writable) throws IOException  {
+        return false;
     }
 }

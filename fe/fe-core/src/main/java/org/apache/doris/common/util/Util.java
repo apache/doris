@@ -424,10 +424,6 @@ public class Util {
         }
     }
 
-    public static void stdoutWithTime(String msg) {
-        System.out.println("[" + TimeUtils.longToTimeString(System.currentTimeMillis()) + "] " + msg);
-    }
-
     // not support encode negative value now
     public static void encodeVarint64(long source, DataOutput out) throws IOException {
         assert source >= 0;

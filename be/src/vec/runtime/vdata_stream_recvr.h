@@ -167,7 +167,6 @@ private:
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    bool _enable_pipeline;
     std::vector<std::shared_ptr<pipeline::Dependency>> _sender_to_local_channel_dependency;
 };
 

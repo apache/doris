@@ -21,6 +21,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -34,7 +35,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Set;
 
 /**
  * Test idStatisticsMap in StatementContext is valid
@@ -70,16 +71,19 @@ public class IdStatisticsMapTest extends SqlTestBase {
                         + "inner join T3 on T1.id = T3.id",
                 connectContext
         );
-        PlanChecker.from(c1)
+        PlanChecker tmpPlanChecker = PlanChecker.from(c1)
                 .analyze()
-                .rewrite()
+                .rewrite();
+        // scan plan output will be refreshed after mv rewrite successfully, so need tmp store
+        Set<Slot> materializationScanOutput = c1.getMaterializationContexts().get(0).getScanPlan().getOutputSet();
+        tmpPlanChecker
                 .optimize()
                 .printlnBestPlanTree();
         Map<RelationId, Statistics> idStatisticsMap = c1.getStatementContext().getRelationIdToStatisticsMap();
         Assertions.assertFalse(idStatisticsMap.isEmpty());
-        RelationId relationId = idStatisticsMap.keySet().iterator().next();
-        Optional<Statistics> statistics = c1.getStatementContext().getStatistics(relationId);
-        Assertions.assertTrue(statistics.isPresent());
+        Statistics statistics = idStatisticsMap.values().iterator().next();
+        // statistics key set should be equals to materialization scan plan output
+        Assertions.assertEquals(materializationScanOutput, statistics.columnStatistics().keySet());
         dropMvByNereids("drop materialized view mv100");
     }
 }

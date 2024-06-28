@@ -53,10 +53,14 @@ public abstract class AbstractBatchJobExecutor {
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not null");
     }
 
+    /**
+     * flat map jobs in TopicRewriteJob to could really run jobs, and filter null.
+     */
     public static List<RewriteJob> jobs(RewriteJob... jobs) {
         return Arrays.stream(jobs)
+                .filter(Objects::nonNull)
                 .flatMap(job -> job instanceof TopicRewriteJob
-                    ? ((TopicRewriteJob) job).jobs.stream()
+                    ? ((TopicRewriteJob) job).jobs.stream().filter(Objects::nonNull)
                     : Stream.of(job)
                 ).collect(ImmutableList.toImmutableList());
     }

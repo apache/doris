@@ -102,6 +102,12 @@ add_thirdparty(lzma LIB64)
 add_thirdparty(idn LIB64)
 add_thirdparty(gsasl)
 # end krb5 libs
+# begin azure libs
+add_thirdparty(azure-core)
+add_thirdparty(azure-identity)
+add_thirdparty(azure-storage-blobs)
+add_thirdparty(azure-storage-common)
+# end azure libs
 
 add_thirdparty(gtest NOTADD)
 add_thirdparty(gtest_main NOTADD)

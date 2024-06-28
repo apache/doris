@@ -88,8 +88,9 @@ public class TransactionStateTest {
         UUID uuid = UUID.randomUUID();
         TransactionState transactionState = new TransactionState(1000L, Lists.newArrayList(20000L, 20001L),
                 3000, "label123", new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()),
-                LoadJobSourceType.BACKEND_STREAMING, new TxnCoordinator(TxnSourceType.BE, "127.0.0.1"), 50000L,
-                60 * 1000L);
+                LoadJobSourceType.BACKEND_STREAMING,
+                new TxnCoordinator(TxnSourceType.BE, 0, "127.0.0.1", System.currentTimeMillis()),
+                50000L, 60 * 1000L);
         testSerDe(fileName, transactionState, readTransactionState -> {
             Assert.assertEquals(transactionState.getCoordinator().ip, readTransactionState.getCoordinator().ip);
         });
@@ -112,7 +113,8 @@ public class TransactionStateTest {
         // TransactionState
         TransactionState transactionState = new TransactionState(1000L, Lists.newArrayList(20000L, 20001L), 3000,
                 "label123", new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()),
-                LoadJobSourceType.BACKEND_STREAMING, new TxnCoordinator(TxnSourceType.BE, "127.0.0.1"),
+                LoadJobSourceType.BACKEND_STREAMING,
+                new TxnCoordinator(TxnSourceType.BE, 0, "127.0.0.1", System.currentTimeMillis()),
                 TransactionStatus.COMMITTED, "", 100, 50000L, loadJobFinalOperation, 100, 200, 300, 400);
         // check
         testSerDe(fileName2, transactionState, readTransactionState -> {
@@ -144,7 +146,8 @@ public class TransactionStateTest {
         // TransactionState
         TransactionState transactionState = new TransactionState(1000L, Lists.newArrayList(20000L, 20001L),
                 3000, "label123", new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()),
-                LoadJobSourceType.BACKEND_STREAMING, new TxnCoordinator(TxnSourceType.BE, "127.0.0.1"),
+                LoadJobSourceType.BACKEND_STREAMING,
+                new TxnCoordinator(TxnSourceType.BE, 0, "127.0.0.1", System.currentTimeMillis()),
                 TransactionStatus.COMMITTED, "", 100, 50000L,
                 attachment, 100, 200, 300, 400);
         // check

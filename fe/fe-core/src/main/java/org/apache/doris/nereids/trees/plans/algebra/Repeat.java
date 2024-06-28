@@ -58,6 +58,38 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
         return ExpressionUtils.flatExpressions(getGroupingSets());
     }
 
+    @Override
+    default Aggregate<CHILD_PLAN> pruneOutputs(List<NamedExpression> prunedOutputs) {
+        // just output reserved outputs and COL_GROUPING_ID for repeat correctly.
+        ImmutableList.Builder<NamedExpression> outputBuilder
+                = ImmutableList.builderWithExpectedSize(prunedOutputs.size() + 1);
+        outputBuilder.addAll(prunedOutputs);
+        for (NamedExpression output : getOutputExpressions()) {
+            Set<VirtualSlotReference> v = output.collect(VirtualSlotReference.class::isInstance);
+            if (v.stream().anyMatch(slot -> slot.getName().equals(COL_GROUPING_ID))) {
+                outputBuilder.add(output);
+            }
+        }
+        // prune groupingSets, if parent operator do not need some exprs in grouping sets, we removed it.
+        // this could not lead to wrong result because be repeat other columns by normal.
+        ImmutableList.Builder<List<Expression>> groupingSetsBuilder
+                = ImmutableList.builderWithExpectedSize(getGroupingSets().size());
+        for (List<Expression> groupingSet : getGroupingSets()) {
+            ImmutableList.Builder<Expression> groupingSetBuilder
+                    = ImmutableList.builderWithExpectedSize(groupingSet.size());
+            for (Expression expr : groupingSet) {
+                if (prunedOutputs.contains(expr)) {
+                    groupingSetBuilder.add(expr);
+                }
+            }
+            groupingSetsBuilder.add(groupingSetBuilder.build());
+        }
+        return withGroupSetsAndOutput(groupingSetsBuilder.build(), outputBuilder.build());
+    }
+
+    Repeat<CHILD_PLAN> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
+            List<NamedExpression> outputExpressions);
+
     static VirtualSlotReference generateVirtualGroupingIdSlot() {
         return new VirtualSlotReference(COL_GROUPING_ID, BigIntType.INSTANCE, Optional.empty(),
                 GroupingSetShapes::computeVirtualGroupingIdValue);

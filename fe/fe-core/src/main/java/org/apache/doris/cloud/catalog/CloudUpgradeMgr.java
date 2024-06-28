@@ -92,6 +92,7 @@ public class CloudUpgradeMgr extends MasterDaemon {
                         isFinished = true;
                     }
                 } catch (AnalysisException e) {
+                    LOG.warn("cloud upgrade mgr exception", e);
                     throw new RuntimeException(e);
                 }
                 if (!isFinished) {

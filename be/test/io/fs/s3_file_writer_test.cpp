@@ -263,7 +263,8 @@ static auto test_mock_callbacks = std::array {
                           pair->first = mock_client->head_object(req);
                       }},
         MockCallback {"s3_client_factory::create", [](auto&& outcome) {
-                          auto pair = try_any_cast_ret<std::shared_ptr<Aws::S3::S3Client>>(outcome);
+                          auto pair = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageClient>>(
+                                  outcome);
                           pair->second = true;
                       }}};
 
@@ -943,9 +944,8 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_2) {
     sp->set_call_back("S3FileWriter::_complete:2", [](auto&& outcome) {
         // Deliberately make one upload one part task fail to test if s3 file writer could
         // handle io error
-        std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>* parts =
-                try_any_cast<std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>*>(
-                        outcome.back());
+        auto* parts = try_any_cast<std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>*>(
+                outcome.back());
         size_t size = parts->size();
         parts->back()->SetPartNumber(size + 2);
     });
@@ -992,12 +992,9 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_1) {
     sp->set_call_back("S3FileWriter::_complete:1", [](auto&& outcome) {
         // Deliberately make one upload one part task fail to test if s3 file writer could
         // handle io error
-        const std::pair<std::atomic_bool*,
-                        std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>*>& points =
-                try_any_cast<const std::pair<
-                        std::atomic_bool*,
-                        std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>*>&>(
-                        outcome.back());
+        const auto& points = try_any_cast<const std::pair<
+                std::atomic_bool*, std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>*>&>(
+                outcome.back());
         (*points.first) = false;
         points.second->pop_back();
     });
@@ -1044,7 +1041,8 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_3) {
     sp->set_call_back("S3FileWriter::_complete:3", [](auto&& outcome) {
         auto pair = try_any_cast_ret<io::ObjectStorageResponse>(outcome);
         pair->second = true;
-        pair->first = io::ObjectStorageResponse {.status = Status::IOError("inject error")};
+        pair->first = io::ObjectStorageResponse {
+                .status = convert_to_obj_response(Status::IOError<false>("inject error"))};
     });
     Defer defer {[&]() { sp->clear_call_back("S3FileWriter::_complete:3"); }};
     auto client = s3_fs->client_holder();

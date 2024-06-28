@@ -227,6 +227,7 @@ public:
     }
 
     void insert_many_raw_data(const char* data_ptr, size_t num) override {
+        DCHECK(data_ptr);
         auto old_size = data.size();
         data.resize(old_size + num);
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));

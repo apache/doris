@@ -28,25 +28,21 @@ class CompletedPart;
 } // namespace Aws::S3
 
 namespace doris::io {
-
-struct S3CompleteMultiParts : public ObjectCompleteMultiParts {
-    std::vector<std::unique_ptr<Aws::S3::Model::CompletedPart>>& parts;
-};
-
 class ObjClientHolder;
 
 class S3ObjStorageClient final : public ObjStorageClient {
 public:
     S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client) : _client(std::move(client)) {}
     ~S3ObjStorageClient() override = default;
-    ObjectStorageResponse create_multipart_upload(const ObjectStoragePathOptions& opts) override;
+    ObjectStorageUploadResponse create_multipart_upload(
+            const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
                                      std::string_view stream) override;
-    ObjectStorageResponse upload_part(const ObjectStoragePathOptions& opts, std::string_view,
-                                      int partNum) override;
+    ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts, std::string_view,
+                                            int partNum) override;
     ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,
-            const ObjectCompleteMultiParts& completed_parts) override;
+            const std::vector<ObjectCompleteMultiPart>& completed_parts) override;
     ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
                                      size_t offset, size_t bytes_read,
@@ -57,6 +53,8 @@ public:
                                          std::vector<std::string> objs) override;
     ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse delete_objects_recursively(const ObjectStoragePathOptions& opts) override;
+    std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
+                                       int64_t expiration_secs, const S3ClientConf&) override;
 
 private:
     std::shared_ptr<Aws::S3::S3Client> _client;

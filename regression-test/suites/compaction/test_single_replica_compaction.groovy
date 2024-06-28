@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_single_replica_compaction", "p2") {
+    if (isCloudMode()) {
+        return;
+    }
     def tableName = "test_single_replica_compaction"
   
     def set_be_config = { key, value ->

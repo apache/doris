@@ -100,20 +100,38 @@ suite("test_show_data", "p0") {
         }
     }
 
-    def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def result = sql """show data from ${database}.${table_name};"""
-            if (result.size() > 0) {
-                logger.info(table_name + " show data, detail: " + result[0].toString())
-                def size = result[0][2].replace(" KB", "").toDouble()
+    def wait_for_show_data_finish = { table_name, OpTimeout, origin_size, maxRetries = 5 ->
+        def size = origin_size
+        def retries = 0
+        def last_size = origin_size
+
+        while (retries < maxRetries) {
+            for (int t = 0; t < OpTimeout; t += delta_time) {
+                def result = sql """show data from ${database}.${table_name};"""
+                if (result.size() > 0) {
+                    logger.info(table_name + " show data, detail: " + result[0].toString())
+                    size = result[0][2].replace(" KB", "").toDouble()
+                }
+                useTime += delta_time
+                Thread.sleep(delta_time)
+
+                // If size changes, break the for loop to check in the next while iteration
+                if (size != origin_size && size != last_size) {
+                    break
+                }
+            }
+
+            if (size != last_size) {
+                last_size = size
+            } else {
+                // If size didn't change during the last OpTimeout period, return size
                 if (size != origin_size) {
                     return size
                 }
             }
-            useTime = t
-            Thread.sleep(delta_time)
+
+            retries++
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_show_data_finish timeout, useTime=${useTime}")
         return "wait_timeout"
     }
 
@@ -162,7 +180,7 @@ suite("test_show_data", "p0") {
         load_httplogs_data.call(testTableWithoutIndex, 'test_httplogs_load_without_index', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        def no_index_size = wait_for_show_data_finish(testTableWithoutIndex, 300000, 0)
+        def no_index_size = wait_for_show_data_finish(testTableWithoutIndex, 60000, 0)
         assertTrue(no_index_size != "wait_timeout")
         sql """ ALTER TABLE ${testTableWithoutIndex} ADD INDEX idx_request (`request`) USING INVERTED PROPERTIES("parser" = "english") """
         wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
@@ -173,19 +191,19 @@ suite("test_show_data", "p0") {
             state = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
             assertEquals(state, "FINISHED")
         }
-        def with_index_size = wait_for_show_data_finish(testTableWithoutIndex, 300000, no_index_size)
+        def with_index_size = wait_for_show_data_finish(testTableWithoutIndex, 60000, no_index_size)
         assertTrue(with_index_size != "wait_timeout")
 
         sql """ ALTER TABLE ${testTableWithoutIndex} DROP INDEX idx_request """
         wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
-        def another_no_index_size = wait_for_show_data_finish(testTableWithoutIndex, 300000, with_index_size)
+        def another_no_index_size = wait_for_show_data_finish(testTableWithoutIndex, 60000, with_index_size)
         if (!isCloudMode()) {
             assertEquals(another_no_index_size, no_index_size)
         }
         sql "DROP TABLE IF EXISTS ${testTableWithIndex}"
         create_httplogs_table_with_index.call(testTableWithIndex)
         load_httplogs_data.call(testTableWithIndex, 'test_httplogs_load_with_index', 'true', 'json', 'documents-1000.json')
-        def another_with_index_size = wait_for_show_data_finish(testTableWithIndex, 300000, 0)
+        def another_with_index_size = wait_for_show_data_finish(testTableWithIndex, 60000, 0)
         if (!isCloudMode()) {
             assertEquals(another_with_index_size, with_index_size)
         }
@@ -279,20 +297,38 @@ suite("test_show_data_for_bkd", "p0") {
         }
     }
 
-    def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def result = sql """show data from ${database}.${table_name};"""
-            if (result.size() > 0) {
-                logger.info(table_name + " show data, detail: " + result[0].toString())
-                def size = result[0][2].replace(" KB", "").toDouble()
+    def wait_for_show_data_finish = { table_name, OpTimeout, origin_size, maxRetries = 5 ->
+        def size = origin_size
+        def retries = 0
+        def last_size = origin_size
+
+        while (retries < maxRetries) {
+            for (int t = 0; t < OpTimeout; t += delta_time) {
+                def result = sql """show data from ${database}.${table_name};"""
+                if (result.size() > 0) {
+                    logger.info(table_name + " show data, detail: " + result[0].toString())
+                    size = result[0][2].replace(" KB", "").toDouble()
+                }
+                useTime += delta_time
+                Thread.sleep(delta_time)
+
+                // If size changes, break the for loop to check in the next while iteration
+                if (size != origin_size && size != last_size) {
+                    break
+                }
+            }
+
+            if (size != last_size) {
+                last_size = size
+            } else {
+                // If size didn't change during the last OpTimeout period, return size
                 if (size != origin_size) {
                     return size
                 }
             }
-            useTime = t
-            Thread.sleep(delta_time)
+
+            retries++
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_show_data_finish timeout, useTime=${useTime}")
         return "wait_timeout"
     }
 
@@ -340,7 +376,7 @@ suite("test_show_data_for_bkd", "p0") {
         load_httplogs_data.call(testTableWithoutBKDIndex, 'test_httplogs_load_without_bkd_index', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        def no_index_size = wait_for_show_data_finish(testTableWithoutBKDIndex, 300000, 0)
+        def no_index_size = wait_for_show_data_finish(testTableWithoutBKDIndex, 60000, 0)
         assertTrue(no_index_size != "wait_timeout")
         sql """ ALTER TABLE ${testTableWithoutBKDIndex} ADD INDEX idx_status (`status`) USING INVERTED; """
         wait_for_latest_op_on_table_finish(testTableWithoutBKDIndex, timeout)
@@ -351,12 +387,12 @@ suite("test_show_data_for_bkd", "p0") {
             def state = wait_for_last_build_index_on_table_finish(testTableWithoutBKDIndex, timeout)
             assertEquals(state, "FINISHED")
         }
-        def with_index_size = wait_for_show_data_finish(testTableWithoutBKDIndex, 300000, no_index_size)
+        def with_index_size = wait_for_show_data_finish(testTableWithoutBKDIndex, 60000, no_index_size)
         assertTrue(with_index_size != "wait_timeout")
 
         sql """ ALTER TABLE ${testTableWithoutBKDIndex} DROP INDEX idx_status """
         wait_for_latest_op_on_table_finish(testTableWithoutBKDIndex, timeout)
-        def another_no_index_size = wait_for_show_data_finish(testTableWithoutBKDIndex, 300000, with_index_size)
+        def another_no_index_size = wait_for_show_data_finish(testTableWithoutBKDIndex, 60000, with_index_size)
         if (!isCloudMode()) {
             assertEquals(another_no_index_size, no_index_size)
         }
@@ -364,7 +400,7 @@ suite("test_show_data_for_bkd", "p0") {
         sql "DROP TABLE IF EXISTS ${testTableWithBKDIndex}"
         create_httplogs_table_with_bkd_index.call(testTableWithBKDIndex)
         load_httplogs_data.call(testTableWithBKDIndex, 'test_httplogs_load_with_bkd_index', 'true', 'json', 'documents-1000.json')
-        def another_with_index_size = wait_for_show_data_finish(testTableWithBKDIndex, 300000, 0)
+        def another_with_index_size = wait_for_show_data_finish(testTableWithBKDIndex, 60000, 0)
         if (!isCloudMode()) {
             assertEquals(another_with_index_size, with_index_size)
         }
@@ -459,20 +495,38 @@ suite("test_show_data_multi_add", "p0") {
         }
     }
 
-    def wait_for_show_data_finish = { table_name, OpTimeout, origin_size ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            def result = sql """show data from ${database}.${table_name};"""
-            if (result.size() > 0) {
-                logger.info(table_name + " show data, detail: " + result[0].toString())
-                def size = result[0][2].replace(" KB", "").toDouble()
+    def wait_for_show_data_finish = { table_name, OpTimeout, origin_size, maxRetries = 5 ->
+        def size = origin_size
+        def retries = 0
+        def last_size = origin_size
+
+        while (retries < maxRetries) {
+            for (int t = 0; t < OpTimeout; t += delta_time) {
+                def result = sql """show data from ${database}.${table_name};"""
+                if (result.size() > 0) {
+                    logger.info(table_name + " show data, detail: " + result[0].toString())
+                    size = result[0][2].replace(" KB", "").toDouble()
+                }
+                useTime += delta_time
+                Thread.sleep(delta_time)
+
+                // If size changes, break the for loop to check in the next while iteration
+                if (size != origin_size && size != last_size) {
+                    break
+                }
+            }
+
+            if (size != last_size) {
+                last_size = size
+            } else {
+                // If size didn't change during the last OpTimeout period, return size
                 if (size != origin_size) {
                     return size
                 }
             }
-            useTime = t
-            Thread.sleep(delta_time)
+
+            retries++
         }
-        assertTrue(useTime <= OpTimeout, "wait_for_show_data_finish timeout, useTime=${useTime}")
         return "wait_timeout"
     }
 
@@ -520,7 +574,7 @@ suite("test_show_data_multi_add", "p0") {
         load_httplogs_data.call(testTableWithoutIndex, 'test_show_data_httplogs_multi_add_without_index', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        def no_index_size = wait_for_show_data_finish(testTableWithoutIndex, 300000, 0)
+        def no_index_size = wait_for_show_data_finish(testTableWithoutIndex, 60000, 0)
         assertTrue(no_index_size != "wait_timeout")
         sql """ ALTER TABLE ${testTableWithoutIndex} ADD INDEX idx_status (`status`) USING INVERTED; """
         wait_for_latest_op_on_table_finish(testTableWithoutIndex, timeout)
@@ -531,7 +585,7 @@ suite("test_show_data_multi_add", "p0") {
             def state = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
             assertEquals(state, "FINISHED")
         }
-        def with_index_size1 = wait_for_show_data_finish(testTableWithoutIndex, 300000, no_index_size)
+        def with_index_size1 = wait_for_show_data_finish(testTableWithoutIndex, 60000, no_index_size)
         assertTrue(with_index_size1 != "wait_timeout")
 
         sql """ ALTER TABLE ${testTableWithoutIndex} ADD INDEX request_idx (`request`) USING INVERTED; """
@@ -543,13 +597,13 @@ suite("test_show_data_multi_add", "p0") {
             def state2 = wait_for_last_build_index_on_table_finish(testTableWithoutIndex, timeout)
             assertEquals(state2, "FINISHED")
         }
-        def with_index_size2 = wait_for_show_data_finish(testTableWithoutIndex, 300000, with_index_size1)
+        def with_index_size2 = wait_for_show_data_finish(testTableWithoutIndex, 60000, with_index_size1)
         assertTrue(with_index_size2 != "wait_timeout")
 
         sql "DROP TABLE IF EXISTS ${testTableWithIndex}"
         create_httplogs_table_with_index.call(testTableWithIndex)
         load_httplogs_data.call(testTableWithIndex, 'test_show_data_httplogs_multi_add_with_index', 'true', 'json', 'documents-1000.json')
-        def another_with_index_size = wait_for_show_data_finish(testTableWithIndex, 300000, 0)
+        def another_with_index_size = wait_for_show_data_finish(testTableWithIndex, 60000, 0)
         if (!isCloudMode()) {
             assertEquals(another_with_index_size, with_index_size2)
         }

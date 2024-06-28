@@ -49,7 +49,6 @@ class PipelineFragmentContext;
 } // namespace pipeline
 
 struct ReportStatusRequest {
-    bool is_pipeline_x;
     const Status status;
     std::vector<RuntimeState*> runtime_states;
     RuntimeProfile* profile = nullptr;
@@ -73,7 +72,8 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
-                 TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids);
+                 TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids,
+                 TNetworkAddress current_connect_fe);
 
     ~QueryContext();
 
@@ -99,7 +99,7 @@ public:
 
     [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
 
-    void cancel_all_pipeline_context(const Status& reason);
+    void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
     std::string print_all_pipeline_context();
     Status cancel_pipeline_context(const int fragment_id, const Status& reason);
     void set_pipeline_context(const int fragment_id,
@@ -165,13 +165,6 @@ public:
     bool runtime_filter_wait_infinitely() const {
         return _query_options.__isset.runtime_filter_wait_infinitely &&
                _query_options.runtime_filter_wait_infinitely;
-    }
-
-    bool enable_pipeline_x_exec() const {
-        return (_query_options.__isset.enable_pipeline_x_engine &&
-                _query_options.enable_pipeline_x_engine) ||
-               (_query_options.__isset.enable_pipeline_engine &&
-                _query_options.enable_pipeline_engine);
     }
 
     int be_exec_version() const {
@@ -253,6 +246,7 @@ public:
     std::string user;
     std::string group;
     TNetworkAddress coord_addr;
+    TNetworkAddress current_connect_fe;
     TQueryGlobals query_globals;
 
     ObjectPool obj_pool;
@@ -322,7 +316,7 @@ private:
 
     std::mutex _profile_mutex;
 
-    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
+    // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:
     // Pipeline 0
     //      PipelineTask 0
@@ -339,34 +333,22 @@ private:
     //      PipelineTask 3
     //              Operator 3
     // fragment_id -> list<profile>
-    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map_x;
-    std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map_x;
-
-    // instance_id -> profile
-    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _profile_map;
-    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
+    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
+    std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
     void _report_query_profile();
-    void _report_query_profile_non_pipeline();
-    void _report_query_profile_x();
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
-    _collect_realtime_query_profile_x() const;
-
-    std::unordered_map<TUniqueId, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
-    _collect_realtime_query_profile_non_pipeline() const;
+    _collect_realtime_query_profile() const;
 
 public:
-    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
-    void add_fragment_profile_x(
+    // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
+    void add_fragment_profile(
             int fragment_id,
             const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profile,
             std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
 
-    void add_instance_profile(const TUniqueId& iid, std::shared_ptr<TRuntimeProfileTree> profile,
-                              std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
-
-    TReportExecStatusParams get_realtime_exec_status_x() const;
+    TReportExecStatusParams get_realtime_exec_status() const;
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;

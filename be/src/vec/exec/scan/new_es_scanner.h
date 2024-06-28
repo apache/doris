@@ -51,11 +51,6 @@ class NewEsScanner : public VScanner {
     ENABLE_FACTORY_CREATOR(NewEsScanner);
 
 public:
-    NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t limit, TupleId tuple_id,
-                 const std::map<std::string, std::string>& properties,
-                 const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode,
-                 RuntimeProfile* profile);
-
     NewEsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
                  TupleId tuple_id, const std::map<std::string, std::string>& properties,
                  const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode,

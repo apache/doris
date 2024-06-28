@@ -24,25 +24,6 @@ suite("test_limit_op_mtmv") {
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
-    def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(5000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
-
     sql """
         CREATE TABLE `${tableName}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
@@ -210,27 +191,6 @@ suite("test_limit_op_mtmv") {
         log.info(e.getMessage())
     }
 
-
-    // not allow add rollup
-    try {
-        sql """
-            alter table ${mvName} ADD ROLLUP example_rollup_index(num, k3);;
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-    // not allow drop rollup
-    try {
-        sql """
-            alter table ${mvName} drop ROLLUP example_rollup_index;
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
     // allow modify comment
     try {
         sql """
@@ -241,26 +201,36 @@ suite("test_limit_op_mtmv") {
         Assert.fail();
     }
 
-    // allow add index
-    try {
-        sql """
-            CREATE INDEX index1 ON ${mvName} (num) USING INVERTED;
-            """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        Assert.fail();
-    }
-    wait_for_latest_op_on_table_finish(mvName, timeout)
-    // allow drop index
-    try {
-        sql """
-            DROP INDEX index1 ON ${mvName};
-            """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        Assert.fail();
+    // not allow modify engine
+    test {
+        sql """ALTER TABLE ${mvName} MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");"""
+        exception "Not allowed"
     }
 
+    // not allow enable batch delete
+    test {
+        sql """ALTER TABLE ${mvName} ENABLE FEATURE "BATCH_DELETE";"""
+        exception "only supported in unique tables"
+    }
+
+    // not allow dynamic_partition
+    test {
+        sql """ALTER TABLE ${mvName} set ("dynamic_partition.enable" = "true")"""
+        exception "dynamic"
+        }
+    sql """drop materialized view if exists ${mvName};"""
+    test {
+          sql """
+              CREATE MATERIALIZED VIEW ${mvName}
+              BUILD DEFERRED REFRESH AUTO ON MANUAL
+              partition by(`k3`)
+              DISTRIBUTED BY RANDOM BUCKETS 2
+              PROPERTIES ('replication_num' = '1','dynamic_partition.enable'='true')
+              AS
+              SELECT * FROM ${tableName};
+          """
+          exception "dynamic"
+      }
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 }

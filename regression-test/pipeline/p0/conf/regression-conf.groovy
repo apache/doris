@@ -79,7 +79,8 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0," +
     "nereids_rules_p0/subquery," +
     "workload_manager_p1," +
-    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+    "zzz_the_end_sentinel_do_not_touch," +
+    "dialect_compatible"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
@@ -138,6 +139,7 @@ cacheDataPath = "/data/regression/"
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
+s3Provider = "COS"
 
 max_failure_num=50
 

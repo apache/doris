@@ -18,11 +18,13 @@
 package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.rpc.VersionHelper;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.ConnectContext;
@@ -103,6 +105,10 @@ public class CloudPartition extends Partition {
 
     @Override
     public long getVisibleVersion() {
+        if (Env.isCheckpointThread() || Config.enable_check_compatibility_mode) {
+            return super.getVisibleVersion();
+        }
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("getVisibleVersion use CloudPartition {}", super.getName());
         }

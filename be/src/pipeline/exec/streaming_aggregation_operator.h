@@ -108,12 +108,12 @@ private:
     bool _should_expand_hash_table = true;
     int64_t _cur_num_rows_returned = 0;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
-    vectorized::AggregatedDataVariantsUPtr _agg_data = nullptr;
+    AggregatedDataVariantsUPtr _agg_data = nullptr;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::unique_ptr<vectorized::Arena> _agg_profile_arena = nullptr;
-    std::unique_ptr<vectorized::AggregateDataContainer> _aggregate_data_container = nullptr;
+    std::unique_ptr<AggregateDataContainer> _aggregate_data_container = nullptr;
     bool _should_limit_output = false;
     bool _reach_limit = false;
     size_t _input_num_rows = 0;
