@@ -62,7 +62,7 @@ Status DeltaWriterV2Map::close(std::unordered_map<int64_t, int32_t>& segments_fo
     for (auto& [tablet_id, writer] : _map) {
         int32_t num_segments;
         RETURN_IF_ERROR(writer->close_wait(num_segments, profile));
-        segments_for_tablet.emplace(tablet_id, num_segments);
+        segments_for_tablet[tablet_id] = num_segments;
     }
     return Status::OK();
 }
