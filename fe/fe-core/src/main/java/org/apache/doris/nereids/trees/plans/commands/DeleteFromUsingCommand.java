@@ -94,14 +94,15 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
         for (Column column : targetTable.getFullSchema()) {
             if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
                 selectLists.add(new UnboundAlias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
-            } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)) {
+            } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)
+                    && targetTable.getSequenceMapCol() != null) {
                 selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
             } else if (column.isKey()) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else {
-                continue;
+                selectLists.add(new UnboundSlot(tableName, column.getName()));
             }
             cols.add(column.getName());
         }
@@ -111,12 +112,9 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
             logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
         }
 
-        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
-                && cols.size() < targetTable.getColumns().size();
-
         // make UnboundTableSink
         return UnboundTableSinkCreator.createUnboundTableSink(nameParts, cols, ImmutableList.of(),
-                isTempPart, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
+                isTempPart, partitions, false, DMLCommandType.DELETE, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {

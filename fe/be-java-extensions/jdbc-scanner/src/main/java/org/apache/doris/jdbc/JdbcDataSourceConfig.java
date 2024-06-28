@@ -31,7 +31,7 @@ public class JdbcDataSourceConfig {
     private TJdbcOperation op;
     private TOdbcTableType tableType;
     private int connectionPoolMinSize = 1;
-    private int connectionPoolMaxSize = 10;
+    private int connectionPoolMaxSize = 30;
     private int connectionPoolMaxWaitTime = 5000;
     private int connectionPoolMaxLifeTime = 1800000;
     private boolean connectionPoolKeepAlive = false;

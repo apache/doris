@@ -97,6 +97,7 @@ struct ObjectStorageResponse {
     int ret {0}; // To unify the error handle logic with BE, we'd better use the same error code as BE
     // clang-format on
     std::string error_msg;
+    static ObjectStorageResponse OK() { return {0}; }
 };
 
 // wrapper class owned by concret fs

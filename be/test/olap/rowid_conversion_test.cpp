@@ -348,9 +348,9 @@ protected:
         stats.rowid_conversion = &rowid_conversion;
         Status s;
         if (is_vertical_merger) {
-            s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
-                                               *tablet_schema, input_rs_readers,
-                                               output_rs_writer.get(), 10000000, &stats);
+            s = Merger::vertical_merge_rowsets(
+                    tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema, input_rs_readers,
+                    output_rs_writer.get(), 10000000, num_segments, &stats);
         } else {
             s = Merger::vmerge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), &stats);

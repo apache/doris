@@ -59,8 +59,11 @@ public class HiveTransactionManager implements TransactionManager {
 
     @Override
     public void rollback(long id) {
-        getTransactionWithException(id).rollback();
-        transactions.remove(id);
+        try {
+            getTransactionWithException(id).rollback();
+        } finally {
+            transactions.remove(id);
+        }
     }
 
     @Override

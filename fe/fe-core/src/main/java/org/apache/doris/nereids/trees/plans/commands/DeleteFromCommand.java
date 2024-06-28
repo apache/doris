@@ -155,6 +155,13 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
             }
         }
 
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
+                && !olapTable.getEnableDeleteOnDeletePredicate()) {
+            new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
+                    logicalQuery, Optional.empty()).run(ctx, executor);
+            return;
+        }
+
         // call delete handler to process
         List<Predicate> predicates = planner.getScanNodes().get(0).getConjuncts().stream()
                 .filter(c -> {

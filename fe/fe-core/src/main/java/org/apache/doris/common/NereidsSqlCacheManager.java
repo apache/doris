@@ -62,6 +62,7 @@ import org.apache.commons.collections.CollectionUtils;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -253,15 +254,15 @@ public class NereidsSqlCacheManager {
                 return true;
             }
             OlapTable olapTable = (OlapTable) tableIf;
-            long currentTableTime = olapTable.getVisibleVersionTime();
-            long cacheTableTime = scanTable.latestTimestamp;
             long currentTableVersion = olapTable.getVisibleVersion();
             long cacheTableVersion = scanTable.latestVersion;
             // some partitions have been dropped, or delete or updated or replaced, or insert rows into new partition?
-            if (currentTableTime > cacheTableTime
-                    || (currentTableTime == cacheTableTime && currentTableVersion > cacheTableVersion)) {
+            if (currentTableVersion != cacheTableVersion) {
                 return true;
             }
+
+            Collection<Long> partitionIds = scanTable.getScanPartitions();
+            olapTable.getVersionInBatchForCloudMode(partitionIds);
 
             for (Long scanPartitionId : scanTable.getScanPartitions()) {
                 Partition partition = olapTable.getPartition(scanPartitionId);

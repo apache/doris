@@ -84,7 +84,7 @@ private:
 
     std::vector<vectorized::SpillStreamSPtr> _probe_spilling_streams;
 
-    std::unique_ptr<PartitionerType> _partitioner;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
@@ -212,6 +212,7 @@ private:
     const DescriptorTbl _descriptor_tbl;
 
     const uint32_t _partition_count;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
 };
 
 } // namespace pipeline

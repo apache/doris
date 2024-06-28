@@ -333,6 +333,9 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
+    if (config::is_cloud_mode() && ctx->two_phase_commit && ctx->is_mow_table()) {
+        return Status::NotSupported("http stream 2pc is unsupported for mow table");
+    }
     ctx->db = ctx->put_result.pipeline_params.db_name;
     ctx->table = ctx->put_result.pipeline_params.table_name;
     ctx->txn_id = ctx->put_result.pipeline_params.txn_conf.txn_id;

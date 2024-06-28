@@ -49,6 +49,24 @@ suite("test_partition_stats") {
 
     }
 
+    def wait_mv_finish = { db, table ->
+        for (int loop = 0; loop < 300; loop++) {
+            Thread.sleep(1000)
+            boolean finished = true;
+            def result = sql """SHOW ALTER TABLE MATERIALIZED VIEW FROM ${db} WHERE tableName="${table}";"""
+            for (int i = 0; i < result.size(); i++) {
+                if (result[i][8] != 'FINISHED') {
+                    finished = false;
+                    break;
+                }
+            }
+            if (finished) {
+                return;
+            }
+        }
+        throw new Exception("Wait mv finish timeout.")
+    }
+
     def enable = sql """show variables like "%enable_partition_analyze%" """
     if (enable[0][1].equalsIgnoreCase("false")) {
         logger.info("partition analyze disabled. " + enable)
@@ -110,8 +128,8 @@ suite("test_partition_stats") {
     assertEquals("6.0", result[0][3])
     assertEquals("6", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("1.0", result[0][6])
-    assertEquals("6.0", result[0][7])
+    assertEquals("1", result[0][6])
+    assertEquals("6", result[0][7])
     assertEquals("24.0", result[0][8])
     assertEquals("N/A", result[0][10])
     assertEquals("N/A", result[0][11])
@@ -498,8 +516,8 @@ suite("test_partition_stats") {
     assertEquals("12.0", result[0][3])
     assertEquals("6", result[0][4])
     assertEquals("0.0", result[0][5])
-    assertEquals("1.0", result[0][6])
-    assertEquals("6.0", result[0][7])
+    assertEquals("1", result[0][6])
+    assertEquals("6", result[0][7])
     assertEquals("48.0", result[0][8])
     sql """drop stats part5 partition(p1)"""
     result = sql """show column cached stats part5(id) partition(p1)"""
@@ -814,6 +832,128 @@ suite("test_partition_stats") {
     assertEquals("0.0", result[6][2])
     assertEquals("0.0", result[7][2])
     assertEquals("0.0", result[8][2])
+
+    // Test mv and rollup
+    sql """CREATE TABLE `part8` (
+        `id` INT NULL,
+        `colint` INT NULL,
+        `coltinyint` tinyint NULL,
+        `colsmallint` smallINT NULL,
+        `colbigint` bigINT NULL,
+        `collargeint` largeINT NULL,
+        `colfloat` float NULL,
+        `coldouble` double NULL,
+        `coldecimal` decimal(27, 9) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT 'OLAP'
+    PARTITION BY RANGE(`id`)
+    (
+        PARTITION p1 VALUES [("-2147483648"), ("10000")),
+        PARTITION p2 VALUES [("10000"), ("20000")),
+        PARTITION p3 VALUES [("20000"), ("30000"))
+    )
+    DISTRIBUTED BY HASH(`id`) BUCKETS 3
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    )"""
+    sql """create materialized view mv1 as select id, colint from part8;"""
+    wait_mv_finish("test_partition_stats", "part8")
+    sql """create materialized view mv2 as select colsmallint, sum(colbigint) from part8 group by colsmallint;"""
+    wait_mv_finish("test_partition_stats", "part8")
+    sql """alter table part8 ADD ROLLUP rollup1(coltinyint, collargeint)"""
+    wait_mv_finish("test_partition_stats", "part8")
+
+    sql """Insert into part8 values (1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(10001, 10001, 10001, 10001, 10001, 10001, 10001.10001, 10001.10001, 10001.10001),(10002, 10002, 10002, 10002, 10002, 10002, 10002.10002, 10002.10002, 10002.10002),(10003, 10003, 10003, 10003, 10003, 10003, 10003.10003, 10003.10003, 10003.10003),(10004, 10004, 10004, 10004, 10004, 10004, 10004.10004, 10004.10004, 10004.10004),(10005, 10005, 10005, 10005, 10005, 10005, 10005.10005, 10005.10005, 10005.10005),(20001, 20001, 20001, 20001, 20001, 20001, 20001.20001, 20001.20001, 20001.20001),(20002, 20002, 20002, 20002, 20002, 20002, 20002.20002, 20002.20002, 20002.20002),(20003, 20003, 20003, 20003, 20003, 20003, 20003.20003, 20003.20003, 20003.20003),(20004, 20004, 20004, 20004, 20004, 20004, 20004.20004, 20004.20004, 20004.20004)"""
+    sql """analyze table part8 with sync"""
+    result = sql """show column stats part8"""
+    assertEquals(15, result.size())
+    result = sql """show column stats part8 (mv_id)"""
+    assertEquals(1, result.size())
+    assertEquals("mv_id", result[0][0])
+    assertEquals("mv1", result[0][1])
+    assertEquals("21.0", result[0][2])
+    assertEquals("15.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("1", result[0][7])
+    assertEquals("20004", result[0][8])
+
+    result = sql """show column stats part8 (mv_colint)"""
+    assertEquals(1, result.size())
+    assertEquals("mv_colint", result[0][0])
+    assertEquals("mv1", result[0][1])
+    assertEquals("21.0", result[0][2])
+    assertEquals("15.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("1", result[0][7])
+    assertEquals("20004", result[0][8])
+
+    result = sql """show column stats part8 (mv_colsmallint)"""
+    assertEquals(1, result.size())
+    assertEquals("mv_colsmallint", result[0][0])
+    assertEquals("mv2", result[0][1])
+    assertEquals("15.0", result[0][2])
+    assertEquals("15.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("1", result[0][7])
+    assertEquals("20004", result[0][8])
+
+    result = sql """show column stats part8 (`mva_SUM__``colbigint```)"""
+    assertEquals(1, result.size())
+    assertEquals("mva_SUM__`colbigint`", result[0][0])
+    assertEquals("mv2", result[0][1])
+    assertEquals("15.0", result[0][2])
+    assertEquals("15.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("2", result[0][7])
+    assertEquals("20004", result[0][8])
+
+    result = sql """show column stats part8 (coltinyint)"""
+    assertEquals(2, result.size())
+    assertTrue(result[0][1] == "part8" && result[1][1] == "rollup1" || result[0][1] == "rollup1" && result[1][1] == "part8")
+    assertEquals("coltinyint", result[0][0])
+    assertEquals("21.0", result[0][2])
+    assertEquals("15.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("1", result[0][7])
+    assertEquals("36", result[0][8])
+
+    result = sql """show column stats part8 (collargeint)"""
+    assertEquals(2, result.size())
+    assertTrue(result[0][1] == "part8" && result[1][1] == "rollup1" || result[0][1] == "rollup1" && result[1][1] == "part8")
+    assertEquals("collargeint", result[0][0])
+    assertEquals("21.0", result[0][2])
+    assertEquals("15.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("1", result[0][7])
+    assertEquals("20004", result[0][8])
+
+    // Test escape special col name.
+    sql """
+        create table part9(
+            k int null,
+            v variant null
+        )
+        duplicate key (k)
+        PARTITION BY RANGE(`k`)
+        (
+            PARTITION p1 VALUES [("0"), ("2")),
+            PARTITION p2 VALUES [("2"), ("4")),
+            PARTITION p3 VALUES [("4"), ("6"))
+        )
+        distributed BY hash(k) buckets 3
+        properties("replication_num" = "1");
+    """
+    sql """insert into part9 select 1,'{"k1" : 1, "k2" : 1, "k3" : "a"}';"""
+    sql """insert into part9 select 2,'{"k1" : 2, "k2" : 2, "k3" : "b"}';"""
+    sql """insert into part9 select 3,'{"k1" : 3, "k2" : null, "k3" : "c"}';"""
+    sql """insert into part9 select 4,'{"k1" : 4, "k2" : null, "k4" : {"k44" : 456}}';"""
+    createMV("create materialized view mv1 as select abs(cast(v['k4']['k44'] as int)), sum(abs(cast(v['k2'] as int)+2)+3) from part9 group by abs(cast(v['k4']['k44'] as int));")
+    sql """analyze table part9 with sync"""
+    result = sql """show column cached stats part9 partition(*)"""
+    assertEquals(9, result.size())
+    result = sql """show column stats part9 partition(*)"""
+    assertEquals(9, result.size())
 
     sql """drop database test_partition_stats"""
 }

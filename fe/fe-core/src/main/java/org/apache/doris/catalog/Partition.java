@@ -163,6 +163,13 @@ public class Partition extends MetaObject {
         this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
     }
 
+    /* fromCache is only used in CloudPartition
+     * make it overrided here to avoid rewrite all the usages with ugly Config.isCloudConfig() branches
+     */
+    public long getVisibleVersion(Boolean fromCache) {
+        return visibleVersion;
+    }
+
     public long getVisibleVersion() {
         return visibleVersion;
     }
@@ -341,12 +348,14 @@ public class Partition extends MetaObject {
         return true;
     }
 
+    @Deprecated
     public static Partition read(DataInput in) throws IOException {
         Partition partition = EnvFactory.getInstance().createPartition();
         partition.readFields(in);
         return partition;
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

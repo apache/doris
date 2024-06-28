@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
@@ -34,12 +35,12 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class AutoIncrementGenerator implements Writable {
+public class AutoIncrementGenerator implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(AutoIncrementGenerator.class);
 
     public static final long NEXT_ID_INIT_VALUE = 1;
     // _MIN_BATCH_SIZE = 4064 in load task
-    private static final long BATCH_ID_INTERVAL = 50000;
+    private static final long BATCH_ID_INTERVAL = 500000;
 
     @SerializedName(value = "dbId")
     private Long dbId;
@@ -47,7 +48,6 @@ public class AutoIncrementGenerator implements Writable {
     private Long tableId;
     @SerializedName(value = "columnId")
     private Long columnId;
-    @SerializedName(value = "nextId")
     private long nextId;
     @SerializedName(value = "batchEndId")
     private long batchEndId;
@@ -85,10 +85,10 @@ public class AutoIncrementGenerator implements Writable {
         long endId = startId + length;
         nextId = startId + length;
         if (endId > batchEndId) {
-            batchEndId = (endId / BATCH_ID_INTERVAL + 1) * BATCH_ID_INTERVAL;
             Preconditions.checkState(editLog != null);
             AutoIncrementIdUpdateLog info = new AutoIncrementIdUpdateLog(dbId, tableId, columnId, batchEndId);
             editLog.logUpdateAutoIncrementId(info);
+            batchEndId = (endId / BATCH_ID_INTERVAL + 1) * BATCH_ID_INTERVAL;
         }
         LOG.info("[getAutoIncrementRange result][{}, {}]", startId, length);
         return Pair.of(startId, length);
@@ -102,4 +102,10 @@ public class AutoIncrementGenerator implements Writable {
     public static AutoIncrementGenerator read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), AutoIncrementGenerator.class);
     }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        nextId = batchEndId;
+    }
+
 }

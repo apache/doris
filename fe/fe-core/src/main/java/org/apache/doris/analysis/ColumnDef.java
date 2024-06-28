@@ -99,6 +99,7 @@ public class ColumnDef {
             this.defaultValueExprDef = new DefaultValueExprDef(exprName, precision);
         }
 
+        public static String PI = "PI";
         public static String CURRENT_DATE = "CURRENT_DATE";
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
@@ -525,6 +526,14 @@ public class ColumnDef {
                 default:
                     throw new AnalysisException("Types other than DATE and DATEV2 "
                             + "cannot use current_date as the default value");
+            }
+        } else if (null != defaultValueExprDef
+                && defaultValueExprDef.getExprName().equalsIgnoreCase(DefaultValue.PI)) {
+            switch (primitiveType) {
+                case DOUBLE:
+                    break;
+                default:
+                    throw new AnalysisException("Types other than DOUBLE cannot use pi as the default value");
             }
         }
         switch (primitiveType) {

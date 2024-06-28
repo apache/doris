@@ -66,9 +66,9 @@ suite("test_ctas_mv") {
     sql """ insert into test_table_t1 values(); """
     sql """ insert into test_table_t2 values(); """
 
-    sql """ CREATE MATERIALIZED VIEW test_table_view As
+    createMV(""" CREATE MATERIALIZED VIEW test_table_view As
             select a1,a3,a4,DATE_FORMAT(a5, 'yyyyMMdd') QUERY_TIME,DATE_FORMAT(a6 ,'yyyyMMdd') CREATE_TIME
-            from test_table_t1 where DATE_FORMAT(a5, 'yyyyMMdd') =20230131; """
+            from test_table_t1 where DATE_FORMAT(a5, 'yyyyMMdd') =20230131; """)
 
     sql """ create table szjdf_zjb PROPERTIES("replication_num"="1") as
             select disf.a2, disf.a1, disf.a3, disf.a4,
@@ -90,7 +90,7 @@ suite("test_ctas_mv") {
     """
 
     sql """
-        drop table if exists test_table_t1 FORCE;
+        drop table if exists test_table_t1;
     """
 
     sql """

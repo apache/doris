@@ -27,7 +27,7 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -88,7 +88,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
      */
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
-    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.DEFAULT;
+    private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = TInvertedIndexFileStorageFormat.DEFAULT;
 
     private TCompressionType compressionType = TCompressionType.LZ4F;
 
@@ -470,10 +470,10 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return this;
     }
 
-    public TableProperty buildInvertedIndexStorageFormat() {
-        invertedIndexStorageFormat = TInvertedIndexStorageFormat.valueOf(properties.getOrDefault(
+    public TableProperty buildInvertedIndexFileStorageFormat() {
+        invertedIndexFileStorageFormat = TInvertedIndexFileStorageFormat.valueOf(properties.getOrDefault(
                 PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
-                TInvertedIndexStorageFormat.DEFAULT.name()));
+                TInvertedIndexFileStorageFormat.DEFAULT.name()));
         return this;
     }
 
@@ -540,8 +540,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return storageFormat;
     }
 
-    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
-        return invertedIndexStorageFormat;
+    public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormat() {
+        return invertedIndexFileStorageFormat;
     }
 
     public DataSortInfo getDataSortInfo() {
@@ -566,6 +566,16 @@ public class TableProperty implements Writable, GsonPostProcessable {
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
+    }
+
+    public void setEnableDeleteOnDeletePredicate(boolean enable) {
+        properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE, Boolean.toString(enable));
+    }
+
+    public boolean getEnableDelteOnDeletePredicate() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE,
+                Boolean.toString(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE_DEFAULT_VALUE)));
     }
 
     public void setSequenceMapCol(String colName) {
@@ -638,7 +648,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildMinLoadReplicaNum();
         buildStorageMedium();
         buildStorageFormat();
-        buildInvertedIndexStorageFormat();
+        buildInvertedIndexFileStorageFormat();
         buildDataSortInfo();
         buildCompressionType();
         buildStoragePolicy();

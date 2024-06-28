@@ -77,6 +77,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 public class GlobalTransactionMgrTest {
@@ -315,7 +316,7 @@ public class GlobalTransactionMgrTest {
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
         idToTransactionState.put(1L, transactionState);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
-        Map<Integer, Long> oldKafkaProgressMap = Maps.newHashMap();
+        ConcurrentMap<Integer, Long> oldKafkaProgressMap = Maps.newConcurrentMap();
         oldKafkaProgressMap.put(1, 0L);
         KafkaProgress oldkafkaProgress = new KafkaProgress();
         Deencapsulation.setField(oldkafkaProgress, "partitionIdToOffset", oldKafkaProgressMap);
@@ -380,7 +381,7 @@ public class GlobalTransactionMgrTest {
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
         idToTransactionState.put(1L, transactionState);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
-        Map<Integer, Long> oldKafkaProgressMap = Maps.newHashMap();
+        ConcurrentMap<Integer, Long> oldKafkaProgressMap = Maps.newConcurrentMap();
         oldKafkaProgressMap.put(1, 0L);
         KafkaProgress oldkafkaProgress = new KafkaProgress();
         Deencapsulation.setField(oldkafkaProgress, "partitionIdToOffset", oldKafkaProgressMap);

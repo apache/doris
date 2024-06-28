@@ -212,8 +212,10 @@ public class MaterializedViewUtils {
                 materializedView,
                 materializedView.getFullQualifiers(),
                 ImmutableList.of(),
+                materializedView.getPartitionIds(),
                 materializedView.getBaseIndexId(),
                 PreAggStatus.on(),
+                ImmutableList.of(),
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
                 Optional.empty());

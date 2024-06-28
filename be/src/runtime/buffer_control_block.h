@@ -124,6 +124,10 @@ protected:
     // protects all subsequent data in this block
     std::mutex _lock;
 
+    // get arrow flight result is a sync method, need wait for data ready and return result.
+    // TODO, waiting for data will block pipeline, so use a request pool to save requests waiting for data.
+    std::condition_variable _arrow_data_arrival;
+
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 
     // only used for FE using return rows to check limit

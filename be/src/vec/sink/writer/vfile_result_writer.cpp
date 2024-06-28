@@ -128,9 +128,9 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                 _file_opts->parquet_version, _output_object_data));
         break;
     case TFileFormatType::FORMAT_ORC:
-        _vfile_writer.reset(new VOrcTransformer(_state, _file_writer_impl.get(),
-                                                _vec_output_expr_ctxs, _file_opts->orc_schema,
-                                                _output_object_data));
+        _vfile_writer.reset(new VOrcTransformer(
+                _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->orc_schema, {},
+                _output_object_data, _file_opts->orc_compression_type));
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);

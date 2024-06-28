@@ -134,6 +134,7 @@ public class PartitionPersistInfo implements Writable {
         }
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();

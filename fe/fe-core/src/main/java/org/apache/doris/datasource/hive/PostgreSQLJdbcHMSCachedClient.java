@@ -546,6 +546,10 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
         throw new NotImplementedException("PostgreSQL dropDatabase not implemented");
     }
 
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {
+        throw new NotImplementedException("PostgreSQL truncateTable not implemented");
+    }
+
     public void createTable(TableMetadata hiveTable, boolean ignoreIfExists) {
         throw new NotImplementedException("PostgreSQL createTable not implemented");
     }

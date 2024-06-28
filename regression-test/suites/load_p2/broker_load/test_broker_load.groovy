@@ -241,10 +241,10 @@ suite("test_broker_load_p2", "p2") {
                     "",
                     "",
                     "",
-                    "[INTERNAL_ERROR]failed to find default value expr for slot: x1",
+                    "failed to find default value expr for slot: x1",
                     "",
                     "",
-                    "[INTERNAL_ERROR]failed to find default value expr for slot: x1",
+                    "failed to find default value expr for slot: x1",
                     "",
                     "",
                     "",
@@ -325,7 +325,14 @@ suite("test_broker_load_p2", "p2") {
                 def max_try_milli_secs = 600000
                 while (max_try_milli_secs > 0) {
                     def String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
-                    logger.info("Load status: " + result[0][2] + ", label: $label")
+                    def logStr = "";
+                    result.each { row ->
+                        row.each {
+                            element -> logStr += element + ", "
+                        }
+                        logStr += "\n"
+                    }
+                    logger.info("Load status: " + logStr + ", label: $label")
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
                         assertTrue(result[0][6].contains(task_info[i]))

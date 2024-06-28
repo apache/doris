@@ -140,6 +140,7 @@ public class BackupMeta implements Writable, GsonPostProcessable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

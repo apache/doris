@@ -103,6 +103,24 @@ public class HMSTransaction implements Transaction {
             this.s3MPUPendingUpload = s3MPUPendingUpload;
             this.path = path;
         }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            UncompletedMpuPendingUpload that = (UncompletedMpuPendingUpload) o;
+            return Objects.equals(s3MPUPendingUpload, that.s3MPUPendingUpload) && Objects.equals(path,
+                    that.path);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(s3MPUPendingUpload, path);
+        }
     }
 
     private Set<UncompletedMpuPendingUpload> uncompletedMpuPendingUploads = new HashSet<>();
