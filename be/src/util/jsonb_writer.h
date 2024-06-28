@@ -97,7 +97,7 @@ public:
                     os_->write(key, len);
                     size += len;
                 }
-            } else if (key_id <= JsonbKeyValue::sMaxKeyId) {
+            } else if (key_id < JsonbKeyValue::sMaxKeyId) {
                 JsonbKeyValue::keyid_type idx = key_id;
                 os_->put(0);
                 os_->write((char*)&idx, sizeof(JsonbKeyValue::keyid_type));
