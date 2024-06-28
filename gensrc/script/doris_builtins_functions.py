@@ -1592,6 +1592,14 @@ visible_functions = {
 
     # String builtin functions
     "String": [
+        [['decode_as_varchar'], 'VARCHAR', ['SMALLINT'], 'DEPEND_ON_ARGUMENT'],
+        [['decode_as_varchar'], 'VARCHAR', ['INT'], 'DEPEND_ON_ARGUMENT'],
+        [['decode_as_varchar'], 'VARCHAR', ['BIGINT'], 'DEPEND_ON_ARGUMENT'],
+        [['decode_as_varchar'], 'VARCHAR', ['LARGEINT'], 'DEPEND_ON_ARGUMENT'],
+        [['encode_as_smallint'], 'SMALLINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['encode_as_int'], 'INT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['encode_as_bigint'], 'BIGINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['encode_as_largeint'], 'LARGEINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['mask'], 'STRING', ['STRING', '...'], ''],
