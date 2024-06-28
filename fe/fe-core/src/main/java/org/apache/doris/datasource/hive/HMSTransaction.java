@@ -72,6 +72,7 @@ import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -295,6 +296,7 @@ public class HMSTransaction implements Transaction {
             throw t;
         } finally {
             hmsCommitter.runClearPathsForFinish();
+            hmsCommitter.shutdownExecutorService();
         }
     }
 
@@ -1085,7 +1087,7 @@ public class HMSTransaction implements Transaction {
 
         // update statistics for unPartitioned table or existed partition
         private final List<UpdateStatisticsTask> updateStatisticsTasks = new ArrayList<>();
-        Executor updateStatisticsExecutor = Executors.newFixedThreadPool(16);
+        ExecutorService updateStatisticsExecutor = Executors.newFixedThreadPool(16);
 
         // add new partition
         private final AddPartitionsTask addPartitionsTask = new AddPartitionsTask();
@@ -1503,6 +1505,10 @@ public class HMSTransaction implements Transaction {
             for (CompletableFuture<?> future : asyncFileSystemTaskFutures) {
                 MoreFutures.getFutureValue(future, RuntimeException.class);
             }
+        }
+
+        public void shutdownExecutorService() {
+            updateStatisticsExecutor.shutdownNow();
         }
     }
 
