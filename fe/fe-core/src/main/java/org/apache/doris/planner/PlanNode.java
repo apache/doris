@@ -37,6 +37,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -1228,6 +1229,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     protected TPushAggOp pushDownAggNoGroupingOp = TPushAggOp.NONE;
 
     public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
+        if (pushDownAggNoGroupingOp.equals(TPushAggOp.COUNT)
+                && !ConnectContext.get().getSessionVariable().isOptimizePushDownCount()) {
+            return;
+        }
         this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
     }
 
