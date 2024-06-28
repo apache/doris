@@ -192,5 +192,5 @@ suite ("k123p_nereids") {
 
     explain {
         sql("select k2,k1=2 from d_table where k1=1 order by k2;")
-        c
+    }
 }
