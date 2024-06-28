@@ -239,4 +239,14 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
         return null;
     }
 
+    public interface ThrowingConsumer<T> {
+        void accept(T t) throws AnalysisException;
+    }
+
+    public void foreach(ThrowingConsumer<TreeNode<NodeType>> func) throws AnalysisException {
+        func.accept(this);
+        for (NodeType child : getChildren()) {
+            child.foreach(func);
+        }
+    }
 }

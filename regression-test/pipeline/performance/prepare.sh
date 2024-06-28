@@ -94,6 +94,15 @@ if _get_pr_changed_files "${pr_num_from_trigger}"; then
         bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
         exit 0
     fi
+    if file_changed_meta; then
+        # if PR changed the doris meta file, the next PR deployment on the same mechine which built this PR will fail.
+        # make a copy of the meta file for the meta changed PR.
+        target_branch="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
+        meta_changed_suffix="_2"
+        rsync -a --delete "/data/doris-meta-${target_branch}/" "/data/doris-meta-${target_branch}${meta_changed_suffix}"
+        rsync -a --delete "/data/doris-storage-${target_branch}/" "/data/doris-storage-${target_branch}${meta_changed_suffix}"
+        bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export meta_changed_suffix=${meta_changed_suffix}"
+    fi
 fi
 
 echo "#### 2. check if tpch depending files exist"

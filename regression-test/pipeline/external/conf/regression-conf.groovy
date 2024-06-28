@@ -140,6 +140,7 @@ cacheDataPath = "/data/regression/"
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
+s3Provider = "COS"
 
 max_failure_num=50
 
@@ -156,3 +157,8 @@ db2_11_port=50000
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = true
+
+// kerberos docker config
+enableKerberosTest = true
+kerberosHmsPort=9883
+kerberosHdfsPort=8820

@@ -24,7 +24,6 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
@@ -35,7 +34,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +43,7 @@ import java.util.stream.Collectors;
 /**
  * Internal representation of partition-related metadata.
  */
-public class Partition extends MetaObject implements Writable {
+public class Partition extends MetaObject {
     private static final Logger LOG = LogManager.getLogger(Partition.class);
 
     // Every partition starts from version 1, version 1 has no data
@@ -343,47 +341,14 @@ public class Partition extends MetaObject implements Writable {
         return true;
     }
 
+    @Deprecated
     public static Partition read(DataInput in) throws IOException {
         Partition partition = EnvFactory.getInstance().createPartition();
         partition.readFields(in);
         return partition;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-        Text.writeString(out, name);
-        Text.writeString(out, state.name());
-
-        baseIndex.write(out);
-
-        int rollupCount = (idToVisibleRollupIndex != null) ? idToVisibleRollupIndex.size() : 0;
-        out.writeInt(rollupCount);
-        if (idToVisibleRollupIndex != null) {
-            for (Map.Entry<Long, MaterializedIndex> entry : idToVisibleRollupIndex.entrySet()) {
-                entry.getValue().write(out);
-            }
-        }
-
-        out.writeInt(idToShadowIndex.size());
-        for (MaterializedIndex shadowIndex : idToShadowIndex.values()) {
-            shadowIndex.write(out);
-        }
-
-        out.writeLong(visibleVersion);
-        out.writeLong(visibleVersionTime);
-        out.writeLong(visibleVersionHash);
-
-        out.writeLong(nextVersion);
-        out.writeLong(nextVersionHash);
-        out.writeLong(committedVersionHash);
-
-        Text.writeString(out, distributionInfo.getType().name());
-        distributionInfo.write(out);
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

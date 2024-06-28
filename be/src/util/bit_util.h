@@ -98,6 +98,28 @@ public:
         return (v << n) >> n;
     }
 
+    template <typename T>
+    static std::string IntToByteBuffer(T input) {
+        std::string buffer;
+        T value = input;
+        for (int i = 0; i < sizeof(value); ++i) {
+            // Applies a mask for a byte range on the input.
+            char value_to_save = value & 0XFF;
+            buffer.push_back(value_to_save);
+            // Remove the just processed part from the input so that we can exit early if there
+            // is nothing left to process.
+            value >>= 8;
+            if (value == 0 && value_to_save >= 0) {
+                break;
+            }
+            if (value == -1 && value_to_save < 0) {
+                break;
+            }
+        }
+        std::reverse(buffer.begin(), buffer.end());
+        return buffer;
+    }
+
     // Returns ceil(log2(x)).
     // TODO: this could be faster if we use __builtin_clz.  Fix this if this ever shows up
     // in a hot path.

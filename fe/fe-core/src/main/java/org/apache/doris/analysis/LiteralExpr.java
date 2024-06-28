@@ -358,6 +358,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 break;
             case 5: // MYSQL_TYPE_DOUBLE
                 literalExpr = LiteralExpr.create("0", Type.DOUBLE);
+                literalExpr.setType(Type.DOUBLE);
                 break;
             case 0: // MYSQL_TYPE_DECIMAL
             case 246: // MYSQL_TYPE_NEWDECIMAL

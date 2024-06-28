@@ -140,9 +140,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
-        if (context.getStatementContext() == null || context.getStatementContext().isDpHyp()) {
-            return CostV1.zero();
-        }
+        double exprCost = expressionTreeCost(filter.getExpressions());
         double filterCostFactor = 0.0001;
         if (ConnectContext.get() != null) {
             filterCostFactor = ConnectContext.get().getSessionVariable().filterCostFactor;
@@ -165,7 +163,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             }
         }
         return CostV1.ofCpu(context.getSessionVariable(),
-                (filter.getConjuncts().size() - prefixIndexMatched) * filterCostFactor);
+                (filter.getConjuncts().size() - prefixIndexMatched + exprCost) * filterCostFactor);
     }
 
     @Override
@@ -196,13 +194,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
-        ExpressionCostEvaluator expressionCostEvaluator = new ExpressionCostEvaluator();
-        double exprCost = 0.0;
-        for (Expression expr : physicalProject.getProjects()) {
-            if (!(expr instanceof SlotReference)) {
-                exprCost += expr.accept(expressionCostEvaluator, null);
-            }
-        }
+        double exprCost = expressionTreeCost(physicalProject.getProjects());
         return CostV1.ofCpu(context.getSessionVariable(), exprCost + 1);
     }
 
@@ -318,16 +310,29 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                         * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumber);
     }
 
+    private double expressionTreeCost(List<? extends Expression> expressions) {
+        double exprCost = 0.0;
+        ExpressionCostEvaluator expressionCostEvaluator = new ExpressionCostEvaluator();
+        for (Expression expr : expressions) {
+            if (!(expr instanceof SlotReference)) {
+                exprCost += expr.accept(expressionCostEvaluator, null);
+            }
+        }
+        return exprCost;
+    }
+
     @Override
     public Cost visitPhysicalHashAggregate(
             PhysicalHashAggregate<? extends Plan> aggregate, PlanContext context) {
         Statistics inputStatistics = context.getChildStatistics(0);
+        double exprCost = expressionTreeCost(aggregate.getExpressions());
         if (aggregate.getAggPhase().isLocal()) {
-            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount() / beNumber,
+            return CostV1.of(context.getSessionVariable(),
+                    exprCost / 100 + inputStatistics.getRowCount() / beNumber,
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
             // global
-            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount(),
+            return CostV1.of(context.getSessionVariable(), exprCost / 100 + inputStatistics.getRowCount(),
                     inputStatistics.getRowCount(), 0);
         }
     }
@@ -344,7 +349,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
-        if (leftRowCount == rightRowCount) {
+        if ((long) leftRowCount == (long) rightRowCount) {
             // reorder by connectivity to be friendly to runtime filter.
             if (physicalHashJoin.getGroupExpression().isPresent()
                     && physicalHashJoin.getGroupExpression().get().getOwnerGroup() != null

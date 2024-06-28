@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
@@ -34,7 +35,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class AutoIncrementGenerator implements Writable {
+public class AutoIncrementGenerator implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(AutoIncrementGenerator.class);
 
     public static final long NEXT_ID_INIT_VALUE = 1;
@@ -102,4 +103,10 @@ public class AutoIncrementGenerator implements Writable {
     public static AutoIncrementGenerator read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), AutoIncrementGenerator.class);
     }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        nextId = batchEndId;
+    }
+
 }

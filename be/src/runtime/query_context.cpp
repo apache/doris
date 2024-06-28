@@ -438,7 +438,7 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status() const {
         }
     }
 
-    exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params(
+    exec_status = RuntimeQueryStatisticsMgr::create_report_exec_status_params(
             this->_query_id, std::move(realtime_query_profile), std::move(load_channel_profiles),
             /*is_done=*/false);
 
