@@ -517,8 +517,13 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         init((HMSExternalCatalog) mgr.getCatalog(HMS_CATALOG));
         StatementBase parseStmt = parseAndAnalyzeStmt("select * from hms_ctl.hms_db.hms_tbl", connectContext);
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1);
+
+        CacheAnalyzer ca2 = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
+        ca2.checkCacheMode(0);
+        long latestPartitionTime = ca2.getLatestTable().latestPartitionTime;
+
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
-        ca.checkCacheMode(0);
+        ca.checkCacheMode(latestPartitionTime);
         Assert.assertEquals(CacheAnalyzer.CacheMode.None, ca.getCacheMode());
     }
 
@@ -527,8 +532,13 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         init((HMSExternalCatalog) mgr.getCatalog(HMS_CATALOG));
         StatementBase parseStmt = analyzeAndGetStmtByNereids("select * from hms_ctl.hms_db.hms_tbl", connectContext);
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode1);
+
+        CacheAnalyzer ca2 = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
+        ca2.checkCacheModeForNereids(0);
+        long latestPartitionTime = ca2.getLatestTable().latestPartitionTime;
+
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
-        ca.checkCacheModeForNereids(0);
+        ca.checkCacheModeForNereids(latestPartitionTime);
         Assert.assertEquals(CacheAnalyzer.CacheMode.None, ca.getCacheMode());
     }
 
