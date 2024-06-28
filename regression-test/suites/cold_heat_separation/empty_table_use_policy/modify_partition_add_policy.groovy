@@ -130,12 +130,12 @@ suite("add_table_policy_by_modify_partition") {
     """
 
     // Test that the partition's specified policy would be covered by the table's policy
-    def partitions = sql """
+    def partitions = sql_return_maparray """
     show partitions from create_table_partion_use_created_policy_test
     """
 
-    for (par in partitions) {
-        assertTrue(par[12] == "created_create_table_partition_alter_policy")
+    for (def par in partitions) {
+        assertTrue(par.RemoteStoragePolicy == "created_create_table_partition_alter_policy")
     }
 
     sql """
