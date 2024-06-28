@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Represents a direct graph where each node corresponds to a set of slots in a table,
@@ -71,9 +70,11 @@ public class FuncDepsDG {
         }
 
         public void replace(Map<Slot, Slot> replaceMap) {
-            this.slots = this.slots.stream()
-                    .map(s -> replaceMap.getOrDefault(s, s))
-                    .collect(Collectors.toSet());
+            Set<Slot> newSlots = new HashSet<>();
+            for (Slot slot : slots) {
+                newSlots.add(replaceMap.getOrDefault(slot, slot));
+            }
+            this.slots = newSlots;
         }
     }
 
@@ -224,9 +225,10 @@ public class FuncDepsDG {
             }
             Map<Set<Slot>, Integer> newItemMap = new HashMap<>();
             for (Entry<Set<Slot>, Integer> e : itemMap.entrySet()) {
-                Set<Slot> key = e.getKey().stream()
-                        .map(s -> replaceSlotMap.getOrDefault(s, s))
-                        .collect(Collectors.toSet());
+                Set<Slot> key = new HashSet<>();
+                for (Slot slot : e.getKey()) {
+                    key.add(replaceSlotMap.getOrDefault(slot, slot));
+                }
                 newItemMap.put(key, e.getValue());
             }
             this.itemMap = newItemMap;
