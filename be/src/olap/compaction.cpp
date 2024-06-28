@@ -803,8 +803,8 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         Version version = _tablet->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
         std::unique_ptr<RowLocationSet> missed_rows;
-        if (config::enable_missing_rows_correctness_check && !allow_delete_in_cumu_compaction()
-                && compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        if (config::enable_missing_rows_correctness_check && !allow_delete_in_cumu_compaction() &&
+            compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
             missed_rows = std::make_unique<RowLocationSet>();
             LOG(INFO) << "RowLocation Set inited succ for tablet:" << _tablet->tablet_id();
         }
@@ -825,8 +825,8 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 &output_rowset_delete_bitmap);
         if (missed_rows) {
             missed_rows_size = missed_rows->size();
-            if (stats != nullptr && stats->merged_rows != missed_rows_size
-                    && _tablet->tablet_state() == TABLET_RUNNING) {
+            if (stats != nullptr && stats->merged_rows != missed_rows_size &&
+                _tablet->tablet_state() == TABLET_RUNNING) {
                 std::string err_msg = fmt::format(
                         "cumulative compaction: the merged rows({}) is not equal to missed "
                         "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
@@ -887,8 +887,8 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
             _tablet->calc_compaction_output_rowset_delete_bitmap(
-                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, missed_rows.get(),
-                    location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
+                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX,
+                    missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                     &output_rowset_delete_bitmap);
 
             if (missed_rows) {
