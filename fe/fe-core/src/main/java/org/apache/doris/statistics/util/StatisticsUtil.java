@@ -1026,14 +1026,14 @@ public class StatisticsUtil {
             // lastAnalyzeRowCount == 0 is always false here.
             double changeRate =
                     ((double) Math.abs(currentRowCount - lastAnalyzeRowCount) / lastAnalyzeRowCount) * 100.0;
-            if (changeRate > StatisticsUtil.getTableStatsHealthThreshold()) {
+            if (changeRate > (100 - StatisticsUtil.getTableStatsHealthThreshold())) {
                 return true;
             }
             // 2. Check update rows.
             long currentUpdatedRows = tableStatsStatus.updatedRows.get();
             long lastAnalyzeUpdateRows = columnStatsMeta.updatedRows;
             changeRate = ((double) Math.abs(currentUpdatedRows - lastAnalyzeUpdateRows) / lastAnalyzeRowCount) * 100.0;
-            if (changeRate > StatisticsUtil.getTableStatsHealthThreshold()) {
+            if (changeRate > (100 - StatisticsUtil.getTableStatsHealthThreshold())) {
                 return true;
             }
             // 3. Check partition
@@ -1089,12 +1089,12 @@ public class StatisticsUtil {
             if (changedRows > 0) {
                 changedPartitions++;
                 // Too much partition changed, need to reanalyze.
-                if (changedPartitions > UPDATED_PARTITION_THRESHOLD) {
+                if (changedPartitions >= UPDATED_PARTITION_THRESHOLD) {
                     return true;
                 }
-                double changeRate = ((double) changedRows) / currentUpdateRows;
+                double changeRate = (((double) changedRows) / currentUpdateRows) * 100;
                 // One partition changed too much, need to reanalyze.
-                if (changeRate > StatisticsUtil.getTableStatsHealthThreshold()) {
+                if (changeRate > (100 - StatisticsUtil.getTableStatsHealthThreshold())) {
                     return true;
                 }
             }

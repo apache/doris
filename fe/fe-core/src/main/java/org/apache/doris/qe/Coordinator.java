@@ -2048,6 +2048,27 @@ public class Coordinator implements CoordInterface {
                         scanNode.getId().asInt(), ((FileQueryScanNode) scanNode).getFileScanRangeParams());
             }
 
+            if (fragmentExecParamsMap.get(scanNode.getFragmentId()) == null) {
+                StringBuilder sb = new StringBuilder();
+                int idx = 0;
+                sb.append("query id=").append(DebugUtil.printId(queryId)).append(",");
+                sb.append("fragment=[");
+                for (Map.Entry<PlanFragmentId, FragmentExecParams> entry : fragmentExecParamsMap.entrySet()) {
+                    if (idx++ != 0) {
+                        sb.append(",");
+                    }
+                    sb.append(entry.getKey());
+                    entry.getValue().appendTo(sb);
+                }
+                sb.append("]");
+
+                LOG.info("log when get npe, query_id: {}, scanNode: {}, scanNode fid: {}, map: {}",
+                        DebugUtil.printId(queryId),
+                        scanNode.toString(),
+                        scanNode.getFragmentId(),
+                        sb);
+            }
+
             FragmentScanRangeAssignment assignment
                     = fragmentExecParamsMap.get(scanNode.getFragmentId()).scanRangeAssignment;
             boolean fragmentContainsColocateJoin = isColocateFragment(scanNode.getFragment(),

@@ -31,14 +31,13 @@ PartitionedHashJoinProbeLocalState::PartitionedHashJoinProbeLocalState(RuntimeSt
 
 Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSpillLocalState::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
     _internal_runtime_profile.reset(new RuntimeProfile("internal_profile"));
     auto& p = _parent->cast<PartitionedHashJoinProbeOperatorX>();
 
     _partitioned_blocks.resize(p._partition_count);
     _probe_spilling_streams.resize(p._partition_count);
-    _partitioner = std::make_unique<PartitionerType>(p._partition_count);
-    RETURN_IF_ERROR(_partitioner->init(p._probe_exprs));
-    RETURN_IF_ERROR(_partitioner->prepare(state, p._child_x->row_desc()));
 
     _spill_and_partition_label = ADD_LABEL_COUNTER(profile(), "Partition");
     _partition_timer = ADD_CHILD_TIMER(profile(), "PartitionTime", "Partition");
@@ -143,9 +142,12 @@ void PartitionedHashJoinProbeLocalState::update_probe_profile(RuntimeProfile* ch
 
 Status PartitionedHashJoinProbeLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXSpillLocalState::open(state));
-    return _partitioner->open(state);
+    return _parent->cast<PartitionedHashJoinProbeOperatorX>()._partitioner->clone(state,
+                                                                                  _partitioner);
 }
 Status PartitionedHashJoinProbeLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }
@@ -536,6 +538,8 @@ Status PartitionedHashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeSt
     for (auto& conjunct : tnode.hash_join_node.eq_join_conjuncts) {
         _probe_exprs.emplace_back(conjunct.left);
     }
+    _partitioner = std::make_unique<PartitionerType>(_partition_count);
+    RETURN_IF_ERROR(_partitioner->init(_probe_exprs));
 
     return Status::OK();
 }
@@ -549,6 +553,7 @@ Status PartitionedHashJoinProbeOperatorX::prepare(RuntimeState* state) {
     _inner_probe_operator->set_build_side_child(_build_side_child);
     RETURN_IF_ERROR(_inner_probe_operator->prepare(state));
     _child_x = std::move(child_x);
+    RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
     return Status::OK();
 }
 
@@ -558,6 +563,7 @@ Status PartitionedHashJoinProbeOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeOperatorX::open(state));
     RETURN_IF_ERROR(_inner_probe_operator->open(state));
     _child_x = std::move(child_x);
+    RETURN_IF_ERROR(_partitioner->open(state));
     return Status::OK();
 }
 

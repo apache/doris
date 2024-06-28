@@ -17,13 +17,20 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class ReplicaPersistInfo implements Writable {
+public class ReplicaPersistInfo implements Writable, GsonPostProcessable {
 
     public enum ReplicaOperationType {
         ADD(0),
@@ -42,6 +49,7 @@ public class ReplicaPersistInfo implements Writable {
         DEFAULT_OP(8),
         TABLET_INFO(9);
 
+        @SerializedName("v")
         private final int value;
 
         ReplicaOperationType(int value) {
@@ -81,29 +89,46 @@ public class ReplicaPersistInfo implements Writable {
     }
 
     // required
+    @SerializedName("op")
     private ReplicaOperationType opType;
+    @SerializedName("dbid")
     private long dbId;
+    @SerializedName("tbid")
     private long tableId;
+    @SerializedName("pid")
     private long partitionId;
+    @SerializedName("ind")
     private long indexId;
+    @SerializedName("tblid")
     private long tabletId;
 
+    @SerializedName("repid")
     private long replicaId;
+    @SerializedName("beid")
     private long backendId;
 
+    @SerializedName("ver")
     private long version;
     @Deprecated
+    @SerializedName("verh")
     private long versionHash = 0L;
+    @SerializedName("sh")
     private int schemaHash = -1;
+    @SerializedName("ds")
     private long dataSize;
     private long remoteDataSize;
+    @SerializedName("rc")
     private long rowCount;
 
+    @SerializedName("lfv")
     private long lastFailedVersion = -1L;
     @Deprecated
+    @SerializedName("lfvh")
     private long lastFailedVersionHash = 0L;
+    @SerializedName("lsv")
     private long lastSuccessVersion = -1L;
     @Deprecated
+    @SerializedName("lsvh")
     private long lastSuccessVersionHash = 0L;
 
     public static ReplicaPersistInfo createForAdd(long dbId, long tableId, long partitionId, long indexId,
@@ -283,34 +308,28 @@ public class ReplicaPersistInfo implements Writable {
     }
 
     public static ReplicaPersistInfo read(DataInput in) throws IOException {
-        ReplicaPersistInfo replicaInfo = new ReplicaPersistInfo();
-        replicaInfo.readFields(in);
-        return replicaInfo;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
+            ReplicaPersistInfo replicaInfo = new ReplicaPersistInfo();
+            replicaInfo.readFields(in);
+            return replicaInfo;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), ReplicaPersistInfo.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(partitionId);
-        out.writeLong(indexId);
-        out.writeLong(tabletId);
-        out.writeLong(backendId);
-        out.writeLong(replicaId);
-        out.writeLong(version);
-        out.writeLong(versionHash);
-        out.writeLong(dataSize);
-        out.writeLong(rowCount);
-
-        out.writeInt(opType.value);
-        out.writeLong(lastFailedVersion);
-        out.writeLong(lastFailedVersionHash);
-        out.writeLong(lastSuccessVersion);
-        out.writeLong(lastSuccessVersionHash);
-
-        out.writeInt(schemaHash);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (opType == null) {
+            throw new IOException("could not parse operation type from replica info");
+        }
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
 
         dbId = in.readLong();

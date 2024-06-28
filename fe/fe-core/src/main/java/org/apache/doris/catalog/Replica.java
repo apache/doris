@@ -541,6 +541,15 @@ public class Replica implements Writable {
     }
 
     /*
+     * If a replica is overwritten by a restore job, we need to reset version and lastSuccessVersion to
+     * the restored replica version
+     */
+    public void updateVersionForRestore(long version) {
+        this.version = version;
+        this.lastSuccessVersion = version;
+    }
+
+    /*
      * Check whether the replica's version catch up with the expected version.
      * If ignoreAlter is true, and state is ALTER, and replica's version is
      *  PARTITION_INIT_VERSION, just return true, ignore the version.

@@ -118,7 +118,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         if (targetTableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
             throw new AnalysisException("Not allowed to perform current operation on async materialized view");
         }
-        this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
+        this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, Optional.empty());
         if (cte.isPresent()) {
             this.logicalQuery = (LogicalPlan) logicalQuery.withChildren(cte.get().withChildren(
                     this.logicalQuery.child(0)));
@@ -227,7 +227,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     (LogicalPlan) (sink.child(0)));
             // 1. for overwrite situation, we disable auto create partition.
             // 2. we save and pass overwrite auto detect by insertCtx
-            insertCtx = new OlapInsertCommandContext(false);
+            insertCtx = new OlapInsertCommandContext(false, true);
         } else if (logicalQuery instanceof UnboundHiveTableSink) {
             UnboundHiveTableSink<?> sink = (UnboundHiveTableSink<?>) logicalQuery;
             copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
@@ -259,7 +259,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         InsertCommandContext insertCtx;
         if (logicalQuery instanceof UnboundTableSink) {
             insertCtx = new OlapInsertCommandContext(false,
-                    ((UnboundTableSink<?>) logicalQuery).isAutoDetectPartition(), groupId);
+                    ((UnboundTableSink<?>) logicalQuery).isAutoDetectPartition(), groupId, true);
         } else if (logicalQuery instanceof UnboundHiveTableSink) {
             insertCtx = new HiveInsertCommandContext();
             ((HiveInsertCommandContext) insertCtx).setOverwrite(true);

@@ -31,9 +31,9 @@ import org.apache.doris.load.FailMsg.CancelType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Set;
 
@@ -43,7 +43,7 @@ import java.util.Set;
  * The state of insert load job is always finished, so it will never be scheduled by JobScheduler.
  */
 public class InsertLoadJob extends LoadJob {
-
+    @SerializedName("tid")
     private long tableId;
 
     // only for log replay
@@ -116,12 +116,7 @@ public class InsertLoadJob extends LoadJob {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(tableId);
-    }
-
-    public void readFields(DataInput in) throws IOException {
+    protected void readFields(DataInput in) throws IOException {
         super.readFields(in);
         tableId = in.readLong();
     }

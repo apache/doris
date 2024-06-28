@@ -162,6 +162,10 @@ public class Config extends ConfigBase {
             "MySQL Jdbc Catalog mysql does not support pushdown functions"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
+    @ConfField(description = {"SQLServer Jdbc Catalog 关闭加密",
+            "SQLServer Jdbc Catalog close encrypt"})
+    public static boolean disable_jdbc_sqlserver_encrypt = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 8;
@@ -2618,6 +2622,15 @@ public class Config extends ConfigBase {
             "Default storage format of inverted index, the default value is V1."
     })
     public static String inverted_index_storage_format = "V2";
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
+                    + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
+            "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
+                    + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
+                    + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."
+    })
+    public static boolean enable_mow_delete_on_predicate = false;
 
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
