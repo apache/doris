@@ -71,7 +71,14 @@ public class BaseViewInfo {
         this.simpleColumnDefinitions = simpleColumnDefinitions;
     }
 
-    protected void analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) {
+    /**
+     * analyzeAndFillRewriteSqlMap
+     *
+     * @param sql sql
+     * @param ctx ctx
+     * @return plan
+     */
+    public static Plan analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) {
         StatementContext stmtCtx = ctx.getStatementContext();
         LogicalPlan parsedViewPlan = new NereidsParser().parseForCreateView(sql);
         if (parsedViewPlan instanceof UnboundResultSink) {
@@ -81,10 +88,17 @@ public class BaseViewInfo {
                 stmtCtx, parsedViewPlan, PhysicalProperties.ANY);
         AnalyzerForCreateView analyzerForStar = new AnalyzerForCreateView(viewContextForStar);
         analyzerForStar.analyze();
-        analyzedPlan = viewContextForStar.getRewritePlan();
+        return viewContextForStar.getRewritePlan();
     }
 
-    protected String rewriteSql(Map<Pair<Integer, Integer>, String> indexStringSqlMap) {
+    /**
+     * expand star(*) in project list and replace table name with qualifier
+     *
+     * @param indexStringSqlMap indexStringSqlMap
+     * @param querySql querySql
+     * @return rewriteSql
+     */
+    public static String rewriteSql(Map<Pair<Integer, Integer>, String> indexStringSqlMap, String querySql) {
         StringBuilder builder = new StringBuilder();
         int beg = 0;
         for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {

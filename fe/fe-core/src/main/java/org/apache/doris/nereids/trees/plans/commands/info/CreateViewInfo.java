@@ -74,7 +74,7 @@ public class CreateViewInfo extends BaseViewInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.CREATE.getPrivs().toString(), viewName.getTbl());
         }
-        analyzeAndFillRewriteSqlMap(querySql, ctx);
+        analyzedPlan = analyzeAndFillRewriteSqlMap(querySql, ctx);
         OutermostPlanFinderContext outermostPlanFinderContext = new OutermostPlanFinderContext();
         analyzedPlan.accept(OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
         List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
@@ -102,7 +102,7 @@ public class CreateViewInfo extends BaseViewInfo {
         CreateViewStmt createViewStmt = new CreateViewStmt(ifNotExists, viewName.transferToTableName(), cols, comment,
                 null);
         // expand star(*) in project list and replace table name with qualifier
-        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString());
+        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
 
         // rewrite project alias
         rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);

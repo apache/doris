@@ -81,7 +81,7 @@ public class AlterViewInfo extends BaseViewInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.ALTER.getPrivs().toString(), viewName.getTbl());
         }
-        analyzeAndFillRewriteSqlMap(querySql, ctx);
+        analyzedPlan = analyzeAndFillRewriteSqlMap(querySql, ctx);
         OutermostPlanFinderContext outermostPlanFinderContext = new OutermostPlanFinderContext();
         analyzedPlan.accept(OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
         List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
@@ -109,7 +109,7 @@ public class AlterViewInfo extends BaseViewInfo {
         AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols,
                 null);
         // expand star(*) in project list and replace table name with qualifier
-        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString());
+        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
 
         // rewrite project alias
         rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
