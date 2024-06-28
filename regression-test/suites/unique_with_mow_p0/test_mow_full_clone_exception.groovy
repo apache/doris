@@ -27,7 +27,7 @@ import org.apache.doris.regression.util.NodeType
 // 5. incremental clone can't fix the delete bitmap overrided by previous failed full clone
 // 6. duplicate key occurred
 //
-// the bug is fixed in #xxx
+// the bug is fixed in #37001
 
 suite('test_full_clone_exception') {
     def options = new ClusterOptions()
