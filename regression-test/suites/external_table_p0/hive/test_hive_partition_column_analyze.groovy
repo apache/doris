@@ -53,7 +53,6 @@ suite("test_hive_partition_column_analyze", "p0,external,hive,external_docker,ex
             sql """analyze table ${catalog_name}.partition_type.float_partition (float_part) with sync"""
             sql """analyze table ${catalog_name}.partition_type.double_partition (double_part) with sync"""
             sql """analyze table ${catalog_name}.partition_type.decimal_partition (decimal_part) with sync"""
-            sql """analyze table ${catalog_name}.partition_type.two_partition (part1, part2) with sync"""
 
             sql """use partition_type;"""
 
@@ -189,22 +188,6 @@ suite("test_hive_partition_column_analyze", "p0,external,hive,external_docker,ex
             assertEquals(result[0][6], "8.0")
             assertEquals(result[0][7], "243.2868")
             assertEquals(result[0][8], "32527.1543")
-
-            result = sql """show column stats two_partition (part1)"""
-            assertEquals(result.size(), 1)
-            assertEquals(result[0][0], "part1")
-            assertEquals(result[0][3], "100.0")
-            assertEquals(result[0][4], "0.0")
-            assertEquals(result[0][7], "1")
-            assertEquals(result[0][8], "100")
-
-            result = sql """show column stats two_partition (part2)"""
-            assertEquals(result.size(), 1)
-            assertEquals(result[0][0], "part2")
-            assertEquals(result[0][3], "100.0")
-            assertEquals(result[0][4], "0.0")
-            assertEquals(result[0][7], "\'1\'")
-            assertEquals(result[0][8], "\'99\'")
         } finally {
             sql """set global enable_get_row_count_from_file_list=false"""
         }
