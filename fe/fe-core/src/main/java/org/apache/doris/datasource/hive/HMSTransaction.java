@@ -157,6 +157,7 @@ public class HMSTransaction implements Transaction {
             return;
         }
         try {
+            hmsCommitter.abort();
             hmsCommitter.rollback();
         } finally {
             hmsCommitter.shutdownExecutorService();
