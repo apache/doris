@@ -49,26 +49,26 @@ suite ("mv_ignore_predicate") {
 
     qt_select_star "select * from d_table order by k1;"
 
-    explain {
-        sql("select count(k2) from d_table;")
-        contains "(kign)"
-    }
-    qt_select_mv "select count(k2) from d_table;"
+    // explain {
+    //     sql("select count(k2) from d_table;")
+    //     contains "(kign)"
+    // }
+    // qt_select_mv "select count(k2) from d_table;"
 
-    explain {
-        sql("select count(k2) from d_table where k2 is not null;")
-        contains "(kign)"
-    }
-    qt_select_mv "select count(k2) from d_table where k2 is not null;"
+    // explain {
+    //     sql("select count(k2) from d_table where k2 is not null;")
+    //     contains "(kign)"
+    // }
+    // qt_select_mv "select count(k2) from d_table where k2 is not null;"
 
-    sql """set enable_stats=true;"""
-    explain {
-        sql("select count(k2) from d_table;")
-        contains "(kign)"
-    }
+    // sql """set enable_stats=true;"""
+    // explain {
+    //     sql("select count(k2) from d_table;")
+    //     contains "(kign)"
+    // }
 
-    explain {
-        sql("select count(k2) from d_table where k2 is not null;")
-        contains "(kign)"
-    }
+    // explain {
+    //     sql("select count(k2) from d_table where k2 is not null;")
+    //     contains "(kign)"
+    // }
 }

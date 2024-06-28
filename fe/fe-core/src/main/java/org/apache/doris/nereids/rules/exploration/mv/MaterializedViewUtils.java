@@ -245,8 +245,10 @@ public class MaterializedViewUtils {
                 ImmutableList.of(olapTable.getQualifiedDbName()),
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
+                olapTable.getPartitionIds(),
                 indexId,
                 PreAggStatus.unset(),
+                ImmutableList.of(),
                 ImmutableList.of(),
                 Optional.empty());
     }

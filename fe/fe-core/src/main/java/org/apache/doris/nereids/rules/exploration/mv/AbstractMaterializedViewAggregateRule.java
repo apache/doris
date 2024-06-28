@@ -89,13 +89,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             Plan tempRewritedPlan,
             MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
-        if (materializationContext instanceof SyncMaterializationContext
-                && queryStructInfo.getBottomPlan() instanceof LogicalOlapScan) {
-            LogicalOlapScan olapScan = (LogicalOlapScan) queryStructInfo.getBottomPlan();
-            if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
-                return null;
-            }
-        }
         // get view and query aggregate and top plan correspondingly
         Pair<Plan, LogicalAggregate<Plan>> viewTopPlanAndAggPair = splitToTopPlanAndAggregate(viewStructInfo);
         if (viewTopPlanAndAggPair == null) {

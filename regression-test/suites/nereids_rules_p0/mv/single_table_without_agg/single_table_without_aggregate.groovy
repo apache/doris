@@ -114,7 +114,7 @@ suite("single_table_without_aggregate") {
             "from orders " +
             "order by O_ORDERKEY limit 10"
     // should support but not, need to fix limit
-//    check_rewrite(mv2_2, query2_2, "mv2_2")
+    check_rewrite(mv2_2, query2_2, "mv2_2")
     order_qt_query2_2 "${query2_2}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv2_2 ON orders"""
 
@@ -136,7 +136,7 @@ suite("single_table_without_aggregate") {
             "from orders " +
             "where abs(O_TOTALPRICE) > 12 and O_ORDERKEY > 1"
     // should support but not, need to fix predicate compensation
-//    check_rewrite(mv3_1, query3_1, "mv3_1")
+    // check_rewrite(mv3_1, query3_1, "mv3_1")
     order_qt_query3_1 "${query3_1}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv3_1 ON orders"""
 
@@ -160,7 +160,7 @@ suite("single_table_without_aggregate") {
             "where abs(O_TOTALPRICE) > 10 " +
             "order by O_ORDERKEY limit 10"
     // should support but not, need to fix limit
-//    check_rewrite(mv4_1, query4_1, "mv4_1")
+    check_rewrite(mv4_1, query4_1, "mv4_1")
     order_qt_query4_1 "${query4_1}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv4_1 ON orders"""
 
@@ -173,7 +173,7 @@ suite("single_table_without_aggregate") {
             "(select 1, O_ORDERKEY, abs(O_TOTALPRICE) as abs_price , O_ORDERDATE as d " +
             "from orders) sub_query"
     // should support but not, need to fix sub query with alias
-//    check_rewrite(mv5_0, query5_0, "mv5_0")
+    // check_rewrite(mv5_0, query5_0, "mv5_0")
     order_qt_query5_0 "${query5_0}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv5_0 ON orders"""
 
@@ -185,7 +185,7 @@ suite("single_table_without_aggregate") {
             "from orders " +
             "order by O_ORDERKEY + 10) sub_query"
     // should support but not, need to fix sub query with alias
-//    check_rewrite(mv5_1, query5_1, "mv5_1")
+    // check_rewrite(mv5_1, query5_1, "mv5_1")
     order_qt_query5_1 "${query5_1}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv5_1 ON orders"""
     
@@ -199,7 +199,7 @@ suite("single_table_without_aggregate") {
             "from orders) sub_query " +
             "where sub_query.abs_price > 10"
     // should support but not, need to fix sub query
-//    check_rewrite(mv5_2, query5_2, "mv5_2")
+    // check_rewrite(mv5_2, query5_2, "mv5_2")
     order_qt_query5_2 "${query5_2}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv5_2 ON orders"""
 
@@ -214,7 +214,7 @@ suite("single_table_without_aggregate") {
             "where sub_query.abs_price > 10 " +
             "order by sub_query.O_ORDERKEY limit 10"
     // should support but not, need to fix sub query
-//    check_rewrite(mv5_3, query5_3, "mv5_3")
+    // check_rewrite(mv5_3, query5_3, "mv5_3")
     order_qt_query5_3 "${query5_3}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv5_3 ON orders"""
 
@@ -229,7 +229,7 @@ suite("single_table_without_aggregate") {
             "${view6_0_name} " +
             "group by __arithmetic_expr_0"
     // should support but not
-//    check_rewrite(mv1_0, query6_0, "mv6_0")
+    // check_rewrite(mv1_0, query6_0, "mv6_0")
     // order_qt_query6_0 "${query6_0}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv6_0 ON orders"""
 
@@ -243,7 +243,7 @@ suite("single_table_without_aggregate") {
             "${view6_1_name} " +
             "group by d"
     // should support but not
-//    check_rewrite(mv2_1, query6_1, "mv6_1")
+    // check_rewrite(mv2_1, query6_1, "mv6_1")
     order_qt_query6_1 "${query6_1}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv6_1 ON orders"""
 
@@ -257,7 +257,7 @@ suite("single_table_without_aggregate") {
             "${view6_2_name} " +
             "group by O_ORDERKEY"
     // should support but not
-//    check_rewrite(mv3_0, query6_2, "mv6_2")
+    check_rewrite(mv3_0, query6_2, "mv6_2")
     order_qt_query6_2 "${query6_2}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv6_2 ON orders"""
 
@@ -284,7 +284,7 @@ suite("single_table_without_aggregate") {
             "${cte7_0_name} " +
             "group by abs_price"
     // should support but not
-//    check_rewrite(mv1_0, query7_0, "mv7_0")
+    check_rewrite(mv1_0, query7_0, "mv7_0")
     order_qt_query7_0 "${query7_0}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv7_0 ON orders"""
 
@@ -295,7 +295,7 @@ suite("single_table_without_aggregate") {
             "${cte7_1_name} " +
             "group by d"
     // should support but not
-//    check_rewrite(mv2_1, query7_1, "mv7_1")
+    // check_rewrite(mv2_1, query7_1, "mv7_1")
     order_qt_query7_1 "${query7_1}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv7_1 ON orders"""
 
@@ -307,7 +307,7 @@ suite("single_table_without_aggregate") {
             "${cte7_2_name} " +
             "group by O_ORDERKEY"
     // should support but not
-//    check_rewrite(mv3_0, query7_2, "mv7_2")
+    check_rewrite(mv3_0, query7_2, "mv7_2")
     order_qt_query7_2 "${query7_2}"
     sql """DROP MATERIALIZED VIEW IF EXISTS mv7_2 ON orders"""
 

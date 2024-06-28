@@ -44,13 +44,6 @@ public abstract class MaterializedViewScanRule extends AbstractMaterializedViewR
             Plan tempRewritedPlan,
             MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
-        if (materializationContext instanceof SyncMaterializationContext
-                && queryStructInfo.getBottomPlan() instanceof LogicalOlapScan) {
-            LogicalOlapScan olapScan = (LogicalOlapScan) queryStructInfo.getBottomPlan();
-            if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
-                return null;
-            }
-        }
         // Rewrite top projects, represent the query projects by view
         List<Expression> expressionsRewritten = rewriteExpression(
                 queryStructInfo.getExpressions(),
