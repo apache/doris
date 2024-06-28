@@ -254,6 +254,11 @@ bool PipelineTask::_is_blocked() {
             }
             // If all dependencies are ready for this operator, we can execute this task if no datum is needed from upstream operators.
             if (!_operators[i]->need_more_input_data(_state)) {
+                if (VLOG_DEBUG_IS_ON) {
+                    VLOG_DEBUG << "query: " << print_id(_state->query_id())
+                               << ", task id: " << _index << ", operator " << i
+                               << " not need_more_input_data";
+                }
                 break;
             }
         }
@@ -471,13 +476,13 @@ std::string PipelineTask::debug_string() {
 
     auto* cur_blocked_dep = _blocked_dep;
     auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
-    fmt::format_to(
-            debug_string_buffer,
-            "PipelineTask[this = {}, open = {}, eos = {}, finish = {}, dry run = {}, elapse time "
-            "= {}s], block dependency = {}, is running = {}\noperators: ",
-            (void*)this, _opened, _eos, _finalized, _dry_run, elapsed,
-            cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
-            is_running());
+    fmt::format_to(debug_string_buffer,
+                   "PipelineTask[this = {}, id = {}, open = {}, eos = {}, finish = {}, dry run = "
+                   "{}, elapse time "
+                   "= {}s], block dependency = {}, is running = {}\noperators: ",
+                   (void*)this, _index, _opened, _eos, _finalized, _dry_run, elapsed,
+                   cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
+                   is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !_finalized ? _operators[i]->debug_string(_state, i)

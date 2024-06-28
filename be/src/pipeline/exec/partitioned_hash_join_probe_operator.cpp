@@ -258,6 +258,9 @@ Status PartitionedHashJoinProbeLocalState::finish_spilling(uint32_t partition_in
 Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(RuntimeState* state,
                                                                            uint32_t partition_index,
                                                                            bool& has_data) {
+    VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
+               << ", task id: " << state->task_id() << ", partition: " << partition_index
+               << " recovery_build_blocks_from_disk";
     auto& spilled_stream = _shared_state->spilled_streams[partition_index];
     has_data = false;
     if (!spilled_stream) {
@@ -292,6 +295,9 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
         SCOPED_TIMER(_recovery_build_timer);
 
         bool eos = false;
+        VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
+                   << ", task id: " << state->task_id() << ", partition: " << partition_index
+                   << ", recoverying build data";
         while (!eos) {
             vectorized::Block block;
             Status st;
@@ -332,12 +338,12 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
             }
         }
 
-        VLOG_DEBUG << "query: " << print_id(state->query_id())
-                   << ", recovery data done for partition: " << spilled_stream->get_spill_dir()
-                   << ", task id: " << state->task_id();
         ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
         shared_state_sptr->spilled_streams[partition_index].reset();
         _dependency->set_ready();
+        VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
+                   << ", task id: " << state->task_id() << ", partition: " << partition_index
+                   << ", recovery build data done";
     };
 
     auto exception_catch_func = [read_func, query_id, this]() {
@@ -362,6 +368,16 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
     auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
     has_data = true;
     _dependency->block();
+    {
+        auto* pipeline_task = state->get_task();
+        if (pipeline_task) {
+            auto& p = _parent->cast<PartitionedHashJoinProbeOperatorX>();
+            VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << p.node_id()
+                       << ", task id: " << state->task_id() << ", partition: " << partition_index
+                       << ", dependency: " << _dependency
+                       << ", task debug_string: " << pipeline_task->debug_string();
+        }
+    }
 
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::recovery_build_blocks_submit_func",
                     {
@@ -371,15 +387,31 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
                     });
     auto spill_runnable = std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
                                                           exception_catch_func);
+    VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
+               << ", task id: " << state->task_id() << ", partition: " << partition_index
+               << " recovery_build_blocks_from_disk submit func";
     return spill_io_pool->submit(std::move(spill_runnable));
 }
 
 std::string PartitionedHashJoinProbeLocalState::debug_string(int indentation_level) const {
+    auto& p = _parent->cast<PartitionedHashJoinProbeOperatorX>();
+    bool need_more_input_data;
+    if (_shared_state->need_to_spill) {
+        need_more_input_data = !_child_eos;
+    } else if (_runtime_state) {
+        need_more_input_data = p._inner_probe_operator->need_more_input_data(_runtime_state.get());
+    } else {
+        need_more_input_data = true;
+    }
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, short_circuit_for_probe: {}",
+    fmt::format_to(debug_string_buffer,
+                   "{}, short_circuit_for_probe: {}, need_to_spill: {}, child_eos: {}, "
+                   "_runtime_state: {}, need_more_input_data: {}",
                    PipelineXSpillLocalState<PartitionedHashJoinSharedState>::debug_string(
                            indentation_level),
-                   _shared_state ? std::to_string(_shared_state->short_circuit_for_probe) : "NULL");
+                   _shared_state ? std::to_string(_shared_state->short_circuit_for_probe) : "NULL",
+                   _shared_state->need_to_spill, _child_eos, _runtime_state != nullptr,
+                   need_more_input_data);
     return fmt::to_string(debug_string_buffer);
 }
 
