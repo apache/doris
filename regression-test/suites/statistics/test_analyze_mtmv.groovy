@@ -48,6 +48,151 @@ suite("test_analyze_mtmv") {
 
     }
 
+    def verify_full_analyze = {
+        def result = sql """show column stats mv1"""
+        assertEquals(5, result.size())
+
+        result = sql """show column stats mv1(l_shipdate)"""
+        assertEquals(1, result.size())
+        assertEquals("l_shipdate", result[0][0])
+        assertEquals("mv1", result[0][1])
+        assertEquals("3.0", result[0][2])
+        assertEquals("3.0", result[0][3])
+        assertEquals("0.0", result[0][4])
+        assertEquals("12.0", result[0][5])
+        assertEquals("4.0", result[0][6])
+        assertEquals("'2023-10-17'", result[0][7])
+        assertEquals("'2023-10-19'", result[0][8])
+        assertEquals("FULL", result[0][9])
+        assertEquals("MANUAL", result[0][11])
+
+        result = sql """show column cached stats mv1(l_shipdate)"""
+        assertEquals(1, result.size())
+        assertEquals("l_shipdate", result[0][0])
+        assertEquals("mv1", result[0][1])
+        assertEquals("3.0", result[0][2])
+        assertEquals("3.0", result[0][3])
+        assertEquals("0.0", result[0][4])
+        assertEquals("12.0", result[0][5])
+        assertEquals("4.0", result[0][6])
+        assertEquals("'2023-10-17'", result[0][7])
+        assertEquals("'2023-10-19'", result[0][8])
+        assertEquals("FULL", result[0][9])
+        assertEquals("MANUAL", result[0][11])
+
+        result = sql """show column stats mv1(o_orderdate)"""
+        assertEquals(1, result.size())
+        assertEquals("o_orderdate", result[0][0])
+        assertEquals("mv1", result[0][1])
+        assertEquals("3.0", result[0][2])
+        assertEquals("3.0", result[0][3])
+        assertEquals("0.0", result[0][4])
+        assertEquals("12.0", result[0][5])
+        assertEquals("4.0", result[0][6])
+        assertEquals("'2023-10-17'", result[0][7])
+        assertEquals("'2023-10-19'", result[0][8])
+        assertEquals("FULL", result[0][9])
+        assertEquals("MANUAL", result[0][11])
+
+        result = sql """show column cached stats mv1(o_orderdate)"""
+        assertEquals(1, result.size())
+        assertEquals("o_orderdate", result[0][0])
+        assertEquals("mv1", result[0][1])
+        assertEquals("3.0", result[0][2])
+        assertEquals("3.0", result[0][3])
+        assertEquals("0.0", result[0][4])
+        assertEquals("12.0", result[0][5])
+        assertEquals("4.0", result[0][6])
+        assertEquals("'2023-10-17'", result[0][7])
+        assertEquals("'2023-10-19'", result[0][8])
+        assertEquals("FULL", result[0][9])
+        assertEquals("MANUAL", result[0][11])
+
+        result = sql """show column stats mv1(l_partkey)"""
+        assertEquals(1, result.size())
+        assertEquals("l_partkey", result[0][0])
+        assertEquals("mv1", result[0][1])
+        assertEquals("3.0", result[0][2])
+        assertEquals("1.0", result[0][3])
+        assertEquals("0.0", result[0][4])
+        assertEquals("12.0", result[0][5])
+        assertEquals("4.0", result[0][6])
+        assertEquals("2", result[0][7])
+        assertEquals("2", result[0][8])
+        assertEquals("FULL", result[0][9])
+        assertEquals("MANUAL", result[0][11])
+
+        result = sql """show column cached stats mv1(l_partkey)"""
+        assertEquals(1, result.size())
+        assertEquals("l_partkey", result[0][0])
+        assertEquals("mv1", result[0][1])
+        assertEquals("3.0", result[0][2])
+        assertEquals("1.0", result[0][3])
+        assertEquals("0.0", result[0][4])
+        assertEquals("12.0", result[0][5])
+        assertEquals("4.0", result[0][6])
+        assertEquals("2", result[0][7])
+        assertEquals("2", result[0][8])
+        assertEquals("FULL", result[0][9])
+        assertEquals("MANUAL", result[0][11])
+
+        result = sql """show column stats mv1(l_suppkey)"""
+        assertEquals(1, result.size())
+        assertEquals("l_suppkey", result[0][0])
+        assertEquals("mv1", result[0][1])
+        assertEquals("3.0", result[0][2])
+        assertEquals("1.0", result[0][3])
+        assertEquals("0.0", result[0][4])
+        assertEquals("12.0", result[0][5])
+        assertEquals("4.0", result[0][6])
+        assertEquals("3", result[0][7])
+        assertEquals("3", result[0][8])
+        assertEquals("FULL", result[0][9])
+        assertEquals("MANUAL", result[0][11])
+
+        result = sql """show column cached stats mv1(l_suppkey)"""
+        assertEquals(1, result.size())
+        assertEquals("l_suppkey", result[0][0])
+        assertEquals("mv1", result[0][1])
+        assertEquals("3.0", result[0][2])
+        assertEquals("1.0", result[0][3])
+        assertEquals("0.0", result[0][4])
+        assertEquals("12.0", result[0][5])
+        assertEquals("4.0", result[0][6])
+        assertEquals("3", result[0][7])
+        assertEquals("3", result[0][8])
+        assertEquals("FULL", result[0][9])
+        assertEquals("MANUAL", result[0][11])
+
+        result = sql """show column stats mv1(sum_total)"""
+        assertEquals(1, result.size())
+        assertEquals("sum_total", result[0][0])
+        assertEquals("mv1", result[0][1])
+        assertEquals("3.0", result[0][2])
+        assertEquals("2.0", result[0][3])
+        assertEquals("0.0", result[0][4])
+        assertEquals("48.0", result[0][5])
+        assertEquals("16.0", result[0][6])
+        assertEquals("99.50", result[0][7])
+        assertEquals("109.20", result[0][8])
+        assertEquals("FULL", result[0][9])
+        assertEquals("MANUAL", result[0][11])
+
+        result = sql """show column cached stats mv1(sum_total)"""
+        assertEquals(1, result.size())
+        assertEquals("sum_total", result[0][0])
+        assertEquals("mv1", result[0][1])
+        assertEquals("3.0", result[0][2])
+        assertEquals("2.0", result[0][3])
+        assertEquals("0.0", result[0][4])
+        assertEquals("48.0", result[0][5])
+        assertEquals("16.0", result[0][6])
+        assertEquals("99.50", result[0][7])
+        assertEquals("109.20", result[0][8])
+        assertEquals("FULL", result[0][9])
+        assertEquals("MANUAL", result[0][11])
+    }
+
     sql """drop database if exists test_analyze_mtmv"""
     sql """create database test_analyze_mtmv"""
     sql """use test_analyze_mtmv"""
@@ -71,13 +216,13 @@ suite("test_analyze_mtmv") {
     PROPERTIES ("replication_num" = "1");
     """
 
-	    sql """insert into orders values
+    sql """insert into orders values
 	    (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
 	    (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
 	    (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy');
     """
 
-	    sql """CREATE TABLE IF NOT EXISTS lineitem (
+    sql """CREATE TABLE IF NOT EXISTS lineitem (
 			    l_orderkey    integer not null,
 			    l_partkey     integer not null,
 			    l_suppkey     integer not null,
@@ -102,13 +247,13 @@ suite("test_analyze_mtmv") {
 	    PROPERTIES ("replication_num" = "1");
     """
 
-	    sql """insert into lineitem values
+    sql """insert into lineitem values
 	    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
 	    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
 	    (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx');
     """
 
-	    sql """
+    sql """
 	    CREATE MATERIALIZED VIEW mv1
 	    BUILD DEFERRED REFRESH AUTO ON MANUAL
 	    partition by(l_shipdate)
@@ -124,386 +269,198 @@ suite("test_analyze_mtmv") {
 	    l_partkey,
 	    l_suppkey;
     """
-	    sql """REFRESH MATERIALIZED VIEW mv1 AUTO"""
-	    while(true) {
-		    Thread.sleep(1000)
-			    def result = sql """select * from mv_infos("database"="test_analyze_mtmv") where Name="mv1";"""
-			    if (result[0][5] == "SUCCESS") {
-				    break;
-			    }
-	    }
+    sql """REFRESH MATERIALIZED VIEW mv1 AUTO"""
+    while(true) {
+        Thread.sleep(1000)
+        def result = sql """select * from mv_infos("database"="test_analyze_mtmv") where Name="mv1";"""
+        if (result[0][5] == "SUCCESS") {
+            break;
+        }
+    }
 
     def dup_sql1 = """select * from mv1 order by l_shipdate;"""
-	    qt_sql1 dup_sql1
+    qt_sql1 dup_sql1
 
-	    sql """analyze table mv1 with sync"""
+    sql """analyze table mv1 with sync"""
+    verify_full_analyze()
 
-	    def result_sample = sql """show column stats mv1"""
-	    assertEquals(5, result_sample.size())
 
-	    result_sample = sql """show column stats mv1(l_shipdate)"""
-	    assertEquals(1, result_sample.size())
-	    assertEquals("l_shipdate", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("3.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("'2023-10-17'", result_sample[0][7])
-	    assertEquals("'2023-10-19'", result_sample[0][8])
-	    assertEquals("FULL", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
+    sql """drop stats mv1"""
+    def result_sample = sql """show column stats mv1(sum_total)"""
+    assertEquals(0, result_sample.size())
+    result_sample = sql """show column cached stats mv1(sum_total)"""
+    assertEquals(0, result_sample.size())
 
-	    result_sample = sql """show column cached stats mv1(l_shipdate)"""
-	    assertEquals(1, result_sample.size())
-	    assertEquals("l_shipdate", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("3.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("'2023-10-17'", result_sample[0][7])
-	    assertEquals("'2023-10-19'", result_sample[0][8])
-	    assertEquals("FULL", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
-
-	    result_sample = sql """show column stats mv1(o_orderdate)"""
-	    assertEquals(1, result_sample.size())
-	    assertEquals("o_orderdate", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("3.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("'2023-10-17'", result_sample[0][7])
-	    assertEquals("'2023-10-19'", result_sample[0][8])
-	    assertEquals("FULL", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
-
-	    result_sample = sql """show column cached stats mv1(o_orderdate)"""
-	    assertEquals(1, result_sample.size())
-	    assertEquals("o_orderdate", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("3.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("'2023-10-17'", result_sample[0][7])
-	    assertEquals("'2023-10-19'", result_sample[0][8])
-	    assertEquals("FULL", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
-
-	    result_sample = sql """show column stats mv1(l_partkey)"""
-	    assertEquals(1, result_sample.size())
-	    assertEquals("l_partkey", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("1.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("2", result_sample[0][7])
-	    assertEquals("2", result_sample[0][8])
-	    assertEquals("FULL", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
-
-	    result_sample = sql """show column cached stats mv1(l_partkey)"""
-	    assertEquals(1, result_sample.size())
-	    assertEquals("l_partkey", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("1.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("2", result_sample[0][7])
-	    assertEquals("2", result_sample[0][8])
-	    assertEquals("FULL", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
-
-	    result_sample = sql """show column stats mv1(l_suppkey)"""
-	    assertEquals(1, result_sample.size())
-	    assertEquals("l_suppkey", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("1.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("3", result_sample[0][7])
-	    assertEquals("3", result_sample[0][8])
-	    assertEquals("FULL", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
-
-	    result_sample = sql """show column cached stats mv1(l_suppkey)"""
-	    assertEquals(1, result_sample.size())
-	    assertEquals("l_suppkey", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("1.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("3", result_sample[0][7])
-	    assertEquals("3", result_sample[0][8])
-	    assertEquals("FULL", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
-
-	    result_sample = sql """show column stats mv1(sum_total)"""
-	    assertEquals(1, result_sample.size())
-	    assertEquals("sum_total", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("2.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("48.0", result_sample[0][5])
-	    assertEquals("16.0", result_sample[0][6])
-	    assertEquals("99.50", result_sample[0][7])
-	    assertEquals("109.20", result_sample[0][8])
-	    assertEquals("FULL", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
-
-	    result_sample = sql """show column cached stats mv1(sum_total)"""
-	    assertEquals(1, result_sample.size())
-	    assertEquals("sum_total", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("2.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("48.0", result_sample[0][5])
-	    assertEquals("16.0", result_sample[0][6])
-	    assertEquals("99.50", result_sample[0][7])
-	    assertEquals("109.20", result_sample[0][8])
-	    assertEquals("FULL", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
-
-	    sql """drop stats mv1"""
-	    result_sample = sql """show column stats mv1(sum_total)"""
-	    assertEquals(0, result_sample.size())
-	    result_sample = sql """show column cached stats mv1(sum_total)"""
-	    assertEquals(0, result_sample.size())
-
-	    try {
-		    wait_row_count_reported("test_analyze_mtmv", "mv1", 0, 4, "3")
-	    } catch (Exception e) {
-		    logger.info(e.getMessage());
-		    return;
-	    }
+    try {
+        wait_row_count_reported("test_analyze_mtmv", "mv1", 0, 4, "3")
+    } catch (Exception e) {
+        logger.info(e.getMessage());
+        return;
+    }
     sql """analyze table mv1 with sync with sample rows 4000000"""
-	    result_sample = sql """show column stats mv1(l_shipdate)"""
-	    logger.info("result " + result_sample)
-	    if ("MANUAL" != result_sample[0][11]) {
-		    logger.info("Overwrite by auto analyze, analyze it again.")
-			    sql """analyze table mv1 with sync with sample rows 4000000"""
-			    result_sample = sql """show column stats mv1(l_shipdate)"""
-			    logger.info("result " + result_sample)
-	    }
+    result_sample = sql """show column stats mv1(l_shipdate)"""
+    logger.info("result " + result_sample)
     assertEquals(1, result_sample.size())
-	    assertEquals("l_shipdate", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("3.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("'2023-10-17'", result_sample[0][7])
-	    assertEquals("'2023-10-19'", result_sample[0][8])
-	    assertEquals("SAMPLE", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals("l_shipdate", result_sample[0][0])
+    assertEquals("mv1", result_sample[0][1])
+    assertEquals("3.0", result_sample[0][2])
+    assertEquals("3.0", result_sample[0][3])
+    assertEquals("0.0", result_sample[0][4])
+    assertEquals("12.0", result_sample[0][5])
+    assertEquals("4.0", result_sample[0][6])
+    assertEquals("'2023-10-17'", result_sample[0][7])
+    assertEquals("'2023-10-19'", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
-	    result_sample = sql """show column cached stats mv1(l_shipdate)"""
-	    logger.info("result " + result_sample)
-	    if ("MANUAL" != result_sample[0][11]) {
-		    logger.info("Overwrite by auto analyze, analyze it again.")
-			    sql """analyze table mv1 with sync with sample rows 4000000"""
-			    result_sample = sql """show column cached stats mv1(l_shipdate)"""
-			    logger.info("result " + result_sample)
-	    }
+    result_sample = sql """show column cached stats mv1(l_shipdate)"""
+    logger.info("result " + result_sample)
     assertEquals(1, result_sample.size())
-	    assertEquals("l_shipdate", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("3.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("'2023-10-17'", result_sample[0][7])
-	    assertEquals("'2023-10-19'", result_sample[0][8])
-	    assertEquals("SAMPLE", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals("l_shipdate", result_sample[0][0])
+    assertEquals("mv1", result_sample[0][1])
+    assertEquals("3.0", result_sample[0][2])
+    assertEquals("3.0", result_sample[0][3])
+    assertEquals("0.0", result_sample[0][4])
+    assertEquals("12.0", result_sample[0][5])
+    assertEquals("4.0", result_sample[0][6])
+    assertEquals("'2023-10-17'", result_sample[0][7])
+    assertEquals("'2023-10-19'", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
-	    result_sample = sql """show column stats mv1(o_orderdate)"""
-	    logger.info("result " + result_sample)
-	    if ("MANUAL" != result_sample[0][11]) {
-		    logger.info("Overwrite by auto analyze, analyze it again.")
-			    sql """analyze table mv1 with sync with sample rows 4000000"""
-			    result_sample = sql """show column stats mv1(o_orderdate)"""
-			    logger.info("result " + result_sample)
-	    }
+    result_sample = sql """show column stats mv1(o_orderdate)"""
+    logger.info("result " + result_sample)
     assertEquals(1, result_sample.size())
-	    assertEquals("o_orderdate", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("3.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("'2023-10-17'", result_sample[0][7])
-	    assertEquals("'2023-10-19'", result_sample[0][8])
-	    assertEquals("SAMPLE", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals("o_orderdate", result_sample[0][0])
+    assertEquals("mv1", result_sample[0][1])
+    assertEquals("3.0", result_sample[0][2])
+    assertEquals("3.0", result_sample[0][3])
+    assertEquals("0.0", result_sample[0][4])
+    assertEquals("12.0", result_sample[0][5])
+    assertEquals("4.0", result_sample[0][6])
+    assertEquals("'2023-10-17'", result_sample[0][7])
+    assertEquals("'2023-10-19'", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
-	    result_sample = sql """show column cached stats mv1(o_orderdate)"""
-	    logger.info("result " + result_sample)
-	    if ("MANUAL" != result_sample[0][11]) {
-		    logger.info("Overwrite by auto analyze, analyze it again.")
-			    sql """analyze table mv1 with sync with sample rows 4000000"""
-			    result_sample = sql """show column cached stats mv1(o_orderdate)"""
-			    logger.info("result " + result_sample)
-	    }
+    result_sample = sql """show column cached stats mv1(o_orderdate)"""
+    logger.info("result " + result_sample)
     assertEquals(1, result_sample.size())
-	    assertEquals("o_orderdate", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("3.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("'2023-10-17'", result_sample[0][7])
-	    assertEquals("'2023-10-19'", result_sample[0][8])
-	    assertEquals("SAMPLE", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals("o_orderdate", result_sample[0][0])
+    assertEquals("mv1", result_sample[0][1])
+    assertEquals("3.0", result_sample[0][2])
+    assertEquals("3.0", result_sample[0][3])
+    assertEquals("0.0", result_sample[0][4])
+    assertEquals("12.0", result_sample[0][5])
+    assertEquals("4.0", result_sample[0][6])
+    assertEquals("'2023-10-17'", result_sample[0][7])
+    assertEquals("'2023-10-19'", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
-	    result_sample = sql """show column stats mv1(l_partkey)"""
-	    logger.info("result " + result_sample)
-	    if ("MANUAL" != result_sample[0][11]) {
-		    logger.info("Overwrite by auto analyze, analyze it again.")
-			    sql """analyze table mv1 with sync with sample rows 4000000"""
-			    result_sample = sql """show column stats mv1(l_partkey)"""
-			    logger.info("result " + result_sample)
-	    }
+    result_sample = sql """show column stats mv1(l_partkey)"""
+    logger.info("result " + result_sample)
     assertEquals(1, result_sample.size())
-	    assertEquals("l_partkey", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("1.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("2", result_sample[0][7])
-	    assertEquals("2", result_sample[0][8])
-	    assertEquals("SAMPLE", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals("l_partkey", result_sample[0][0])
+    assertEquals("mv1", result_sample[0][1])
+    assertEquals("3.0", result_sample[0][2])
+    assertEquals("1.0", result_sample[0][3])
+    assertEquals("0.0", result_sample[0][4])
+    assertEquals("12.0", result_sample[0][5])
+    assertEquals("4.0", result_sample[0][6])
+    assertEquals("2", result_sample[0][7])
+    assertEquals("2", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
-	    result_sample = sql """show column cached stats mv1(l_partkey)"""
-	    logger.info("result " + result_sample)
-	    if ("MANUAL" != result_sample[0][11]) {
-		    logger.info("Overwrite by auto analyze, analyze it again.")
-			    sql """analyze table mv1 with sync with sample rows 4000000"""
-			    result_sample = sql """show column cached stats mv1(l_partkey)"""
-			    logger.info("result " + result_sample)
-	    }
+    result_sample = sql """show column cached stats mv1(l_partkey)"""
+    logger.info("result " + result_sample)
     assertEquals(1, result_sample.size())
-	    assertEquals("l_partkey", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("1.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("2", result_sample[0][7])
-	    assertEquals("2", result_sample[0][8])
-	    assertEquals("SAMPLE", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals("l_partkey", result_sample[0][0])
+    assertEquals("mv1", result_sample[0][1])
+    assertEquals("3.0", result_sample[0][2])
+    assertEquals("1.0", result_sample[0][3])
+    assertEquals("0.0", result_sample[0][4])
+    assertEquals("12.0", result_sample[0][5])
+    assertEquals("4.0", result_sample[0][6])
+    assertEquals("2", result_sample[0][7])
+    assertEquals("2", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
-	    result_sample = sql """show column stats mv1(l_suppkey)"""
-	    logger.info("result " + result_sample)
-	    if ("MANUAL" != result_sample[0][11]) {
-		    logger.info("Overwrite by auto analyze, analyze it again.")
-			    sql """analyze table mv1 with sync with sample rows 4000000"""
-			    result_sample = sql """show column stats mv1(l_suppkey)"""
-			    logger.info("result " + result_sample)
-	    }
+    result_sample = sql """show column stats mv1(l_suppkey)"""
+    logger.info("result " + result_sample)
     assertEquals(1, result_sample.size())
-	    assertEquals("l_suppkey", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("1.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("3", result_sample[0][7])
-	    assertEquals("3", result_sample[0][8])
-	    assertEquals("SAMPLE", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals("l_suppkey", result_sample[0][0])
+    assertEquals("mv1", result_sample[0][1])
+    assertEquals("3.0", result_sample[0][2])
+    assertEquals("1.0", result_sample[0][3])
+    assertEquals("0.0", result_sample[0][4])
+    assertEquals("12.0", result_sample[0][5])
+    assertEquals("4.0", result_sample[0][6])
+    assertEquals("3", result_sample[0][7])
+    assertEquals("3", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
-	    result_sample = sql """show column cached stats mv1(l_suppkey)"""
-	    logger.info("result " + result_sample)
-	    if ("MANUAL" != result_sample[0][11]) {
-		    logger.info("Overwrite by auto analyze, analyze it again.")
-			    sql """analyze table mv1 with sync with sample rows 4000000"""
-			    result_sample = sql """show column cached stats mv1(l_suppkey)"""
-			    logger.info("result " + result_sample)
-	    }
+    result_sample = sql """show column cached stats mv1(l_suppkey)"""
+    logger.info("result " + result_sample)
     assertEquals(1, result_sample.size())
-	    assertEquals("l_suppkey", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("1.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("12.0", result_sample[0][5])
-	    assertEquals("4.0", result_sample[0][6])
-	    assertEquals("3", result_sample[0][7])
-	    assertEquals("3", result_sample[0][8])
-	    assertEquals("SAMPLE", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals("l_suppkey", result_sample[0][0])
+    assertEquals("mv1", result_sample[0][1])
+    assertEquals("3.0", result_sample[0][2])
+    assertEquals("1.0", result_sample[0][3])
+    assertEquals("0.0", result_sample[0][4])
+    assertEquals("12.0", result_sample[0][5])
+    assertEquals("4.0", result_sample[0][6])
+    assertEquals("3", result_sample[0][7])
+    assertEquals("3", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
-	    result_sample = sql """show column stats mv1(sum_total)"""
-	    logger.info("result " + result_sample)
-	    if ("MANUAL" != result_sample[0][11]) {
-		    logger.info("Overwrite by auto analyze, analyze it again.")
-			    sql """analyze table mv1 with sync with sample rows 4000000"""
-			    result_sample = sql """show column stats mv1(sum_total)"""
-			    logger.info("result " + result_sample)
-	    }
+    result_sample = sql """show column stats mv1(sum_total)"""
+    logger.info("result " + result_sample)
     assertEquals(1, result_sample.size())
-	    assertEquals("sum_total", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("2.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("48.0", result_sample[0][5])
-	    assertEquals("16.0", result_sample[0][6])
-	    assertEquals("99.50", result_sample[0][7])
-	    assertEquals("109.20", result_sample[0][8])
-	    assertEquals("SAMPLE", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals("sum_total", result_sample[0][0])
+    assertEquals("mv1", result_sample[0][1])
+    assertEquals("3.0", result_sample[0][2])
+    assertEquals("2.0", result_sample[0][3])
+    assertEquals("0.0", result_sample[0][4])
+    assertEquals("48.0", result_sample[0][5])
+    assertEquals("16.0", result_sample[0][6])
+    assertEquals("99.50", result_sample[0][7])
+    assertEquals("109.20", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
-	    result_sample = sql """show column cached stats mv1(sum_total)"""
-	    logger.info("result " + result_sample)
-	    if ("MANUAL" != result_sample[0][11]) {
-		    logger.info("Overwrite by auto analyze, analyze it again.")
-			    sql """analyze table mv1 with sync with sample rows 4000000"""
-			    result_sample = sql """show column cached stats mv1(sum_total)"""
-			    logger.info("result " + result_sample)
-	    }
+    result_sample = sql """show column cached stats mv1(sum_total)"""
+    logger.info("result " + result_sample)
     assertEquals(1, result_sample.size())
-	    assertEquals("sum_total", result_sample[0][0])
-	    assertEquals("mv1", result_sample[0][1])
-	    assertEquals("3.0", result_sample[0][2])
-	    assertEquals("2.0", result_sample[0][3])
-	    assertEquals("0.0", result_sample[0][4])
-	    assertEquals("48.0", result_sample[0][5])
-	    assertEquals("16.0", result_sample[0][6])
-	    assertEquals("99.50", result_sample[0][7])
-	    assertEquals("109.20", result_sample[0][8])
-	    assertEquals("SAMPLE", result_sample[0][9])
-	    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals("sum_total", result_sample[0][0])
+    assertEquals("mv1", result_sample[0][1])
+    assertEquals("3.0", result_sample[0][2])
+    assertEquals("2.0", result_sample[0][3])
+    assertEquals("0.0", result_sample[0][4])
+    assertEquals("48.0", result_sample[0][5])
+    assertEquals("16.0", result_sample[0][6])
+    assertEquals("99.50", result_sample[0][7])
+    assertEquals("109.20", result_sample[0][8])
+    assertEquals("SAMPLE", result_sample[0][9])
+    assertEquals("MANUAL", result_sample[0][11])
 
-	    sql """drop database if exists test_analyze_mtmv"""
+    def result = sql """show variables like "%enable_partition_analyze%" """
+    if (result[0][1].equalsIgnoreCase("false")) {
+        logger.info("partition analyze disabled. " + result)
+        sql """drop database if exists test_analyze_mtmv"""
+        return;
+    }
+
+    sql """drop stats mv1"""
+    sql """analyze table mv1 with sync"""
+    verify_full_analyze()
+    result = sql """show column stats mv1 partition(*)"""
+    assertEquals(15, result.size())
+
+    sql """drop database if exists test_analyze_mtmv"""
 }
 
