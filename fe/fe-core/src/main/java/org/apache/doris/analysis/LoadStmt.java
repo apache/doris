@@ -524,13 +524,13 @@ public class LoadStmt extends DdlStmt {
     }
 
 
-    private String getProviderFromEndpoint(String endpoint) {
-        for (String provider : PROVIDERS) {
-            if (endpoint.toLowerCase().contains(provider.toLowerCase())) {
-                return provider;
-            }
+    private String getProviderFromEndpoint() {
+        Map<String, String> brokerDescProperties = brokerDesc.getProperties();
+        String provider = brokerDescProperties.get(S3Properties.PROVIDER);
+        if (provider == null) {
+            return "S3";
         }
-        return "s3";
+        return provider;
     }
 
     private String getBucketFromFilePath(String filePath) throws Exception {
