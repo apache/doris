@@ -361,7 +361,7 @@ public class JdbcResource extends Resource {
             newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "reWriteBatchedInserts", "false", "true");
         }
         if (dbType.equals(SQLSERVER)) {
-            if (Config.disable_jdbc_sqlserver_encrypt) {
+            if (Config.force_sqlserver_jdbc_encrypt_false) {
                 newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "encrypt", "true", "false");
             }
             newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "useBulkCopyForBatchInsert", "false", "true");
