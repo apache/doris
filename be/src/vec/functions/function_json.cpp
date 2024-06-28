@@ -842,10 +842,11 @@ struct FunctionJsonExtractImpl {
         return value;
     }
 
-    static rapidjson::Value* get_document(const std::vector<const ColumnString*>& data_columns,
+    static rapidjson::Value* get_document(const ColumnString* path_col,
                                           rapidjson::Document* document,
-                                          std::vector<JsonPath>& parsed_paths) {
-        const auto& path = data_columns[1]->get_data_at(0);
+                                          std::vector<JsonPath>& parsed_paths, const int row,
+                                          bool is_const_column) {
+        const auto& path = path_col->get_data_at(index_check_const(row, is_const_column));
         std::string_view path_string(path.data, path.size);
         //Cannot use '\' as the last character, return NULL
         if (path_string.back() == '\\') {
@@ -878,61 +879,64 @@ struct FunctionJsonExtractImpl {
         rapidjson::StringBuffer buf;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
         const auto* json_col = data_columns[0];
-        if (data_columns.size() == 2 && column_is_consts[1]) {
+        auto insert_result_lambda = [&](rapidjson::Value& value, int row) {
+            if (value.IsNull()) {
+                null_map[row] = 1;
+                result_column.insert_default();
+            } else {
+                // write value as string
+                buf.Clear();
+                writer.Reset(buf);
+                value.Accept(writer);
+                result_column.insert_data(buf.GetString(), buf.GetSize());
+            }
+        };
+        if (data_columns.size() == 2) {
             rapidjson::Value value;
-            std::vector<JsonPath> parsed_paths;
-            auto* root = get_document(data_columns, &document, parsed_paths);
-            for (size_t row = 0; row < input_rows_count; row++) {
-                if (root != nullptr) {
-                    const auto& obj = json_col->get_data_at(row);
-                    std::string_view json_string(obj.data, obj.size);
-                    if (UNLIKELY((parsed_paths).size() == 1)) {
-                        document.SetString(json_string.data(), json_string.size(), allocator);
+            if (column_is_consts[1]) {
+                std::vector<JsonPath> parsed_paths;
+                auto* root = get_document(data_columns[1], &document, parsed_paths, 0,
+                                          column_is_consts[1]);
+                for (size_t row = 0; row < input_rows_count; row++) {
+                    if (root != nullptr) {
+                        const auto& obj = json_col->get_data_at(row);
+                        std::string_view json_string(obj.data, obj.size);
+                        if (UNLIKELY((parsed_paths).size() == 1)) {
+                            document.SetString(json_string.data(), json_string.size(), allocator);
+                        }
+                        document.Parse(json_string.data(), json_string.size());
+                        if (UNLIKELY(document.HasParseError())) {
+                            null_map[row] = 1;
+                            result_column.insert_default();
+                            continue;
+                        }
+                        auto* root_val = match_value(parsed_paths, &document, allocator);
+                        if (root_val != nullptr) {
+                            value.CopyFrom(*root_val, allocator);
+                        }
                     }
-
-                    document.Parse(json_string.data(), json_string.size());
-                    if (UNLIKELY(document.HasParseError())) {
-                        null_map[row] = 1;
-                        result_column.insert_default();
-                        continue;
-                    }
-                    auto* root_val = match_value(parsed_paths, &document, allocator);
-                    if (root_val != nullptr) {
-                        value.CopyFrom(*root_val, allocator);
-                    }
+                    insert_result_lambda(value, row);
                 }
-                if (value.IsNull()) {
-                    null_map[row] = 1;
-                    result_column.insert_default();
-                } else {
-                    // write value as string
-                    buf.Clear();
-                    writer.Reset(buf);
-                    value.Accept(writer);
-                    result_column.insert_data(buf.GetString(), buf.GetSize());
+            } else {
+                for (size_t row = 0; row < input_rows_count; row++) {
+                    value = parse_json(json_col, data_columns[1], allocator, row, 1,
+                                       column_is_consts);
+                    insert_result_lambda(value, row);
                 }
             }
+            
         } else {
+            rapidjson::Value value;
+            value.SetArray();
+            value.Reserve(data_columns.size() - 1, allocator);
             for (size_t row = 0; row < input_rows_count; row++) {
-                rapidjson::Value value;
-                value.SetArray();
-                value.Reserve(data_columns.size() - 1, allocator);
+                value.Clear();
                 for (size_t col = 1; col < data_columns.size(); ++col) {
                     value.PushBack(parse_json(json_col, data_columns[col], allocator, row, col,
                                               column_is_consts),
                                    allocator);
                 }
-
-                if (value.IsNull()) {
-                    null_map[row] = 1;
-                    result_column.insert_default();
-                } else {
-                    // write value as string
-                    buf.Clear();
-                    writer.Reset(buf);
-                    value.Accept(writer);
-                    result_column.insert_data(buf.GetString(), buf.GetSize());
-                }
+                insert_result_lambda(value, row);
             }
         }
     }
