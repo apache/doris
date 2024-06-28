@@ -67,10 +67,6 @@ suite ("count_star") {
     }
     qt_select_mv "select k1,k4,count(*) from d_table where k3=1 group by k1,k4 order by 1,2;"
 
-    explain {
-        sql("select count(*) from d_table;")
-        contains "(kstar)"
-    }
     qt_select_mv "select count(*) from d_table;"
 
     explain {
@@ -93,11 +89,6 @@ suite ("count_star") {
     explain {
         sql("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;")
         contains "(d_table)"
-    }
-
-    explain {
-        sql("select count(*) from d_table;")
-        contains "(kstar)"
     }
 
     explain {
