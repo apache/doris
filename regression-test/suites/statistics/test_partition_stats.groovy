@@ -928,6 +928,33 @@ suite("test_partition_stats") {
     assertEquals("1", result[0][7])
     assertEquals("20004", result[0][8])
 
+    // Test escape special col name.
+    sql """
+        create table part9(
+            k int null,
+            v variant null
+        )
+        duplicate key (k)
+        PARTITION BY RANGE(`k`)
+        (
+            PARTITION p1 VALUES [("0"), ("2")),
+            PARTITION p2 VALUES [("2"), ("4")),
+            PARTITION p3 VALUES [("4"), ("6"))
+        )
+        distributed BY hash(k) buckets 3
+        properties("replication_num" = "1");
+    """
+    sql """insert into part9 select 1,'{"k1" : 1, "k2" : 1, "k3" : "a"}';"""
+    sql """insert into part9 select 2,'{"k1" : 2, "k2" : 2, "k3" : "b"}';"""
+    sql """insert into part9 select 3,'{"k1" : 3, "k2" : null, "k3" : "c"}';"""
+    sql """insert into part9 select 4,'{"k1" : 4, "k2" : null, "k4" : {"k44" : 456}}';"""
+    createMV("create materialized view mv1 as select abs(cast(v['k4']['k44'] as int)), sum(abs(cast(v['k2'] as int)+2)+3) from part9 group by abs(cast(v['k4']['k44'] as int));")
+    sql """analyze table part9 with sync"""
+    result = sql """show column cached stats part9 partition(*)"""
+    assertEquals(9, result.size())
+    result = sql """show column stats part9 partition(*)"""
+    assertEquals(9, result.size())
+
     sql """drop database test_partition_stats"""
 }
 
