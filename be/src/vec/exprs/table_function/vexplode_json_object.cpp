@@ -117,9 +117,9 @@ void VExplodeJsonObjectTableFunction::get_same_many_values(MutableColumnPtr& col
                         column->get_name());
     }
     if (!ret || ret->tuple_size() != 2) {
-        throw Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "only support map column explode to two column, but given:  ", ret->tuple_size());
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "only support expand json object int to kv pair column, but given: ",
+                        ret->tuple_size());
     }
     ret->get_column(0).insert_many_from(*_object_pairs.first, _cur_offset, length);
     ret->get_column(1).insert_many_from(*_object_pairs.second, _cur_offset, length);
