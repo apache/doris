@@ -60,7 +60,7 @@ enum LRUCacheType {
 };
 
 static constexpr LRUCacheType DEFAULT_LRU_CACHE_TYPE = LRUCacheType::SIZE;
-static constexpr uint32_t DEFAULT_LRU_CACHE_NUM_SHARDS = 16;
+static constexpr uint32_t DEFAULT_LRU_CACHE_NUM_SHARDS = 32;
 static constexpr size_t DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY = 0;
 
 class CacheKey {

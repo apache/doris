@@ -84,7 +84,7 @@ public:
             : LRUCachePolicyTrackingManual(CachePolicy::CacheType::SEGMENT_CACHE,
                                            memory_bytes_limit, LRUCacheType::SIZE,
                                            config::tablet_rowset_stale_sweep_time_sec,
-                                           DEFAULT_LRU_CACHE_NUM_SHARDS * 3, segment_num_limit) {}
+                                           DEFAULT_LRU_CACHE_NUM_SHARDS * 2, segment_num_limit) {}
 
     // Lookup the given segment in the cache.
     // If the segment is found, the cache entry will be written into handle.
