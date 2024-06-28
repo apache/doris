@@ -480,7 +480,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         
         assertTrue(result[0][2] == "bitmap_index_name" )//Key_name
         assertTrue(result[0][4] == "k1" )//Column_name
-        assertTrue(result[0][10] == "BITMAP" ) //BITMAP
+        assertTrue(result[0][10] == "INVERTED" ) // branch 2.1 is INVERTED, master is BITMAP
         assertTrue(result[0][11] == "bitmap_k1" ) //bitmap_siteid
 
         sql """ drop INDEX bitmap_index_name on test_manager_tb;""" 
