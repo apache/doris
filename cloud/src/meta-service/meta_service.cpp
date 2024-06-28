@@ -269,6 +269,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 return;
             }
             response->set_version(version_pb.version());
+            response->add_version_update_time_ms(version_pb.update_time_ms());
         }
         { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
         return;
@@ -373,6 +374,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                 if (!value.has_value()) {
                     // return -1 if the target version is not exists.
                     response->add_versions(-1);
+                    response->add_version_update_time_ms(-1);
                 } else if (is_table_version) {
                     int64_t version = 0;
                     if (!txn->decode_atomic_int(*value, &version)) {
@@ -389,6 +391,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                         break;
                     }
                     response->add_versions(version_pb.version());
+                    response->add_version_update_time_ms(version_pb.update_time_ms());
                 }
             }
         }
