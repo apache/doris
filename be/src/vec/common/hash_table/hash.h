@@ -119,8 +119,7 @@ inline size_t hash_crc32(doris::vectorized::UInt128 u) {
 
 template <>
 inline size_t hash_crc32(doris::vectorized::Int128 u) {
-    return doris::vectorized::UInt128HashCRC32()(
-            doris::vectorized::UInt128((u >> 64) & int64_t(-1), u & int64_t(-1)));
+    return doris::vectorized::UInt128HashCRC32()({(u >> 64) & int64_t(-1), u & int64_t(-1)});
 }
 
 #define DEFINE_HASH(T)                   \
@@ -156,10 +155,10 @@ struct HashCRC32<doris::vectorized::UInt256> {
     size_t operator()(const doris::vectorized::UInt256& x) const {
 #if defined(__SSE4_2__) || defined(__aarch64__)
         doris::vectorized::UInt64 crc = -1ULL;
-        crc = _mm_crc32_u64(crc, x.a);
-        crc = _mm_crc32_u64(crc, x.b);
-        crc = _mm_crc32_u64(crc, x.c);
-        crc = _mm_crc32_u64(crc, x.d);
+        crc = _mm_crc32_u64(crc, x.items[0]);
+        crc = _mm_crc32_u64(crc, x.items[1]);
+        crc = _mm_crc32_u64(crc, x.items[2]);
+        crc = _mm_crc32_u64(crc, x.items[3]);
         return crc;
 #else
         return Hash128to64({Hash128to64({x.a, x.b}), Hash128to64({x.c, x.d})});

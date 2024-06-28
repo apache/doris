@@ -1161,8 +1161,7 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                           << tablet_in_not_shutdown->tablet_id()
                           << " mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
                           << " shutdown tablet path=" << tablet->tablet_path();
-                return tablet_in_not_shutdown->data_dir()->move_to_trash(
-                        tablet_in_not_shutdown->tablet_path());
+                return tablet->data_dir()->move_to_trash(tablet->tablet_path());
             } else {
                 LOG(INFO) << "tablet path eq shutdown tablet path, not move to trash, tablet_id="
                           << tablet_in_not_shutdown->tablet_id()
@@ -1334,9 +1333,10 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     Status check_st = TabletMetaManager::get_meta(data_dir, tablet_id, schema_hash, tablet_meta);
     if (check_st.ok() && tablet_meta->shard_id() == shard_id) {
-        LOG(INFO) << "tablet meta exists in meta store, skip delete the path " << schema_hash_path;
         return;
     }
+
+    LOG(INFO) << "tablet meta not exists, try delete tablet path " << schema_hash_path;
 
     bool succ = register_transition_tablet(tablet_id, "path gc");
     if (!succ) {
@@ -1346,7 +1346,7 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
 
     TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id);
     if (tablet != nullptr && tablet->tablet_path() == schema_hash_path) {
-        LOG(INFO) << "tablet , skip delete the path " << schema_hash_path;
+        LOG(INFO) << "tablet exists, skip delete the path " << schema_hash_path;
         return;
     }
 

@@ -21,7 +21,6 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.RandomDistributionDesc;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
 
@@ -61,12 +60,6 @@ public class RandomDistributionInfo extends DistributionInfo {
             builder.append("DISTRIBUTED BY RANDOM BUCKETS ").append(bucketNum);
         }
         return builder.toString();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(bucketNum);
     }
 
     @Override

@@ -37,7 +37,9 @@ void register_function_hll(SimpleFunctionFactory& factory);
 void register_function_logical(SimpleFunctionFactory& factory);
 void register_function_case(SimpleFunctionFactory& factory);
 void register_function_cast(SimpleFunctionFactory& factory);
+void register_function_encode_varchar(SimpleFunctionFactory& factory);
 void register_function_conv(SimpleFunctionFactory& factory);
+void register_function_decode_as_varchar(SimpleFunctionFactory& factory);
 void register_function_plus(SimpleFunctionFactory& factory);
 void register_function_minus(SimpleFunctionFactory& factory);
 void register_function_multiply(SimpleFunctionFactory& factory);
@@ -223,6 +225,8 @@ public:
             register_function_bitmap_variadic(instance);
             register_function_hll(instance);
             register_function_comparison(instance);
+            register_function_encode_varchar(instance);
+            register_function_decode_as_varchar(instance);
             register_function_logical(instance);
             register_function_case(instance);
             register_function_cast(instance);

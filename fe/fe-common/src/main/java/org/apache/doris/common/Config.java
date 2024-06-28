@@ -162,6 +162,10 @@ public class Config extends ConfigBase {
             "MySQL Jdbc Catalog mysql does not support pushdown functions"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
+    @ConfField(description = {"SQLServer Jdbc Catalog 关闭加密",
+            "SQLServer Jdbc Catalog close encrypt"})
+    public static boolean disable_jdbc_sqlserver_encrypt = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 8;
@@ -1186,6 +1190,12 @@ public class Config extends ConfigBase {
     public static int max_routine_load_task_num_per_be = 1024;
 
     /**
+     * the max timeout of get kafka meta.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_get_kafka_meta_timeout_second = 60;
+
+    /**
      * The max number of files store in SmallFileMgr
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1267,7 +1277,7 @@ public class Config extends ConfigBase {
      * a period for auto resume routine load
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int period_of_auto_resume_min = 5;
+    public static int period_of_auto_resume_min = 10;
 
     /**
      * If set to true, the backend will be automatically dropped after finishing decommission.
@@ -1377,12 +1387,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean recover_with_empty_tablet = false;
-
-    /**
-     * Whether to add a delete sign column when create unique table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_batch_delete_by_default = true;
 
     /**
      * Whether to add a version column when create unique table
@@ -1668,9 +1672,6 @@ public class Config extends ConfigBase {
      * */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
-
-    @ConfField(mutable = true)
-    public static boolean enable_pipeline_load = true;
 
     /*---------------------- JOB CONFIG START------------------------*/
     /**
@@ -2405,13 +2406,13 @@ public class Config extends ConfigBase {
     })
     public static long analyze_record_limit = 20000;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = true, masterOnly = true, description = {
             "Auto Buckets中最小的buckets数目",
             "min buckets of auto bucket"
     })
     public static int autobucket_min_buckets = 1;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = true, masterOnly = true, description = {
         "Auto Buckets中最大的buckets数目",
         "max buckets of auto bucket"
     })
@@ -2622,6 +2623,15 @@ public class Config extends ConfigBase {
     })
     public static String inverted_index_storage_format = "V2";
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
+                    + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
+            "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
+                    + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
+                    + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."
+    })
+    public static boolean enable_mow_delete_on_predicate = false;
+
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
             "Whether to enable proxy protocol"
@@ -2651,6 +2661,11 @@ public class Config extends ConfigBase {
             "如果 checkpoint 连续多次因内存不足而无法进行时，先尝试手动触发 GC",
             "The threshold to do manual GC when doing checkpoint but not enough memory"})
     public static int checkpoint_manual_gc_threshold = 0;
+
+    @ConfField(mutable = true, description = {
+            "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
+            "Should the request content be logged before each request starts, specifically the query statements"})
+    public static boolean enable_print_request_before_execution = false;
 
     //==========================================================================
     //                    begin of cloud config

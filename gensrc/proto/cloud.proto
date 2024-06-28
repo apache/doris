@@ -172,12 +172,14 @@ message ObjectStoreInfoPB {
     // presigned url use
     // oss,aws,cos,obs,bos
     enum Provider {
-        OSS = 0;
-        S3 =  1;
-        COS = 2;
-        OBS = 3;
-        BOS = 4;
-        GCP = 5;
+        UNKONWN = -1;
+        OSS     = 0;
+        S3      = 1;
+        COS     = 2;
+        OBS     = 3;
+        BOS     = 4;
+        GCP     = 5;
+        AZURE   = 6;
     }
     optional int64 ctime = 1;
     optional int64 mtime = 2;
@@ -201,6 +203,13 @@ message StorageVaultPB {
     optional string name = 2;
     optional HdfsVaultInfo hdfs_info = 3; // HdfsResource
     optional ObjectStoreInfoPB obj_info = 4;
+
+    message PathFormat {
+        optional int64 path_version = 1;
+        optional int64 shard_num = 2;
+    }
+
+    optional PathFormat path_format = 5;
 }
 
 message HdfsBuildConf {
@@ -261,6 +270,8 @@ enum TxnStatusPB {
 message TxnCoordinatorPB {
     optional TxnSourceTypePB sourceType = 1;
     optional string ip = 2;
+    optional int64 id = 3;
+    optional int64 start_time = 4;
 }
 
 message RoutineLoadProgressPB {
@@ -694,6 +705,7 @@ message GetTxnRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
     optional int64 txn_id = 3;
+    optional string label = 4;
 }
 
 message GetTxnResponse {
@@ -911,6 +923,7 @@ message CreateRowsetRequest {
     optional string cloud_unique_id = 1; // For auth
     optional doris.RowsetMetaCloudPB rowset_meta = 2;
     optional bool temporary = 3;
+    optional int64 txn_id = 4;
 }
 
 message CreateRowsetResponse {

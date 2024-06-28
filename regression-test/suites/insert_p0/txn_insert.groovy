@@ -34,7 +34,7 @@ suite("txn_insert") {
         logger.info("frontends: ${fes}")
         if (fes.size() > 1) {
             for (def fe : fes) {
-                if (fe.IsMaster == "false") {
+                if (fe.IsMaster == "false" && fe.Alive == "true") {
                     return "jdbc:mysql://${fe.Host}:${fe.QueryPort}/"
                 }
             }
@@ -142,7 +142,7 @@ suite("txn_insert") {
         if (use_nereids_planner) {
             sql """ insert into ${table}_0 select * from $table; """
             sql """ insert into ${table}_1 select * from $table; """
-            sql """ insert into ${table}_2 select * from ${table}_0; """
+            sql """ with cte1 as (select * from ${table}_0) insert into ${table}_2 select * from cte1; """
         } else {
             test {
                 sql """ insert into ${table}_0 select * from $table; """

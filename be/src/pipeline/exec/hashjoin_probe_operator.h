@@ -77,6 +77,7 @@ public:
         // !Base::_projections.empty() means nereids planner
         return _shared_state->empty_right_table_need_probe_dispose && !Base::_projections.empty();
     }
+    std::string debug_string(int indentation_level) const override;
 
 private:
     void _prepare_probe_block();

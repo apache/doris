@@ -227,6 +227,11 @@ public class DorisFE {
     }
 
     private static void checkAllPorts() throws IOException {
+        if (Config.enable_check_compatibility_mode) {
+            // The compatibility mode does not need to listen ports.
+            return;
+        }
+
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
                 "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.edit_log_port + " already in use");

@@ -370,6 +370,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                             .addAll(agg.getDistinctArguments())
                             .build().size() > agg.getGroupByExpressions().size()
                     )
+                    .when(agg -> {
+                        if (agg.getDistinctArguments().size() == 1) {
+                            return true;
+                        }
+                        return couldConvertToMulti(agg);
+                    })
                     .thenApplyMulti(ctx -> {
                         Function<List<Expression>, RequireProperties> secondPhaseRequireGroupByAndDistinctHash =
                                 groupByAndDistinct -> RequireProperties.of(
@@ -1849,6 +1855,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 bufferToBufferParam, false, logicalAgg.getLogicalProperties(),
                 secondPhaseRequire, anyLocalAgg);
 
+        boolean shouldDistinctAfterPhase2 = distinctArguments.size() > 1;
+
         // phase 3
         AggregateParam distinctLocalParam = new AggregateParam(
                 AggPhase.DISTINCT_LOCAL, AggMode.INPUT_TO_BUFFER, couldBanned);
@@ -1867,11 +1875,25 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                                 || aggregateFunction.getDistinctArguments().size() == 1,
                                         "cannot process more than one child in aggregate distinct function: "
                                                 + aggregateFunction);
-                                AggregateFunction nonDistinct = aggregateFunction
-                                        .withDistinctAndChildren(false, ImmutableList.copyOf(aggChild));
-                                AggregateExpression nonDistinctAggExpr = new AggregateExpression(nonDistinct,
-                                        distinctLocalParam, aggregateFunction);
-                                return nonDistinctAggExpr;
+
+                                AggregateFunction newDistinct;
+                                if (shouldDistinctAfterPhase2) {
+                                    // we use aggregate function to process distinct,
+                                    // so need to change to multi distinct function
+                                    newDistinct = tryConvertToMultiDistinct(
+                                            aggregateFunction.withDistinctAndChildren(
+                                                    true, ImmutableList.copyOf(aggChild))
+                                    );
+                                } else {
+                                    // we use group by to process distinct,
+                                    // so no distinct param in the aggregate function
+                                    newDistinct = aggregateFunction.withDistinctAndChildren(
+                                            false, ImmutableList.copyOf(aggChild));
+                                }
+
+                                AggregateExpression newDistinctAggExpr = new AggregateExpression(
+                                        newDistinct, distinctLocalParam, newDistinct);
+                                return newDistinctAggExpr;
                             } else {
                                 needUpdateSlot.add(aggregateFunction);
                                 Alias alias = nonDistinctAggFunctionToAliasPhase2.get(expr);
@@ -1908,11 +1930,19 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                         || aggregateFunction.getDistinctArguments().size() == 1,
                                 "cannot process more than one child in aggregate distinct function: "
                                         + aggregateFunction);
-                        AggregateFunction nonDistinct = aggregateFunction
-                                .withDistinctAndChildren(false, ImmutableList.copyOf(aggChild));
+                        AggregateFunction newDistinct;
+                        if (shouldDistinctAfterPhase2) {
+                            newDistinct = tryConvertToMultiDistinct(
+                                    aggregateFunction.withDistinctAndChildren(
+                                            true, ImmutableList.copyOf(aggChild))
+                            );
+                        } else {
+                            newDistinct = aggregateFunction
+                                    .withDistinctAndChildren(false, ImmutableList.copyOf(aggChild));
+                        }
                         int idx = logicalAgg.getOutputExpressions().indexOf(outputExpr);
                         Alias localDistinctAlias = (Alias) (localDistinctOutput.get(idx));
-                        return new AggregateExpression(nonDistinct,
+                        return new AggregateExpression(newDistinct,
                                 distinctGlobalParam, localDistinctAlias.toSlot());
                     } else {
                         Alias alias = nonDistinctAggFunctionToAliasPhase3.get(expr);

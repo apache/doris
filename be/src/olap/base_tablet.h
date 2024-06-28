@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/iterators.h"
 #include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
@@ -185,8 +186,8 @@ public:
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
 
     static Status generate_new_block_for_partial_update(
-            TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
-            const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
+            TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
+            const PartialUpdateReadPlan& read_plan_ori,
             const PartialUpdateReadPlan& read_plan_update,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             vectorized::Block* output_block);
@@ -299,6 +300,10 @@ public:
     std::atomic<int64_t> read_block_count = 0;
     std::atomic<int64_t> write_count = 0;
     std::atomic<int64_t> compaction_count = 0;
+
+    std::mutex sample_info_lock;
+    std::vector<CompactionSampleInfo> sample_infos;
+    Status last_compaction_status = Status::OK();
 };
 
 } /* namespace doris */

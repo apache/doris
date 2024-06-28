@@ -66,7 +66,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -1143,7 +1142,8 @@ public class OlapScanNode extends ScanNode {
 
     public boolean isPointQuery() {
         return this.pointQueryEqualPredicats != null
-                    || (preparedStatment != null && preparedStatment.isPointQueryShortCircuit());
+                    || (preparedStatment != null && preparedStatment.isPointQueryShortCircuit())
+                    || ConnectContext.get().getStatementContext().isShortCircuitQuery();
     }
 
     private void computeTabletInfo() throws UserException {
@@ -1271,6 +1271,7 @@ public class OlapScanNode extends ScanNode {
         scanTabletIds.clear();
         bucketSeq2locations.clear();
         scanReplicaIds.clear();
+        sampleTabletIds.clear();
         try {
             createScanRangeLocations();
         } catch (AnalysisException e) {
@@ -1352,8 +1353,9 @@ public class OlapScanNode extends ScanNode {
         String selectedPartitions = getSelectedPartitionIds().stream().sorted()
                 .map(id -> olapTable.getPartition(id).getName())
                 .collect(Collectors.joining(","));
-        output.append(prefix).append(String.format("partitions=%s/%s (%s), tablets=%s/%s", selectedPartitionNum,
-                olapTable.getPartitions().size(), selectedPartitions, selectedTabletsNum, totalTabletsNum));
+        output.append(prefix).append(String.format("partitions=%s/%s (%s)", selectedPartitionNum,
+                olapTable.getPartitions().size(), selectedPartitions)).append("\n");
+        output.append(prefix).append(String.format("tablets=%s/%s", selectedTabletsNum, totalTabletsNum));
         // We print up to 3 tablet, and we print "..." if the number is more than 3
         if (scanTabletIds.size() > 3) {
             List<Long> firstTenTabletIds = scanTabletIds.subList(0, 3);
@@ -1370,7 +1372,7 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("pushAggOp=").append(pushDownAggNoGroupingOp).append("\n");
         }
         if (isPointQuery()) {
-            output.append(prefix).append("SHORT-CIRCUIT");
+            output.append(prefix).append("SHORT-CIRCUIT\n");
         }
 
         if (!CollectionUtils.isEmpty(rewrittenProjectList)) {
@@ -1385,13 +1387,7 @@ public class OlapScanNode extends ScanNode {
     public int getNumInstances() {
         // In pipeline exec engine, the instance num equals be_num * parallel instance.
         // so here we need count distinct be_num to do the work. make sure get right instance
-        if (ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
-                && !ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
-                && ConnectContext.get().getSessionVariable().getEnableSharedScan()) {
-            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-        }
-        if (ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
-                && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
+        if (ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
             return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
         return scanRangeLocations.size();
@@ -1527,9 +1523,8 @@ public class OlapScanNode extends ScanNode {
             msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
         }
 
-        if (shouldColoScan || SessionVariable.enablePipelineEngineX()) {
-            msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
-        }
+        msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
+
         super.toThrift(msg);
     }
 
@@ -1707,10 +1702,6 @@ public class OlapScanNode extends ScanNode {
         computeStatsForNereids();
         // NOTICE: must call here to get selected tablet row count to let block rules work well.
         mockRowCountInStatistic();
-        if (!SessionVariable.enablePipelineEngineX()) {
-            // distributionColumnIds is used for one backend node agg optimization, nereids do not support it.
-            distributionColumnIds.clear();
-        }
     }
 
     private void computeStatsForNereids() {

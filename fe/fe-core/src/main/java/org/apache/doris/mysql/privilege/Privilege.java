@@ -17,10 +17,12 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 
 import com.google.common.collect.ImmutableMap;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -162,5 +164,16 @@ public enum Privilege {
     @Override
     public String toString() {
         return name;
+    }
+
+    public static void checkIncorrectPrivilege(Privilege[] incorrectPrivileges,
+                                               Collection<Privilege> privileges) throws AnalysisException {
+        for (int i = 0; i < incorrectPrivileges.length; i++) {
+            if (privileges.contains(incorrectPrivileges[i])) {
+                throw new AnalysisException(
+                    String.format("Can not grant/revoke %s to/from any other users or roles",
+                        incorrectPrivileges[i]));
+            }
+        }
     }
 }

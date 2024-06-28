@@ -293,9 +293,7 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
     std::string running_val;
     TxnRunningPB running_pb;
     running_pb.set_timeout_time(prepare_time + txn_info.timeout_ms());
-    for (auto i : txn_info.table_ids()) {
-        running_pb.add_table_ids(i);
-    }
+    running_pb.mutable_table_ids()->CopyFrom(txn_info.table_ids());
     VLOG_DEBUG << "label=" << label << " txn_id=" << txn_id
                << "running_pb=" << running_pb.ShortDebugString();
     if (!running_pb.SerializeToString(&running_val)) {
@@ -467,6 +465,7 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
 
     TxnRunningPB running_pb;
     running_pb.set_timeout_time(precommit_time + txn_info.precommit_timeout_ms());
+    running_pb.mutable_table_ids()->CopyFrom(txn_info.table_ids());
     if (!running_pb.SerializeToString(&running_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         ss << "failed to serialize running_pb, txn_id=" << txn_id;
@@ -2052,7 +2051,8 @@ void MetaServiceImpl::get_txn(::google::protobuf::RpcController* controller,
     RPC_PREPROCESS(get_txn);
     int64_t txn_id = request->has_txn_id() ? request->txn_id() : -1;
     int64_t db_id = request->has_db_id() ? request->db_id() : -1;
-    if (txn_id < 0) {
+    std::string label = request->has_label() ? request->label() : "";
+    if (txn_id < 0 && label.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         ss << "invalid txn_id, it may be not given or set properly, txn_id=" << txn_id;
         msg = ss.str();
@@ -2077,6 +2077,42 @@ void MetaServiceImpl::get_txn(::google::protobuf::RpcController* controller,
         ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
         return;
+    }
+
+    if (!label.empty()) {
+        //step 1: get label
+        const std::string label_key = txn_label_key({instance_id, db_id, label});
+        std::string label_val;
+        err = txn->get(label_key, &label_val);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "txn->get failed(), err=" << err << " label=" << label;
+            msg = ss.str();
+            return;
+        }
+        LOG(INFO) << "txn->get label_key=" << hex(label_key) << " label=" << label
+                  << " err=" << err;
+        // step 2: get txn info from label pb
+        TxnLabelPB label_pb;
+        if (err == TxnErrorCode::TXN_OK) {
+            if (label_val.size() <= VERSION_STAMP_LEN ||
+                !label_pb.ParseFromArray(label_val.data(), label_val.size() - VERSION_STAMP_LEN)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "label_pb->ParseFromString() failed, txn_id=" << txn_id << " label=" << label;
+                msg = ss.str();
+                return;
+            }
+            for (auto& cur_txn_id : label_pb.txn_ids()) {
+                if (cur_txn_id > txn_id) {
+                    txn_id = cur_txn_id;
+                }
+            }
+        } else {
+            code = MetaServiceCode::TXN_ID_NOT_FOUND;
+            ss << "Label [" << label << "] has not found";
+            msg = ss.str();
+            return;
+        }
     }
 
     //not provide db_id, we need read from disk.

@@ -283,10 +283,10 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
             return true;
         };
 
-        RETURN_IF_CATCH_EXCEPTION(probe_side_output_column(
+        probe_side_output_column(
                 mcol, *_left_output_slot_flags, current_offset, last_probe_index,
                 check_all_match_one(_probe_indexs, last_probe_index, current_offset),
-                with_other_conjuncts));
+                with_other_conjuncts);
     }
 
     output_block->swap(mutable_block.to_block());

@@ -67,6 +67,7 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
     }
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     Status res = local_state._table_func->get_next(state, block, eos);
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                            block->columns()));
@@ -75,6 +76,8 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
 }
 
 Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     auto& p = _parent->cast<DataGenSourceOperatorX>();
     _table_func = std::make_shared<VNumbersTVF>(p._tuple_id, p._tuple_desc);
@@ -92,6 +95,8 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 }
 
 Status DataGenLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }

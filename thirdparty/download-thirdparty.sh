@@ -305,6 +305,8 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LIBEVENT " ]]; then
     cd "${TP_SOURCE_DIR}/${LIBEVENT_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         patch -p1 <"${TP_PATCH_DIR}/libevent.patch"
+        patch -p1 <"${TP_PATCH_DIR}/libevent-1532.patch"
+        patch -p1 <"${TP_PATCH_DIR}/libevent-keepalive-accepted-socket.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -

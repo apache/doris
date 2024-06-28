@@ -203,15 +203,15 @@ suite("test_routine_load_schedule","p0") {
                 log.info("routine load statistic: ${res[0][14].toString()}".toString())
                 log.info("progress: ${res[0][15].toString()}".toString())
                 log.info("lag: ${res[0][16].toString()}".toString())
-                def json = parseJson(res[0][14])
-                if (json.loadedRows.toString() != "20") {
-                    count++
-                    if (count > 60) {
-                        assertEquals(1, 2)
-                    } 
-                    continue;
+                res = sql "select count(*) from ${tableName}"
+                if (res[0][0] > 0) {
+                    break;
                 }
-                break;
+                count++
+                if (count > 60) {
+                    assertEquals(1, 2)
+                } 
+                continue;
             }
             qt_sql "select * from ${tableName} order by k00, k01"
         } finally {

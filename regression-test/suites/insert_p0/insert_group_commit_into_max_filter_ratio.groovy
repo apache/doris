@@ -93,7 +93,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
                 logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
             }
             // assertEquals(result, expected_row_count)
-            assertTrue(serverInfo.contains("'status':'ABORTED'") || serverInfo.contains("too many filtered rows"))
+            assertTrue(serverInfo.contains("'status':'ABORTED'")/* || serverInfo.contains("too many filtered rows")*/)
             // assertFalse(serverInfo.contains("'label':'group_commit_"))
         } catch (Exception e) {
             logger.info("exception: " + e)
@@ -184,8 +184,6 @@ suite("insert_group_commit_into_max_filter_ratio") {
     for (item in ["legacy", "nereids"]) {
         sql """ truncate table ${tableName} """
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
-            // TODO: pipeline need to be implemented
-            sql """ set experimental_enable_nereids_dml_with_pipeline = false; """
             if (item == "nereids") {
                 sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
@@ -235,7 +233,8 @@ suite("insert_group_commit_into_max_filter_ratio") {
             sql """ set group_commit = async_mode; """
             sql """ set enable_insert_strict = true; """
             if (item == "nereids") {
-                // sql """ insert into ${dbTableName} values (8, 'a', 'a'); """, 1
+                // will write [8, a, null]
+                // group_commit_insert """ insert into ${dbTableName} values (8, 'a', 'a'); """, 1
             } else {
                 fail_group_commit_insert """ insert into ${dbTableName} values (8, 'a', 'a'); """, 0
             }

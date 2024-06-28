@@ -137,8 +137,8 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
     if (_tablet_schema->has_inverted_index()) {
         _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 _opts.rowset_ctx->fs(),
-                std::string {InvertedIndexDescriptor::get_index_path_prefix(
-                        _opts.rowset_ctx->segment_path(segment_id))},
+                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
+                        file_writer->path().c_str())},
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format());
     }
@@ -172,9 +172,9 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
         init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i), tablet_schema);
     }
-
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
+    meta->set_be_exec_version(column.get_be_exec_version());
 }
 
 Status SegmentWriter::init() {
@@ -184,6 +184,86 @@ Status SegmentWriter::init() {
         column_ids.emplace_back(i);
     }
     return init(column_ids, true);
+}
+
+Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column,
+                                            const TabletSchemaSPtr& schema) {
+    ColumnWriterOptions opts;
+    opts.meta = _footer.add_columns();
+
+    init_column_meta(opts.meta, cid, column, schema);
+
+    // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
+    // except for columns whose type don't support zone map.
+    opts.need_zone_map = column.is_key() || schema->keys_type() != KeysType::AGG_KEYS;
+    opts.need_bloom_filter = column.is_bf_column();
+    auto* tablet_index = schema->get_ngram_bf_index(column.unique_id());
+    if (tablet_index) {
+        opts.need_bloom_filter = true;
+        opts.is_ngram_bf_index = true;
+        opts.gram_size = tablet_index->get_gram_size();
+        opts.gram_bf_size = tablet_index->get_gram_bf_size();
+    }
+
+    opts.need_bitmap_index = column.has_bitmap_index();
+    bool skip_inverted_index = false;
+    if (_opts.rowset_ctx != nullptr) {
+        // skip write inverted index for index compaction
+        skip_inverted_index = _opts.rowset_ctx->skip_inverted_index.count(column.unique_id()) > 0;
+    }
+    // skip write inverted index on load if skip_write_index_on_load is true
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
+        skip_inverted_index = true;
+    }
+    // indexes for this column
+    opts.indexes = schema->get_indexes_for_column(column);
+    if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
+        opts.need_zone_map = false;
+        opts.need_bloom_filter = false;
+        opts.need_bitmap_index = false;
+    }
+    opts.inverted_index_file_writer = _inverted_index_file_writer.get();
+    for (const auto* index : opts.indexes) {
+        if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
+            opts.inverted_index = index;
+            opts.need_inverted_index = true;
+            // TODO support multiple inverted index
+            break;
+        }
+    }
+#define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
+        opts.need_zone_map = false;                                                            \
+        if (opts.need_bloom_filter) {                                                          \
+            return Status::NotSupported("Do not support bloom filter for " type_name " type"); \
+        }                                                                                      \
+        if (opts.need_bitmap_index) {                                                          \
+            return Status::NotSupported("Do not support bitmap index for " type_name " type"); \
+        }                                                                                      \
+    }
+
+    CHECK_FIELD_TYPE(STRUCT, "struct")
+    CHECK_FIELD_TYPE(ARRAY, "array")
+    CHECK_FIELD_TYPE(JSONB, "jsonb")
+    CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
+    CHECK_FIELD_TYPE(MAP, "map")
+    CHECK_FIELD_TYPE(OBJECT, "object")
+    CHECK_FIELD_TYPE(HLL, "hll")
+    CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
+
+#undef CHECK_FIELD_TYPE
+
+    if (column.is_row_store_column()) {
+        // smaller page size for row store column
+        opts.data_page_size = config::row_column_page_size;
+    }
+    std::unique_ptr<ColumnWriter> writer;
+    RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
+    RETURN_IF_ERROR(writer->init());
+    _column_writers.push_back(std::move(writer));
+
+    _olap_data_convertor->add_column_data_convertor(column);
+    return Status::OK();
 }
 
 Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
@@ -196,90 +276,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     if (_opts.compression_type == UNKNOWN_COMPRESSION) {
         _opts.compression_type = _tablet_schema->compression_type();
     }
-    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
-        ColumnWriterOptions opts;
-        opts.meta = _footer.add_columns();
 
-        init_column_meta(opts.meta, cid, column, _tablet_schema);
-
-        // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
-        // except for columns whose type don't support zone map.
-        opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
-        opts.need_bloom_filter = column.is_bf_column();
-        auto* tablet_index = _tablet_schema->get_ngram_bf_index(column.unique_id());
-        if (tablet_index) {
-            opts.need_bloom_filter = true;
-            opts.is_ngram_bf_index = true;
-            opts.gram_size = tablet_index->get_gram_size();
-            opts.gram_bf_size = tablet_index->get_gram_bf_size();
-        }
-
-        opts.need_bitmap_index = column.has_bitmap_index();
-        bool skip_inverted_index = false;
-        if (_opts.rowset_ctx != nullptr) {
-            // skip write inverted index for index compaction
-            skip_inverted_index =
-                    _opts.rowset_ctx->skip_inverted_index.count(column.unique_id()) > 0;
-        }
-        // skip write inverted index on load if skip_write_index_on_load is true
-        if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
-            _tablet_schema->skip_write_index_on_load()) {
-            skip_inverted_index = true;
-        }
-        // indexes for this column
-        opts.indexes = std::move(_tablet_schema->get_indexes_for_column(column));
-        if (!InvertedIndexColumnWriter::check_column_valid(column)) {
-            // skip inverted index if invalid
-            opts.indexes.clear();
-            opts.need_zone_map = false;
-            opts.need_bloom_filter = false;
-            opts.need_bitmap_index = false;
-        }
-        opts.inverted_index_file_writer = _inverted_index_file_writer.get();
-        for (const auto* index : opts.indexes) {
-            if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
-                opts.inverted_index = index;
-                opts.need_inverted_index = true;
-                // TODO support multiple inverted index
-                break;
-            }
-        }
-#define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
-        opts.need_zone_map = false;                                                            \
-        if (opts.need_bloom_filter) {                                                          \
-            return Status::NotSupported("Do not support bloom filter for " type_name " type"); \
-        }                                                                                      \
-        if (opts.need_bitmap_index) {                                                          \
-            return Status::NotSupported("Do not support bitmap index for " type_name " type"); \
-        }                                                                                      \
-    }
-
-        CHECK_FIELD_TYPE(STRUCT, "struct")
-        CHECK_FIELD_TYPE(ARRAY, "array")
-        CHECK_FIELD_TYPE(JSONB, "jsonb")
-        CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
-        CHECK_FIELD_TYPE(MAP, "map")
-        CHECK_FIELD_TYPE(OBJECT, "object")
-        CHECK_FIELD_TYPE(HLL, "hll")
-        CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
-
-#undef CHECK_FIELD_TYPE
-
-        if (column.is_row_store_column()) {
-            // smaller page size for row store column
-            opts.data_page_size = config::row_column_page_size;
-        }
-        std::unique_ptr<ColumnWriter> writer;
-        RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
-        RETURN_IF_ERROR(writer->init());
-        _column_writers.push_back(std::move(writer));
-
-        _olap_data_convertor->add_column_data_convertor(column);
-        return Status::OK();
-    };
-
-    RETURN_IF_ERROR(_create_writers(*_tablet_schema, col_ids, create_column_writer));
+    RETURN_IF_ERROR(_create_writers(_tablet_schema, col_ids));
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {
@@ -306,12 +304,11 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     return Status::OK();
 }
 
-Status SegmentWriter::_create_writers(
-        const TabletSchema& tablet_schema, const std::vector<uint32_t>& col_ids,
-        std::function<Status(uint32_t, const TabletColumn&)> create_column_writer) {
+Status SegmentWriter::_create_writers(const TabletSchemaSPtr& tablet_schema,
+                                      const std::vector<uint32_t>& col_ids) {
     _olap_data_convertor->reserve(col_ids.size());
     for (auto& cid : col_ids) {
-        RETURN_IF_ERROR(create_column_writer(cid, tablet_schema.column(cid)));
+        RETURN_IF_ERROR(_create_column_writer(cid, tablet_schema->column(cid), tablet_schema));
     }
     return Status::OK();
 }
@@ -320,11 +317,117 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     // Just invalid row cache for simplicity, since the rowset is not visible at present.
     // If we update/insert cache, if load failed rowset will not be visible but cached data
     // will be visible, and lead to inconsistency.
-    if (!config::disable_storage_row_cache && _tablet_schema->store_row_column() &&
+    if (!config::disable_storage_row_cache && _tablet_schema->has_row_store_for_all_columns() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT) {
         // invalidate cache
         RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
     }
+}
+
+// for variant type, we should do following steps to fill content of block:
+// 1. set block data to data convertor, and get all flattened columns from variant subcolumns
+// 2. get sparse columns from previous sparse columns stripped in OlapColumnDataConvertorVariant
+// 3. merge current columns info(contains extracted columns) with previous merged_tablet_schema
+//    which will be used to contruct the new schema for rowset
+Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& data) {
+    if (_tablet_schema->num_variant_columns() == 0) {
+        return Status::OK();
+    }
+    size_t column_id = _tablet_schema->num_columns();
+    for (int i = 0; i < _tablet_schema->columns().size(); ++i) {
+        if (!_tablet_schema->columns()[i]->is_variant_type()) {
+            continue;
+        }
+        if (_flush_schema == nullptr) {
+            _flush_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+        }
+        auto column_ref = data.get_by_position(i).column;
+        const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
+                remove_nullable(column_ref)->assume_mutable_ref());
+        const TabletColumnPtr& parent_column = _tablet_schema->columns()[i];
+
+        // generate column info by entry info
+        auto generate_column_info = [&](const auto& entry) {
+            const std::string& column_name =
+                    parent_column->name_lower_case() + "." + entry->path.get_path();
+            const vectorized::DataTypePtr& final_data_type_from_object =
+                    entry->data.get_least_common_type();
+            vectorized::PathInDataBuilder full_path_builder;
+            auto full_path = full_path_builder.append(parent_column->name_lower_case(), false)
+                                     .append(entry->path.get_parts(), false)
+                                     .build();
+            return vectorized::schema_util::get_column_by_type(
+                    final_data_type_from_object, column_name,
+                    vectorized::schema_util::ExtraInfo {
+                            .unique_id = -1,
+                            .parent_unique_id = parent_column->unique_id(),
+                            .path_info = full_path});
+        };
+
+        CHECK(object_column.is_finalized());
+        // common extracted columns
+        for (const auto& entry :
+             vectorized::schema_util::get_sorted_subcolumns(object_column.get_subcolumns())) {
+            if (entry->path.empty()) {
+                // already handled by parent column
+                continue;
+            }
+            CHECK(entry->data.is_finalized());
+            int current_column_id = column_id++;
+            TabletColumn tablet_column = generate_column_info(entry);
+            vectorized::schema_util::inherit_column_attributes(*parent_column, tablet_column,
+                                                               _flush_schema);
+            RETURN_IF_ERROR(_create_column_writer(current_column_id /*unused*/, tablet_column,
+                                                  _flush_schema));
+            RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
+                    {entry->data.get_finalized_column_ptr()->get_ptr(),
+                     entry->data.get_least_common_type(), tablet_column.name()},
+                    0, data.rows(), current_column_id));
+            // convert column data from engine format to storage layer format
+            auto [status, column] = _olap_data_convertor->convert_column_data(current_column_id);
+            if (!status.ok()) {
+                return status;
+            }
+            RETURN_IF_ERROR(_column_writers[current_column_id]->append(
+                    column->get_nullmap(), column->get_data(), data.rows()));
+            _flush_schema->append_column(tablet_column);
+            _olap_data_convertor->clear_source_content();
+        }
+        // sparse_columns
+        for (const auto& entry : vectorized::schema_util::get_sorted_subcolumns(
+                     object_column.get_sparse_subcolumns())) {
+            TabletColumn sparse_tablet_column = generate_column_info(entry);
+            _flush_schema->mutable_column_by_uid(parent_column->unique_id())
+                    .append_sparse_column(sparse_tablet_column);
+
+            // add sparse column to footer
+            auto* column_pb = _footer.mutable_columns(i);
+            init_column_meta(column_pb->add_sparse_columns(), -1, sparse_tablet_column,
+                             _flush_schema);
+        }
+    }
+
+    // Update rowset schema, tablet's tablet schema will be updated when build Rowset
+    // Eg. flush schema:    A(int),    B(float),  C(int), D(int)
+    // ctx.tablet_schema:  A(bigint), B(double)
+    // => update_schema:   A(bigint), B(double), C(int), D(int)
+    std::lock_guard<std::mutex> lock(*(_opts.rowset_ctx->schema_lock));
+    if (_opts.rowset_ctx->merged_tablet_schema == nullptr) {
+        _opts.rowset_ctx->merged_tablet_schema = _opts.rowset_ctx->tablet_schema;
+    }
+    TabletSchemaSPtr update_schema;
+    RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
+            {_opts.rowset_ctx->merged_tablet_schema, _flush_schema}, nullptr, update_schema));
+    CHECK_GE(update_schema->num_columns(), _flush_schema->num_columns())
+            << "Rowset merge schema columns count is " << update_schema->num_columns()
+            << ", but flush_schema is larger " << _flush_schema->num_columns()
+            << " update_schema: " << update_schema->dump_structure()
+            << " flush_schema: " << _flush_schema->dump_structure();
+    _opts.rowset_ctx->merged_tablet_schema.swap(update_schema);
+    VLOG_DEBUG << "dump block " << data.dump_data();
+    VLOG_DEBUG << "dump rs schema: " << _opts.rowset_ctx->merged_tablet_schema->dump_full_schema();
+    VLOG_DEBUG << "rowset : " << _opts.rowset_ctx->rowset_id << ", seg id : " << _segment_id;
+    return Status::OK();
 }
 
 void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
@@ -333,27 +436,23 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
     }
     MonotonicStopWatch watch;
     watch.start();
-    // find row column id
     int row_column_id = 0;
     for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
         if (_tablet_schema->column(i).is_row_store_column()) {
-            row_column_id = i;
+            auto* row_store_column = static_cast<vectorized::ColumnString*>(
+                    block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
+            row_store_column->clear();
+            vectorized::DataTypeSerDeSPtrs serdes =
+                    vectorized::create_data_type_serdes(block.get_data_types());
+            vectorized::JsonbSerializeUtil::block_to_jsonb(
+                    *_tablet_schema, block, *row_store_column, _tablet_schema->num_columns(),
+                    serdes,
+                    {_tablet_schema->row_columns_uids().begin(),
+                     _tablet_schema->row_columns_uids().end()});
             break;
         }
     }
-    if (row_column_id == 0) {
-        return;
-    }
-    vectorized::ColumnString* row_store_column =
-            static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)
-                                                           .column->assume_mutable_ref()
-                                                           .assume_mutable()
-                                                           .get());
-    row_store_column->clear();
-    vectorized::DataTypeSerDeSPtrs serdes =
-            vectorized::create_data_type_serdes(block.get_data_types());
-    vectorized::JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
-                                                   _tablet_schema->num_columns(), serdes);
+
     VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
                << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
                << watch.elapsed_time() / 1000;
@@ -368,10 +467,9 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    auto* tablet = static_cast<Tablet*>(_tablet.get());
     if (block->columns() <= _tablet_schema->num_key_columns() ||
         block->columns() >= _tablet_schema->num_columns()) {
-        return Status::InternalError(
+        return Status::InvalidArgument(
                 fmt::format("illegal partial update block columns: {}, num key columns: {}, total "
                             "schema columns: {}",
                             block->columns(), _tablet_schema->num_key_columns(),
@@ -434,7 +532,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
-        std::shared_lock rlock(tablet->get_header_lock());
+        std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _mow_context->rowset_ptrs;
         if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
             // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
@@ -453,12 +551,12 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
-
     // locate rows in base data
     int64_t num_rows_updated = 0;
     int64_t num_rows_new_added = 0;
     int64_t num_rows_deleted = 0;
     int64_t num_rows_filtered = 0;
+
     for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
         // block   segment
         //   2   ->   0
@@ -487,8 +585,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
         RowsetSharedPtr rowset;
-        auto st = tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
-                                         _mow_context->max_version, segment_caches, &rowset);
+        auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
+                                          _mow_context->max_version, segment_caches, &rowset);
         if (st.is<KEY_NOT_FOUND>()) {
             if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
@@ -537,7 +635,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             // partial update should not contain invisible columns
             use_default_or_null_flag.emplace_back(false);
             _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-            tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
+            _tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
         }
 
         if (st.is<KEY_ALREADY_EXISTS>()) {
@@ -556,8 +654,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
-        tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
-                                                   _mow_context->rowset_ids);
+        _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
+                                                    _mow_context->rowset_ids);
     }
 
     // read and fill block
@@ -565,12 +663,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
                                          has_default_or_nullable, segment_start_pos, block));
     full_block.set_columns(std::move(mutable_full_columns));
-
-    // row column should be filled here
-    if (_tablet_schema->store_row_column()) {
-        // convert block to row store format
-        _serialize_block_to_row_column(full_block);
-    }
+    // convert block to row store format
+    _serialize_block_to_row_column(full_block);
 
     // convert missing columns and send to column writer
     RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
@@ -589,7 +683,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                      converted_result.second->get_data(),
                                                      num_rows));
     }
-
     _num_rows_updated += num_rows_updated;
     _num_rows_deleted += num_rows_deleted;
     _num_rows_new_added += num_rows_new_added;
@@ -620,6 +713,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             << "primary key index builder num rows(" << _primary_key_index_builder->num_rows()
             << ") not equal to segment writer's num rows written(" << _num_rows_written << ")";
     _olap_data_convertor->clear_source_content();
+
+    RETURN_IF_ERROR(append_block_with_variant_subcolumns(full_block));
     return Status::OK();
 }
 
@@ -632,12 +727,11 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
         // TODO(plat1ko): cloud mode
         return Status::NotSupported("fill_missing_columns");
     }
-    auto tablet = static_cast<Tablet*>(_tablet.get());
     // create old value columns
     const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK_EQ(cids_missing.size(), old_value_block.columns());
-    bool has_row_column = _tablet_schema->store_row_column();
+    bool has_row_column = _tablet_schema->has_row_store_for_all_columns();
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
     size_t read_idx = 0;
@@ -651,7 +745,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 read_index[id_and_pos.pos] = read_idx++;
             }
             if (has_row_column) {
-                auto st = tablet->fetch_value_through_row_column(
+                auto st = _tablet->fetch_value_through_row_column(
                         rowset, *_tablet_schema, seg_it.first, rids, cids_missing, old_value_block);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value through row column";
@@ -662,8 +756,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             auto mutable_old_columns = old_value_block.mutate_columns();
             for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
                 TabletColumn tablet_column = _tablet_schema->column(cids_missing[cid]);
-                auto st = tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
-                                                        mutable_old_columns[cid]);
+                auto st = _tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
+                                                         mutable_old_columns[cid]);
                 // set read value to output block
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value by rowids";
@@ -680,7 +774,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     const vectorized::Int8* delete_sign_column_data = nullptr;
     if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
                 old_value_block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr && _tablet_schema->has_sequence_col()) {
+        delete_sign_column != nullptr) {
         auto& delete_sign_col =
                 reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
         delete_sign_column_data = delete_sign_col.get_data().data();
@@ -690,29 +784,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
         for (auto i = 0; i < cids_missing.size(); ++i) {
             const auto& column = _tablet_schema->column(cids_missing[i]);
             if (column.has_default_value()) {
-                std::string default_value;
-                if (UNLIKELY(_tablet_schema->column(cids_missing[i]).type() ==
-                                     FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
-                             to_lower(_tablet_schema->column(cids_missing[i]).default_value())
-                                             .find(to_lower("CURRENT_TIMESTAMP")) !=
-                                     std::string::npos)) {
-                    DateV2Value<DateTimeV2ValueType> dtv;
-                    dtv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
-                                      _opts.rowset_ctx->partial_update_info->timezone);
-                    default_value = dtv.debug_string();
-                } else if (UNLIKELY(
-                                   _tablet_schema->column(cids_missing[i]).type() ==
-                                           FieldType::OLAP_FIELD_TYPE_DATEV2 &&
-                                   to_lower(_tablet_schema->column(cids_missing[i]).default_value())
-                                                   .find(to_lower("CURRENT_DATE")) !=
-                                           std::string::npos)) {
-                    DateV2Value<DateV2ValueType> dv;
-                    dv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
-                                     _opts.rowset_ctx->partial_update_info->timezone);
-                    default_value = dv.debug_string();
-                } else {
-                    default_value = _tablet_schema->column(cids_missing[i]).default_value();
-                }
+                const auto& default_value =
+                        _opts.rowset_ctx->partial_update_info->default_values[i];
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
                 RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
@@ -744,8 +817,9 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                             mutable_full_columns[cids_missing[i]].get());
                     nullable_column->insert_null_elements(1);
                 } else if (_tablet_schema->auto_increment_column() == tablet_column.name()) {
-                    DCHECK(_opts.rowset_ctx->tablet_schema->column(tablet_column.name()).type() ==
-                           FieldType::OLAP_FIELD_TYPE_BIGINT);
+                    const auto& column = *DORIS_TRY(
+                            _opts.rowset_ctx->tablet_schema->column(tablet_column.name()));
+                    DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto auto_inc_column = assert_cast<vectorized::ColumnInt64*>(
                             mutable_full_columns[cids_missing[i]].get());
                     auto_inc_column->insert(
@@ -786,9 +860,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             << ", _column_writers.size()=" << _column_writers.size();
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
-    if (_tablet_schema->store_row_column() &&
-        (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE)) {
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
+        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
         _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
     }
 
@@ -863,6 +936,12 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             }
             RETURN_IF_ERROR(_generate_short_key_index(key_columns, num_rows, short_key_pos));
         }
+    }
+
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
+        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
+        RETURN_IF_ERROR(
+                append_block_with_variant_subcolumns(*const_cast<vectorized::Block*>(block)));
     }
 
     _num_rows_written += num_rows;

@@ -603,7 +603,9 @@ public:
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(zTestDir).ok());
 
-        _load_stream_mgr = std::make_unique<LoadStreamMgr>(4, &_heavy_work_pool, &_light_work_pool);
+        _load_stream_mgr = std::make_unique<LoadStreamMgr>(4);
+        _load_stream_mgr->set_heavy_work_pool(&_heavy_work_pool);
+        _load_stream_mgr->set_light_work_pool(&_light_work_pool);
         _stream_service = new StreamService(_load_stream_mgr.get());
         CHECK_EQ(0, _server->AddService(_stream_service, brpc::SERVER_OWNS_SERVICE));
         brpc::ServerOptions server_options;

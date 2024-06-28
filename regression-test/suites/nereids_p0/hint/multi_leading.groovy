@@ -21,6 +21,7 @@ suite("multi_leading") {
     sql 'DROP DATABASE IF EXISTS test_multi_leading'
     sql 'CREATE DATABASE IF NOT EXISTS test_multi_leading'
     sql 'use test_multi_leading'
+    sql "set enable_parallel_result_sink=false;"
 
     // setting planner to nereids
     sql 'set exec_mem_limit=21G'

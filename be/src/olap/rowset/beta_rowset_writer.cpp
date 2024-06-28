@@ -448,16 +448,18 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                                                        _context.rowset_id.to_string(), seg_id)
                                   : BetaRowset::local_segment_path_segcompacted(
                                             _context.tablet_path, _context.rowset_id, begin, end);
-    auto src_index_path_prefix = InvertedIndexDescriptor::get_index_path_prefix(src_seg_path);
+    auto src_index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(src_seg_path);
     auto dst_seg_path = local_segment_path(_context.tablet_path, _context.rowset_id.to_string(),
                                            _num_segcompacted);
-    auto dst_index_path_prefix = InvertedIndexDescriptor::get_index_path_prefix(dst_seg_path);
+    auto dst_index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(dst_seg_path);
 
-    if (_context.tablet_schema->get_inverted_index_storage_format() !=
-        InvertedIndexStorageFormatPB::V1) {
+    if (_context.tablet_schema->get_inverted_index_storage_format() >=
+        InvertedIndexStorageFormatPB::V2) {
         if (_context.tablet_schema->has_inverted_index()) {
-            auto src_idx_path = InvertedIndexDescriptor::get_index_path_v2(src_index_path_prefix);
-            auto dst_idx_path = InvertedIndexDescriptor::get_index_path_v2(dst_index_path_prefix);
+            auto src_idx_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(src_index_path_prefix);
+            auto dst_idx_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(dst_index_path_prefix);
 
             ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
             if (ret) {
@@ -472,12 +474,12 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
         if (_context.tablet_schema->has_inverted_index(*column)) {
             const auto* index_info = _context.tablet_schema->get_inverted_index(*column);
             auto index_id = index_info->index_id();
-            auto src_idx_path = InvertedIndexDescriptor::get_index_path_v1(
-                    src_index_path_prefix, index_id, index_info->get_index_suffix());
-            auto dst_idx_path = InvertedIndexDescriptor::get_index_path_v1(
-                    dst_index_path_prefix, index_id, index_info->get_index_suffix());
             if (_context.tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
+                auto src_idx_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                        src_index_path_prefix, index_id, index_info->get_index_suffix());
+                auto dst_idx_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                        dst_index_path_prefix, index_id, index_info->get_index_suffix());
                 VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
                            << dst_idx_path;
                 ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
@@ -488,8 +490,12 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                 }
             }
             // Erase the origin index file cache
-            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
-            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
+            auto src_idx_cache_key = InvertedIndexDescriptor::get_index_file_cache_key(
+                    src_index_path_prefix, index_id, index_info->get_index_suffix());
+            auto dst_idx_cache_key = InvertedIndexDescriptor::get_index_file_cache_key(
+                    dst_index_path_prefix, index_id, index_info->get_index_suffix());
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_cache_key));
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(dst_idx_cache_key));
         }
     }
     return Status::OK();
@@ -695,14 +701,13 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     }
 
     // update rowset meta tablet schema if tablet schema updated
-    if (_context.tablet_schema->num_variant_columns() > 0) {
-        _rowset_meta->set_tablet_schema(_context.tablet_schema);
-    }
+    auto rowset_schema = _context.merged_tablet_schema != nullptr ? _context.merged_tablet_schema
+                                                                  : _context.tablet_schema;
+    _rowset_meta->set_tablet_schema(rowset_schema);
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path, _rowset_meta,
-                                         &rowset),
-            "rowset init failed when build new rowset");
+    RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
+                                                                _rowset_meta, &rowset),
+                                   "rowset init failed when build new rowset");
     _already_built = true;
     return Status::OK();
 }
@@ -722,14 +727,17 @@ int64_t BetaRowsetWriter::_num_seg() const {
 void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
     std::lock_guard<std::mutex> lock(*(_context.schema_lock));
     TabletSchemaSPtr update_schema;
+    if (_context.merged_tablet_schema == nullptr) {
+        _context.merged_tablet_schema = _context.tablet_schema;
+    }
     static_cast<void>(vectorized::schema_util::get_least_common_schema(
-            {_context.tablet_schema, flush_schema}, nullptr, update_schema));
+            {_context.merged_tablet_schema, flush_schema}, nullptr, update_schema));
     CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
             << "Rowset merge schema columns count is " << update_schema->num_columns()
             << ", but flush_schema is larger " << flush_schema->num_columns()
             << " update_schema: " << update_schema->dump_structure()
             << " flush_schema: " << flush_schema->dump_structure();
-    _context.tablet_schema.swap(update_schema);
+    _context.merged_tablet_schema.swap(update_schema);
     VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
 }
 

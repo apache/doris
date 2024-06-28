@@ -51,6 +51,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -117,6 +118,9 @@ uint64_t get_fragment_last_active_time() {
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
         return "";
+    }
+    if (file_name.compare(0, 4, "http") == 0) {
+        return file_name;
     }
     std::stringstream url;
     url << "http://" << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
@@ -239,56 +243,42 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
             params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
         }
-        if (req.is_pipeline_x) {
-            params.__isset.detailed_report = true;
-            DCHECK(!req.runtime_states.empty());
-            const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
-            if (enable_profile) {
-                params.__isset.profile = true;
-                params.__isset.loadChannelProfile = false;
-                for (auto* rs : req.runtime_states) {
-                    DCHECK(req.load_channel_profile);
-                    TDetailedReportParams detailed_param;
-                    rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
-                    // merge all runtime_states.loadChannelProfile to req.load_channel_profile
-                    req.load_channel_profile->update(detailed_param.loadChannelProfile);
-                }
-                req.load_channel_profile->to_thrift(&params.loadChannelProfile);
-            } else {
-                params.__isset.profile = false;
+        params.__isset.detailed_report = true;
+        DCHECK(!req.runtime_states.empty());
+        const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
+        if (enable_profile) {
+            params.__isset.profile = true;
+            params.__isset.loadChannelProfile = false;
+            for (auto* rs : req.runtime_states) {
+                DCHECK(req.load_channel_profile);
+                TDetailedReportParams detailed_param;
+                rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
+                // merge all runtime_states.loadChannelProfile to req.load_channel_profile
+                req.load_channel_profile->update(detailed_param.loadChannelProfile);
             }
+            req.load_channel_profile->to_thrift(&params.loadChannelProfile);
+        } else {
+            params.__isset.profile = false;
+        }
 
-            if (enable_profile) {
-                DCHECK(req.profile != nullptr);
+        if (enable_profile) {
+            DCHECK(req.profile != nullptr);
+            TDetailedReportParams detailed_param;
+            detailed_param.__isset.fragment_instance_id = false;
+            detailed_param.__isset.profile = true;
+            detailed_param.__isset.loadChannelProfile = false;
+            detailed_param.__set_is_fragment_level(true);
+            req.profile->to_thrift(&detailed_param.profile);
+            params.detailed_report.push_back(detailed_param);
+            for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
                 TDetailedReportParams detailed_param;
                 detailed_param.__isset.fragment_instance_id = false;
                 detailed_param.__isset.profile = true;
                 detailed_param.__isset.loadChannelProfile = false;
-                detailed_param.__set_is_fragment_level(true);
-                req.profile->to_thrift(&detailed_param.profile);
-                params.detailed_report.push_back(detailed_param);
-                for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
-                    TDetailedReportParams detailed_param;
-                    detailed_param.__isset.fragment_instance_id = false;
-                    detailed_param.__isset.profile = true;
-                    detailed_param.__isset.loadChannelProfile = false;
-                    pipeline_profile->to_thrift(&detailed_param.profile);
-                    params.detailed_report.push_back(std::move(detailed_param));
-                }
-            }
-        } else {
-            if (req.profile != nullptr) {
-                req.profile->to_thrift(&params.profile);
-                if (req.load_channel_profile) {
-                    req.load_channel_profile->to_thrift(&params.loadChannelProfile);
-                }
-                params.__isset.profile = true;
-                params.__isset.loadChannelProfile = true;
-            } else {
-                params.__isset.profile = false;
+                pipeline_profile->to_thrift(&detailed_param.profile);
+                params.detailed_report.push_back(std::move(detailed_param));
             }
         }
-
         if (!req.runtime_state->output_files().empty()) {
             params.__isset.delta_urls = true;
             for (auto& it : req.runtime_state->output_files()) {
@@ -497,7 +487,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
         stream_load_ctx->table = params.txn_conf.tbl;
         stream_load_ctx->txn_id = params.txn_conf.txn_id;
         stream_load_ctx->id = UniqueId(params.query_id);
-        stream_load_ctx->put_result.pipeline_params = params;
+        stream_load_ctx->put_result.__set_pipeline_params(params);
         stream_load_ctx->use_streaming = true;
         stream_load_ctx->load_type = TLoadType::MANUL_LOAD;
         stream_load_ctx->load_src_type = TLoadSourceType::RAW;
@@ -560,7 +550,7 @@ void FragmentMgr::remove_pipeline_context(
     }
 }
 
-std::shared_ptr<QueryContext> FragmentMgr::_get_or_erase_query_ctx(TUniqueId query_id) {
+std::shared_ptr<QueryContext> FragmentMgr::_get_or_erase_query_ctx(const TUniqueId& query_id) {
     auto search = _query_ctx_map.find(query_id);
     if (search != _query_ctx_map.end()) {
         if (auto q_ctx = search->second.lock()) {
@@ -573,6 +563,12 @@ std::shared_ptr<QueryContext> FragmentMgr::_get_or_erase_query_ctx(TUniqueId que
         }
     }
     return nullptr;
+}
+
+std::shared_ptr<QueryContext> FragmentMgr::get_or_erase_query_ctx_with_lock(
+        const TUniqueId& query_id) {
+    std::unique_lock<std::mutex> lock(_lock);
+    return _get_or_erase_query_ctx(query_id);
 }
 
 template <typename Params>
@@ -601,12 +597,14 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
                   << ", total fragment num on current host: " << params.fragment_num_on_host
                   << ", fe process uuid: " << params.query_options.fe_process_uuid
-                  << ", query type: " << params.query_options.query_type;
+                  << ", query type: " << params.query_options.query_type
+                  << ", report audit fe:" << params.current_connect_fe;
 
         // This may be a first fragment request of the query.
         // Create the query fragments context.
-        query_ctx = QueryContext::create_shared(query_id, _exec_env, params.query_options,
-                                                params.coord, pipeline, params.is_nereids);
+        query_ctx =
+                QueryContext::create_shared(query_id, _exec_env, params.query_options, params.coord,
+                                            pipeline, params.is_nereids, params.current_connect_fe);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
@@ -718,7 +716,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                       this, std::placeholders::_1, std::placeholders::_2));
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        auto prepare_st = context->prepare(params);
+        Status prepare_st = Status::OK();
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(params), prepare_st);
         if (!prepare_st.ok()) {
             query_ctx->cancel(prepare_st, params.fragment_id);
             query_ctx->set_execution_dependency_ready();
@@ -784,17 +783,6 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
         query_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit, false);
     }
 #endif
-}
-
-Status FragmentMgr::get_query_context(const TUniqueId& query_id,
-                                      std::shared_ptr<QueryContext>* query_ctx) {
-    std::lock_guard<std::mutex> state_lock(_lock);
-    if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
-        *query_ctx = q_ctx;
-    } else {
-        return Status::InternalError("Query context not found for query {}", print_id(query_id));
-    }
-    return Status::OK();
 }
 
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
@@ -870,9 +858,6 @@ void FragmentMgr::cancel_worker() {
                         ++it;
                     }
                 } else {
-                    LOG_WARNING(
-                            "Query context for {} is released, just erase it from _query_ctx_map",
-                            print_id(it->first));
                     it = _query_ctx_map.erase(it);
                 }
             }
@@ -1028,43 +1013,11 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     query_options.execution_timeout = params.execution_timeout;
     query_options.mem_limit = params.mem_limit;
     query_options.query_type = TQueryType::EXTERNAL;
-    query_options.__set_enable_pipeline_x_engine(true);
+    query_options.be_exec_version = BeExecVersionManager::get_newest_version();
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
     return exec_plan_fragment(exec_fragment_params);
-}
-
-Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
-                                 butil::IOBufAsZeroCopyInputStream* attach_data) {
-    bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
-
-    UniqueId fragment_instance_id = request->fragment_instance_id();
-    TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
-
-    std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
-    QueryThreadContext query_thread_context;
-
-    RuntimeFilterMgr* runtime_filter_mgr = nullptr;
-    if (is_pipeline) {
-        std::unique_lock<std::mutex> lock(_lock);
-        auto iter = _pipeline_map.find(tfragment_instance_id);
-        if (iter == _pipeline_map.end()) {
-            VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
-            return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
-        }
-        pip_context = iter->second;
-
-        DCHECK(pip_context != nullptr);
-        runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-        query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                pip_context->get_query_ctx()->query_mem_tracker};
-    } else {
-        return Status::InternalError("Non-pipeline is disabled!");
-    }
-
-    SCOPED_ATTACH_TASK(query_thread_context);
-    return runtime_filter_mgr->update_filter(request, attach_data);
 }
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
@@ -1204,8 +1157,6 @@ void FragmentMgr::get_runtime_query_info(std::vector<WorkloadQueryInfo>* query_i
                 query_info_list->push_back(workload_query_info);
                 iter++;
             } else {
-                LOG_WARNING("Query context for {} is released, just erase it from _query_ctx_map",
-                            print_id(iter->first));
                 iter = _query_ctx_map.erase(iter);
             }
         }

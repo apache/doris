@@ -23,11 +23,13 @@
 #include "io/fs/path.h"
 namespace doris {
 class Status;
+struct S3ClientConf;
 namespace io {
 
 // Names are in lexico order.
 enum class ObjStorageType : uint8_t {
-    AWS = 0,
+    UNKNOWN = 0,
+    AWS = 1,
     AZURE,
     BOS,
     COS,
@@ -44,7 +46,10 @@ struct ObjectStoragePathOptions {
     std::optional<std::string> upload_id = std::nullopt; // only used for S3 upload
 };
 
-struct ObjectCompleteMultiParts {};
+struct ObjectCompleteMultiPart {
+    int part_num = 0;
+    std::string etag = std::string();
+};
 
 struct ObjectStorageStatus {
     int code = 0;
@@ -56,6 +61,14 @@ struct ObjectStorageResponse {
     ObjectStorageStatus status {};
     int http_code {200};
     std::string request_id = std::string();
+    static ObjectStorageResponse OK() {
+        // clang-format off
+        return {
+                .status { .code = 0, },
+                .http_code = 200,
+        };
+        // clang-format on
+    }
 };
 
 struct ObjectStorageUploadResponse {
@@ -91,7 +104,7 @@ public:
     // After a successful execution, the large file can be accessed in the object storage
     virtual ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,
-            const ObjectCompleteMultiParts& completed_parts) = 0;
+            const std::vector<ObjectCompleteMultiPart>& completed_parts) = 0;
     // According to the passed bucket and key, it will access whether the corresponding file exists in the object storage.
     // If it exists, it will return the corresponding file size
     virtual ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) = 0;
@@ -112,6 +125,10 @@ public:
     // According to the prefix, recursively delete all files under the prefix.
     virtual ObjectStorageResponse delete_objects_recursively(
             const ObjectStoragePathOptions& opts) = 0;
+    // Return a presigned URL for users to access the object
+    virtual std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
+                                               int64_t expiration_secs,
+                                               const S3ClientConf& conf) = 0;
 };
 } // namespace io
 } // namespace doris

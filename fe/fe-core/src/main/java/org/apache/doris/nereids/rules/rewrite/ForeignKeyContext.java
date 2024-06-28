@@ -67,6 +67,7 @@ public class ForeignKeyContext {
             public Void visitLogicalRelation(LogicalRelation relation, ForeignKeyContext context) {
                 if (relation instanceof LogicalCatalogRelation) {
                     context.putAllForeignKeys(((LogicalCatalogRelation) relation).getTable());
+                    context.putAllPrimaryKeys(((LogicalCatalogRelation) relation).getTable());
                     relation.getOutput().stream()
                             .filter(SlotReference.class::isInstance)
                             .map(SlotReference.class::cast)
@@ -101,7 +102,13 @@ public class ForeignKeyContext {
             Map<Column, Column> constraint = c.getForeignToPrimary(table);
             constraints.add(c.getForeignToPrimary(table));
             foreignKeys.addAll(constraint.keySet());
-            primaryKeys.addAll(constraint.values());
+        });
+    }
+
+    void putAllPrimaryKeys(TableIf table) {
+        table.getPrimaryKeyConstraints().forEach(c -> {
+            Set<Column> primaryKey = c.getPrimaryKeys(table);
+            primaryKeys.addAll(primaryKey);
         });
     }
 

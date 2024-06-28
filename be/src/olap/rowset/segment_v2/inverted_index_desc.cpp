@@ -36,9 +36,9 @@ std::string InvertedIndexDescriptor::get_temporary_index_path(std::string_view t
 
 // InvertedIndexStorageFormat V1
 // {prefix}_{index_id}@{suffix}.idx
-std::string InvertedIndexDescriptor::get_index_path_v1(std::string_view index_path_prefix,
-                                                       int64_t index_id,
-                                                       std::string_view index_path_suffix) {
+std::string InvertedIndexDescriptor::get_index_file_path_v1(std::string_view index_path_prefix,
+                                                            int64_t index_id,
+                                                            std::string_view index_path_suffix) {
     std::string suffix =
             index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
     return fmt::format("{}_{}{}{}", index_path_prefix, index_id, suffix, index_suffix);
@@ -46,7 +46,7 @@ std::string InvertedIndexDescriptor::get_index_path_v1(std::string_view index_pa
 
 // InvertedIndexStorageFormat V2
 // {prefix}.idx
-std::string InvertedIndexDescriptor::get_index_path_v2(std::string_view index_path_prefix) {
+std::string InvertedIndexDescriptor::get_index_file_path_v2(std::string_view index_path_prefix) {
     return fmt::format("{}{}", index_path_prefix, index_suffix);
 }
 
@@ -54,10 +54,20 @@ std::string InvertedIndexDescriptor::get_index_path_v2(std::string_view index_pa
 //   {storage_dir}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_id}
 // remote path v0 prefix:
 //   data/{tablet_id}/{rowset_id}_{seg_id}
-std::string_view InvertedIndexDescriptor::get_index_path_prefix(std::string_view segment_path) {
+std::string_view InvertedIndexDescriptor::get_index_file_path_prefix(
+        std::string_view segment_path) {
     CHECK(segment_path.ends_with(segment_suffix));
     segment_path.remove_suffix(segment_suffix.size());
     return segment_path;
+}
+
+// {prefix}_{index_id}@{suffix} for inverted index cache
+std::string InvertedIndexDescriptor::get_index_file_cache_key(std::string_view index_path_prefix,
+                                                              int64_t index_id,
+                                                              std::string_view index_path_suffix) {
+    std::string suffix =
+            index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
+    return fmt::format("{}_{}{}", index_path_prefix, index_id, suffix);
 }
 
 } // namespace doris::segment_v2

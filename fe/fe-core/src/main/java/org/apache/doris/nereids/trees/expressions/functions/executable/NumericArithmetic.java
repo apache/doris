@@ -197,7 +197,7 @@ public class NumericArithmetic {
         return new DoubleLiteral(result);
     }
 
-    @ExecFunction(name = "add", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "DECIMAL")
+    @ExecFunction(name = "add", argTypes = {"DECIMALV2", "DECIMALV2"}, returnType = "DECIMALV2")
     public static Expression addDecimalDecimal(DecimalLiteral first, DecimalLiteral second) {
         BigDecimal result = first.getValue().add(second.getValue());
         return new DecimalLiteral(result);
@@ -368,7 +368,7 @@ public class NumericArithmetic {
         return new DoubleLiteral(result);
     }
 
-    @ExecFunction(name = "subtract", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "DECIMAL")
+    @ExecFunction(name = "subtract", argTypes = {"DECIMALV2", "DECIMALV2"}, returnType = "DECIMALV2")
     public static Expression subtractDecimalDecimal(DecimalLiteral first, DecimalLiteral second) {
         BigDecimal result = first.getValue().subtract(second.getValue());
         return new DecimalLiteral(result);
@@ -539,7 +539,7 @@ public class NumericArithmetic {
         return new DoubleLiteral(result);
     }
 
-    @ExecFunction(name = "multiply", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "DECIMAL")
+    @ExecFunction(name = "multiply", argTypes = {"DECIMALV2", "DECIMALV2"}, returnType = "DECIMALV2")
     public static Expression multiplyDecimalDecimal(DecimalLiteral first, DecimalLiteral second) {
         BigDecimal result = first.getValue().multiply(second.getValue());
         return new DecimalLiteral(result);
@@ -573,7 +573,7 @@ public class NumericArithmetic {
     /**
      * Executable arithmetic functions divide
      */
-    @ExecFunction(name = "divide", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "DECIMAL")
+    @ExecFunction(name = "divide", argTypes = {"DECIMALV2", "DECIMALV2"}, returnType = "DECIMALV2")
     public static Expression divideDecimal(DecimalLiteral first, DecimalLiteral second) {
         if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {
             return new NullLiteral(first.getDataType());

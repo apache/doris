@@ -465,7 +465,6 @@ Status ScalarColumnWriter::init() {
                     Status add_nulls(uint32_t count) override { return Status::OK(); }
                     Status finish() override { return Status::OK(); }
                     int64_t size() const override { return 0; }
-                    int64_t file_size() const override { return 0; }
                     void close_on_error() override {}
                 };
 
@@ -635,14 +634,6 @@ Status ScalarColumnWriter::write_inverted_index() {
     return Status::OK();
 }
 
-size_t ScalarColumnWriter::get_inverted_index_size() {
-    if (_opts.need_inverted_index) {
-        auto size = _inverted_index_builder->file_size();
-        return size == -1 ? 0 : size;
-    }
-    return 0;
-}
-
 Status ScalarColumnWriter::write_bloom_filter_index() {
     if (_opts.need_bloom_filter) {
         return _bloom_filter_index_builder->finish(_file_writer, _opts.meta->add_indexes());
@@ -798,17 +789,6 @@ Status StructColumnWriter::write_inverted_index() {
     return Status::OK();
 }
 
-size_t StructColumnWriter::get_inverted_index_size() {
-    size_t total_size = 0;
-    if (_opts.need_inverted_index) {
-        for (auto& column_writer : _sub_column_writers) {
-            auto size = column_writer->get_inverted_index_size();
-            total_size += (size == -1 ? 0 : size);
-        }
-    }
-    return total_size;
-}
-
 Status StructColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                            size_t num_rows) {
     RETURN_IF_ERROR(append_data(ptr, num_rows));
@@ -919,14 +899,6 @@ Status ArrayColumnWriter::write_inverted_index() {
         return _inverted_index_builder->finish();
     }
     return Status::OK();
-}
-
-size_t ArrayColumnWriter::get_inverted_index_size() {
-    if (_opts.need_inverted_index) {
-        auto size = _inverted_index_builder->file_size();
-        return size == -1 ? 0 : size;
-    }
-    return 0;
 }
 
 // batch append data for array
@@ -1167,14 +1139,6 @@ Status MapColumnWriter::write_inverted_index() {
         return _inverted_index_builder->finish();
     }
     return Status::OK();
-}
-
-size_t MapColumnWriter::get_inverted_index_size() {
-    if (_opts.need_inverted_index) {
-        auto size = _inverted_index_builder->file_size();
-        return size == -1 ? 0 : size;
-    }
-    return 0;
 }
 
 } // namespace doris::segment_v2

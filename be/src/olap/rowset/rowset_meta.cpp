@@ -19,6 +19,8 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <memory>
+
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/file_writer.h"
@@ -31,6 +33,7 @@
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
+#include "vec/common/schema_util.h"
 
 namespace doris {
 
@@ -228,6 +231,17 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
         other._rowset_meta_pb.enable_segments_file_size()) {
         for (auto fsize : other.segments_file_size()) {
             _rowset_meta_pb.add_segments_file_size(fsize);
+        }
+    }
+    // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
+    // Otherwise the schema is stale and lead to wrong data read
+    if (tablet_schema()->num_variant_columns() > 0) {
+        // merge extracted columns
+        TabletSchemaSPtr merged_schema;
+        static_cast<void>(vectorized::schema_util::get_least_common_schema(
+                {tablet_schema(), other.tablet_schema()}, nullptr, merged_schema));
+        if (*_schema != *merged_schema) {
+            set_tablet_schema(merged_schema);
         }
     }
     if (rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {

@@ -17,6 +17,7 @@
 
 #include "olap/task/engine_clone_task.h"
 
+#include <curl/curl.h>
 #include <fcntl.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
@@ -42,7 +43,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/stringpiece.h"
 #include "gutil/strings/strip.h"
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
@@ -280,7 +280,7 @@ Status EngineCloneTask::_do_clone() {
             return exists_st;
         }
         if (exists) {
-            LOG(WARNING) << "before clone dest path=" << tablet_dir << " exist, remote it first";
+            LOG(WARNING) << "before clone dest path=" << tablet_dir << " exist, remove it first";
             RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_dir));
         }
 
@@ -512,8 +512,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     // Avoid of data is not complete, we copy the header file at last.
     // The header file's name is end of .hdr.
     for (int i = 0; i < file_name_list.size() - 1; ++i) {
-        StringPiece sp(file_name_list[i]);
-        if (sp.ends_with(".hdr")) {
+        if (file_name_list[i].ends_with(".hdr")) {
             std::swap(file_name_list[i], file_name_list[file_name_list.size() - 1]);
             break;
         }
@@ -523,8 +522,26 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     uint64_t total_file_size = 0;
     MonotonicStopWatch watch;
     watch.start();
+    auto curl = std::unique_ptr<CURL, decltype(&curl_easy_cleanup)>(curl_easy_init(),
+                                                                    &curl_easy_cleanup);
+    if (!curl) {
+        return Status::InternalError("engine clone task init curl failed");
+    }
     for (auto& file_name : file_name_list) {
-        auto remote_file_url = remote_url_prefix + file_name;
+        // The file name of the variant column with the inverted index contains %
+        // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
+        //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
+        // We need to handle %, otherwise it will cause an HTTP 404 error.
+        // Because the percent ("%") character serves as the indicator for percent-encoded octets,
+        // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
+        // https://datatracker.ietf.org/doc/html/rfc3986
+        auto output = std::unique_ptr<char, decltype(&curl_free)>(
+                curl_easy_escape(curl.get(), file_name.c_str(), file_name.length()), &curl_free);
+        if (!output) {
+            return Status::InternalError("escape file name failed, file name={}", file_name);
+        }
+        std::string encoded_filename(output.get());
+        auto remote_file_url = remote_url_prefix + encoded_filename;
 
         // get file length
         uint64_t file_size = 0;
@@ -604,7 +621,13 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 /// 2. Call _finish_xx_clone() to revise the tablet meta.
 Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_dir, int64_t version,
                                       bool is_incremental_clone) {
-    Defer remove_clone_dir {[&]() { std::filesystem::remove_all(clone_dir); }};
+    Defer remove_clone_dir {[&]() {
+        std::error_code ec;
+        std::filesystem::remove_all(clone_dir, ec);
+        if (ec) {
+            LOG(WARNING) << "failed to remove=" << clone_dir << " msg=" << ec.message();
+        }
+    }};
 
     // check clone dir existed
     bool exists = true;
@@ -635,7 +658,13 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     bool contain_binlog = false;
     RowsetBinlogMetasPB rowset_binlog_metas_pb;
     if (binlog_metas_file_exists) {
-        auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file);
+        std::error_code ec;
+        auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file, ec);
+        if (ec) {
+            LOG(WARNING) << "get file size error" << ec.message();
+            return Status::IOError("can't retrive file_size of {}, due to {}", binlog_metas_file,
+                                   ec.message());
+        }
         if (binlog_meta_filesize > 0) {
             contain_binlog = true;
             RETURN_IF_ERROR(read_pb(binlog_metas_file, &rowset_binlog_metas_pb));

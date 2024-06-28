@@ -133,7 +133,6 @@ PROPERTIES (
 );
         """
         sql """ set group_commit = async_mode; """
-        sql """ set enable_nereids_dml = false; """
     }
 
     def create_insert_table_less_column = { table_name ->
@@ -166,7 +165,6 @@ PROPERTIES (
 );
         """
         sql """ set group_commit = async_mode; """
-        sql """ set enable_nereids_dml = false; """
 
     }
 

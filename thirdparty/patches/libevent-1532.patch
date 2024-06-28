@@ -186,15 +186,3 @@ index 02aa7ba..688b641 100644
  #ifdef _WIN32
  /** Return the most recent socket error.  Not idempotent on all platforms. */
  #define EVUTIL_SOCKET_ERROR() WSAGetLastError()
-diff --git a/listener.c b/listener.c
-index f5c00c9..424b28c 100644
---- a/listener.c
-+++ b/listener.c
-@@ -214,7 +214,6 @@ evconnlistener_new_bind(struct event_base *base, evconnlistener_cb cb,
- {
- 	struct evconnlistener *listener;
- 	evutil_socket_t fd;
--	int on = 1;
- 	int family = sa ? sa->sa_family : AF_UNSPEC;
- 	int socktype = SOCK_STREAM | EVUTIL_SOCK_NONBLOCK;
- 

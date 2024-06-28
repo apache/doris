@@ -21,7 +21,7 @@
 
 namespace doris::pipeline {
 
-class Exchanger;
+class ExchangerBase;
 class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
@@ -40,9 +40,11 @@ public:
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
 
+    std::vector<Dependency*> dependencies() const override;
+
 private:
     friend class LocalExchangeSourceOperatorX;
-    friend class Exchanger;
+    friend class ExchangerBase;
     friend class ShuffleExchanger;
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
@@ -50,7 +52,7 @@ private:
     friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
 
-    Exchanger* _exchanger = nullptr;
+    ExchangerBase* _exchanger = nullptr;
     int _channel_id;
     RuntimeProfile::Counter* _get_block_failed_counter = nullptr;
     RuntimeProfile::Counter* _copy_data_timer = nullptr;

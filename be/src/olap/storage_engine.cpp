@@ -174,31 +174,49 @@ StorageEngine::~StorageEngine() {
     stop();
 }
 
-// Note: Only the previously existing root path can be reloaded here, that is, the root path registered when re load starts is allowed,
-// but the brand new path of re load is not allowed because the ce scheduler information has not been thoroughly updated here
 static Status load_data_dirs(const std::vector<DataDir*>& data_dirs) {
-    std::vector<std::thread> threads;
-    std::vector<Status> results(data_dirs.size());
-    for (size_t i = 0; i < data_dirs.size(); ++i) {
-        threads.emplace_back(
-                [&results, data_dir = data_dirs[i]](size_t index) {
-                    results[index] = data_dir->load();
-                    if (!results[index].ok()) {
-                        LOG(WARNING) << "io error when init load tables. res=" << results[index]
-                                     << ", data dir=" << data_dir->path();
-                    }
-                },
-                i);
+    std::unique_ptr<ThreadPool> pool;
+
+    int num_threads = config::load_data_dirs_threads;
+    if (num_threads <= 0) {
+        num_threads = data_dirs.size();
     }
-    for (auto& thread : threads) {
-        thread.join();
-    }
-    for (const auto& result : results) {
-        if (!result.ok()) {
-            return result;
+
+    auto st = ThreadPoolBuilder("load_data_dir")
+                      .set_min_threads(num_threads)
+                      .set_max_threads(num_threads)
+                      .build(&pool);
+    CHECK(st.ok()) << st;
+
+    std::mutex result_mtx;
+    Status result;
+
+    for (auto* data_dir : data_dirs) {
+        st = pool->submit_func([&, data_dir] {
+            {
+                std::lock_guard lock(result_mtx);
+                if (!result.ok()) { // Some data dir has failed
+                    return;
+                }
+            }
+
+            auto st = data_dir->load();
+            if (!st.ok()) {
+                LOG(WARNING) << "error occured when init load tables. res=" << st
+                             << ", data dir=" << data_dir->path();
+                std::lock_guard lock(result_mtx);
+                result = std::move(st);
+            }
+        });
+
+        if (!st.ok()) {
+            return st;
         }
     }
-    return Status::OK();
+
+    pool->wait();
+
+    return result;
 }
 
 Status StorageEngine::_open() {
@@ -716,7 +734,13 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
                           << ", tablet_uid=" << tablet_info.first.tablet_uid;
                 continue;
             }
-            static_cast<void>(_txn_manager->delete_txn(partition_id, tablet, transaction_id));
+            Status s = _txn_manager->delete_txn(partition_id, tablet, transaction_id);
+            if (!s.ok()) {
+                LOG(WARNING) << "failed to clear transaction. txn_id=" << transaction_id
+                             << ", partition_id=" << partition_id
+                             << ", tablet_id=" << tablet_info.first.tablet_id
+                             << ", status=" << s.to_string();
+            }
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
@@ -1207,7 +1231,7 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int
     root_path_stream << (*store)->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
 
-    LOG(INFO) << "success to process obtain root path. path=" << shard_path;
+    LOG(INFO) << "success to process obtain root path. path=" << *shard_path;
     return Status::OK();
 }
 
@@ -1504,26 +1528,6 @@ Status StorageEngine::_persist_broken_paths() {
     }
 
     return Status::OK();
-}
-
-bool StorageEngine::_increase_low_priority_task_nums(DataDir* dir) {
-    if (!config::enable_compaction_priority_scheduling) {
-        return true;
-    }
-    std::lock_guard l(_low_priority_task_nums_mutex);
-    if (_low_priority_task_nums[dir] < config::low_priority_compaction_task_num_per_disk) {
-        _low_priority_task_nums[dir]++;
-        return true;
-    }
-    return false;
-}
-
-void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
-    if (config::enable_compaction_priority_scheduling) {
-        std::lock_guard l(_low_priority_task_nums_mutex);
-        _low_priority_task_nums[dir]--;
-        DCHECK(_low_priority_task_nums[dir] >= 0);
-    }
 }
 
 int CreateTabletIdxCache::get_index(const std::string& key) {

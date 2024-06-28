@@ -79,6 +79,8 @@ public:
 
     PBlock* get_block() { return _pblock.get(); }
 
+    void reset_block() { _pblock->Clear(); }
+
 private:
     friend class BroadcastPBlockHolderMemLimiter;
     std::unique_ptr<PBlock> _pblock;
@@ -190,7 +192,7 @@ class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
                        RuntimeState* state, ExchangeSinkLocalState* parent);
-    ~ExchangeSinkBuffer() = default;
+    ~ExchangeSinkBuffer() override = default;
     void register_sink(TUniqueId);
 
     Status add_block(TransmitInfo&& request);

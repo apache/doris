@@ -43,6 +43,8 @@ public:
     virtual int num_scan_ranges() = 0;
 
     virtual TFileScanRangeParams* get_params() = 0;
+
+    virtual int64_t get_split_time() { return 0; }
 };
 
 /**
@@ -95,6 +97,8 @@ private:
     int _scan_index = 0;
     int _range_index = 0;
 
+    int64_t _get_split_timer = 0;
+
 public:
     RemoteSplitSourceConnector(RuntimeState* state, int64 split_source_id, int num_splits)
             : _state(state), _split_source_id(split_source_id), _num_splits(num_splits) {}
@@ -110,6 +114,8 @@ public:
     TFileScanRangeParams* get_params() override {
         LOG(FATAL) << "Unreachable, params is got by file_scan_range_params_map";
     }
+
+    int64_t get_split_time() override { return _get_split_timer; }
 };
 
 } // namespace doris::vectorized

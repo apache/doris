@@ -30,6 +30,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
@@ -61,9 +62,12 @@ public class PartitionInfo implements Writable {
     @SerializedName("Type")
     protected PartitionType type;
     // partition columns for list and range partitions
+    @SerializedName("pc")
     protected List<Column> partitionColumns = Lists.newArrayList();
     // formal partition id -> partition item
+    @SerializedName("IdToItem")
     protected Map<Long, PartitionItem> idToItem = Maps.newHashMap();
+    @SerializedName("IdToTempItem")
     // temp partition id -> partition item
     protected Map<Long, PartitionItem> idToTempItem = Maps.newHashMap();
     // partition id -> data property
@@ -75,6 +79,7 @@ public class PartitionInfo implements Writable {
     @SerializedName("IdToReplicaAllocation")
     protected Map<Long, ReplicaAllocation> idToReplicaAllocation;
     // true if the partition has multi partition columns
+    @SerializedName("isM")
     protected boolean isMultiColumnPartition = false;
 
     @SerializedName("IdToInMemory")
@@ -86,7 +91,10 @@ public class PartitionInfo implements Writable {
     protected Map<Long, TTabletType> idToTabletType;
 
     // the enable automatic partition will hold this, could create partition by expr result
+    @SerializedName("PartitionExprs")
     protected ArrayList<Expr> partitionExprs;
+
+    @SerializedName("IsAutoCreatePartitions")
     protected boolean isAutoCreatePartitions;
 
     public PartitionInfo() {
@@ -250,8 +258,9 @@ public class PartitionInfo implements Writable {
         return isAutoCreatePartitions;
     }
 
+    // forbid change metadata.
     public ArrayList<Expr> getPartitionExprs() {
-        return this.partitionExprs;
+        return Expr.cloneList(this.partitionExprs);
     }
 
     public void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
@@ -353,9 +362,13 @@ public class PartitionInfo implements Writable {
     }
 
     public static PartitionInfo read(DataInput in) throws IOException {
-        PartitionInfo partitionInfo = new PartitionInfo();
-        partitionInfo.readFields(in);
-        return partitionInfo;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            PartitionInfo partitionInfo = new PartitionInfo();
+            partitionInfo.readFields(in);
+            return partitionInfo;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), PartitionInfo.class);
+        }
     }
 
     public boolean isMultiColumnPartition() {
@@ -420,40 +433,10 @@ public class PartitionInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
-
-        Preconditions.checkState(idToDataProperty.size() == idToReplicaAllocation.size());
-        Preconditions.checkState(idToInMemory.keySet().equals(idToReplicaAllocation.keySet()));
-        out.writeInt(idToDataProperty.size());
-        for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
-            out.writeLong(entry.getKey());
-            if (entry.getValue().equals(DataProperty.DEFAULT_HDD_DATA_PROPERTY)) {
-                out.writeBoolean(true);
-            } else {
-                out.writeBoolean(false);
-                entry.getValue().write(out);
-            }
-
-            idToReplicaAllocation.get(entry.getKey()).write(out);
-            out.writeBoolean(idToInMemory.get(entry.getKey()));
-            if (Config.isCloudMode()) {
-                // HACK: the origin implementation of the cloud mode has code likes:
-                //
-                //     out.writeBoolean(idToPersistent.get(entry.getKey()));
-                //
-                // keep the compatibility here.
-                out.writeBoolean(false);
-            }
-        }
-        int size = partitionExprs.size();
-        out.writeInt(size);
-        for (int i = 0; i < size; ++i) {
-            Expr e = this.partitionExprs.get(i);
-            Expr.writeTo(e, out);
-        }
-        out.writeBoolean(isAutoCreatePartitions);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         type = PartitionType.valueOf(Text.readString(in));
 
