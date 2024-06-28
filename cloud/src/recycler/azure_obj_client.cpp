@@ -39,6 +39,7 @@ using namespace Azure::Storage::Blobs;
 namespace doris::cloud {
 
 constexpr size_t BlobBatchMaxOperations = 256;
+constexpr char BlobNotFound[] = "BlobNotFound";
 
 template <typename Func>
 ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOptions& opts) {
@@ -78,18 +79,27 @@ struct AzureBatchDeleter {
             return resp;
         }
 
-        auto get_defer_response = [](const auto& defer) {
-            // DeferredResponse<Models::DeleteBlobResult> might throw exception
-            if (!defer.GetResponse().Value.Deleted) {
-                throw std::runtime_error("Batch delete blobs failed");
-            }
-        };
-
         for (auto&& defer_response : deferred_resps) {
-            auto response =
-                    do_azure_client_call([&]() { get_defer_response(defer_response); }, _opts);
-            if (response.ret != 0) {
-                return response;
+            try {
+                auto r = defer_response.GetResponse();
+                if (!r.Value.Deleted) {
+                    LOG_INFO("Azure batch delete failed, bucket {}, key {}, prefix {}, endpoint {}",
+                             _opts.bucket, _opts.key, _opts.prefix, _opts.endpoint);
+                    return {-1};
+                }
+            } catch (Azure::Storage::StorageException& e) {
+                if (Azure::Core::Http::HttpStatusCode::NotFound == e.StatusCode &&
+                    0 == strcmp(e.ErrorCode.c_str(), BlobNotFound)) {
+                    continue;
+                }
+                auto msg = fmt::format(
+                        "Azure request failed because {}, http code {}, request id {}, bucket {}, "
+                        "key {}, "
+                        "prefix {}, endpoint {}",
+                        e.Message, static_cast<int>(e.StatusCode), e.RequestId, _opts.bucket,
+                        _opts.key, _opts.prefix, _opts.endpoint);
+                LOG_WARNING(msg);
+                return {-1, std::move(msg)};
             }
         }
 
