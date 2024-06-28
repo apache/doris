@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
@@ -26,11 +25,9 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
@@ -42,7 +39,6 @@ import org.apache.paimon.options.Options;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 public abstract class PaimonExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(PaimonExternalCatalog.class);
@@ -63,13 +59,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        String configSitePath = catalogProperty.getProperties().getOrDefault(HdfsResource.HADOOP_SITE_PATH, null);
-        Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth(),
-                Optional.ofNullable(configSitePath));
-        for (Map.Entry<String, String> propEntry : this.catalogProperty.getHadoopProperties().entrySet()) {
-            conf.set(propEntry.getKey(), propEntry.getValue());
-        }
-        authConf = AuthenticationConfig.getKerberosConfig(conf,
+        authConf = AuthenticationConfig.getKerberosConfig(getConfiguration(),
                 AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
                 AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
     }

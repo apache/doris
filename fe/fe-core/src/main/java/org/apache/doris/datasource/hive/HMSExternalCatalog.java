@@ -144,6 +144,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
         } else {
             hiveConf = getConfiguration();
+            hiveConf.addResource("hive-site.xml");
             hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                     String.valueOf(Config.hive_metastore_client_timeout_second));
             HadoopUGI.tryKrbLogin(this.getName(), AuthenticationConfig.getKerberosConfig(hiveConf,
