@@ -153,14 +153,13 @@ public class HMSTransaction implements Transaction {
 
     @Override
     public void rollback() {
+        if (hmsCommitter == null) {
+            return;
+        }
         try {
-            if (hmsCommitter != null) {
-                hmsCommitter.rollback();
-            }
+            hmsCommitter.rollback();
         } finally {
-            if (hmsCommitter != null) {
-                hmsCommitter.shutdownExecutorService();
-            }
+            hmsCommitter.shutdownExecutorService();
         }
     }
 
