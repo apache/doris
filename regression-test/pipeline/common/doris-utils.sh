@@ -757,6 +757,7 @@ prepare_java_udf() {
         echo "ERROR: failed to prepare java udf"
         return 1
     fi
+}
 
 function print_running_pipeline_tasks() {
     webserver_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf webserver_port)
