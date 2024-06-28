@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remote_tvf") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
+suite("test_path_partition_keys", "p0,external,tvf,external_docker,hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
+        String nameNodeHost = context.config.otherConfigs.get("externalEnvIp")
+        String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
 
         String baseUri = "hdfs://${nameNodeHost}:${hdfsPort}/catalog/tvf/csv/test_path_partition_keys"
         String baseFs = "hdfs://${nameNodeHost}:${hdfsPort}"
@@ -74,7 +74,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
     List<List<Object>> backends =  sql """ show backends """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
-    def dataFilePath = context.config.dataPath + "/external_table_p2/tvf/test_path_partition_keys/"
+    def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/test_path_partition_keys/"
 
     def outFilePath="/test_path_partition_keys"
 
