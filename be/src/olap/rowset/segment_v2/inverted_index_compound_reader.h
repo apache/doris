@@ -54,7 +54,7 @@ private:
     lucene::store::RAMDirectory* ram_dir;
     std::string directory;
     std::string file_name;
-    CL_NS(store)::IndexInput* stream;
+    CL_NS(store)::IndexInput* stream = nullptr;
 
     using EntriesType =
             lucene::util::CLHashMap<char*, ReaderFileEntry*, lucene::util::Compare::Char,
