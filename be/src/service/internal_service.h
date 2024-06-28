@@ -260,7 +260,6 @@ protected:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
-    FifoThreadPool _group_commit_insert_work_pool;
 };
 
 // `StorageEngine` mixin for `PInternalService`
