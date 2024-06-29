@@ -543,6 +543,7 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
     _entity->register_hook(name, std::bind(&ShardedLRUCache::update_cache_metrics, this));
     INT_GAUGE_METRIC_REGISTER(_entity, cache_capacity);
     INT_GAUGE_METRIC_REGISTER(_entity, cache_usage);
+    INT_GAUGE_METRIC_REGISTER(_entity, cache_element_count);
     INT_DOUBLE_METRIC_REGISTER(_entity, cache_usage_ratio);
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_lookup_count);
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_hit_count);
