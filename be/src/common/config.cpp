@@ -78,7 +78,7 @@ DEFINE_String(priority_networks, "");
 // performance or compact
 DEFINE_String(memory_mode, "moderate");
 
-DEFINE_mBool(enable_use_cgroup_memory_info, "true");
+DEFINE_mBool(enable_use_cgroup_memory_info, "false");
 
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
