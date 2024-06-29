@@ -226,6 +226,50 @@ suite('test_mix_partial_update') {
             // 4,4,4,4,4
             qt_select9 "select * from ${tableStreamName1} order by k1"
 
+
+            sql "set enable_nereids_planner=true"
+            sql "set enable_fallback_to_original_planner=false"
+
+            def tableInsertName2 = "test_mix_partial_update2"
+            sql "DROP TABLE IF EXISTS ${tableInsertName2};"
+            sql """ CREATE TABLE IF NOT EXISTS ${tableInsertName2} (
+                    `k1` int NOT NULL,
+                    `c1` bigint NOT NULL auto_increment(100),
+                    `c2` int,
+                    `c3` int,
+                    `c4` map<string, int>,
+                    `c5` datetimev2(3) DEFAULT CURRENT_TIMESTAMP,
+                    `c6` datetimev2(3) DEFAULT CURRENT_TIMESTAMP
+                    )UNIQUE KEY(k1)
+                DISTRIBUTED BY HASH(k1) BUCKETS 1
+                PROPERTIES (
+                    "disable_auto_compaction" = "true",
+                    "replication_num" = "1",
+                    "store_row_column" = "${use_row_store}"); """
+            
+            sql "insert into ${tableInsertName2} (k1,c2,c3,c4) values(1,1,1,{'a':100,'b':100})"
+            qt_select_A "select k1,c1,c2,c3,c4 from ${tableInsertName2}"
+            qt_select_AA "select count(*) from ${tableInsertName2} where c5 = c6"
+
+
+            sql "set enable_unique_key_partial_update=true;"
+            sql "set enable_insert_strict=false;"
+            sql "insert into ${tableInsertName2} (k1,c2,c3,c4) values(2,2,2,{'a':200,'b':200})"
+            qt_select_B "select k1,c1,c2,c3,c4 from ${tableInsertName2}"
+            qt_select_BB "select count(*) from ${tableInsertName2} where c5 = c6"
+            sql "set enable_unique_key_partial_update=false;"
+            sql "set enable_insert_strict=true;"
+
+            sql "update ${tableInsertName2} set c1 = 100"
+            qt_select_C "select k1,c1,c2,c3,c4 from ${tableInsertName2}"
+            qt_select_CC "select count(*) from ${tableInsertName2} where c5 = c6"
+
+            // do light weight schema change
+            sql """ ALTER TABLE ${tableInsertName2} add column `c7` datetimev2(3) DEFAULT CURRENT_TIMESTAMP after c6; """
+            waitForSchemaChangeDone {
+                sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableInsertName2}' ORDER BY createtime DESC LIMIT 1 """
+                time 60
+            }
         }
     }
 }
