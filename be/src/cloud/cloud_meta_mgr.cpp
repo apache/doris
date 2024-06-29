@@ -839,8 +839,12 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     if (ctx.db_id > 0 && !ctx.label.empty()) {
         req.set_db_id(ctx.db_id);
         req.set_label(ctx.label);
-    } else {
+    } else if (ctx.txn_id > 0) {
         req.set_txn_id(ctx.txn_id);
+    } else {
+        LOG(WARNING) << "failed abort txn, with illegal input, db_id=" << ctx.db_id
+                     << " txn_id=" << ctx.txn_id << " label=" << ctx.label;
+        return Status::InternalError("failed to abort txn");
     }
     return retry_rpc("abort txn", req, &res, &MetaService_Stub::abort_txn);
 }
