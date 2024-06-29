@@ -691,6 +691,9 @@ DEFINE_Int32(high_priority_flush_thread_num_per_store, "6");
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DEFINE_Int32(max_flush_thread_num_per_cpu, "4");
 
+DEFINE_mInt32(wg_flush_thread_num_per_store, "6");
+DEFINE_mInt32(wg_flush_thread_num_per_cpu, "4");
+
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
 DEFINE_mInt32(tablet_meta_checkpoint_min_interval_secs, "600");
