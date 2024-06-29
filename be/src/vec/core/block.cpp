@@ -653,12 +653,19 @@ Block Block::clone_with_columns(const Columns& columns) const {
     return res;
 }
 
-Block Block::clone_without_columns() const {
+Block Block::clone_without_columns(const std::vector<int>* column_offset) const {
     Block res;
 
-    size_t num_columns = data.size();
-    for (size_t i = 0; i < num_columns; ++i) {
-        res.insert({nullptr, data[i].type, data[i].name});
+    if (column_offset != nullptr) {
+        size_t num_columns = column_offset->size();
+        for (size_t i = 0; i < num_columns; ++i) {
+            res.insert({nullptr, data[(*column_offset)[i]].type, data[(*column_offset)[i]].name});
+        }
+    } else {
+        size_t num_columns = data.size();
+        for (size_t i = 0; i < num_columns; ++i) {
+            res.insert({nullptr, data[i].type, data[i].name});
+        }
     }
     return res;
 }
@@ -1008,14 +1015,18 @@ void MutableBlock::add_row(const Block* block, int row) {
 }
 
 Status MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
-                              const uint32_t* row_end) {
+                              const uint32_t* row_end, const std::vector<int>* column_offset) {
     RETURN_IF_CATCH_EXCEPTION({
         DCHECK_LE(columns(), block->columns());
+        if (column_offset != nullptr) {
+            DCHECK_EQ(columns(), column_offset->size());
+        }
         const auto& block_data = block->get_columns_with_type_and_name();
         for (size_t i = 0; i < _columns.size(); ++i) {
-            DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+            const auto& src_col = column_offset ? block_data[(*column_offset)[i]] : block_data[i];
+            DCHECK_EQ(_data_types[i]->get_name(), src_col.type->get_name());
             auto& dst = _columns[i];
-            const auto& src = *block_data[i].column.get();
+            const auto& src = *src_col.column.get();
             DCHECK_GE(src.size(), row_end - row_begin);
             dst->insert_indices_from(src, row_begin, row_end);
         }
