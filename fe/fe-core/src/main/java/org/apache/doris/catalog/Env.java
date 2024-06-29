@@ -4637,7 +4637,7 @@ public class Env {
                 db.unregisterTable(oldTableName);
                 db.registerTable(table);
 
-                TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
+                TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), oldTableName, newTableName);
                 editLog.logTableRename(tableInfo);
                 LOG.info("rename table[{}] to {}", oldTableName, newTableName);
             } finally {
@@ -4824,7 +4824,8 @@ public class Env {
             indexNameToIdMap.put(newRollupName, indexId);
 
             // log
-            TableInfo tableInfo = TableInfo.createForRollupRename(db.getId(), table.getId(), indexId, newRollupName);
+            TableInfo tableInfo = TableInfo.createForRollupRename(db.getId(), table.getId(), indexId,
+                    rollupName, newRollupName);
             editLog.logRollupRename(tableInfo);
             LOG.info("rename rollup[{}] to {}", rollupName, newRollupName);
         } finally {
@@ -4883,7 +4884,7 @@ public class Env {
 
             // log
             TableInfo tableInfo = TableInfo.createForPartitionRename(db.getId(), table.getId(), partition.getId(),
-                    newPartitionName);
+                    partitionName, newPartitionName);
             editLog.logPartitionRename(tableInfo);
             LOG.info("rename partition[{}] to {}", partitionName, newPartitionName);
         } finally {
