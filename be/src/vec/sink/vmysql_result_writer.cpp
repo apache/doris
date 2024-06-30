@@ -88,6 +88,8 @@ Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     }
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
+
+    _set_serde_info(state->query_options().serde_dialect);
     return Status::OK();
 }
 
@@ -99,6 +101,35 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
     _copy_buffer_timer = ADD_CHILD_TIMER(_parent_profile, "CopyBufferTime", "AppendBatchTime");
     _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
     _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
+}
+
+// serde_dialect
+// struct SerdeInfo {
+//     const char* nested_string_wrapper;
+//     const int wrapper_len;
+//     const char* mapkey_delim;
+//     const int delim_len;
+// };
+template <bool is_binary_format>
+Status VMysqlResultWriter<is_binary_format>::_set_serde_info(
+        const TSerdeDialect::type& serde_dialect) {
+    switch (serde_dialect) {
+    case TSerdeDialect::DORIS:
+        _serde_info.nested_string_wrapper = "\"";
+        _serde_info.wrapper_len = 1;
+        _serde_info.mapkey_delim = ":";
+        _serde_info.delim_len = 1;
+        break;
+    case TSerdeDialect::PRESTO:
+        _serde_info.nested_string_wrapper = "";
+        _serde_info.wrapper_len = 0;
+        _serde_info.mapkey_delim = "=";
+        _serde_info.delim_len = 1;
+        break;
+    default:
+        return Statsu::InternalError("unknown serde dialect: {}", serde_dialect);
+    }
+    return Status::OK();
 }
 
 template <bool is_binary_format>
@@ -177,7 +208,7 @@ Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& i
             for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
                 RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
                         *(arguments[col_idx].column), row_buffer, row_idx,
-                        arguments[col_idx].is_const));
+                        arguments[col_idx].is_const, state->serde_info()));
             }
 
             // copy MysqlRowBuffer to Thrift

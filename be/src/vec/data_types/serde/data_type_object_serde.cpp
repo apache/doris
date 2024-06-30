@@ -40,7 +40,8 @@ namespace vectorized {
 template <bool is_binary_format>
 Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& row_buffer,
-                                                   int row_idx, bool col_const) const {
+                                                   int row_idx, bool col_const,
+                                                   const SerdeInfo& serde_info) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
     if (!variant.is_finalized()) {
         const_cast<ColumnObject&>(variant).finalize();
@@ -50,7 +51,7 @@ Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
         // Serialize scalar types, like int, string, array, faster path
         const auto& root = variant.get_subcolumn({});
         RETURN_IF_ERROR(root->get_least_common_type_serde()->write_column_to_mysql(
-                root->get_finalized_column(), row_buffer, row_idx, col_const));
+                root->get_finalized_column(), row_buffer, row_idx, col_const, serde_info));
     } else {
         // Serialize hierarchy types to json format
         rapidjson::StringBuffer buffer;
@@ -69,14 +70,16 @@ Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
 
 Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                  bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                  bool col_const,
+                                                  const SerdeInfo& serde_info) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
 }
 
 Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                  bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                  bool col_const,
+                                                  const SerdeInfo& serde_info) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
 }
 
 void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,

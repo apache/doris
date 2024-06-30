@@ -205,12 +205,14 @@ public:
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                 int row_idx, bool col_const,
+                                 const SerdeInfo& serde_info) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
     }
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                 int row_idx, bool col_const,
+                                 const SerdeInfo& serde_info) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
     }
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
@@ -252,7 +254,7 @@ public:
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const) const {
+                                  int row_idx, bool col_const, const SerdeInfo& serde_info) const {
         const auto col_index = index_check_const(row_idx, col_const);
         const auto string_val = assert_cast<const ColumnType&>(column).get_data_at(col_index);
         result.push_string(string_val.data, string_val.size);

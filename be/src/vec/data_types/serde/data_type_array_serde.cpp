@@ -311,7 +311,8 @@ void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
 template <bool is_binary_format>
 Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<is_binary_format>& result,
-                                                  int row_idx_of_mysql, bool col_const) const {
+                                                  int row_idx_of_mysql, bool col_const,
+                                                  const SerdeInfo& serde_info) const {
     auto& column_array = assert_cast<const ColumnArray&>(column);
     auto& offsets = column_array.get_offsets();
     auto& data = column_array.get_data();
@@ -337,16 +338,20 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            if (is_nested_string) {
-                if (0 != result.push_string("\"", 1)) {
+            if (is_nested_string && serde_info.wrapper_len > 0) {
+                if (0 !=
+                    result.push_string(serde_info.nested_string_wrapper, serde_info.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
-                RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, j, false));
-                if (0 != result.push_string("\"", 1)) {
+                RETURN_IF_ERROR(
+                        nested_serde->write_column_to_mysql(data, result, j, false, serde_info));
+                if (0 !=
+                    result.push_string(serde_info.nested_string_wrapper, serde_info.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
             } else {
-                RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, j, false));
+                RETURN_IF_ERROR(
+                        nested_serde->write_column_to_mysql(data, result, j, false, serde_info));
             }
         }
     }
@@ -359,14 +364,16 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
 
 Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                 bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                 bool col_const,
+                                                 const SerdeInfo& serde_info) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
 }
 
 Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                 bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                 bool col_const,
+                                                 const SerdeInfo& serde_info) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
 }
 
 Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
