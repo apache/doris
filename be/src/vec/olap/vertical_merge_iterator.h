@@ -164,7 +164,7 @@ public:
 
     ~VerticalMergeIteratorContext() = default;
     Status block_reset(const std::shared_ptr<Block>& block);
-    Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info = nullptr);
+    Status init(const StorageReadOptions& opts);
     bool compare(const VerticalMergeIteratorContext& rhs) const;
     Status copy_rows(Block* block, bool advanced = true);
     Status copy_rows(Block* block, size_t count);
@@ -198,22 +198,6 @@ public:
     RowLocation current_row_location() {
         DCHECK(_record_rowids);
         return _block_row_locations[_index_in_block];
-    }
-
-    size_t bytes() {
-        if (_block) {
-            return _block->bytes();
-        } else {
-            return 0;
-        }
-    }
-
-    size_t rows() {
-        if (_block) {
-            return _block->rows();
-        } else {
-            return 0;
-        }
     }
 
 private:
@@ -271,7 +255,7 @@ public:
     VerticalHeapMergeIterator(const VerticalHeapMergeIterator&) = delete;
     VerticalHeapMergeIterator& operator=(const VerticalHeapMergeIterator&) = delete;
 
-    Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info) override;
+    Status init(const StorageReadOptions& opts) override;
     Status next_batch(Block* block) override;
     const Schema& schema() const override { return *_schema; }
     uint64_t merged_rows() const override { return _merged_rows; }
@@ -337,7 +321,7 @@ public:
     VerticalFifoMergeIterator(const VerticalFifoMergeIterator&) = delete;
     VerticalFifoMergeIterator& operator=(const VerticalFifoMergeIterator&) = delete;
 
-    Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info) override;
+    Status init(const StorageReadOptions& opts) override;
     Status next_batch(Block* block) override;
     const Schema& schema() const override { return *_schema; }
     uint64_t merged_rows() const override { return _merged_rows; }
@@ -383,7 +367,7 @@ public:
     VerticalMaskMergeIterator(const VerticalMaskMergeIterator&) = delete;
     VerticalMaskMergeIterator& operator=(const VerticalMaskMergeIterator&) = delete;
 
-    Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info) override;
+    Status init(const StorageReadOptions& opts) override;
 
     Status next_batch(Block* block) override;
 
@@ -412,7 +396,6 @@ private:
     size_t _filtered_rows = 0;
     RowSourcesBuffer* _row_sources_buf;
     StorageReadOptions _opts;
-    CompactionSampleInfo* _sample_info = nullptr;
 };
 
 // segment merge iterator
