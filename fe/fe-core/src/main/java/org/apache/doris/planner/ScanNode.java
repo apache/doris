@@ -750,7 +750,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return hasLimit() && getLimit() < limitRowsForSingleInstance && conjuncts.isEmpty();
     }
 
-<<<<<<< HEAD
     // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.
     // After all scan node are collected, it is possible to gain a snapshot of the partition version.
     public static void setVisibleVersionForOlapScanNodes(List<ScanNode> scanNodes) throws UserException {
