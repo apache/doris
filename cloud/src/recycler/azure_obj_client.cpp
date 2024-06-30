@@ -39,6 +39,7 @@ using namespace Azure::Storage::Blobs;
 namespace doris::cloud {
 
 static constexpr size_t BlobBatchMaxOperations = 256;
+static constexpr char BlobNotFound[] = "BlobNotFound";
 
 template <typename Func>
 ObjectStorageResponse do_azure_client_call(Func f, std::string_view url, std::string_view key) {
@@ -193,15 +194,22 @@ ObjectStorageResponse AzureObjClient::delete_objects(const std::string& bucket,
             return resp;
         }
         for (auto&& defer : deferred_resps) {
-            resp = do_azure_client_call(
-                    [&]() {
-                        if (auto r = defer.GetResponse(); !r.Value.Deleted) {
-                            throw std::runtime_error("Batch delete azure blob failed");
-                        }
-                    },
-                    client_->GetUrl(), *begin);
-            if (resp.ret != 0) {
-                return resp;
+            try {
+                auto r = defer.GetResponse();
+                if (!r.Value.Deleted) {
+                    LOG_INFO("Azure batch delete failed, url {}", client_->GetUrl());
+                    return {-1};
+                }
+            } catch (Azure::Storage::StorageException& e) {
+                if (Azure::Core::Http::HttpStatusCode::NotFound == e.StatusCode &&
+                    0 == strcmp(e.ErrorCode.c_str(), BlobNotFound)) {
+                    continue;
+                }
+                auto msg = fmt::format(
+                        "Azure request failed because {}, http code {}, request id {}, url {}",
+                        e.Message, static_cast<int>(e.StatusCode), e.RequestId, client_->GetUrl());
+                LOG_WARNING(msg);
+                return {-1, std::move(msg)};
             }
         }
 
