@@ -760,8 +760,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     Slice result(col_index_buff.data(), page_index._column_index_size);
     {
         SCOPED_RAW_TIMER(&_statistics.read_page_index_time);
-        RETURN_IF_ERROR(
-                _file_reader->read_at(page_index._column_index_start, result, &bytes_read, _io_ctx));
+        RETURN_IF_ERROR(_file_reader->read_at(page_index._column_index_start, result, &bytes_read,
+                                              _io_ctx));
     }
     _column_statistics.read_bytes += bytes_read;
     auto& schema_desc = _file_metadata->schema();
