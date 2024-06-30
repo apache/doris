@@ -614,7 +614,7 @@ class Suite implements GroovyInterceptable {
         }
         if (cleanOperator==true){
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
-            quickTest("", """ SELECT * FROM ${tbName}  """)
+            quickTest("", """ SELECT * FROM ${tbName}  """, true)
             sql """ DROP TABLE  ${tbName} """
         }
     }

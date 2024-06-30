@@ -1001,8 +1001,6 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
-// only cache index pages (prerequisite: enable_file_cache = true)
-DEFINE_Bool(file_cache_index_only, "false");
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
@@ -1036,7 +1034,7 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_mBool(inverted_index_compaction_enable, "false");
+DEFINE_mBool(inverted_index_compaction_enable, "true");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
@@ -1120,6 +1118,8 @@ DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
+// missing rows correctness check when compaction for mow table
+DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
@@ -1222,6 +1222,8 @@ DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
+DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
+DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 

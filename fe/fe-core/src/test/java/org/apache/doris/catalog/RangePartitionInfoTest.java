@@ -23,6 +23,8 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
@@ -457,14 +459,14 @@ public class RangePartitionInfoTest {
 
         partitionInfo = new RangePartitionInfo(partitionColumns);
 
-        partitionInfo.write(out);
+        Text.writeString(out, GsonUtils.GSON.toJson(partitionInfo));
         out.flush();
         out.close();
 
         // 2. Read objects from file
         DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
-        RangePartitionInfo partitionInfo2 = (RangePartitionInfo) PartitionInfo.read(in);
+        RangePartitionInfo partitionInfo2 = GsonUtils.GSON.fromJson(Text.readString(in), RangePartitionInfo.class);
 
         Assert.assertEquals(partitionInfo.getType(), partitionInfo2.getType());
 

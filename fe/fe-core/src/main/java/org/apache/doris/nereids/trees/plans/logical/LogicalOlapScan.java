@@ -333,14 +333,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         return selectedIndexId;
     }
 
-    @Override
-    public long getSelectedIndexIdForMV() {
-        if (getTable().getBaseIndexId() != selectedIndexId) {
-            return selectedIndexId;
-        }
-        return -1;
-    }
-
     public boolean isIndexSelected() {
         return indexSelected;
     }
