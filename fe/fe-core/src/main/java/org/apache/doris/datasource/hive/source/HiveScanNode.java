@@ -55,6 +55,7 @@ import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Setter;
@@ -81,6 +82,7 @@ public class HiveScanNode extends FileQueryScanNode {
     private static final Logger LOG = LogManager.getLogger(HiveScanNode.class);
 
     public static final String PROP_FIELD_DELIMITER = "field.delim";
+    private static final String PROP_SERIALIZATION_FORMAT = "serialization.format";
     public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
     public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
@@ -446,12 +448,11 @@ public class HiveScanNode extends FileQueryScanNode {
     protected TFileAttributes getFileAttributes() throws UserException {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
         java.util.Map<String, String> delimiter = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
-        if (delimiter.containsKey(PROP_FIELD_DELIMITER)) {
-            if (delimiter.get(PROP_FIELD_DELIMITER).length() == 0) {
-                textParams.setColumnSeparator(DEFAULT_FIELD_DELIMITER);
-            } else {
-                textParams.setColumnSeparator(delimiter.get(PROP_FIELD_DELIMITER));
-            }
+        // For column separator, first find "field.delim", then "serialization.format".
+        String columnSeparator = delimiter.getOrDefault(PROP_FIELD_DELIMITER,
+                delimiter.getOrDefault(PROP_SERIALIZATION_FORMAT, ""));
+        if (!Strings.isNullOrEmpty(columnSeparator)) {
+            textParams.setColumnSeparator(columnSeparator);
         } else if (delimiter.containsKey(PROP_SEPARATOR_CHAR)) {
             textParams.setColumnSeparator(delimiter.get(PROP_SEPARATOR_CHAR));
         } else {
