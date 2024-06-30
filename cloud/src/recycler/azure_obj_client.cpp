@@ -29,264 +29,193 @@
 #include <azure/storage/common/storage_credential.hpp>
 #include <azure/storage/common/storage_exception.hpp>
 #include <iterator>
-#include <stdexcept>
+#include <ranges>
 
 #include "common/logging.h"
-#include "recycler/obj_store_accessor.h"
-
-using namespace Azure::Storage::Blobs;
+#include "common/sync_point.h"
 
 namespace doris::cloud {
 
-constexpr size_t BlobBatchMaxOperations = 256;
-constexpr char BlobNotFound[] = "BlobNotFound";
+static constexpr size_t BlobBatchMaxOperations = 256;
 
 template <typename Func>
-ObjectStorageResponse do_azure_client_call(Func f, const ObjectStoragePathOptions& opts) {
+ObjectStorageResponse do_azure_client_call(Func f, std::string_view url, std::string_view key) {
     try {
         f();
     } catch (Azure::Storage::StorageException& e) {
         auto msg = fmt::format(
-                "Azure request failed because {}, http code {}, request id {}, bucket {}, key {}, "
-                "prefix {}, endpoint {}",
-                e.Message, static_cast<int>(e.StatusCode), e.RequestId, opts.bucket, opts.key,
-                opts.prefix, opts.endpoint);
-        LOG_WARNING(msg);
-        return {-1, std::move(msg)};
-    } catch (std::exception& e) {
-        auto msg = fmt::format(
-                "Azure request failed because {}, bucket {}, key {}, prefix {}, endpoint {}",
-                e.what(), opts.bucket, opts.key, opts.prefix, opts.endpoint);
+                "Azure request failed because {}, http_code: {}, request_id: {}, url: {}, "
+                "key: {}",
+                e.Message, static_cast<int>(e.StatusCode), e.RequestId, url, key);
         LOG_WARNING(msg);
         return {-1, std::move(msg)};
     }
-    return ObjectStorageResponse::OK();
+    return {};
 }
 
-struct AzureBatchDeleter {
-    AzureBatchDeleter(BlobContainerClient* client, const ObjectStoragePathOptions& opts)
-            : _client(client), _batch(client->CreateBatch()), _opts(opts) {}
-    // Submit one blob to be deleted in `AzureBatchDeleter::execute`
-    void delete_blob(const std::string& blob_name) {
-        deferred_resps.emplace_back(_batch.DeleteBlob(blob_name));
+class AzureListIterator final : public ObjectListIterator {
+public:
+    AzureListIterator(std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client,
+                      std::string prefix)
+            : client_(std::move(client)), req_({.Prefix = std::move(prefix)}) {
+        TEST_SYNC_POINT_CALLBACK("AzureListIterator", &req_);
     }
-    ObjectStorageResponse execute() {
-        if (deferred_resps.empty()) {
-            return ObjectStorageResponse::OK();
-        }
-        auto resp = do_azure_client_call([&]() { _client->SubmitBatch(_batch); }, _opts);
-        if (resp.ret != 0) {
-            return resp;
+
+    ~AzureListIterator() override = default;
+
+    bool is_valid() override { return is_valid_; }
+
+    bool has_next() override {
+        if (!is_valid_) {
+            return false;
         }
 
-        for (auto&& defer_response : deferred_resps) {
-            try {
-                auto r = defer_response.GetResponse();
-                if (!r.Value.Deleted) {
-                    LOG_INFO("Azure batch delete failed, bucket {}, key {}, prefix {}, endpoint {}",
-                             _opts.bucket, _opts.key, _opts.prefix, _opts.endpoint);
-                    return {-1};
-                }
-            } catch (Azure::Storage::StorageException& e) {
-                if (Azure::Core::Http::HttpStatusCode::NotFound == e.StatusCode &&
-                    0 == strcmp(e.ErrorCode.c_str(), BlobNotFound)) {
-                    continue;
-                }
-                auto msg = fmt::format(
-                        "Azure request failed because {}, http code {}, request id {}, bucket {}, "
-                        "key {}, "
-                        "prefix {}, endpoint {}",
-                        e.Message, static_cast<int>(e.StatusCode), e.RequestId, _opts.bucket,
-                        _opts.key, _opts.prefix, _opts.endpoint);
-                LOG_WARNING(msg);
-                return {-1, std::move(msg)};
+        if (!results_.empty()) {
+            return true;
+        }
+
+        if (!has_more_) {
+            return false;
+        }
+
+        try {
+            auto resp = client_->ListBlobs(req_);
+            has_more_ = resp.NextPageToken.HasValue();
+            DCHECK(!has_more_ || resp.Blobs.empty()) << has_more_ << ' ' << resp.Blobs.empty();
+            req_.ContinuationToken = std::move(resp.NextPageToken);
+            results_.reserve(resp.Blobs.size());
+            for (auto&& item : std::ranges::reverse_view(resp.Blobs)) {
+                DCHECK(item.Name.starts_with(*req_.Prefix)) << item.Name << ' ' << *req_.Prefix;
+                results_.emplace_back(ObjectMeta {
+                        .key = std::move(item.Name),
+                        .size = item.BlobSize,
+                        .mtime_s = item.Details.LastModified.time_since_epoch().count()});
             }
+        } catch (Azure::Storage::StorageException& e) {
+            LOG_WARNING(
+                    "Azure request failed because {}, http_code: {}, request_id: {}, url: {}, "
+                    "prefix: {}",
+                    e.Message, static_cast<int>(e.StatusCode), e.RequestId, client_->GetUrl(),
+                    req_.Prefix.Value());
+            is_valid_ = false;
+            return false;
         }
 
-        return ObjectStorageResponse::OK();
+        return !results_.empty();
+    }
+
+    std::optional<ObjectMeta> next() override {
+        std::optional<ObjectMeta> res;
+        if (!has_next()) {
+            return res;
+        }
+
+        res = std::move(results_.back());
+        results_.pop_back();
+        return res;
     }
 
 private:
-    BlobContainerClient* _client;
-    BlobContainerBatch _batch;
-    const ObjectStoragePathOptions& _opts;
-    std::vector<Azure::Storage::DeferredResponse<Models::DeleteBlobResult>> deferred_resps;
+    std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client_;
+    Azure::Storage::Blobs::ListBlobsOptions req_;
+    std::vector<ObjectMeta> results_;
+    bool is_valid_ {true};
+    bool has_more_ {true};
 };
 
-ObjectStorageResponse AzureObjClient::put_object(const ObjectStoragePathOptions& opts,
+AzureObjClient::~AzureObjClient() = default;
+
+ObjectStorageResponse AzureObjClient::put_object(ObjectStoragePathRef path,
                                                  std::string_view stream) {
-    auto client = _client->GetBlockBlobClient(opts.key);
+    auto client = client_->GetBlockBlobClient(path.key);
     return do_azure_client_call(
             [&]() {
                 client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
             },
-            opts);
+            client_->GetUrl(), path.key);
 }
 
-ObjectStorageResponse AzureObjClient::head_object(const ObjectStoragePathOptions& opts) {
+ObjectStorageResponse AzureObjClient::head_object(ObjectStoragePathRef path, ObjectMeta* res) {
     try {
-        Models::BlobProperties properties =
-                _client->GetBlockBlobClient(opts.key).GetProperties().Value;
-        return ObjectStorageResponse::OK();
+        auto&& properties = client_->GetBlockBlobClient(path.key).GetProperties().Value;
+        res->key = path.key;
+        res->mtime_s = properties.LastModified.time_since_epoch().count();
+        res->size = properties.BlobSize;
+        return {0};
     } catch (Azure::Storage::StorageException& e) {
         if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound) {
             return {1};
         }
         auto msg = fmt::format(
-                "Failed to head azure blob due to {}, http code {}, request id {}, "
-                "bucket {}, key {}, prefix {}, endpoint {}",
-                e.Message, static_cast<int>(e.StatusCode), e.RequestId, opts.bucket, opts.key,
-                opts.prefix, opts.endpoint);
+                "Head azure blob failed because {}, http_code: {}, request_id: {}, url: {}, "
+                "key: {}",
+                e.Message, static_cast<int>(e.StatusCode), e.RequestId, client_->GetUrl(),
+                path.key);
         LOG_WARNING(msg);
         return {-1, std::move(msg)};
     }
 }
 
-ObjectStorageResponse AzureObjClient::list_objects(const ObjectStoragePathOptions& opts,
-                                                   std::vector<ObjectMeta>* files) {
-    auto get_object_meta = [&](auto&& resp) {
-        std::ranges::transform(
-                resp.Blobs, std::back_inserter(*files), [](auto&& blob_item) -> ObjectMeta {
-                    return {.path = std::move(blob_item.Name),
-                            .size = blob_item.BlobSize,
-                            .last_modify_second =
-                                    blob_item.Details.LastModified.time_since_epoch().count()};
-                });
-    };
-    return do_azure_client_call(
-            [&]() {
-                ListBlobsOptions list_opts;
-                list_opts.Prefix = opts.prefix;
-                auto resp = _client->ListBlobs(list_opts);
-                get_object_meta(resp);
-                while (!resp.NextPageToken->empty()) {
-                    list_opts.ContinuationToken = resp.NextPageToken;
-                    resp = _client->ListBlobs(list_opts);
-                    get_object_meta(resp);
-                }
-            },
-            opts);
+std::unique_ptr<ObjectListIterator> AzureObjClient::list_objects(ObjectStoragePathRef path) {
+    return std::make_unique<AzureListIterator>(client_, path.key);
 }
 
 // As Azure's doc said, the batch size is 256
 // You can find out the num in https://learn.microsoft.com/en-us/rest/api/storageservices/blob-batch?tabs=microsoft-entra-id
 // > Each batch request supports a maximum of 256 subrequests.
-ObjectStorageResponse AzureObjClient::delete_objects(const ObjectStoragePathOptions& opts,
-                                                     std::vector<std::string> objs) {
-    if (objs.empty()) {
-        LOG_INFO("No objects to delete").tag("endpoint", opts.endpoint).tag("bucket", opts.bucket);
-        return ObjectStorageResponse::OK();
+ObjectStorageResponse AzureObjClient::delete_objects(const std::string& bucket,
+                                                     std::vector<std::string> keys) {
+    if (keys.empty()) {
+        return {0};
     }
+
     // TODO(ByteYue) : use range to adate this code when compiler is ready
     // auto chunkedView = objs | std::views::chunk(BlobBatchMaxOperations);
-    auto begin = std::begin(objs);
-    auto end = std::end(objs);
+    auto begin = std::begin(keys);
+    auto end = std::end(keys);
 
     while (begin != end) {
-        auto deleter = AzureBatchDeleter(_client.get(), opts);
+        auto batch = client_->CreateBatch();
         auto chunk_end = begin;
-        std::advance(chunk_end, std::min(BlobBatchMaxOperations,
-                                         static_cast<size_t>(std::distance(begin, end))));
-
-        std::ranges::for_each(std::ranges::subrange(begin, chunk_end),
-                              [&](const std::string& obj) { deleter.delete_blob(obj); });
-        begin = chunk_end;
-        if (auto resp = deleter.execute(); resp.ret != 0) {
+        size_t batch_size = BlobBatchMaxOperations;
+        TEST_SYNC_POINT_CALLBACK("AzureObjClient::delete_objects", &batch_size);
+        std::advance(chunk_end,
+                     std::min(batch_size, static_cast<size_t>(std::distance(begin, end))));
+        for (auto it = begin; it != chunk_end; ++it) {
+            batch.DeleteBlob(*it);
+        }
+        auto resp = do_azure_client_call([&]() { client_->SubmitBatch(batch); }, client_->GetUrl(),
+                                         *begin);
+        if (resp.ret != 0) {
             return resp;
         }
+
+        begin = chunk_end;
     }
-    return ObjectStorageResponse::OK();
+
+    return {0};
 }
 
-ObjectStorageResponse AzureObjClient::delete_object(const ObjectStoragePathOptions& opts) {
-    return do_azure_client_call(
-            [&]() {
-                auto resp = _client->DeleteBlob(opts.key);
-                if (!resp.Value.Deleted) {
-                    throw std::runtime_error("Delete azure blob failed");
-                }
-            },
-            opts);
+ObjectStorageResponse AzureObjClient::delete_object(ObjectStoragePathRef path) {
+    return do_azure_client_call([&]() { client_->DeleteBlob(path.key); }, client_->GetUrl(),
+                                path.key);
 }
 
-ObjectStorageResponse AzureObjClient::delete_objects_recursively(
-        const ObjectStoragePathOptions& opts) {
-    ListBlobsOptions list_opts;
-    list_opts.Prefix = opts.prefix;
-    list_opts.PageSizeHint = BlobBatchMaxOperations;
-    auto delete_func = [&](const std::vector<Models::BlobItem>& blobs) -> ObjectStorageResponse {
-        auto deleter = AzureBatchDeleter(_client.get(), opts);
-        auto batch = _client->CreateBatch();
-        for (auto&& blob_item : blobs) {
-            deleter.delete_blob(blob_item.Name);
-        }
-        if (auto response = deleter.execute(); response.ret != 0) {
-            return response;
-        }
-        return ObjectStorageResponse::OK();
-    };
-    auto resp = _client->ListBlobs(list_opts);
-    if (auto response = delete_func(resp.Blobs); response.ret != 0) {
-        return response;
-    }
-    while (!resp.NextPageToken->empty()) {
-        list_opts.ContinuationToken = resp.NextPageToken;
-        resp = _client->ListBlobs(list_opts);
-        auto response = delete_func(resp.Blobs);
-        if (response.ret != 0) {
-            return response;
-        }
-    }
-    return ObjectStorageResponse::OK();
+ObjectStorageResponse AzureObjClient::delete_objects_recursively(ObjectStoragePathRef path,
+                                                                 int64_t expiration_time) {
+    return delete_objects_recursively_(path, expiration_time, BlobBatchMaxOperations);
 }
 
-ObjectStorageResponse AzureObjClient::delete_expired(const ObjectStorageDeleteExpiredOptions& opts,
-                                                     int64_t expired_time) {
-    ListBlobsOptions list_opts;
-    list_opts.Prefix = opts.path_opts.prefix;
-    list_opts.PageSizeHint = BlobBatchMaxOperations;
-    auto delete_func = [&](const std::vector<Models::BlobItem>& blobs) -> ObjectStorageResponse {
-        auto deleter = AzureBatchDeleter(_client.get(), opts.path_opts);
-        auto batch = _client->CreateBatch();
-        for (auto&& blob_item : blobs) {
-            if (blob_item.Details.LastModified.time_since_epoch().count() < expired_time) {
-                batch.DeleteBlob(blob_item.Name);
-            }
-        }
-        if (auto response = deleter.execute(); response.ret != 0) {
-            return response;
-        }
-        return ObjectStorageResponse::OK();
-    };
-    auto resp = _client->ListBlobs(list_opts);
-    auto response = delete_func(resp.Blobs);
-    if (response.ret != 0) {
-        return response;
-    }
-    while (!resp.NextPageToken->empty()) {
-        list_opts.ContinuationToken = resp.NextPageToken;
-        resp = _client->ListBlobs(list_opts);
-        auto response = delete_func(resp.Blobs);
-        if (response.ret != 0) {
-            return response;
-        }
-    }
-    return ObjectStorageResponse::OK();
-}
-
-ObjectStorageResponse AzureObjClient::get_life_cycle(const ObjectStoragePathOptions& opts,
+ObjectStorageResponse AzureObjClient::get_life_cycle(const std::string& bucket,
                                                      int64_t* expiration_days) {
-    return {-1};
+    // TODO(plat1ko)
+    *expiration_days = INT64_MAX;
+    return {0};
 }
 
-ObjectStorageResponse AzureObjClient::check_versioning(const ObjectStoragePathOptions& opts) {
-    return {-1};
-}
-
-const std::shared_ptr<Aws::S3::S3Client>& AzureObjClient::s3_client() {
-    CHECK(true) << "Currently this is unreachable";
-    // TODO(ByteYue): use std::unreachable() instead when compiler supports it
-    __builtin_unreachable();
+ObjectStorageResponse AzureObjClient::check_versioning(const std::string& bucket) {
+    // TODO(plat1ko)
+    return {0};
 }
 
 } // namespace doris::cloud
