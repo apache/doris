@@ -103,18 +103,14 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
     _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
 }
 
-// serde_dialect
-// struct SerdeInfo {
-//     const char* nested_string_wrapper;
-//     const int wrapper_len;
-//     const char* mapkey_delim;
-//     const int delim_len;
-// };
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::_set_serde_info(
         const TSerdeDialect::type& serde_dialect) {
     switch (serde_dialect) {
     case TSerdeDialect::DORIS:
+        // eg:
+        //  array: ["abc", "def", "", null]
+        //  map: {"k1":null, "k2":"v3"}
         _serde_info.nested_string_wrapper = "\"";
         _serde_info.wrapper_len = 1;
         _serde_info.mapkey_delim = ":";
@@ -123,6 +119,9 @@ Status VMysqlResultWriter<is_binary_format>::_set_serde_info(
         _serde_info.null_len = 4;
         break;
     case TSerdeDialect::PRESTO:
+        // eg:
+        //  array: [abc, def, , NULL]
+        //  map: {k1=NULL, k2=v3}
         _serde_info.nested_string_wrapper = "";
         _serde_info.wrapper_len = 0;
         _serde_info.mapkey_delim = "=";
