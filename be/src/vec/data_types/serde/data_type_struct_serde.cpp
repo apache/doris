@@ -355,6 +355,8 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
         if (serde_info.wrapper_len > 0) {
             col_name = serde_info.nested_string_wrapper + elem_names[j] +
                        serde_info.nested_string_wrapper;
+        } else {
+            col_name = elem_names[j];
         }
         col_name += serde_info.mapkey_delim;
         if (0 != result.push_string(col_name.c_str(), col_name.length())) {
@@ -362,7 +364,7 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
         }
 
         if (col.get_column_ptr(j)->is_null_at(col_index)) {
-            if (0 != result.push_string(serde_info.null_format serde_info.null_len)) {
+            if (0 != result.push_string(serde_info.null_format, serde_info.null_len)) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {

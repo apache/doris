@@ -89,7 +89,7 @@ Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
 
-    _set_serde_info(state->query_options().serde_dialect);
+    RETURN_IF_ERROR(_set_serde_info(state->query_options().serde_dialect));
     return Status::OK();
 }
 
@@ -131,7 +131,7 @@ Status VMysqlResultWriter<is_binary_format>::_set_serde_info(
         _serde_info.null_len = 4;
         break;
     default:
-        return Statsu::InternalError("unknown serde dialect: {}", serde_dialect);
+        return Status::InternalError("unknown serde dialect: {}", serde_dialect);
     }
     return Status::OK();
 }
@@ -212,7 +212,7 @@ Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& i
             for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
                 RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
                         *(arguments[col_idx].column), row_buffer, row_idx,
-                        arguments[col_idx].is_const, state->serde_info()));
+                        arguments[col_idx].is_const, _serde_info));
             }
 
             // copy MysqlRowBuffer to Thrift

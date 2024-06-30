@@ -19,11 +19,24 @@
 
 namespace doris {
 
+// The description of serde format.
+// Used for the string format of result return to MySQL client.
 struct SerdeInfo {
+    // The wrapper char for string type in nested type.
+    // eg, if set to empty, the array<string> will be:
+    //      [abc, def, , hig]
+    //     if set to '"', the array<string> will be:
+    //      ["abc", "def", "", "hig"]
     const char* nested_string_wrapper;
     int wrapper_len;
+    // The delimiter of key value in map type, eg:
+    //      {"k1":"v1"}
+    //      {k1=v1}
     const char* mapkey_delim;
     int delim_len;
+    // The format of null value in nested type, eg:
+    //      NULL
+    //      null 
     const char* null_format;
     int null_len;
 };

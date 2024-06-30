@@ -333,8 +333,7 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
             }
         }
         if (data.is_null_at(j)) {
-            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
-                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
+            if (0 != result.push_string(serde_info.null_format, serde_info.null_len)) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {

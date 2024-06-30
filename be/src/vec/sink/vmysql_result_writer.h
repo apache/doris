@@ -57,7 +57,7 @@ public:
 private:
     void _init_profile();
 
-    Status _set_serde_info(TSerdeDialect::type serde_dialect);
+    Status _set_serde_info(const TSerdeDialect::type& serde_dialect);
 
     template <PrimitiveType type, bool is_nullable>
     Status _add_one_column(const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
