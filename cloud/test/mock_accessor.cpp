@@ -18,8 +18,6 @@
 
 #include "mock_accessor.h"
 
-#include <bits/ranges_algo.h>
-#include <bits/ranges_util.h>
 #include <glog/logging.h>
 
 #include <iterator>
