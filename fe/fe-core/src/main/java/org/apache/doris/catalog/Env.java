@@ -4637,7 +4637,8 @@ public class Env {
                 db.unregisterTable(oldTableName);
                 db.registerTable(table);
 
-                TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), oldTableName, newTableName);
+                TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), oldTableName,
+			newTableName);
                 editLog.logTableRename(tableInfo);
                 LOG.info("rename table[{}] to {}", oldTableName, newTableName);
             } finally {
