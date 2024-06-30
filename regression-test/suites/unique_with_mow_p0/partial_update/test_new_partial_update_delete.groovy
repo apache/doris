@@ -88,7 +88,8 @@ suite('test_new_partial_update_delete') {
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
-            qt_sql_table1 "show create table ${tableName1}"
+            def output1 = sql "show create table ${tableName1}"
+            assertTrue output1[0][1].contains("\"enable_mow_delete_on_delete_predicate\" = \"false\"");
             sql "insert into ${tableName1} values(1,1,1,1,1)"
             // 1,1,1,1,1
             qt_sql1 "select * from ${tableName1} order by k1;"
@@ -110,7 +111,8 @@ suite('test_new_partial_update_delete') {
             sql """alter table ${tableName1} set ("enable_mow_delete_on_delete_predicate"="true") """
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict=true;"
-            qt_sql_table2 "show create table ${tableName1}"
+            def output2 = sql "show create table ${tableName1}"
+            assertTrue output2[0][1].contains("\"enable_mow_delete_on_delete_predicate\" = \"true\"");
             sql "insert into ${tableName1} values(2,2,2,2,2)"
             // 1,2,NULL,NULL,NULL
             // 2,2,2,2,2
@@ -199,7 +201,8 @@ suite('test_new_partial_update_delete') {
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
-            qt_sql_table21 "show create table ${tableName2}"
+            def output3 = sql "show create table ${tableName2}"
+            assertTrue output3[0][1].contains("\"enable_mow_delete_on_delete_predicate\" = \"false\"");
             sql "insert into ${tableName2} values(1,1,1,1,1)"
             // 1,1,1,1,1
             qt_sql21 "select * from ${tableName2} order by k1;"
@@ -221,7 +224,8 @@ suite('test_new_partial_update_delete') {
             sql """alter table ${tableName2} set ("enable_mow_delete_on_delete_predicate"="true") """
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict=true;"
-            qt_sql_table32 "show create table ${tableName2}"
+            def output4 = sql "show create table ${tableName2}"
+            assertTrue output4[0][1].contains("\"enable_mow_delete_on_delete_predicate\" = \"true\"");
             sql "insert into ${tableName2} values(2,2,2,2,2)"
             // 1,2,NULL,NULL,NULL
             // 2,2,2,2,2

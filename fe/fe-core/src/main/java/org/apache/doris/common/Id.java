@@ -25,7 +25,7 @@ import java.util.ArrayList;
 /**
  * Integer ids that cannot accidentally be compared with ints.
  */
-public class Id<IdType extends Id<IdType>> {
+public class Id<IdType extends Id<IdType>> implements Comparable<Id<IdType>> {
     protected final int id;
 
     public Id(int id) {
@@ -61,5 +61,10 @@ public class Id<IdType extends Id<IdType>> {
 
     public String toString() {
         return Integer.toString(id);
+    }
+
+    @Override
+    public int compareTo(Id<IdType> idTypeId) {
+        return id - idTypeId.id;
     }
 }

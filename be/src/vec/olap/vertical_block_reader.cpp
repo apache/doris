@@ -25,8 +25,6 @@
 #include <ostream>
 
 #include "cloud/config.h"
-#include "olap/compaction.h"
-#include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
@@ -110,8 +108,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
     return Status::OK();
 }
 
-Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
-                                               CompactionSampleInfo* sample_info) {
+Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) {
     std::vector<bool> iterator_init_flag;
     std::vector<RowsetId> rowset_ids;
     std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = read_params.segment_iters_ptr;
@@ -160,8 +157,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     // init collect iterator
     StorageReadOptions opts;
     opts.record_rowids = read_params.record_rowids;
-    opts.block_row_max = read_params.batch_size;
-    RETURN_IF_ERROR(_vcollect_iter->init(opts, sample_info));
+    RETURN_IF_ERROR(_vcollect_iter->init(opts));
 
     // In agg keys value columns compact, get first row for _init_agg_state
     if (!read_params.is_key_column_group && read_params.tablet->keys_type() == KeysType::AGG_KEYS) {
@@ -208,16 +204,11 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
 }
 
 Status VerticalBlockReader::init(const ReaderParams& read_params) {
-    return init(read_params, nullptr);
-}
-
-Status VerticalBlockReader::init(const ReaderParams& read_params,
-                                 CompactionSampleInfo* sample_info) {
     StorageReadOptions opts;
-    _reader_context.batch_size = read_params.batch_size;
+    _reader_context.batch_size = opts.block_row_max;
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
-    auto status = _init_collect_iter(read_params, sample_info);
+    auto status = _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
