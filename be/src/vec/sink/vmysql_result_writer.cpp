@@ -119,12 +119,16 @@ Status VMysqlResultWriter<is_binary_format>::_set_serde_info(
         _serde_info.wrapper_len = 1;
         _serde_info.mapkey_delim = ":";
         _serde_info.delim_len = 1;
+        _serde_info.null_format = "null";
+        _serde_info.null_len = 4;
         break;
     case TSerdeDialect::PRESTO:
         _serde_info.nested_string_wrapper = "";
         _serde_info.wrapper_len = 0;
         _serde_info.mapkey_delim = "=";
         _serde_info.delim_len = 1;
+        _serde_info.null_format = "NULL";
+        _serde_info.null_len = 4;
         break;
     default:
         return Statsu::InternalError("unknown serde dialect: {}", serde_dialect);
