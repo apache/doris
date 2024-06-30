@@ -36,7 +36,7 @@ struct SerdeInfo {
     int delim_len;
     // The format of null value in nested type, eg:
     //      NULL
-    //      null 
+    //      null
     const char* null_format;
     int null_len;
 };
