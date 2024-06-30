@@ -26,6 +26,12 @@
 
 namespace doris {
 
+enum class TxnOpParamType : int {
+    ILLEGAL,
+    WITH_TXN_ID,
+    WITH_LABEL,
+};
+
 CloudStreamLoadExecutor::CloudStreamLoadExecutor(ExecEnv* exec_env)
         : StreamLoadExecutor(exec_env) {}
 
@@ -42,13 +48,48 @@ Status CloudStreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
 }
 
 Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
-    VLOG_DEBUG << "operate_txn_2pc, op: " << ctx->txn_operation;
+    std::stringstream ss;
+    ss << "db_id=" << ctx->db_id << " txn_id=" << ctx->txn_id << " label=" << ctx->label
+       << " txn_2pc_op=" << ctx->txn_operation;
+    std::string op_info = ss.str();
+    VLOG_DEBUG << "operate_txn_2pc " << op_info;
+    TxnOpParamType topt = ctx->txn_id > 0       ? TxnOpParamType::WITH_TXN_ID
+                          : !ctx->label.empty() ? TxnOpParamType::WITH_LABEL
+                                                : TxnOpParamType::ILLEGAL;
+
+    Status st = Status::InternalError<false>("impossible branch reached, " + op_info);
+
     if (ctx->txn_operation.compare("commit") == 0) {
-        return _exec_env->storage_engine().to_cloud().meta_mgr().commit_txn(*ctx, true);
+        if (topt == TxnOpParamType::WITH_TXN_ID) {
+            VLOG_DEBUG << "2pc commit stream load txn directly: " << op_info;
+            st = _exec_env->storage_engine().to_cloud().meta_mgr().commit_txn(*ctx, true);
+        } else if (topt == TxnOpParamType::WITH_LABEL) {
+            VLOG_DEBUG << "2pc commit stream load txn with FE support: " << op_info;
+            st = StreamLoadExecutor::operate_txn_2pc(ctx);
+        } else {
+            st = Status::InternalError<false>(
+                    "failed to 2pc commit txn, with TxnOpParamType::illegal input, " + op_info);
+        }
+    } else if (ctx->txn_operation.compare("abort") == 0) {
+        if (topt == TxnOpParamType::WITH_TXN_ID) {
+            LOG(INFO) << "2pc abort stream load txn directly: " << op_info;
+            st = _exec_env->storage_engine().to_cloud().meta_mgr().abort_txn(*ctx);
+            WARN_IF_ERROR(st, "failed to rollback txn " + op_info);
+        } else if (topt == TxnOpParamType::WITH_LABEL) { // maybe a label send to FE to abort
+            VLOG_DEBUG << "2pc abort stream load txn with FE support: " << op_info;
+            StreamLoadExecutor::rollback_txn(ctx);
+            st = Status::OK();
+        } else {
+            st = Status::InternalError<false>("failed abort txn, with illegal input, " + op_info);
+        }
     } else {
-        // 2pc abort
-        return _exec_env->storage_engine().to_cloud().meta_mgr().abort_txn(*ctx);
+        std::string msg =
+                "failed to operate_txn_2pc, unrecognized operation: " + ctx->txn_operation;
+        LOG(WARNING) << msg << " " << op_info;
+        st = Status::InternalError<false>(msg + " " + op_info);
     }
+    WARN_IF_ERROR(st, "failed to operate_txn_2pc " + op_info)
+    return st;
 }
 
 Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
@@ -85,8 +126,24 @@ Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
 }
 
 void CloudStreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
-    WARN_IF_ERROR(_exec_env->storage_engine().to_cloud().meta_mgr().abort_txn(*ctx),
-                  "Failed to rollback txn");
+    std::stringstream ss;
+    ss << "db_id=" << ctx->db_id << " txn_id=" << ctx->txn_id << " label=" << ctx->label;
+    std::string op_info = ss.str();
+    LOG(INFO) << "rollback stream laod txn " << op_info;
+    TxnOpParamType topt = ctx->txn_id > 0       ? TxnOpParamType::WITH_TXN_ID
+                          : !ctx->label.empty() ? TxnOpParamType::WITH_LABEL
+                                                : TxnOpParamType::ILLEGAL;
+
+    if (topt == TxnOpParamType::WITH_TXN_ID) {
+        VLOG_DEBUG << "abort stream load txn directly: " << op_info;
+        WARN_IF_ERROR(_exec_env->storage_engine().to_cloud().meta_mgr().abort_txn(*ctx),
+                      "failed to rollback txn " + op_info);
+    } else { // maybe a label send to FE to abort
+        // does not care about the return status
+        // ctx->db_id > 0 && !ctx->label.empty()
+        VLOG_DEBUG << "abort stream load txn with FE support: " << op_info;
+        StreamLoadExecutor::rollback_txn(ctx);
+    }
 }
 
 } // namespace doris
