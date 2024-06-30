@@ -24,18 +24,18 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9033/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9033/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feSourceThriftAddress = "127.0.0.1:9020"
-feTargetThriftAddress = "127.0.0.1:9020"
+feSourceThriftAddress = "127.0.0.1:9022"
+feTargetThriftAddress = "127.0.0.1:9922"
 syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "127.0.0.1:8033"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -89,9 +89,7 @@ excludeSuites = "test_broker_load"
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "segcompaction_p2," +
     "workload_manager_p1," +
-    "cloud_p0/cache," +
-    "zzz_the_end_sentinel_do_not_touch," +
-    "dialect_compatible"// keep this line as the last line
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
@@ -109,8 +107,8 @@ sk=""
 
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
-// See `docker/thirdparties/run-thirdparties-docker.sh`
-enableJdbcTest=false
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableJdbcTest=true
 mysql_57_port=3316
 pg_14_port=5442
 oracle_11_port=1521
@@ -122,9 +120,9 @@ db2_11_port=50000
 
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
-// See `docker/thirdparties/run-thirdparties-docker.sh`
-enableHiveTest=false
-enablePaimonTest=false
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableHiveTest=true
+enablePaimonTest=true
 
 // port of hive2 docker
 hive2HmsPort=9083
@@ -140,14 +138,13 @@ hive3PgPort=5732
 
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container
-// See `docker/thirdparties/run-thirdparties-docker.sh`
+// See `docker/thirdparties/start-thirdparties-docker.sh`
 enableKafkaTest=false
 kafka_port=19193
 
 // elasticsearch catalog test config
-// See `docker/thirdparties/run-thirdparties-docker.sh`
+// See `docker/thirdparties/start-thirdparties-docker.sh`
 enableEsTest=false
-es_5_port=59200
 es_6_port=19200
 es_7_port=29200
 es_8_port=39200
@@ -217,10 +214,3 @@ max_failure_num=0
 s3ExportBucketName = ""
 
 externalEnvIp="127.0.0.1"
-
-// trino-connector catalog test config
-enableTrinoConnectorTest = false
-
-enableKerberosTest=false
-kerberosHmsPort=9883
-kerberosHdfsPort=8820

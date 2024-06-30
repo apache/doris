@@ -22,7 +22,8 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    // String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String driver_url = "file:///mnt/disk1/yy/git/doris/output/fe/jdbc_drivers/mysql-connector-java-8.0.25.jar";
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String user = "test_jdbc_user";
         String pwd = '123456';
@@ -620,8 +621,35 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         qt_sql """select count(*) from mysql_rename2.doris_test.ex_tb1;"""
 
-        sql """drop catalog if exists mysql_rename2;"""
+        sql "switch mysql_rename2;"
+        sql """call execute_stmt("mysql_rename2", "create table if not exists doris_test.dim_server (`col1` varchar(50) NOT NULL, `col2` varchar(50) NOT NULL)")"""
 
+        sql """refresh catalog mysql_rename2"""
+
+        sql """create database if not exists internal.test_pushdown_db"""
+
+        sql """DROP view if exists internal.test_pushdown_db.ads_oreo_sid_report;"""
+
+        sql """
+            create view internal.test_pushdown_db.ads_oreo_sid_report
+            (
+                `col1`,
+                `col2`
+            )
+            AS
+            select
+            tmp.col1,tmp.col2
+            from (
+            select 'abc' as col1,'def' as col2
+            ) tmp
+            inner join mysql_rename2.doris_test.dim_server ds on tmp.col1 = ds.col1  and tmp.col2 = ds.col2;
+            """
+
+         explain {
+                sql """select * from internal.test_pushdown_db.ads_oreo_sid_report where col1='abc' and col2='def';"""
+                contains "`ds`.`col1` = 'abc'"
+                contains "`ds`.`col2` = 'def'"
+         }
     }
 }
 

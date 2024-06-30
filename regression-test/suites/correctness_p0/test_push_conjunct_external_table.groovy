@@ -61,7 +61,7 @@ suite("test_push_conjunct_external_table") {
         contains "`ds`.`col2` = 'def'"
     }
 
-    sql """ DROP TABLE IF EXISTS dim_server; """
-    sql """ DROP view if exists ads_oreo_sid_report; """
+    // sql """ DROP TABLE IF EXISTS dim_server; """
+    // sql """ DROP view if exists ads_oreo_sid_report; """
 }
 
