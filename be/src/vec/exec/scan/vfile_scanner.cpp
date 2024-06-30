@@ -136,7 +136,7 @@ Status VFileScanner::prepare(
             ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
     _empty_file_counter = ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
     _not_found_file_counter =
-            ADD_COUNTER(_parent->_scanner_profile, "NotFoundFileNum", TUnit::UNIT);
+            ADD_COUNTER(_local_state->scanner_profile(), "NotFoundFileNum", TUnit::UNIT);
     _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
     _has_fully_rf_file_counter =
             ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
