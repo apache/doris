@@ -186,6 +186,7 @@ struct StX {
 
             if (!pt) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             auto x_value = point.x();
@@ -223,6 +224,7 @@ struct StY {
 
             if (!pt) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             auto y_value = point.y();
@@ -261,6 +263,7 @@ struct StDistanceSphere {
                                            y_lng->operator[](row).get<Float64>(),
                                            y_lat->operator[](row).get<Float64>(), &distance)) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             res->insert_value(distance);
@@ -300,6 +303,7 @@ struct StAngleSphere {
                                               y_lng->operator[](row).get<Float64>(),
                                               y_lat->operator[](row).get<Float64>(), &angle)) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             res->insert_value(angle);
@@ -338,6 +342,7 @@ struct StAngle {
             auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
             if (!pt1) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
 
@@ -345,18 +350,21 @@ struct StAngle {
             auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
             if (!pt2) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             auto shape_value3 = p3->get_data_at(row);
             auto pt3 = point3.decode_from(shape_value3.data, shape_value3.size);
             if (!pt3) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
 
             double angle = 0;
             if (!GeoPoint::ComputeAngle(&point1, &point2, &point3, &angle)) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             res->insert_value(angle);
@@ -404,12 +412,14 @@ struct StAzimuth {
                         ColumnFloat64::MutablePtr& res, NullMap& null_map, int row) {
         if (!(pt1 && pt2)) {
             null_map[row] = 1;
+            res->insert_default();
             return;
         }
 
         double angle = 0;
         if (!GeoPoint::ComputeAzimuth(&point1, &point2, &angle)) {
             null_map[row] = 1;
+            res->insert_default();
             return;
         }
         res->insert_value(angle);
@@ -477,12 +487,14 @@ struct StAreaSquareMeters {
             shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
             if (!shape) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
 
             double area = 0;
             if (!GeoShape::ComputeArea(shape.get(), &area, "square_meters")) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             res->insert_value(area);
@@ -517,12 +529,15 @@ struct StAreaSquareKm {
             shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
             if (!shape) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
 
             double area = 0;
             if (!GeoShape::ComputeArea(shape.get(), &area, "square_km")) {
                 null_map_data[row] = 1;
+                res->insert_default();
+                ;
                 continue;
             }
             res->insert_value(area);
@@ -632,6 +647,7 @@ struct StContains {
                     std::shared_ptr<GeoShape>(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
             if (shapes[i] == nullptr) {
                 null_map[row] = 1;
+                res->insert_default();
                 break;
             }
         }
