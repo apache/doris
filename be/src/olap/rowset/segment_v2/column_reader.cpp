@@ -343,11 +343,9 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {
     iter_opts.sanity_check();
-    bool use_page_cache = iter_opts.use_page_cache &&
-                          (!config::file_cache_index_only || iter_opts.type == INDEX_PAGE);
     PageReadOptions opts {
             .verify_checksum = _opts.verify_checksum,
-            .use_page_cache = use_page_cache,
+            .use_page_cache = iter_opts.use_page_cache,
             .kept_in_memory = _opts.kept_in_memory,
             .type = iter_opts.type,
             .file_reader = iter_opts.file_reader,
