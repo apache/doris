@@ -57,7 +57,7 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
                           : !ctx->label.empty() ? TxnOpParamType::WITH_LABEL
                                                 : TxnOpParamType::ILLEGAL;
 
-    Status st = Status::InternalError("impossible branch reached, " + op_info);
+    Status st = Status::InternalError<false>("impossible branch reached, " + op_info);
 
     if (ctx->txn_operation.compare("commit") == 0) {
         if (topt == TxnOpParamType::WITH_TXN_ID) {

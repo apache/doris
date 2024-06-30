@@ -844,7 +844,7 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     } else {
         LOG(WARNING) << "failed abort txn, with illegal input, db_id=" << ctx.db_id
                      << " txn_id=" << ctx.txn_id << " label=" << ctx.label;
-        return Status::InternalError("failed to abort txn");
+        return Status::InternalError<false>("failed to abort txn");
     }
     return retry_rpc("abort txn", req, &res, &MetaService_Stub::abort_txn);
 }
