@@ -133,25 +133,32 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
     return file_writer->append(buf.to_string());
 }
 
-Status LoadStreamWriter::close_segment(uint32_t segid) {
+Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
     SCOPED_ATTACH_TASK(_query_thread_context);
     io::FileWriter* file_writer = nullptr;
+    auto& file_writers =
+            file_type == FileType::SEGMENT_FILE ? _segment_file_writers : _inverted_file_writers;
     {
         std::lock_guard lock_guard(_lock);
-        DBUG_EXECUTE_IF("LoadStreamWriter.close_segment.uninited_writer", { _is_init = false; });
+        DBUG_EXECUTE_IF("LoadStreamWriter.close_writer.uninited_writer", { _is_init = false; });
         if (!_is_init) {
-            return Status::Corruption("close_segment failed, LoadStreamWriter is not inited");
+            return Status::Corruption("close_writer failed, LoadStreamWriter is not inited");
         }
-        DBUG_EXECUTE_IF("LoadStreamWriter.close_segment.bad_segid",
-                        { segid = _segment_file_writers.size(); });
-        if (segid >= _segment_file_writers.size()) {
-            return Status::Corruption("close_segment failed, segment {} is never opened", segid);
+        DBUG_EXECUTE_IF("LoadStreamWriter.close_writer.bad_segid",
+                        { segid = file_writers.size(); });
+        if (segid >= file_writers.size()) {
+            return Status::Corruption(
+                    "close_writer failed, file {} is never opened, file type is {}", segid,
+                    file_type);
         }
-        file_writer = _segment_file_writers[segid].get();
+        file_writer = file_writers[segid].get();
     }
-    DBUG_EXECUTE_IF("LoadStreamWriter.close_segment.null_file_writer", { file_writer = nullptr; });
+
+    DBUG_EXECUTE_IF("LoadStreamWriter.close_writer.null_file_writer", { file_writer = nullptr; });
     if (file_writer == nullptr) {
-        return Status::Corruption("close_segment failed, file writer {} is destoryed", segid);
+        return Status::Corruption(
+                "close_writer failed, file writer {} is destoryed, fiel type is {}", segid,
+                file_type);
     }
     auto st = file_writer->close();
     if (!st.ok()) {
@@ -159,44 +166,12 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
         return st;
     }
     g_load_stream_file_writer_cnt << -1;
-    LOG(INFO) << "segment " << segid << " path " << file_writer->path().native()
-              << "closed, written " << file_writer->bytes_appended() << " bytes";
+    LOG(INFO) << "file " << segid << " path " << file_writer->path().native() << "closed, written "
+              << file_writer->bytes_appended() << " bytes"
+              << ", file type is " << file_type;
     if (file_writer->bytes_appended() == 0) {
-        return Status::Corruption("segment {} closed with 0 bytes", file_writer->path().native());
-    }
-    return Status::OK();
-}
-
-Status LoadStreamWriter::close_inverted_index(uint32_t segid) {
-    SCOPED_ATTACH_TASK(_query_thread_context);
-    io::FileWriter* inverted_file_writer = nullptr;
-    {
-        std::lock_guard lock_guard(_lock);
-        if (!_is_init) {
-            return Status::Corruption(
-                    "inverted file writer failed, LoadStreamWriter is not inited");
-        }
-        if (segid >= _inverted_file_writers.size()) {
-            return Status::Corruption(
-                    "inverted file writer failed, inverted file {} is never opened", segid);
-        }
-        inverted_file_writer = _inverted_file_writers[segid].get();
-    }
-    if (inverted_file_writer == nullptr) {
-        return Status::Corruption("inverted file writer failed, file writer {} is destoryed",
-                                  segid);
-    }
-    auto st = inverted_file_writer->close();
-    if (!st.ok()) {
-        _is_canceled = true;
-        return st;
-    }
-    LOG(INFO) << "inverted file writer " << segid << " path "
-              << inverted_file_writer->path().native() << "closed, written "
-              << inverted_file_writer->bytes_appended() << " bytes";
-    if (inverted_file_writer->bytes_appended() == 0) {
-        return Status::Corruption("inverted file writer {} closed with 0 bytes",
-                                  inverted_file_writer->path().native());
+        return Status::Corruption("file {} closed with 0 bytes, file type is {}",
+                                  file_writer->path().native(), file_type);
     }
     return Status::OK();
 }

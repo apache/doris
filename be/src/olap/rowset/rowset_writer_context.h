@@ -88,8 +88,8 @@ struct RowsetWriterContext {
     std::shared_ptr<FileWriterCreator> file_writer_creator;
     std::shared_ptr<SegmentCollector> segment_collector;
 
-    // memtable_on_sink_support_idx_v2 = true, we will create SinkFileWriter to send inverted index file
-    bool memtable_on_sink_support_idx_v2 = false;
+    // memtable_on_sink_support_index_v2 = true, we will create SinkFileWriter to send inverted index file
+    bool memtable_on_sink_support_index_v2 = false;
 
     /// begin file cache opts
     bool write_file_cache = false;

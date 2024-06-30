@@ -123,7 +123,7 @@ Status DeltaWriterV2::init() {
     context.rowset_id = ExecEnv::GetInstance()->storage_engine().next_rowset_id();
     context.data_dir = nullptr;
     context.partial_update_info = _partial_update_info;
-    context.memtable_on_sink_support_idx_v2 = true;
+    context.memtable_on_sink_support_index_v2 = true;
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));

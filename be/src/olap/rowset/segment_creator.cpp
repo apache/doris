@@ -141,7 +141,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     if (_context.tablet_schema->has_inverted_index() &&
         _context.tablet_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2 &&
-        _context.memtable_on_sink_support_idx_v2) {
+        _context.memtable_on_sink_support_index_v2) {
         RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, inverted_file_writer,
                                                              FileType::INVERTED_INDEX_FILE));
     }
@@ -178,7 +178,7 @@ Status SegmentFlusher::_create_segment_writer(
     if (_context.tablet_schema->has_inverted_index() &&
         _context.tablet_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2 &&
-        _context.memtable_on_sink_support_idx_v2) {
+        _context.memtable_on_sink_support_index_v2) {
         RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, inverted_file_writer,
                                                              FileType::INVERTED_INDEX_FILE));
     }

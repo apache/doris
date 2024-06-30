@@ -100,7 +100,7 @@ public:
 
 class DorisFSDirectory::FSIndexOutputV2 : public lucene::store::BufferedIndexOutput {
 private:
-    io::FileWriter* _index_v2_file_writer;
+    io::FileWriter* _index_v2_file_writer = nullptr;
 
 protected:
     void flushBuffer(const uint8_t* b, const int32_t size) override;
@@ -384,6 +384,7 @@ void DorisFSDirectory::FSIndexOutputV2::flushBuffer(const uint8_t* b, const int3
         if (_index_v2_file_writer == nullptr) {
             LOG(WARNING) << "File writer is nullptr in DorisFSDirectory::FSIndexOutputV2, "
                             "ignore flush.";
+            _CLTHROWA(CL_ERR_IO, "flushBuffer error, _index_v2_file_writer = nullptr");
         } else if (b == nullptr) {
             LOG(WARNING) << "buffer is nullptr when flushBuffer in "
                             "DorisFSDirectory::FSIndexOutput";
@@ -420,6 +421,7 @@ void DorisFSDirectory::FSIndexOutputV2::close() {
         }
     } else {
         LOG(WARNING) << "File writer is nullptr, ignore finalize and close.";
+        _CLTHROWA(CL_ERR_IO, "close file writer error, _index_v2_file_writer = nullptr");
     }
 }
 
