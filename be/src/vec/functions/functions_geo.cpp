@@ -77,6 +77,7 @@ struct StPoint {
                         int row, GeoPoint& point, std::string& buf) {
         if (cur_res != GEO_PARSE_OK) {
             null_map[row] = 1;
+            res->insert_default();
             return;
         }
 
@@ -147,6 +148,7 @@ struct StAsText {
             shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
             if (shape == nullptr) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             auto wkt = shape->as_wkt();
@@ -567,6 +569,7 @@ struct StCircle {
             auto value = circle.init(lng_value, lat_value, radius_value);
             if (value != GEO_PARSE_OK) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             buf.clear();
@@ -740,6 +743,7 @@ struct StGeoFromText {
             if (shape == nullptr || status != GEO_PARSE_OK ||
                 (Impl::shape_type != GEO_SHAPE_ANY && shape->type() != Impl::shape_type)) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             buf.clear();
@@ -793,6 +797,7 @@ struct StGeoFromWkb {
             std::unique_ptr<GeoShape> shape(GeoShape::from_wkb(value.data, value.size, &status));
             if (shape == nullptr || status != GEO_PARSE_OK) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             buf.clear();
@@ -835,12 +840,14 @@ struct StAsBinary {
             shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
             if (!shape) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
 
             std::string binary = GeoShape::as_binary(shape.get());
             if (binary.empty()) {
                 null_map_data[row] = 1;
+                res->insert_default();
                 continue;
             }
             res->insert_data(binary.data(), binary.size());
