@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Maps;
 
@@ -38,22 +39,25 @@ public class AdminSetConfigStmt extends DdlStmt {
         BACKEND
     }
 
+    private boolean applyToAll;
     private ConfigType type;
     private Map<String, String> configs;
 
     private RedirectStatus redirectStatus = RedirectStatus.NO_FORWARD;
 
-    public AdminSetConfigStmt(ConfigType type, Map<String, String> configs) {
+    public AdminSetConfigStmt(ConfigType type, Map<String, String> configs, boolean applyToAll) {
         this.type = type;
         this.configs = configs;
         if (this.configs == null) {
             this.configs = Maps.newHashMap();
         }
+        this.applyToAll = applyToAll;
 
         // we have to analyze configs here to determine whether to forward it to master
         for (String key : this.configs.keySet()) {
             if (ConfigBase.checkIsMasterOnly(key)) {
                 redirectStatus = RedirectStatus.FORWARD_NO_SYNC;
+                this.applyToAll = false;
             }
         }
     }
@@ -64,6 +68,10 @@ public class AdminSetConfigStmt extends DdlStmt {
 
     public Map<String, String> getConfigs() {
         return configs;
+    }
+
+    public boolean isApplyToAll() {
+        return applyToAll;
     }
 
     @Override
@@ -86,5 +94,14 @@ public class AdminSetConfigStmt extends DdlStmt {
     @Override
     public RedirectStatus getRedirectStatus() {
         return redirectStatus;
+    }
+
+    public OriginStatement getLocalSetStmt() {
+        OriginStatement stmt = this.getOrigStmt();
+        Object[] keyArr = configs.keySet().toArray();
+        String sql = String.format("ADMIN SET FRONTEND CONFIG (\"%s\" = \"%s\");",
+                keyArr[0].toString(), configs.get(keyArr[0].toString()));
+
+        return new OriginStatement(sql, stmt.idx);
     }
 }
