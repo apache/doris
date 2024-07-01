@@ -22,11 +22,11 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
-#include "common/sync_point.h"
 #include "gen_cpp/cloud.pb.h"
 #include "olap/compaction.h"
 #include "olap/task/engine_checksum_task.h"
 #include "service/backend_options.h"
+#include "sync_point.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
 

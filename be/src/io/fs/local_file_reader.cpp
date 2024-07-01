@@ -32,8 +32,8 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/sync_point.h"
 #include "io/fs/err_utils.h"
+#include "sync_point.h"
 #include "util/async_io.h"
 #include "util/doris_metrics.h"
 

@@ -32,10 +32,10 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/rowset/beta_rowset.h"
+#include "sync_point.h"
 #include "util/bvar_helper.h"
 
 namespace doris::io {

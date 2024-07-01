@@ -20,7 +20,6 @@
 #include <vector>
 
 #include "common/object_pool.h"
-#include "common/sync_point.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/fs/local_file_system.h"
@@ -30,6 +29,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
+#include "sync_point.h"
 #include "vec/exec/scan/vfile_scanner.h"
 
 namespace doris {

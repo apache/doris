@@ -28,10 +28,10 @@
 #include "bvar/reducer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_util.h"
 #include "service/backend_options.h"
+#include "sync_point.h"
 #include "util/doris_metrics.h"
 
 namespace doris::io {

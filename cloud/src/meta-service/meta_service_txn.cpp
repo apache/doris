@@ -18,13 +18,13 @@
 #include <chrono>
 
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "meta-service/doris_txn.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
+#include "sync_point.h"
 
 using namespace std::chrono;
 

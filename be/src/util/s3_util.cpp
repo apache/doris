@@ -40,12 +40,12 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
 #include "io/fs/azure_obj_storage_client.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
 #include "s3_uri.h"
+#include "sync_point.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {

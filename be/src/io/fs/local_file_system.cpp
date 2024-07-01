@@ -33,7 +33,6 @@
 #include <utility>
 
 #include "common/exception.h"
-#include "common/sync_point.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
@@ -42,6 +41,7 @@
 #include "io/fs/local_file_writer.h"
 #include "olap/data_dir.h"
 #include "runtime/thread_context.h"
+#include "sync_point.h"
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/debug_points.h"
 #include "util/defer_op.h"

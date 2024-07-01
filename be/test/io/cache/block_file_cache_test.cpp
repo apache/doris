@@ -45,7 +45,6 @@
 #include <vector>
 
 #include "common/config.h"
-#include "common/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -57,6 +56,7 @@
 #include "io/fs/path.h"
 #include "olap/options.h"
 #include "runtime/exec_env.h"
+#include "sync_point.h"
 #include "util/slice.h"
 #include "util/time.h"
 

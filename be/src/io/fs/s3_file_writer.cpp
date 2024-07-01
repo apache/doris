@@ -28,7 +28,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "common/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_block.h"
@@ -39,6 +38,7 @@
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
+#include "sync_point.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
