@@ -171,6 +171,8 @@ Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::open(state));
 
+    auto output_data_types = vectorized::VectorizedUtils::get_data_types(
+            _parent->cast<SetSinkOperatorX<is_intersect>>()._row_descriptor);
     auto& parent = _parent->cast<Parent>();
     DCHECK(parent._cur_child_id == 0);
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
@@ -180,7 +182,8 @@ Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
     for (const auto& ctl : child_exprs_lists) {
         for (int i = 0; i < ctl.size(); ++i) {
             _shared_state->build_not_ignore_null[i] =
-                    _shared_state->build_not_ignore_null[i] || ctl[i]->root()->is_nullable();
+                    (output_data_types[i] || _shared_state->build_not_ignore_null[i] ||
+                     ctl[i]->root()->is_nullable());
         }
     }
     _shared_state->hash_table_init();

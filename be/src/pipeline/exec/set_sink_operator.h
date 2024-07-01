@@ -77,7 +77,8 @@ public:
               _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
                                         : tnode.except_node.is_colocate),
               _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
-                                            : tnode.except_node.result_expr_lists[child_id]) {}
+                                            : tnode.except_node.result_expr_lists[child_id]),
+              _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
     ~SetSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -113,6 +114,7 @@ private:
     const bool _is_colocate;
     const std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child_x;
+    const RowDescriptor _row_descriptor;
 };
 
 } // namespace pipeline

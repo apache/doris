@@ -127,4 +127,6 @@ suite("test_set_operation") {
 
     qt_select1  """ (select 0) intersect (select null); """
 
+    qt_select1  """ select sqrt('9') except select sqrt('4'); """
+
 }
