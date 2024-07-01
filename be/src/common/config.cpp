@@ -385,7 +385,6 @@ DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
-DEFINE_mInt64(base_compaction_max_compaction_score, "20");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
@@ -416,7 +415,6 @@ DEFINE_mInt64(compaction_min_size_mbytes, "64");
 // cumulative compaction policy: min and max delta file's number
 DEFINE_mInt64(cumulative_compaction_min_deltas, "5");
 DEFINE_mInt64(cumulative_compaction_max_deltas, "1000");
-DEFINE_mInt32(cumulative_compaction_max_deltas_factor, "10");
 
 // This config can be set to limit thread number in  multiget thread pool.
 DEFINE_mInt32(multi_get_max_threads, "10");
@@ -1003,8 +1001,6 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
-// only cache index pages (prerequisite: enable_file_cache = true)
-DEFINE_Bool(file_cache_index_only, "false");
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
@@ -1072,7 +1068,7 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_mInt32(segment_cache_capacity, "-1");
-DEFINE_mInt32(estimated_num_columns_per_segment, "30");
+DEFINE_mInt32(estimated_num_columns_per_segment, "200");
 DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
 // The value is calculate by storage_page_cache_limit * index_page_cache_percentage
 DEFINE_mInt32(segment_cache_memory_percentage, "2");
@@ -1316,10 +1312,6 @@ DEFINE_Bool(enable_file_logger, "true");
 
 // The minimum row group size when exporting Parquet files. default 128MB
 DEFINE_Int64(min_row_group_size, "134217728");
-
-DEFINE_mInt64(compaction_memory_bytes_limit, "1073741824");
-
-DEFINE_mInt64(compaction_batch_size, "-1");
 
 // clang-format off
 #ifdef BE_TEST

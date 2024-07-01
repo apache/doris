@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <cstddef>
 #include <memory>
 
 #include "common/status.h"
@@ -122,12 +121,6 @@ public:
     size_t topn_limit = 0;
 };
 
-struct CompactionSampleInfo {
-    int64_t bytes = 0;
-    int64_t rows = 0;
-    int64_t group_data_size;
-};
-
 class RowwiseIterator;
 using RowwiseIteratorUPtr = std::unique_ptr<RowwiseIterator>;
 class RowwiseIterator {
@@ -140,13 +133,7 @@ public:
     // Input options may contain scan range in which this scan.
     // Return Status::OK() if init successfully,
     // Return other error otherwise
-    virtual Status init(const StorageReadOptions& opts) {
-        return Status::NotSupported("to be implemented");
-    }
-
-    virtual Status init(const StorageReadOptions& opts, CompactionSampleInfo* sample_info) {
-        return Status::NotSupported("to be implemented");
-    }
+    virtual Status init(const StorageReadOptions& opts) = 0;
 
     // If there is any valid data, this function will load data
     // into input batch with Status::OK() returned
