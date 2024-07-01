@@ -20,7 +20,7 @@ package org.apache.doris.nereids.util;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import org.eclipse.collections.impl.factory.Sets;
+import com.google.common.collect.Sets;
 
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -81,7 +81,7 @@ public class ImmutableEqualSet<T> {
             List<Set<T>> equalSetList = calEqualSetList();
             this.parent.clear();
             for (Set<T> equalSet : equalSetList) {
-                Set<T> intersect = Sets.intersect(containSet, equalSet);
+                Set<T> intersect = Sets.intersection(containSet, equalSet);
                 if (intersect.size() <= 1) {
                     continue;
                 }
