@@ -102,8 +102,10 @@ public:
 
             if (filter->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
                 if (filter->need_sync_filter_size() != filter->isset_synced_size()) {
-                    return Status::InternalError("sync filter size meet error, filter: {}",
-                                                 filter->debug_string());
+                    LOG(WARNING) << "sync filter size meet error, filter: "
+                                 << filter->debug_string();
+                    filter->set_ignored();
+                    continue;
                 }
                 RETURN_IF_ERROR(
                         filter->init_bloom_filter(get_real_size(filter, local_hash_table_size)));
