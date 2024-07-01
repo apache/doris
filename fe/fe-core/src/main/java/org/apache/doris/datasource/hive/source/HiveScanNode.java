@@ -446,7 +446,6 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     protected TFileAttributes getFileAttributes() throws UserException {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-        java.util.Map<String, String> serdeParams = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
 
         // 1. set column separator
         Optional<String> fieldDelim =
@@ -475,6 +474,7 @@ public class HiveScanNode extends FileQueryScanNode {
         textParams.setLineDelimiter(HiveMetaStoreClientHelper.firstPresentOrDefault(
                 DEFAULT_COLLECTION_DELIMITER, collectionDelimHive2, collectionDelimHive3));
         // 5. set quote char
+        Map<String, String> serdeParams = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
         if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
             textParams.setEnclose(serdeParams.get(PROP_QUOTE_CHAR).getBytes()[0]);
         }
