@@ -92,22 +92,27 @@ alter table type_change_parquet change column timestamp_date timestamp_date date
 suite("test_hive_schema_change", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        String hive2HmsPort = context.config.otherConfigs.get("hive2HmsPort")
-        String catalog_name = "test_hive_schema_change"
-        sql """drop catalog if exists ${catalog_name};"""
-        sql """
+        for (String hivePrefix : ["hive2", "hive3"]) {
+            setHivePrefix(hivePrefix)
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+            String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+            String catalog_name = "test_hive_schema_change"
+            sql """drop catalog if exists ${catalog_name};"""
+            sql """
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hadoop.username' = 'hadoop',
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hive2HmsPort}'
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}'
             );
-        """
-        sql """ switch ${catalog_name} """
-        sql """ use `multi_catalog` """
-        order_qt_type_change_origin """ select * from type_change_origin """
-        order_qt_type_change_orc """ select * from type_change_orc """
-        order_qt_type_change_parquet """ select * from type_change_parquet """
-        sql """ drop catalog ${catalog_name} """
+            """
+            sql """ switch ${catalog_name} """
+            sql """ use `multi_catalog` """
+            order_qt_type_change_origin """ select * from type_change_origin """
+            order_qt_type_change_orc """ select * from type_change_orc """
+            order_qt_type_change_parquet """ select * from type_change_parquet """
+            sql """ drop catalog ${catalog_name} """
+        }
     }
 }

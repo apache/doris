@@ -25,37 +25,42 @@ suite("test_multi_langs", "p0,external,hive,external_docker,external_docker_hive
     def q5 = """select * from test_multi_langsSUFFIX order by id"""
     def q6 = """select id, count(col1) from test_multi_langsSUFFIX where col1='ありがとう' group by id order by id"""
 
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        try {
-            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String hive2HmsPort = context.config.otherConfigs.get("hive2HmsPort")
-            String catalog_name = "test_multi_langs"
+        for (String hivePrefix : ["hive2", "hive3"]) {
+            setHivePrefix(hivePrefix)
+            try {
+                String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+                String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+                String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+                String catalog_name = "test_multi_langs"
 
-            sql """drop catalog if exists ${catalog_name};"""
-            sql """
+                sql """drop catalog if exists ${catalog_name};"""
+                sql """
                 create catalog if not exists ${catalog_name} properties (
                     'type'='hms',
-                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hive2HmsPort}'
+                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
+                    'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
                 );
-            """
-            logger.info("catalog " + catalog_name + " created")
-            sql """switch ${catalog_name};"""
-            logger.info("switched to catalog " + catalog_name)
-            sql """use multi_catalog;"""
-            logger.info("use multi_catalog")
+                """
+                logger.info("catalog " + catalog_name + " created")
+                sql """switch ${catalog_name};"""
+                logger.info("switched to catalog " + catalog_name)
+                sql """use multi_catalog;"""
+                logger.info("use multi_catalog")
 
-            for (String format in formats) {
-                logger.info("Process format " + format)
-                qt_01 q1.replace("SUFFIX", format)
-                qt_02 q2.replace("SUFFIX", format)
-                qt_03 q3.replace("SUFFIX", format)
-                qt_04 q4.replace("SUFFIX", format)
-                qt_05 q5.replace("SUFFIX", format)
-                qt_06 q6.replace("SUFFIX", format)
+                for (String format in formats) {
+                    logger.info("Process format " + format)
+                    qt_01 q1.replace("SUFFIX", format)
+                    qt_02 q2.replace("SUFFIX", format)
+                    qt_03 q3.replace("SUFFIX", format)
+                    qt_04 q4.replace("SUFFIX", format)
+                    qt_05 q5.replace("SUFFIX", format)
+                    qt_06 q6.replace("SUFFIX", format)
+                }
+                sql """drop catalog if exists ${catalog_name}"""
+            } finally {
             }
-            sql """drop catalog if exists ${catalog_name}"""
-        } finally {
         }
     }
 }
