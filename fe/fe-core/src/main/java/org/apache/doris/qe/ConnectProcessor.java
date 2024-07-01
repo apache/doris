@@ -227,7 +227,8 @@ public abstract class ConnectProcessor {
         List<StatementBase> cachedStmts = null;
         // Currently we add a config to decide whether using PREPARED/EXECUTE command for nereids
         // TODO: after implemented full prepared, we could remove this flag
-        boolean nereidsUseServerPrep = sessionVariable.enableServeSidePreparedStatement
+        boolean nereidsUseServerPrep = (sessionVariable.enableServeSidePreparedStatement
+                    && !sessionVariable.isEnableInsertGroupCommit())
                         || mysqlCommand == MysqlCommand.COM_QUERY;
         if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
