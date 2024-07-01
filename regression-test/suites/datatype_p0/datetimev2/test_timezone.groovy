@@ -43,7 +43,7 @@ suite("test_timezone") {
     sql """insert into ${table} values('2022-06-01T01:02:55+04:30', '2022-06-01 01:02:55.123-07:30')"""
     sql """insert into ${table} values('20220701010255+07:00', '20220701010255-05:00')"""
     sql """insert into ${table} values('20220801+05:00', '20220801America/Argentina/Buenos_Aires')"""
-    qt_analysis "select * from ${table} order by k1"
+    qt_legacy "select * from ${table} order by k1"
 
     sql """ truncate table ${table} """
     
@@ -56,4 +56,8 @@ suite("test_timezone") {
     sql """insert into ${table} values('20220701010255+07:00', '20220701010255-05:00')"""
     sql """ set enable_nereids_planner = true """
     qt_nereids "select * from ${table} order by k1"
+
+    qt_fold1 """ select cast('2020-12-12T12:12:12asia/shanghai' as datetime); """
+    qt_fold2 """ select cast('2020-12-12T12:12:12america/los_angeLES' as datetime); """
+    qt_fold3 """ select cast('2020-12-12T12:12:12Europe/pARIS' as datetime); """
 }
