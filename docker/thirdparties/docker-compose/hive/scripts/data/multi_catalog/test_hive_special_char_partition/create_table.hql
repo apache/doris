@@ -17,4 +17,6 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1689575322');
 
+set hive.msck.path.validation=ignore;
+
 msck repair table special_character_1_partition;
