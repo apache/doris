@@ -1329,7 +1329,8 @@ public:
                         size_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         bool is_nullable = false;
-        MutableColumnPtr ret_null_map = nullptr;
+        ColumnUInt8::MutablePtr ret_null_map = nullptr;
+        ColumnUInt8::Container* ret_null_map_data = nullptr;
 
         std::vector<const ColumnString*> data_columns;
         std::vector<const ColumnUInt8*> nullmaps;
@@ -1356,13 +1357,14 @@ public:
                 data_columns.push_back(assert_cast<const ColumnString*>(arg_col.get()));
             }
         }
+        //*assert_cast<ColumnUInt8*>(ret_null_map.get())
         if (is_nullable) {
             ret_null_map = ColumnUInt8::create(input_rows_count, 0);
+            ret_null_map_data = &(ret_null_map->get_data());
         }
-        RETURN_IF_ERROR(
-                execute_process(data_columns, *assert_cast<ColumnString*>(result_column.get()),
-                                input_rows_count, nullmaps, is_nullable,
-                                *assert_cast<ColumnUInt8*>(ret_null_map.get()), column_is_consts));
+        RETURN_IF_ERROR(execute_process(
+                data_columns, *assert_cast<ColumnString*>(result_column.get()), input_rows_count,
+                nullmaps, is_nullable, ret_null_map_data, column_is_consts));
 
         if (is_nullable) {
             block.replace_by_position(result, ColumnNullable::create(std::move(result_column),
@@ -1376,7 +1378,8 @@ public:
     Status execute_process(const std::vector<const ColumnString*>& data_columns,
                            ColumnString& result_column, size_t input_rows_count,
                            const std::vector<const ColumnUInt8*> nullmaps, bool is_nullable,
-                           ColumnUInt8& ret_null_map, std::vector<bool>& column_is_consts) const {
+                           ColumnUInt8::Container* ret_null_map_data,
+                           std::vector<bool>& column_is_consts) const {
         std::string type_flags = data_columns.back()->get_data_at(0).to_string();
 
         std::vector<rapidjson::Document> objects;
@@ -1406,7 +1409,7 @@ public:
             writer.Reset(buf);
             objects[i].Accept(writer);
             if (is_nullable && objects[i].IsNull()) {
-                ret_null_map.get_data()[i] = 1;
+                (*ret_null_map_data)[i] = 1;
             }
             result_column.insert_data(buf.GetString(), buf.GetSize());
         }
