@@ -1399,6 +1399,8 @@ DECLARE_Bool(enable_file_logger);
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
 
+DECLARE_mBool(enable_parquet_page_index);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
