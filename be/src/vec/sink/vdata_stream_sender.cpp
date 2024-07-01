@@ -17,6 +17,7 @@
 
 #include "vec/sink/vdata_stream_sender.h"
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/DataSinks_types.h>
@@ -39,6 +40,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/proto_util.h"
+#include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/sip_hash.h"
@@ -483,6 +485,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _split_block_distribute_by_channel_timer =
             ADD_TIMER(profile(), "SplitBlockDistributeByChannelTime");
     _blocks_sent_counter = ADD_COUNTER(profile(), "BlocksSent", TUnit::UNIT);
+    _close_timer = ADD_TIMER(profile(), "CloseTime");
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -702,9 +705,15 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }
 
+    SCOPED_TIMER(_close_timer);
+
     Status final_st = Status::OK();
     if (!state->enable_pipeline_exec()) {
         for (int i = 0; i < _channels.size(); ++i) {
+            RuntimeProfile::Counter* channel_close_timer =
+                    ADD_TIMER(profile(), fmt::format("Channel{} CloseTime",
+                                                     _channels[i]->get_fragment_instance_id_str()));
+            SCOPED_TIMER(channel_close_timer);
             Status st = _channels[i]->close(state, exec_status);
             if (!st.ok() && final_st.ok()) {
                 final_st = st;
@@ -712,6 +721,10 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         }
         // wait all channels to finish
         for (int i = 0; i < _channels.size(); ++i) {
+            RuntimeProfile::Counter* channel_wait_close_timer =
+                    ADD_TIMER(profile(), fmt::format("Channel{} CloseWaitTime",
+                                                     _channels[i]->get_fragment_instance_id_str()));
+            SCOPED_TIMER(channel_wait_close_timer);
             Status st = _channels[i]->close_wait(state);
             if (!st.ok() && final_st.ok()) {
                 final_st = st;
