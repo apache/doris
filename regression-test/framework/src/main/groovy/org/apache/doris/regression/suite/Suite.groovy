@@ -614,7 +614,7 @@ class Suite implements GroovyInterceptable {
         }
         if (cleanOperator==true){
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
-            quickTest("", """ SELECT * FROM ${tbName}  """)
+            quickTest("", """ SELECT * FROM ${tbName}  """, true)
             sql """ DROP TABLE  ${tbName} """
         }
     }
@@ -771,6 +771,11 @@ class Suite implements GroovyInterceptable {
 
     String getS3Url() {
         String s3BucketName = context.config.otherConfigs.get("s3BucketName");
+        if (context.config.otherConfigs.get("s3Provider") == "AZURE") {
+            String accountName = context.config.otherConfigs.get("ak");
+            String s3Url = "http://${accountName}.blob.core.windows.net/${s3BucketName}"
+            return s3Url
+        }
         String s3Endpoint = context.config.otherConfigs.get("s3Endpoint");
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
@@ -862,7 +867,7 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
-    void sshExec(String username, String host, String cmd) {
+    void sshExec(String username, String host, String cmd, boolean alert=true) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
         logger.info("Execute: ${cmds}".toString())
@@ -870,8 +875,10 @@ class Suite implements GroovyInterceptable {
         def errMsg = new StringBuilder()
         def msg = new StringBuilder()
         p.waitForProcessOutput(msg, errMsg)
-        assert errMsg.length() == 0: "error occurred!" + errMsg
-        assert p.exitValue() == 0
+        if (alert) {
+            assert errMsg.length() == 0: "error occurred!\n" + errMsg
+            assert p.exitValue() == 0
+        }
     }
 
     List<String> getFrontendIpHttpPort() {
@@ -885,21 +892,6 @@ class Suite implements GroovyInterceptable {
             backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
         }
         return;
-    }
-
-    String getProvider() {
-        String s3Endpoint = context.config.otherConfigs.get("s3Endpoint")
-        return getProvider(s3Endpoint)
-    }
-
-    String getProvider(String endpoint) {
-        def providers = ["cos", "oss", "s3", "obs", "bos"]
-        for (final def provider in providers) {
-            if (endpoint.containsIgnoreCase(provider)) {
-                return provider
-            }
-        }
-        return ""
     }
 
     int getTotalLine(String filePath) {
@@ -1784,10 +1776,15 @@ class Suite implements GroovyInterceptable {
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+        if(backendId_to_backendIP.size() == 1) {
+            logger.info("Only one backend, skip scp udf file")
+            return
+        }
 
         def udf_file_dir = new File(udf_file_path).parent
         backendId_to_backendIP.values().each { be_ip ->
-            sshExec ("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"")
+            sshExec("root", be_ip, "ssh-keygen -f '/root/.ssh/known_hosts' -R \"${be_ip}\"", false)
+            sshExec("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"", false)
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }

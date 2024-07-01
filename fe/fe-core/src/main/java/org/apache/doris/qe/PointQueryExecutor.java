@@ -20,6 +20,8 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -178,7 +180,13 @@ public class PointQueryExecutor implements CoordInterface {
         KeyTuple.Builder kBuilder = KeyTuple.newBuilder();
         for (Expr expr : shortCircuitQueryContext.scanNode.getConjuncts()) {
             BinaryPredicate predicate = (BinaryPredicate) expr;
-            kBuilder.addKeyColumnRep(predicate.getChild(1).getStringValue());
+            Expr left = predicate.getChild(0);
+            Expr right = predicate.getChild(1);
+            // ignore delete sign conjuncts only collect key conjuncts
+            if (left instanceof SlotRef && ((SlotRef) left).getColumnName().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                continue;
+            }
+            kBuilder.addKeyColumnRep(right.getStringValue());
         }
         requestBuilder.addKeyTuples(kBuilder);
     }

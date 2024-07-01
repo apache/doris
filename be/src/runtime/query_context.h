@@ -49,7 +49,6 @@ class PipelineFragmentContext;
 } // namespace pipeline
 
 struct ReportStatusRequest {
-    bool is_pipeline_x;
     const Status status;
     std::vector<RuntimeState*> runtime_states;
     RuntimeProfile* profile = nullptr;

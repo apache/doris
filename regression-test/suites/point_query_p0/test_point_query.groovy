@@ -32,7 +32,6 @@ suite("test_point_query", "nonConcurrent") {
         // nereids do not support point query now
         sql "set global enable_fallback_to_original_planner = false"
         sql """set global enable_nereids_planner=true"""
-        sql "set global enable_server_side_prepared_statement = true"
         def user = context.config.jdbcUser
         def password = context.config.jdbcPassword
         def realDb = "regression_test_serving_p0"
@@ -279,6 +278,5 @@ suite("test_point_query", "nonConcurrent") {
         set_be_config.call("disable_storage_row_cache", "true")
         sql """set global enable_nereids_planner=true"""
         sql "set global enable_fallback_to_original_planner = true"
-        sql "set global enable_server_side_prepared_statement = false"
     }
 } 

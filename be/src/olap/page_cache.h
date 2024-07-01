@@ -60,8 +60,7 @@ private:
     // Effective size, smaller than capacity, such as data page remove checksum suffix.
     size_t _size = 0;
     size_t _capacity = 0;
-    bool _use_cache;
-    segment_v2::PageTypePB _page_type;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker_by_allocator;
 };
 
 using DataPage = PageBase<Allocator<false>>;
