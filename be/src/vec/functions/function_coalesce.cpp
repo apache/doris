@@ -94,17 +94,21 @@ public:
 
         for (size_t i = 0; i < arguments.size(); ++i) {
             const auto& arg_type = block.get_by_position(arguments[i]).type;
-            filtered_args.push_back(arguments[i]);
-            if (!arg_type->is_nullable()) {
-                if (i == 0) {
-                    block.get_by_position(result).column =
-                            block.get_by_position(arguments[0])
-                                    .column->clone_resized(input_rows_count);
-                    return Status::OK();
-                } else {
-                    break;
-                }
+            const auto& column = block.get_by_position(arguments[i]).column;
+            if (!arg_type->is_nullable() && i == 0) {
+                block.get_by_position(result).column =
+                        block.get_by_position(arguments[0]).column->clone_resized(input_rows_count);
+                return Status::OK();
             }
+            if (!column->only_null()) {
+                filtered_args.push_back(arguments[i]);
+            }
+        }
+
+        if (filtered_args.empty()) {
+            block.get_by_position(result).column =
+                    block.get_by_position(arguments[0]).column->clone_resized(input_rows_count);
+            return Status::OK();
         }
 
         size_t remaining_rows = input_rows_count;
