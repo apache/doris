@@ -178,16 +178,12 @@ public class MaxComputeColumnValue implements ColumnValue {
     public String getString() {
         skippedIfNull();
         VarCharVector varcharCol = (VarCharVector) column;
-        String v = varcharCol.getObject(idx++).toString();
-        return v == null ? new String(new byte[0]) : v;
+        return varcharCol.getObject(idx++).toString().trim();
     }
 
     @Override
     public byte[] getStringAsBytes() {
-        skippedIfNull();
-        VarCharVector varcharCol = (VarCharVector) column;
-        byte[] v = varcharCol.getObject(idx++).getBytes();
-        return v == null ? new byte[0] : v;
+        return getString().getBytes();
     }
 
     @Override
