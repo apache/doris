@@ -1313,6 +1313,11 @@ DEFINE_Bool(enable_file_logger, "true");
 // The minimum row group size when exporting Parquet files. default 128MB
 DEFINE_Int64(min_row_group_size, "134217728");
 
+// If set to false, the parquet reader will not use page index to filter data.
+// This is only for debug purpose, in case sometimes the page index
+// filter wrong data.
+DEFINE_mBool(enable_parquet_page_index, "true");
+
 // If native memory allocator allocates more memory than this value, an exception will be thrown.
 DEFINE_Int64(debug_max_memory_size_by_native_allocator, "1048576")
 
