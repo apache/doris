@@ -127,24 +127,12 @@ public class TableInfo implements Writable {
         return newTableName;
     }
 
-    public String getOldTableName() {
-        return oldTableName;
-    }
-
     public String getNewRollupName() {
         return newRollupName;
     }
 
-    public String getOldRollupName() {
-        return oldRollupName;
-    }
-
     public String getNewPartitionName() {
         return newPartitionName;
-    }
-
-    public String getOldPartitionName() {
-        return oldPartitionName;
     }
 
     @Override
@@ -170,11 +158,8 @@ public class TableInfo implements Writable {
         partitionId = in.readLong();
 
         newTableName = Text.readString(in);
-        oldTableName = Text.readString(in);
         newRollupName = Text.readString(in);
-        oldRollupName = Text.readString(in);
         newPartitionName = Text.readString(in);
-        oldPartitionName = Text.readString(in);
     }
 
     public String toJson() {
