@@ -23,7 +23,28 @@ import org.apache.doris.qe.ResultSet;
 
 import java.util.Optional;
 
-/** ComputeResultSet */
+/**
+  * <p>
+  * This class is used to return result set in fe without send fragment to be.
+  * Some plans support this function, for example:
+  * <li>1. the sql `select 100` will generate a plan, PhysicalOneRowRelation, and PhysicalOneRowRelation implement this
+  *     interface, so fe can send the only row to client immediately.
+  * </li>
+  * <li>2. the sql `select * from tbl limit 0` will generate PhysicalEmptyRelation, which means no any rows returned,
+  *    the PhysicalEmptyRelation implement this interface.
+  * </li>
+  * </p>
+  * <p>
+  * If you want to cache the result set in fe, you can implement this interface and write this code:
+  * </p>
+  * <pre>
+  * sqlCacheContext.get().setResultSetInFe(resultSet);
+  * Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
+  * statementContext.getConnectContext(),
+  * statementContext.getOriginStatement().originStmt
+  * );
+  * </pre>
+  */
 public interface ComputeResultSet {
     Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext);
 }
