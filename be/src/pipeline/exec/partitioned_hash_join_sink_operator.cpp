@@ -118,16 +118,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
         return Status::OK();
     }
 
-    auto execution_context = state->get_task_execution_context();
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::weak_ptr<PartitionedHashJoinSharedState> shared_state_holder =
-            _shared_state->shared_from_this();
-    auto query_id = state->query_id();
-    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
-    auto spill_func = [state, num_slots,
-                       this](std::vector<vectorized::Block>& build_blocks) mutable {
+    auto spill_func = [build_blocks = std::move(build_blocks), state, num_slots, this]() mutable {
         auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
         auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
         std::vector<std::vector<uint32_t>> partitions_indexes(p._partition_count);
@@ -211,28 +202,9 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
         _dependency->set_ready();
     };
 
-    auto exception_catch_func = [build_blocks = std::move(build_blocks), spill_func,
-                                 shared_state_holder, execution_context, state, query_id,
-                                 mem_tracker, this]() mutable {
-        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
-        Defer defer {[&]() {
-            // need to reset build_block here, or else build_block will be destructed
-            // after SCOPED_ATTACH_TASK_WITH_ID and will trigger memory_orphan_check failure
-            build_blocks.clear();
-        }};
-
-        std::shared_ptr<TaskExecutionContext> execution_context_lock;
-        auto shared_state_sptr = shared_state_holder.lock();
-        if (shared_state_sptr) {
-            execution_context_lock = execution_context.lock();
-        }
-        if (!shared_state_sptr || !execution_context_lock || state->is_cancelled()) {
-            LOG(INFO) << "execution_context released, maybe query was canceled.";
-            return;
-        }
-
+    auto exception_catch_func = [spill_func, this]() mutable {
         auto status = [&]() {
-            RETURN_IF_CATCH_EXCEPTION(spill_func(build_blocks));
+            RETURN_IF_CATCH_EXCEPTION(spill_func());
             return Status::OK();
         }();
 
@@ -243,6 +215,10 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
             _dependency->set_ready();
         }
     };
+
+    auto spill_runnable = std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
+                                                          exception_catch_func);
+
     auto* thread_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
 
     _dependency->block();
@@ -252,7 +228,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                         "fault_inject partitioned_hash_join_sink "
                         "revoke_unpartitioned_block submit_func failed");
             });
-    return thread_pool->submit_func(exception_catch_func);
+    return thread_pool->submit(std::move(spill_runnable));
 }
 
 Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
@@ -268,15 +244,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
 
     _spilling_streams_count = _shared_state->partitioned_build_blocks.size();
 
-    auto execution_context = state->get_task_execution_context();
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::weak_ptr<PartitionedHashJoinSharedState> shared_state_holder =
-            _shared_state->shared_from_this();
-
     auto query_id = state->query_id();
-    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
 
     for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
         vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
@@ -302,41 +270,35 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
             st = Status::Error<INTERNAL_ERROR>(
                     "fault_inject partitioned_hash_join_sink revoke_memory submit_func failed");
         });
-        if (st.ok()) {
-            st = spill_io_pool->submit_func([this, query_id, mem_tracker, shared_state_holder,
-                                             execution_context, spilling_stream, i, submit_timer] {
-                SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
-                std::shared_ptr<TaskExecutionContext> execution_context_lock;
-                auto shared_state_sptr = shared_state_holder.lock();
-                if (shared_state_sptr) {
-                    execution_context_lock = execution_context.lock();
-                }
-                if (!shared_state_sptr || !execution_context_lock) {
-                    LOG(INFO) << "execution_context released, maybe query was cancelled.";
-                    return;
-                }
-                DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_sink::revoke_memory_cancel", {
-                    ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
-                            query_id,
-                            Status::InternalError("fault_inject partitioned_hash_join_sink "
-                                                  "revoke_memory canceled"));
-                    return;
+
+        auto spill_runnable = std::make_shared<SpillRunnable>(
+                state, _shared_state->shared_from_this(),
+                [this, query_id, spilling_stream, i, submit_timer] {
+                    DBUG_EXECUTE_IF(
+                            "fault_inject::partitioned_hash_join_sink::revoke_memory_cancel", {
+                                ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
+                                        query_id, Status::InternalError(
+                                                          "fault_inject partitioned_hash_join_sink "
+                                                          "revoke_memory canceled"));
+                                return;
+                            });
+                    _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
+                    SCOPED_TIMER(_spill_build_timer);
+
+                    auto status = [&]() {
+                        RETURN_IF_CATCH_EXCEPTION(_spill_to_disk(i, spilling_stream));
+                        return Status::OK();
+                    }();
+
+                    if (!status.OK()) {
+                        std::unique_lock<std::mutex> lock(_spill_lock);
+                        _dependency->set_ready();
+                        _spill_status_ok = false;
+                        _spill_status = std::move(status);
+                    }
                 });
-                _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
-                SCOPED_TIMER(_spill_build_timer);
-
-                auto status = [&]() {
-                    RETURN_IF_CATCH_EXCEPTION(_spill_to_disk(i, spilling_stream));
-                    return Status::OK();
-                }();
-
-                if (!status.OK()) {
-                    std::unique_lock<std::mutex> lock(_spill_lock);
-                    _dependency->set_ready();
-                    _spill_status_ok = false;
-                    _spill_status = std::move(status);
-                }
-            });
+        if (st.ok()) {
+            st = spill_io_pool->submit(std::move(spill_runnable));
         }
 
         if (!st.ok()) {
@@ -452,7 +414,7 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
         _build_exprs.emplace_back(eq_join_conjunct.right);
         partition_exprs.emplace_back(eq_join_conjunct.right);
     }
-    _partitioner = std::make_unique<PartitionerType>(_partition_count);
+    _partitioner = std::make_unique<SpillPartitionerType>(_partition_count);
     RETURN_IF_ERROR(_partitioner->init(_build_exprs));
 
     return Status::OK();
