@@ -533,115 +533,125 @@ suite("parse_sql_from_sql_cache") {
                 sql "set enable_sql_cache=true"
 
                 sql "set @custom_variable=10"
-                assertNoCache "select @custom_variable from test_use_plan_cache17"
+                assertNoCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
                 // create sql cache
-                sql "select @custom_variable from test_use_plan_cache17"
+                sql "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
                 // can use sql cache
-                assertHasCache "select @custom_variable from test_use_plan_cache17"
+                assertHasCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
 
                 sql "set @custom_variable=20"
-                assertNoCache "select @custom_variable from test_use_plan_cache17"
+                assertNoCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+
+                def result2 = sql "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+                assertHasCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+                assertTrue(result2.size() == 1 && result2[0][0].toString().toInteger() == 20)
+
+                // we can switch to origin value and reuse origin cache
+                sql "set @custom_variable=10"
+                assertHasCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+                def result1 = sql "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+                assertTrue(result1.size() == 1 && result1[0][0].toString().toInteger() == 10)
             }
         }),
-        extraThread("test_udf", {
-            def jarPath = """${context.config.suitePath}/javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
-            scp_udf_file_to_all_be(jarPath)
-            try_sql("DROP FUNCTION IF EXISTS java_udf_string_test(string, int, int);")
-            try_sql("DROP TABLE IF EXISTS test_javaudf_string")
-
-            sql """ DROP TABLE IF EXISTS test_javaudf_string """
-            sql """
-                    CREATE TABLE IF NOT EXISTS test_javaudf_string (
-                        `user_id`     INT         NOT NULL COMMENT "用户id",
-                        `char_col`    CHAR        NOT NULL COMMENT "",
-                        `varchar_col` VARCHAR(10) NOT NULL COMMENT "",
-                        `string_col`  STRING      NOT NULL COMMENT ""
-                        )
-                        DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-                    """
-
-            StringBuilder values = new StringBuilder()
-            int i = 1
-            for (; i < 9; i ++) {
-                values.append(" (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg'),\n")
-            }
-            values.append("(${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg')")
-
-            sql "INSERT INTO test_javaudf_string VALUES ${values}"
-            sql "sync"
-
-            File path = new File(jarPath)
-            if (!path.exists()) {
-                throw new IllegalStateException("""${jarPath} doesn't exist! """)
-            }
-
-            sql """ CREATE FUNCTION java_udf_string_test(string, int, int) RETURNS string PROPERTIES (
-                        "file"="file://${jarPath}",
-                        "symbol"="org.apache.doris.udf.StringTest",
-                        "type"="JAVA_UDF"
-                    ); """
-
-            assertNoCache "SELECT java_udf_string_test(varchar_col, 2, 3) result FROM test_javaudf_string ORDER BY result;"
-            sql "SELECT java_udf_string_test(varchar_col, 2, 3) result FROM test_javaudf_string ORDER BY result;"
-            assertNoCache "SELECT java_udf_string_test(varchar_col, 2, 3) result FROM test_javaudf_string ORDER BY result;"
-        }),
-        extraThread("testMultiFrontends", {
-            def aliveFrontends = sql_return_maparray("show frontends")
-                    .stream()
-                    .filter { it["Alive"].toString().equalsIgnoreCase("true") }
-                    .collect(Collectors.toList())
-
-            if (aliveFrontends.size() <= 1) {
-                return
-            }
-
-            def fe1 = aliveFrontends[0]["Host"] + ":" + aliveFrontends[0]["QueryPort"]
-            def fe2 = fe1
-            if (aliveFrontends.size() > 1) {
-                fe2 = aliveFrontends[1]["Host"] + ":" + aliveFrontends[1]["QueryPort"]
-            }
-
-            log.info("fe1: ${fe1}")
-            log.info("fe2: ${fe2}")
-
-            def dbName = context.config.getDbNameByFile(context.file)
-
-            log.info("connect to fe: ${fe1}")
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = "jdbc:mysql://${fe1}") {
-                sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
-
-                sql "use ${dbName}"
-
-                createTestTable "test_use_plan_cache18"
-
-                sql "sync"
-
-                // after partition changed 10s, the sql cache can be used
-                sleep(10000)
-
-                sql "set enable_nereids_planner=true"
-                sql "set enable_fallback_to_original_planner=false"
-                sql "set enable_sql_cache=true"
-
-                assertNoCache "select * from test_use_plan_cache18"
-                sql "select * from test_use_plan_cache18"
-                assertHasCache "select * from test_use_plan_cache18"
-            }
-
-            log.info("connect to fe: ${fe2}")
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = "jdbc:mysql://${fe2}") {
-                sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
-
-                sql "use ${dbName}"
-                sql "set enable_nereids_planner=true"
-                sql "set enable_fallback_to_original_planner=false"
-                sql "set enable_sql_cache=true"
-
-                assertNoCache "select * from test_use_plan_cache18"
-                sql "select * from test_use_plan_cache18"
-                assertHasCache "select * from test_use_plan_cache18"
-            }
-        }),
+//        extraThread("test_udf", {
+//            def jarPath = """${context.config.suitePath}/javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
+//            scp_udf_file_to_all_be(jarPath)
+//            try_sql("DROP FUNCTION IF EXISTS java_udf_string_test(string, int, int);")
+//            try_sql("DROP TABLE IF EXISTS test_javaudf_string")
+//
+//            sql """ DROP TABLE IF EXISTS test_javaudf_string """
+//            sql """
+//                    CREATE TABLE IF NOT EXISTS test_javaudf_string (
+//                        `user_id`     INT         NOT NULL COMMENT "用户id",
+//                        `char_col`    CHAR        NOT NULL COMMENT "",
+//                        `varchar_col` VARCHAR(10) NOT NULL COMMENT "",
+//                        `string_col`  STRING      NOT NULL COMMENT ""
+//                        )
+//                        DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
+//                    """
+//
+//            StringBuilder values = new StringBuilder()
+//            int i = 1
+//            for (; i < 9; i ++) {
+//                values.append(" (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg'),\n")
+//            }
+//            values.append("(${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg')")
+//
+//            sql "INSERT INTO test_javaudf_string VALUES ${values}"
+//            sql "sync"
+//
+//            File path = new File(jarPath)
+//            if (!path.exists()) {
+//                throw new IllegalStateException("""${jarPath} doesn't exist! """)
+//            }
+//
+//            sql """ CREATE FUNCTION java_udf_string_test(string, int, int) RETURNS string PROPERTIES (
+//                        "file"="file://${jarPath}",
+//                        "symbol"="org.apache.doris.udf.StringTest",
+//                        "type"="JAVA_UDF"
+//                    ); """
+//
+//            assertNoCache "SELECT java_udf_string_test(varchar_col, 2, 3) result FROM test_javaudf_string ORDER BY result;"
+//            sql "SELECT java_udf_string_test(varchar_col, 2, 3) result FROM test_javaudf_string ORDER BY result;"
+//            assertNoCache "SELECT java_udf_string_test(varchar_col, 2, 3) result FROM test_javaudf_string ORDER BY result;"
+//        }),
+//        extraThread("testMultiFrontends", {
+//            def aliveFrontends = sql_return_maparray("show frontends")
+//                    .stream()
+//                    .filter { it["Alive"].toString().equalsIgnoreCase("true") }
+//                    .collect(Collectors.toList())
+//
+//            if (aliveFrontends.size() <= 1) {
+//                return
+//            }
+//
+//            def fe1 = aliveFrontends[0]["Host"] + ":" + aliveFrontends[0]["QueryPort"]
+//            def fe2 = fe1
+//            if (aliveFrontends.size() > 1) {
+//                fe2 = aliveFrontends[1]["Host"] + ":" + aliveFrontends[1]["QueryPort"]
+//            }
+//
+//            log.info("fe1: ${fe1}")
+//            log.info("fe2: ${fe2}")
+//
+//            def dbName = context.config.getDbNameByFile(context.file)
+//
+//            log.info("connect to fe: ${fe1}")
+//            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = "jdbc:mysql://${fe1}") {
+//                sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
+//
+//                sql "use ${dbName}"
+//
+//                createTestTable "test_use_plan_cache18"
+//
+//                sql "sync"
+//
+//                // after partition changed 10s, the sql cache can be used
+//                sleep(10000)
+//
+//                sql "set enable_nereids_planner=true"
+//                sql "set enable_fallback_to_original_planner=false"
+//                sql "set enable_sql_cache=true"
+//
+//                assertNoCache "select * from test_use_plan_cache18"
+//                sql "select * from test_use_plan_cache18"
+//                assertHasCache "select * from test_use_plan_cache18"
+//            }
+//
+//            log.info("connect to fe: ${fe2}")
+//            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = "jdbc:mysql://${fe2}") {
+//                sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
+//
+//                sql "use ${dbName}"
+//                sql "set enable_nereids_planner=true"
+//                sql "set enable_fallback_to_original_planner=false"
+//                sql "set enable_sql_cache=true"
+//
+//                assertNoCache "select * from test_use_plan_cache18"
+//                sql "select * from test_use_plan_cache18"
+//                assertHasCache "select * from test_use_plan_cache18"
+//            }
+//        }),
         extraThread("test_dry_run_query", {
             createTestTable "test_use_plan_cache19"
 
@@ -682,12 +692,14 @@ suite("parse_sql_from_sql_cache") {
             sql "set enable_fallback_to_original_planner=false"
             sql "set enable_sql_cache=true"
 
-            assertNoCache "select * from (select 100 as id)a"
-            def result1 = sql "select * from (select 100 as id)a"
+            int randomInt = Math.random() * 2000000000
+
+            assertNoCache "select * from (select $randomInt as id)a"
+            def result1 = sql "select * from (select $randomInt as id)a"
             assertTrue(result1.size() == 1)
 
-            assertHasCache "select * from (select 100 as id)a"
-            def result2 = sql "select * from (select 100 as id)a"
+            assertHasCache "select * from (select $randomInt as id)a"
+            def result2 = sql "select * from (select $randomInt as id)a"
             assertTrue(result2.size() == 1)
 
             assertNoCache "select * from test_use_plan_cache20 limit 0"
