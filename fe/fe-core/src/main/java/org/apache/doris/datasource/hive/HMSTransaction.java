@@ -1530,6 +1530,8 @@ public class HMSTransaction implements Transaction {
             } catch (InterruptedException e) {
                 // (Re-)Cancel if current thread also interrupted
                 updateStatisticsExecutor.shutdownNow();
+                // Preserve interrupt status
+                Thread.currentThread().interrupt();
             }
         }
     }
