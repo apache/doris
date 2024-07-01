@@ -141,8 +141,6 @@ private:
     // memory back pressure, memory consumption of all tables' load block queues
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
     std::condition_variable _get_cond;
-    static constexpr size_t MEM_BACK_PRESSURE_WAIT_TIME = 1000;      // 1s
-    static constexpr size_t MEM_BACK_PRESSURE_WAIT_TIMEOUT = 120000; // 120s
 };
 
 class GroupCommitTable {
