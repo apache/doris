@@ -28,6 +28,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -55,7 +56,35 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
         st = _root->execute(this, block, result_column_id);
         _last_result_column_id = *result_column_id;
     });
-    return st;
+    RETURN_IF_ERROR(st);
+#ifndef NDEBUG
+    RETURN_IF_ERROR(check_column_data_type(block, *result_column_id));
+#else
+#endif
+    return Status::OK();
+}
+
+Status VExprContext::check_column_data_type(vectorized::Block* block, int result_column_id) {
+    if (result_column_id < 0) {
+        // In VSlotRef , may be result_column_id will be -1.
+        return Status::OK();
+    }
+    ColumnWithTypeAndName data = block->get_by_position(result_column_id);
+    auto data_type = data.type;
+    auto column_ptr = data.column->convert_to_full_column_if_const();
+
+    auto st = data_type->check_column_type(column_ptr.get());
+
+    if (!st.ok()) {
+        return Status::InternalError(
+                "error type in column , col name = {} , expr expected type = {} , column expected "
+                "type = {} , "
+                "column is nullable = {} , "
+                "error type msg = {}",
+                data.name, root()->data_type()->get_name(), data.type->get_name(),
+                column_ptr->is_nullable(), st.msg());
+    }
+    return Status::OK();
 }
 
 Status VExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc) {

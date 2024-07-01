@@ -63,6 +63,9 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_VARIANT;
     }
     MutableColumnPtr create_column() const override { return ColumnObject::create(is_nullable); }
+    Status check_column_type(const IColumn* column) const override {
+        return check_single_type<ColumnObject>(column);
+    }
     bool is_object() const override { return true; }
     bool equals(const IDataType& rhs) const override;
     bool hasNullableSubcolumns() const { return is_nullable; }

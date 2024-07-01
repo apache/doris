@@ -76,6 +76,7 @@ public:
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     MutableColumnPtr create_column() const override;
+    Status check_column_type(const IColumn* column) const override;
 
     Field get_default() const override;
 
