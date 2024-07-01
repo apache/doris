@@ -39,9 +39,7 @@ suite("test_wide_table", "p0,external,hive,external_docker,external_docker_hive"
      """
     def decimal_test8 = """select max(col1), max(col70), max(col71), min(col81), min(col100), min(col534) from wide_table1SUFFIX;"""
 
-    // String enabled = context.config.otherConfigs.get("enableHiveTest")
-    // cost too much time in p0, disable it temporary
-    String enabled = "false";
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
         return;
@@ -60,8 +58,8 @@ suite("test_wide_table", "p0,external,hive,external_docker,external_docker_hive"
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
-        sql """use wide_tables;"""
-        logger.info("use wide_tables")
+        sql """use multi_catalog;"""
+        logger.info("use multi_catalog")
 
         for (String format in formats) {
             logger.info("Process format " + format)

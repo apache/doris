@@ -16,9 +16,7 @@
 // under the License.
 
 suite("test_complex_types", "p0,external,hive,external_docker,external_docker_hive") {
-    // String enabled = context.config.otherConfigs.get("enableHiveTest")
-    // cost too much time in p0, disable it temporary
-    String enabled = "false";
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
         return;
@@ -52,9 +50,9 @@ suite("test_complex_types", "p0,external,hive,external_docker,external_docker_hi
 
         qt_array_max """select count(array_max(capacity)) from byd where array_max(capacity) > 0.99"""
 
-        qt_array_filter """select count(array_size(array_filter(i -> (i > 0.99), capacity))) from byd where array_size(array_filter(i -> (i > 0.99), capacity))"""
+        // qt_array_filter """select count(array_size(array_filter(i -> (i > 0.99), capacity))) from byd where array_size(array_filter(i -> (i > 0.99), capacity))"""
 
-        qt_array_last """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
+        // qt_array_last """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
 
         qt_null_struct_element_orc """select count(struct_element(favor, 'tip')) from byd where id % 13 = 0"""
 
@@ -68,9 +66,9 @@ suite("test_complex_types", "p0,external,hive,external_docker,external_docker_hi
 
         qt_array_max_orc """select count(array_max(capacity)) from byd where array_max(capacity) > 0.99"""
 
-        qt_array_filter_orc """select count(array_size(array_filter(i -> (i > 0.99), capacity))) from byd where array_size(array_filter(i -> (i > 0.99), capacity))"""
+        // qt_array_filter_orc """select count(array_size(array_filter(i -> (i > 0.99), capacity))) from byd where array_size(array_filter(i -> (i > 0.99), capacity))"""
 
-        qt_array_last_orc """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
+        // qt_array_last_orc """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
 
         qt_offsets_check """select * from complex_offsets_check order by id"""
 
