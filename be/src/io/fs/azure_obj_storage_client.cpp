@@ -58,6 +58,7 @@ auto base64_encode_part_num(int part_num) {
 }
 
 constexpr char SAS_TOKEN_URL_TEMPLATE[] = "https://{}.blob.core.windows.net/{}/{}{}";
+constexpr char BlobNotFound[] = "BlobNotFound";
 } // namespace
 
 namespace doris::io {
@@ -105,17 +106,30 @@ struct AzureBatchDeleter {
             return resp;
         }
 
-        auto get_defer_response = [](const auto& defer) {
-            // DeferredResponse<Models::DeleteBlobResult> might throw exception
-            if (!defer.GetResponse().Value.Deleted) {
-                throw Exception(Status::IOError<false>("Batch delete failed"));
-            }
-        };
         for (auto&& defer_response : deferred_resps) {
-            auto response =
-                    do_azure_client_call([&]() { get_defer_response(defer_response); }, _opts);
-            if (response.status.code != ErrorCode::OK) {
-                return response;
+            try {
+                auto r = defer_response.GetResponse();
+                if (!r.Value.Deleted) {
+                    auto msg = fmt::format("Azure batch delete failed, path msg {}",
+                                           wrap_object_storage_path_msg(_opts));
+                    LOG_WARNING(msg);
+                    return {.status = convert_to_obj_response(
+                                    Status::InternalError<false>(std::move(msg)))};
+                }
+            } catch (Azure::Core::RequestFailedException& e) {
+                if (Azure::Core::Http::HttpStatusCode::NotFound == e.StatusCode &&
+                    0 == strcmp(e.ErrorCode.c_str(), BlobNotFound)) {
+                    continue;
+                }
+                auto msg = fmt::format(
+                        "Azure request failed because {}, error msg {}, http code {}, path msg {}",
+                        e.what(), e.Message, static_cast<int>(e.StatusCode),
+                        wrap_object_storage_path_msg(_opts));
+                LOG_WARNING(msg);
+                return {.status = convert_to_obj_response(
+                                Status::InternalError<false>(std::move(msg))),
+                        .http_code = static_cast<int>(e.StatusCode),
+                        .request_id = std::move(e.RequestId)};
             }
         }
 

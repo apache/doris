@@ -24,11 +24,11 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "recycler/s3_accessor.h"
+#include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 
 namespace doris::cloud {
-class ObjStoreAccessor;
+class StorageVaultAccessor;
 class InstanceChecker;
 class TxnKv;
 class InstanceInfoPB;
@@ -100,7 +100,7 @@ private:
     std::shared_ptr<TxnKv> txn_kv_;
     std::string instance_id_;
     // id -> accessor
-    std::unordered_map<std::string, std::shared_ptr<ObjStoreAccessor>> accessor_map_;
+    std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
 };
 
 } // namespace doris::cloud
