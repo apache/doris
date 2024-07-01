@@ -43,8 +43,8 @@
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "recycler/recycler_service.h"
 #include "recycler/util.h"
@@ -408,11 +408,11 @@ public:
     // Empty `ids` means this schema has no inverted index
     void insert(int64_t index_id, int32_t schema_version, const std::vector<int64_t>& ids) {
         if (ids.empty()) {
-            TEST_SYNC_POINT_CALLBACK("InvertedIndexIdCache::insert1", nullptr);
+            TEST_SYNC_POINT("InvertedIndexIdCache::insert1");
             std::lock_guard lock(mtx_);
             schemas_without_inverted_index_.emplace(index_id, schema_version);
         } else {
-            TEST_SYNC_POINT_CALLBACK("InvertedIndexIdCache::insert2", nullptr);
+            TEST_SYNC_POINT("InvertedIndexIdCache::insert2");
             std::lock_guard lock(mtx_);
             inverted_index_id_map_.try_emplace({index_id, schema_version}, ids);
         }
@@ -2380,37 +2380,31 @@ int InstanceRecycler::recycle_stage() {
             return -1;
         }
 
-        int ret = 0;
-        std::shared_ptr<S3Accessor> accessor;
-#ifndef UNIT_TEST
-        auto& old_obj = instance_info_.obj_info()[idx - 1];
-        S3Conf s3_conf;
-        s3_conf.ak = old_obj.ak();
-        s3_conf.sk = old_obj.sk();
-        if (old_obj.has_encryption_info()) {
-            AkSkPair plain_ak_sk_pair;
-            int ret = decrypt_ak_sk_helper(old_obj.ak(), old_obj.sk(), old_obj.encryption_info(),
-                                           &plain_ak_sk_pair);
-            if (ret != 0) {
-                LOG(WARNING) << "fail to decrypt ak sk. instance_id: " << instance_id_
-                             << " obj_info: " << proto_to_json(old_obj);
-                return -1;
-            }
-            s3_conf.ak = std::move(plain_ak_sk_pair.first);
-            s3_conf.sk = std::move(plain_ak_sk_pair.second);
-        }
-        s3_conf.endpoint = old_obj.endpoint();
-        s3_conf.region = old_obj.region();
-        s3_conf.bucket = old_obj.bucket();
-        s3_conf.prefix = recycle_stage.stage().obj_info().prefix();
-        ret = S3Accessor::create(std::move(s3_conf), &accessor);
+        std::shared_ptr<StorageVaultAccessor> accessor;
+        int ret = SYNC_POINT_HOOK_RETURN_VALUE(
+                [&] {
+                    auto& old_obj = instance_info_.obj_info()[idx - 1];
+                    auto s3_conf = S3Conf::from_obj_store_info(old_obj);
+                    if (!s3_conf) {
+                        return -1;
+                    }
+
+                    s3_conf->prefix = recycle_stage.stage().obj_info().prefix();
+                    std::shared_ptr<S3Accessor> s3_accessor;
+                    int ret = S3Accessor::create(std::move(s3_conf.value()), &s3_accessor);
+                    if (ret != 0) {
+                        return -1;
+                    }
+
+                    accessor = std::move(s3_accessor);
+                    return 0;
+                }(),
+                "recycle_stage:get_accessor", &accessor);
+
         if (ret != 0) {
-            LOG(WARNING) << "failed to init s3 accessor ret=" << ret;
-            return -1;
+            LOG(WARNING) << "failed to init accessor ret=" << ret;
+            return ret;
         }
-#else
-        TEST_SYNC_POINT_CALLBACK("recycle_stage:get_accessor", &accessor);
-#endif
 
         LOG_INFO("begin to delete objects of dropped internal stage")
                 .tag("instance_id", instance_id_)

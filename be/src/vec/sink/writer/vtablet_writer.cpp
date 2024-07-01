@@ -45,7 +45,7 @@
 #include <vector>
 
 #include "cloud/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"

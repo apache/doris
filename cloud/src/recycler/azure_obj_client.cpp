@@ -32,7 +32,7 @@
 #include <ranges>
 
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 
 using namespace Azure::Storage::Blobs;
 
@@ -83,7 +83,7 @@ public:
         try {
             auto resp = client_->ListBlobs(req_);
             has_more_ = resp.NextPageToken.HasValue();
-            DCHECK(!has_more_ || resp.Blobs.empty()) << has_more_ << ' ' << resp.Blobs.empty();
+            DCHECK(!(has_more_ && resp.Blobs.empty())) << has_more_ << ' ' << resp.Blobs.empty();
             req_.ContinuationToken = std::move(resp.NextPageToken);
             results_.reserve(resp.Blobs.size());
             for (auto&& item : std::ranges::reverse_view(resp.Blobs)) {
