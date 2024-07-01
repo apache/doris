@@ -1399,6 +1399,10 @@ DECLARE_Bool(enable_file_logger);
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
 
+// when the memory used for rowid conversion exceeds the threshold size,
+// persistence this memory to local to reduce memory using.
+DECLARE_Int64(rowid_conversion_persistence_threshold_count);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

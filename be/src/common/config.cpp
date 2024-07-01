@@ -1313,6 +1313,9 @@ DEFINE_Bool(enable_file_logger, "true");
 // The minimum row group size when exporting Parquet files. default 128MB
 DEFINE_Int64(min_row_group_size, "134217728");
 
+// 1 row may use 8.5 bytes
+DEFINE_Int64(rowid_conversion_persistence_threshold_count, "50000000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
