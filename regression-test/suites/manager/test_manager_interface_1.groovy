@@ -322,6 +322,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         );"""
     
         List<List<Object>> result = sql """ show  create table  test_manager_tb_2 """ 
+        println result 
         assertTrue(result.size() == 1)
         assertTrue(result[0][0] == "test_manager_tb_2")
         def ddl_str =  result[0][1] 
