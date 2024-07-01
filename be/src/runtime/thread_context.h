@@ -450,10 +450,10 @@ public:
     ~ScopedAllocatorTagger() { doris::allocator_working = false; }
 };
 
-void allocator_detect(size_t size){    
+void allocator_detect(size_t size) {
 #ifndef NDEBUG
     if (size >= config::debug_max_memory_size_by_native_allocator) {
-        DCHECK (doris::allocator_working == true);
+        DCHECK(doris::allocator_working == true);
     }
 #endif
 };
@@ -478,7 +478,7 @@ void allocator_detect(size_t size){
 // Mem Hook to consume thread mem tracker
 #define CONSUME_THREAD_MEM_TRACKER_BY_HOOK(size)           \
     do {                                                   \
-        allocator_detect(size);            \
+        allocator_detect(size);                            \
         if (doris::use_mem_hook) {                         \
             doris::thread_context()->consume_memory(size); \
         }                                                  \
