@@ -637,6 +637,8 @@ public:
       */
     String dump_structure() const;
 
+    String type_structure() const;
+
     // only used in agg value replace
     // ColumnString should replace according to 0,1,2... ,size,0,1,2...
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;

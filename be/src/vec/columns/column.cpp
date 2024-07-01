@@ -42,6 +42,20 @@ std::string IColumn::dump_structure() const {
     return res.str();
 }
 
+std::string IColumn::type_structure() const {
+    std::stringstream res;
+    res << "(" << get_family_name();
+
+    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
+        res << ", " << subcolumn->type_structure();
+    };
+
+    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
+
+    res << ")";
+    return res.str();
+}
+
 void IColumn::insert_from(const IColumn& src, size_t n) {
     insert(src[n]);
 }

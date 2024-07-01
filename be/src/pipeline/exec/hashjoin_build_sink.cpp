@@ -275,6 +275,28 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     // Get the key column that needs to be built
     Status st = _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids);
 
+    // for hash table build type check
+
+    for (int i = 0; i < raw_ptrs.size(); i++) {
+        auto data_type = _build_expr_ctxs[i]->root()->data_type();
+        auto hash_table_col = data_type->create_column();
+        auto& insert_col = raw_ptrs[i];
+        auto report_error = [&]() -> Status {
+            return Status::InternalError(
+                    "build hash table failed , build type = {} , insert type = {}",
+                    hash_table_col->type_structure(), insert_col->type_structure());
+        };
+
+        if (!insert_col->is_nullable() && insert_col->is_nullable()) {
+            return report_error();
+        }
+        auto hash_table_remove_null = vectorized::remove_nullable(data_type)->create_column();
+        if (hash_table_col->type_structure() != insert_col->type_structure() &&
+            hash_table_remove_null->type_structure() != insert_col->type_structure()) {
+            return report_error();
+        }
+    }
+
     st = std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg, auto join_op, auto has_null_value,
