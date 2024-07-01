@@ -227,6 +227,7 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintOrdered;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
+import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -2712,6 +2713,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             } else if (ctx.CURRENT_DATE() != null) {
                 defaultValue = Optional.of(DefaultValue.CURRENT_DATE_DEFAULT_VALUE);
+            } else if (ctx.PI() != null) {
+                defaultValue = Optional.of(DefaultValue.PI_DEFAULT_VALUE);
             }
         }
         if (ctx.UPDATE() != null) {
@@ -2766,7 +2769,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> indexCols = visitIdentifierList(ctx.cols);
         Map<String, String> properties = visitPropertyItemList(ctx.properties);
         String indexType = ctx.indexType != null ? ctx.indexType.getText().toUpperCase() : null;
-        String comment = ctx.comment != null ? ctx.comment.getText() : "";
+        //comment should remove '\' and '(") at the beginning and end
+        String comment = ctx.comment == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                        ctx.comment.getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
         // change BITMAP index to INVERTED index
         if (Config.enable_create_bitmap_index_as_inverted_index
                 && "BITMAP".equalsIgnoreCase(indexType)) {
@@ -3139,6 +3144,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case "ordered":
                     hints.put(hintName, new SelectHintOrdered(hintName));
                     break;
+                case "use_cbo_rule":
+                    List<String> useRuleParameters = new ArrayList<String>();
+                    for (HintAssignmentContext kv : hintStatement.parameters) {
+                        String parameterName = visitIdentifierOrText(kv.key);
+                        useRuleParameters.add(parameterName);
+                    }
+                    hints.put(hintName, new SelectHintUseCboRule(hintName, useRuleParameters, false));
+                    break;
+                case "no_use_cbo_rule":
+                    List<String> noUseRuleParameters = new ArrayList<String>();
+                    for (HintAssignmentContext kv : hintStatement.parameters) {
+                        String parameterName = visitIdentifierOrText(kv.key);
+                        noUseRuleParameters.add(parameterName);
+                    }
+                    hints.put(hintName, new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
+                    break;
                 default:
                     break;
             }
@@ -3429,6 +3450,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         if (planTypeContext.MEMO() != null) {
             return ExplainLevel.MEMO_PLAN;
+        }
+        if (planTypeContext.DISTRIBUTED() != null) {
+            return ExplainLevel.DISTRIBUTED_PLAN;
         }
         return ExplainLevel.ALL_PLAN;
     }

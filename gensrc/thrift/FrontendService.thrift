@@ -991,6 +991,7 @@ struct TMetadataTableRequestParams {
   8: optional PlanNodes.TMaterializedViewsMetadataParams materialized_views_metadata_params
   9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
+  11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
 }
 
 struct TSchemaTableRequestParams {
@@ -1322,6 +1323,7 @@ struct TAutoIncrementRangeResult {
     1: optional Status.TStatus status
     2: optional i64 start
     3: optional i64 length
+    4: optional Types.TNetworkAddress master_address
 }
 
 struct TCreatePartitionRequest {

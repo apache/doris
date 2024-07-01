@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -26,10 +27,14 @@ import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
@@ -135,6 +140,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SPILLING = "enable_spilling";
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
+    public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
@@ -195,6 +201,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
 
     public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
+
+    public static final String READ_CSV_EMPTY_LINE_AS_NULL = "read_csv_empty_line_as_null";
 
     public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
 
@@ -301,6 +309,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
+    public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
@@ -1062,6 +1071,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
     private boolean enableParallelResultSink = true;
 
+    @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
+            description = {"在读取csv文件时是否读取csv的空行为null",
+                    "Determine whether to read empty rows in CSV files as NULL when reading CSV files."})
+    public boolean readCsvEmptyLineAsNull = false;
+
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
 
@@ -1235,6 +1249,17 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DISTRIBUTE_PLANNER, needForward = true,
+            fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
+                "使用新的nereids的分布式规划器的开关，这个分布式规划器可以规划出一些更高效的查询计划，比如在某些情况下，"
+                        + "可以把左表shuffle到右表去做bucket shuffle join",
+                "The switch to use new DistributedPlanner of nereids, this planner can planning some "
+                        + "more efficient query plans, e.g. in certain situations, shuffle left side to "
+                        + "right side to do bucket shuffle join"
+            }
+    )
+    private boolean enableNereidsDistributePlanner = false;
+
     @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
     private int rewriteOrToInPredicateThreshold = 2;
 
@@ -1403,7 +1428,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = {
             "是否启用开启服务端prepared statement", "Set whether to enable server side prepared statement."})
-    public boolean enableServeSidePreparedStatement = false;
+    public boolean enableServeSidePreparedStatement = true;
+
+    @VariableMgr.VarAttr(name = MAX_PREPARED_STMT_COUNT,  flag = VariableMgr.GLOBAL,
+            needForward = true, description = {
+                "服务端prepared statement最大个数", "the maximum prepared statements server holds."})
+    public int maxPreparedStmtCount = 100000;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
@@ -3055,6 +3085,41 @@ public class SessionVariable implements Serializable, Writable {
         this.enableNereidsPlanner = enableNereidsPlanner;
     }
 
+    /** canUseNereidsDistributePlanner */
+    public static boolean canUseNereidsDistributePlanner() {
+        // TODO: support cloud mode
+        if (Config.isCloudMode()) {
+            return false;
+        }
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return false;
+        }
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext == null) {
+            return false;
+        }
+        StatementBase parsedStatement = statementContext.getParsedStatement();
+        if (!(parsedStatement instanceof LogicalPlanAdapter)) {
+            return false;
+        }
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        // TODO: support other sink
+        if (logicalPlan instanceof UnboundResultSink && sessionVariable.enableNereidsDistributePlanner) {
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isEnableNereidsDistributePlanner() {
+        return enableNereidsDistributePlanner;
+    }
+
+    public void setEnableNereidsDistributePlanner(boolean enableNereidsDistributePlanner) {
+        this.enableNereidsDistributePlanner = enableNereidsDistributePlanner;
+    }
+
     public int getNthOptimizedPlan() {
         return nthOptimizedPlan;
     }
@@ -3444,6 +3509,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
+        tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         return tResult;
     }
 

@@ -150,9 +150,10 @@ std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
 }
 
 Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStreamSPtr& spill_stream,
-                                                 std::string query_id, std::string operator_name,
-                                                 int32_t node_id, int32_t batch_rows,
-                                                 size_t batch_bytes, RuntimeProfile* profile) {
+                                                 const std::string& query_id,
+                                                 const std::string& operator_name, int32_t node_id,
+                                                 int32_t batch_rows, size_t batch_bytes,
+                                                 RuntimeProfile* profile) {
     auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
     if (data_dirs.empty()) {
         data_dirs = _get_stores_for_spill(TStorageMedium::type::HDD);
@@ -162,7 +163,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
                 "no available disk can be used for spill.");
     }
 
-    int64_t id = id_++;
+    uint64_t id = id_++;
     std::string spill_dir;
     SpillDataDir* data_dir = nullptr;
     for (auto& dir : data_dirs) {

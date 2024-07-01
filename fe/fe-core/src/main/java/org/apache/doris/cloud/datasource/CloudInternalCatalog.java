@@ -125,10 +125,6 @@ public class CloudInternalCatalog extends InternalCatalog {
             indexMap.put(indexId, rollup);
         }
 
-        // version and version hash
-        if (versionInfo != null) {
-            partition.updateVisibleVersion(versionInfo);
-        }
         long version = partition.getVisibleVersion();
 
         final String storageVaultName = tbl.getStorageVaultName();
