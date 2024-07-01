@@ -504,8 +504,7 @@ public class LoadStmt extends DdlStmt {
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
-            checkWhiteList();
-            checkAkSk();
+            checkS3Param();
         } else if (isMysqlLoad) {
             etlJobType = EtlJobType.LOCAL_FILE;
         } else {
@@ -525,12 +524,13 @@ public class LoadStmt extends DdlStmt {
 
 
     private String getProviderFromEndpoint() {
-        Map<String, String> brokerDescProperties = brokerDesc.getProperties();
-        String provider = brokerDescProperties.get(S3Properties.PROVIDER);
-        if (provider == null) {
-            return "S3";
+        Map<String, String> properties = brokerDesc.getProperties();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(S3Properties.PROVIDER)) {
+                return entry.getValue();
+            }
         }
-        return provider;
+        return S3Properties.S3_PROVIDER;
     }
 
     private String getBucketFromFilePath(String filePath) throws Exception {
@@ -621,7 +621,7 @@ public class LoadStmt extends DdlStmt {
         }
     }
 
-    public void checkWhiteList() throws UserException {
+    public void checkS3Param() throws UserException {
         Map<String, String> brokerDescProperties = brokerDesc.getProperties();
         if (brokerDescProperties.containsKey(S3Properties.Env.ENDPOINT)
                 && brokerDescProperties.containsKey(S3Properties.Env.ACCESS_KEY)
@@ -630,17 +630,22 @@ public class LoadStmt extends DdlStmt {
             String endpoint = brokerDescProperties.get(S3Properties.Env.ENDPOINT);
             endpoint = endpoint.replaceFirst("^http://", "");
             endpoint = endpoint.replaceFirst("^https://", "");
-            List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
-            whiteList.removeIf(String::isEmpty);
-            if (!whiteList.isEmpty() && !whiteList.contains(endpoint)) {
-                throw new UserException("endpoint: " + endpoint
-                    + " is not in s3 load endpoint white list: " + String.join(",", whiteList));
-            }
             brokerDescProperties.put(S3Properties.Env.ENDPOINT, endpoint);
-            if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
+            checkWhiteList(endpoint);
+            if (AzureProperties.checkAzureProviderPropertyExist(brokerDescProperties)) {
                 return;
             }
             checkEndpoint(endpoint);
+            checkAkSk();
+        }
+    }
+
+    public void checkWhiteList(String endpoint) throws UserException {
+        List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
+        whiteList.removeIf(String::isEmpty);
+        if (!whiteList.isEmpty() && !whiteList.contains(endpoint)) {
+            throw new UserException("endpoint: " + endpoint
+                    + " is not in s3 load endpoint white list: " + String.join(",", whiteList));
         }
     }
 
@@ -649,7 +654,7 @@ public class LoadStmt extends DdlStmt {
         ObjectInfo objectInfo = null;
         try {
             Map<String, String> brokerDescProperties = brokerDesc.getProperties();
-            String provider = getProviderFromEndpoint(brokerDescProperties.get(S3Properties.Env.ENDPOINT));
+            String provider = getProviderFromEndpoint();
             for (DataDescription dataDescription : dataDescriptions) {
                 for (String filePath : dataDescription.getFilePaths()) {
                     String bucket = getBucketFromFilePath(filePath);
