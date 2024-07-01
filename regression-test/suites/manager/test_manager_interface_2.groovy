@@ -90,9 +90,11 @@ suite('test_manager_interface_2',"p0") {
         """
         
         List<List<Object>> result = sql """ show partitions from  test_manager_tb """ 
-
+        println result 
         for( int i =0 ; i <result.size();i++) {
             assertTrue( result[i][1] in ["less100","less200","less2000"])
+
+            println   result[i][1] + ".ReplicationNum = " + result[i][9]
             assertTrue( result[i][9].toBigInteger() == 1) // ReplicationNum
         }
 
