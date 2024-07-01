@@ -16,7 +16,7 @@ suite("test_stage_ram") {
     def sk = context.config.stageIamSk
     def userId = context.config.stageIamUserId
 
-    String provider = getProvider(stageEndpoint)
+    String provider = "${getS3Provider()}"
     String stageName = "test_stage_iam"
 
     def get_instance = { requestBody, checkFunc ->

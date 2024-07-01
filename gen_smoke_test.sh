@@ -60,6 +60,7 @@ jdbcUser=\`sed -n '/^user/p' \$CONF_FILE | cut -c6-\`
 jdbcPassword=\`sed -n '/^password/p' \$CONF_FILE | cut -c10-\`
 
 feCloudHttpAddress=\$host:\$httpPort
+feHttpAddress=\$host:\$httpPort
 
 feCloudHttpUser=\$jdbcUser
 feCloudHttpPassword=\$jdbcPassword
@@ -120,7 +121,13 @@ echo \$new_line >> ./bin/regression-test/conf/regression-conf-custom.groovy
 new_line="\$(sed -n '/^s3Prefix/p' \$CONF_FILE)"
 echo \$new_line >> ./bin/regression-test/conf/regression-conf-custom.groovy
 
+new_line="\$(sed -n '/^s3Provider/p' \$CONF_FILE)"
+echo \$new_line >> ./bin/regression-test/conf/regression-conf-custom.groovy
+
 new_line="cloudVersion=\"\$CLOUD_VERSION\""
+echo \$new_line >> ./bin/regression-test/conf/regression-conf-custom.groovy
+
+new_line="feHttpAddress=\"\$feHttpAddress\""
 echo \$new_line >> ./bin/regression-test/conf/regression-conf-custom.groovy
 
 new_line="feHttpUser=\"\$feCloudHttpUser\""
