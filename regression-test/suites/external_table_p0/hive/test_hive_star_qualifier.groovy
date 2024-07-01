@@ -44,7 +44,7 @@ suite("test_hive_star_qualifier", "p0,external,hive,external_docker,external_doc
                 'type'='hms',
                 'hadoop.username' = 'hadoop',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
             );
             """
             sql """use ${catalog_name}.multi_catalog"""
