@@ -97,8 +97,8 @@ PhysicalResultSink
 
 -- !limit_distinct --
 PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalLimit[LOCAL]
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
 ------hashAgg[LOCAL]
 --------PhysicalOlapScan[t1]
 
@@ -111,46 +111,52 @@ PhysicalResultSink
 
 -- !limit_distinct --
 PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalLimit[LOCAL]
-------hashAgg[LOCAL]
---------NestedLoopJoin[CROSS_JOIN]
-----------PhysicalLimit[LOCAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[t1]
-----------PhysicalOlapScan[t2]
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------NestedLoopJoin[CROSS_JOIN]
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
 
 -- !limit_distinct --
 PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalLimit[LOCAL]
-------hashAgg[LOCAL]
---------NestedLoopJoin[CROSS_JOIN]
-----------PhysicalLimit[LOCAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[t1]
-----------PhysicalOlapScan[t2]
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------NestedLoopJoin[CROSS_JOIN]
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
 
 -- !limit_distinct --
 PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalLimit[LOCAL]
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
 ------hashAgg[LOCAL]
 --------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalLimit[LOCAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[t1]
+----------PhysicalTopN[MERGE_SORT]
+------------PhysicalTopN[LOCAL_SORT]
+--------------hashAgg[LOCAL]
+----------------PhysicalOlapScan[t1]
 ----------PhysicalOlapScan[t2]
 
 -- !limit_distinct --
 PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalLimit[LOCAL]
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
 ------hashAgg[LOCAL]
 --------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalLimit[LOCAL]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[t1]
+----------PhysicalTopN[MERGE_SORT]
+------------PhysicalTopN[LOCAL_SORT]
+--------------hashAgg[LOCAL]
+----------------PhysicalOlapScan[t1]
 ----------PhysicalOlapScan[t2]
 
 -- !limit_offset_agg --
@@ -162,17 +168,19 @@ PhysicalResultSink
 
 -- !limit_set_operation --
 PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalLimit[LOCAL]
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
-------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[t1]
-------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[t2]
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[t1]
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------hashAgg[LOCAL]
+------------------PhysicalOlapScan[t2]
 
 -- !limit_offset_set_operation --
 PhysicalResultSink
@@ -351,21 +359,23 @@ PhysicalResultSink
 
 -- !limit_subquery_union_join --
 PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalLimit[LOCAL]
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
-------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalOlapScan[t1]
-------------------PhysicalOlapScan[t2]
-------------PhysicalLimit[LOCAL]
---------------hashAgg[LOCAL]
-----------------hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
-------------------PhysicalOlapScan[t3]
-------------------PhysicalOlapScan[t4]
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------hashAgg[LOCAL]
+------------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------------PhysicalOlapScan[t1]
+--------------------PhysicalOlapScan[t2]
+------------PhysicalTopN[MERGE_SORT]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------hashAgg[LOCAL]
+------------------hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
+--------------------PhysicalOlapScan[t3]
+--------------------PhysicalOlapScan[t4]
 
 -- !limit_subquery_union_window --
 PhysicalResultSink
@@ -510,8 +520,8 @@ PhysicalResultSink
 
 -- !limit_subquery_distinct --
 PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalLimit[LOCAL]
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
 ------hashAgg[LOCAL]
 --------PhysicalOlapScan[t1]
 
