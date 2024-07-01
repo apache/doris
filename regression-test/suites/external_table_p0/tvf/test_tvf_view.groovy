@@ -15,18 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_tvf_view_p2", "p2,external,tvf,external_remote,external_remote_tvf") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
+suite("test_tvf_view", "p0,external,tvf,external_docker,hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
+        String nameNodeHost = context.config.otherConfigs.get("externalEnvIp")
+        String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
 
         sql """drop database if exists test_tvf_view_p2"""
         sql """create database test_tvf_view_p2"""
         sql """use test_tvf_view_p2"""
         sql """set enable_fallback_to_original_planner=false"""
         sql """create view tvf_view as select * from hdfs (
-            "uri"="hdfs://${nameNodeHost}:${hdfsPort}/usr/hive/warehouse/tpch_1000_parquet.db/part/000091_0",
+            "uri"="hdfs://${nameNodeHost}:${hdfsPort}/user/doris/tpch1.db/tpch1_parquet/part/part-00000-cb9099f7-a053-4f9a-80af-c659cfa947cc-c000.snappy.parquet",
             "hadoop.username" = "hadoop",
             "format"="parquet");"""
 
@@ -47,7 +47,7 @@ suite("test_tvf_view_p2", "p2,external,tvf,external_remote,external_remote_tvf")
         }
         explain{
             sql("select * from hdfs (\n" +
-                    "  \"uri\"=\"hdfs://${nameNodeHost}:${hdfsPort}/usr/hive/warehouse/tpch_1000_parquet.db/part/000091_0\",\n" +
+                    "  \"uri\"=\"hdfs://${nameNodeHost}:${hdfsPort}/user/doris/tpch1.db/tpch1_parquet/part/part-00000-cb9099f7-a053-4f9a-80af-c659cfa947cc-c000.snappy.parquet\",\n" +
                     "  \"hadoop.username\" = \"hadoop\",\n" +
                     "  \"format\"=\"parquet\")")
             contains("_table_valued_function_hdfs.p_partkey")
