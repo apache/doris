@@ -831,9 +831,9 @@ struct FunctionJsonExtractImpl {
         rapidjson::Value value;
         rapidjson::Document document;
 
-        const auto& obj = json_col->get_data_at(index_check_const(row, column_is_consts[0]));
+        const auto obj = json_col->get_data_at(index_check_const(row, column_is_consts[0]));
         std::string_view json_string(obj.data, obj.size);
-        const auto& path = path_col->get_data_at(index_check_const(row, column_is_consts[col]));
+        const auto path = path_col->get_data_at(index_check_const(row, column_is_consts[col]));
         std::string_view path_string(path.data, path.size);
         auto* root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
         if (root != nullptr) {
@@ -846,7 +846,7 @@ struct FunctionJsonExtractImpl {
                                           rapidjson::Document* document,
                                           std::vector<JsonPath>& parsed_paths, const int row,
                                           bool is_const_column) {
-        const auto& path = path_col->get_data_at(index_check_const(row, is_const_column));
+        const auto path = path_col->get_data_at(index_check_const(row, is_const_column));
         std::string_view path_string(path.data, path.size);
         //Cannot use '\' as the last character, return NULL
         if (path_string.back() == '\\') {
@@ -860,6 +860,7 @@ struct FunctionJsonExtractImpl {
 #else
         auto tok = get_json_token(path_string);
 #endif
+        // TODO: here maybe could use std::vector<std::string_view> or std::span
         std::vector<std::string> paths(tok.begin(), tok.end());
         get_parsed_paths(paths, &parsed_paths);
         if (parsed_paths.empty()) {
