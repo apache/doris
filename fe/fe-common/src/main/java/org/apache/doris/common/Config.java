@@ -148,6 +148,10 @@ public class Config extends ConfigBase {
                     + "The default is * to allow all, if set to empty, all are not allowed"})
     public static String jdbc_driver_secure_path = "*";
 
+    @ConfField(description = {"强制 SQLServer Jdbc Catalog 加密为 false",
+            "Force SQLServer Jdbc Catalog encrypt to false"})
+    public static boolean force_sqlserver_jdbc_encrypt_false = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 1;
