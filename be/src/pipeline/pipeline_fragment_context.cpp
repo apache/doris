@@ -128,13 +128,6 @@ PipelineFragmentContext::PipelineFragmentContext(
 PipelineFragmentContext::~PipelineFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
-    auto st = _query_ctx->exec_status();
-    _query_ctx.reset();
-    for (size_t i = 0; i < _tasks.size(); i++) {
-        if (!_tasks[i].empty()) {
-            _call_back(_tasks[i].front()->runtime_state(), &st);
-        }
-    }
     _tasks.clear();
     for (auto& runtime_state : _task_runtime_states) {
         runtime_state.reset();
@@ -1515,10 +1508,6 @@ Status PipelineFragmentContext::submit() {
         }
     }
     if (!st.ok()) {
-        std::lock_guard<std::mutex> l(_task_mutex);
-        if (_closed_tasks == _total_tasks) {
-            _close_fragment_instance();
-        }
         return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
                                      BackendOptions::get_localhost());
     } else {
@@ -1529,9 +1518,7 @@ Status PipelineFragmentContext::submit() {
 // If all pipeline tasks binded to the fragment instance are finished, then we could
 // close the fragment instance.
 void PipelineFragmentContext::_close_fragment_instance() {
-    if (_is_fragment_instance_closed) {
-        return;
-    }
+    DCHECK(!_is_fragment_instance_closed);
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
@@ -1570,13 +1557,20 @@ void PipelineFragmentContext::_close_fragment_instance() {
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
+
+    auto st = _query_ctx->exec_status();
+    _query_ctx.reset();
+    for (size_t i = 0; i < _tasks.size(); i++) {
+        if (!_tasks[i].empty()) {
+            _call_back(_tasks[i].front()->runtime_state(), &st);
+        }
+    }
 }
 
 void PipelineFragmentContext::close_a_pipeline() {
     std::lock_guard<std::mutex> l(_task_mutex);
     g_pipeline_tasks_count << -1;
-    ++_closed_tasks;
-    if (_closed_tasks == _total_tasks) {
+    if (_closed_tasks.fetch_add(1) == _total_tasks - 1) {
         _close_fragment_instance();
     }
 }
@@ -1616,8 +1610,9 @@ Status PipelineFragmentContext::send_report(bool done) {
                              _runtime_state.get(),
                              [this](const Status& reason) { cancel(reason); }};
 
-    return _report_status_cb(
-            req, std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
+    return _report_status_cb(req,
+                             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()),
+                             _query_ctx);
 }
 
 std::string PipelineFragmentContext::debug_string() {
