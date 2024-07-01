@@ -754,7 +754,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
 
     // rename the rowset ids and tabletid info in rowset meta
     auto res = _engine.snapshot_mgr()->convert_rowset_ids(
-            snapshot_path, tablet_id, tablet->replica_id(), tablet->partition_id(), schema_hash);
+            snapshot_path, tablet_id, tablet->replica_id(), tablet->table_id(), tablet->partition_id(), schema_hash);
     if (!res.has_value()) [[unlikely]] {
         auto err_msg =
                 fmt::format("failed to convert rowsetids in snapshot: {}, tablet path: {}, err: {}",
