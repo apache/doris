@@ -32,8 +32,7 @@ public class PushConjunctsIntoJdbcScan extends OneRewriteRuleFactory {
         return logicalFilter(logicalJdbcScan()).thenApply(ctx -> {
             LogicalFilter<LogicalJdbcScan> filter = ctx.root;
             LogicalJdbcScan scan = filter.child();
-            LogicalJdbcScan rewrittenScan = scan.withConjuncts(filter.getConjuncts());
-            return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
+            return scan.withConjuncts(filter.getConjuncts());
         }).toRule(RuleType.PUSH_CONJUNCTS_INTO_JDBC_SCAN);
     }
 }
