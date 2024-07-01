@@ -22,17 +22,19 @@
 namespace doris {
 
 Status FileMetaCache::get_parquet_footer(io::FileReaderSPtr file_reader, io::IOContext* io_ctx,
-                                         int64_t mtime, size_t* meta_size,
-                                         ObjLRUCache::CacheHandle* handle) {
+                                         int64_t mtime, ObjLRUCache::CacheHandle* handle,
+                                         int64_t* read_calls, int64_t* read_bytes,
+                                         int64_t* read_time, int64_t* hit_count) {
     ObjLRUCache::CacheHandle cache_handle;
     std::string cache_key = file_reader->path().native() + std::to_string(mtime);
     auto hit_cache = _cache.lookup({cache_key}, &cache_handle);
     if (hit_cache) {
         *handle = std::move(cache_handle);
-        *meta_size = 0;
+        *hit_count += 1;
     } else {
         vectorized::FileMetaData* meta = nullptr;
-        RETURN_IF_ERROR(vectorized::parse_thrift_footer(file_reader, &meta, meta_size, io_ctx));
+        RETURN_IF_ERROR(vectorized::parse_thrift_footer(file_reader, &meta, io_ctx, read_calls,
+                                                        read_bytes, read_time));
         _cache.insert({cache_key}, meta, handle);
     }
 
