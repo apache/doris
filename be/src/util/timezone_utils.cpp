@@ -36,7 +36,6 @@
 #include <shared_mutex>
 #include <string>
 
-#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 
@@ -78,10 +77,8 @@ void TimezoneUtils::load_timezone_names() {
     path += '/';
 
     if (!std::filesystem::exists(path)) {
-        LOG_WARNING("Cannot find system tzfile. Use default instead.");
-        path = config::default_tzfiles_path + '/';
-        CHECK(std::filesystem::exists(path))
-                << "Can't find system tzfiles or default tzfiles neither.";
+        LOG_WARNING("Cannot find system tzfile. Abandon to preload timezone name cache.");
+        return;
     }
 
     auto path_prefix_len = path.size();
@@ -242,12 +239,10 @@ void TimezoneUtils::load_timezones_to_cache() {
     base_str += tzdir;
     base_str += '/';
 
-    auto root_path = std::filesystem::path {base_str};
+    const auto root_path = std::filesystem::path {base_str};
     if (!std::filesystem::exists(root_path)) {
-        LOG_WARNING("Cannot find system tzfile. Use default instead.");
-        root_path = config::default_tzfiles_path + '/';
-        CHECK(std::filesystem::exists(root_path))
-                << "Can't find system tzfiles or default tzfiles neither.";
+        LOG_WARNING("Cannot find system tzfile. Abandon to preload timezone cache.");
+        return;
     }
 
     std::set<std::string> ignore_paths = {"posix", "right"}; // duplications
