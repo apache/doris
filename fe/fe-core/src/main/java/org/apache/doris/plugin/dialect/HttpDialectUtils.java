@@ -17,6 +17,8 @@
 
 package org.apache.doris.plugin.dialect;
 
+import org.apache.doris.common.Version;
+
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import lombok.Data;
@@ -39,7 +41,7 @@ public class HttpDialectUtils {
     private static final Logger LOG = LogManager.getLogger(HttpDialectUtils.class);
 
     public static String convertSql(String targetURL, String originStmt, String dialect) {
-        ConvertRequest convertRequest = new ConvertRequest(originStmt, dialect);
+        ConvertRequest convertRequest = new ConvertRequest(originStmt, dialect, Version.DORIS_BUILD_VERSION);
 
         HttpURLConnection connection = null;
         try {
@@ -110,14 +112,16 @@ public class HttpDialectUtils {
         private String to;   // CHECKSTYLE IGNORE THIS LINE
         private String source;  // CHECKSTYLE IGNORE THIS LINE
         private String case_sensitive;  // CHECKSTYLE IGNORE THIS LINE
+        private String doris_version;  // CHECKSTYLE IGNORE THIS LINE
 
-        public ConvertRequest(String originStmt, String dialect) {
+        public ConvertRequest(String originStmt, String dialect, String dorisVersion) {
             this.version = "v1";
             this.sql_query = originStmt;
             this.from = dialect;
             this.to = "doris";
             this.source = "text";
             this.case_sensitive = "0";
+            this.doris_version = dorisVersion;
         }
 
         public String toJson() {
