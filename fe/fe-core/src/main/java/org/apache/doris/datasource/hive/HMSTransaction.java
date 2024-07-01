@@ -74,6 +74,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -1514,7 +1515,20 @@ public class HMSTransaction implements Transaction {
         }
 
         public void shutdownExecutorService() {
-            if (!updateStatisticsExecutor.isShutdown()) {
+            // Disable new tasks from being submitted
+            updateStatisticsExecutor.shutdown();
+            try {
+                // Wait a while for existing tasks to terminate
+                if (!updateStatisticsExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    // Cancel currently executing tasks
+                    updateStatisticsExecutor.shutdownNow();
+                    // Wait a while for tasks to respond to being cancelled
+                    if (!updateStatisticsExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                        LOG.warn("Pool did not terminate");
+                    }
+                }
+            } catch (InterruptedException e) {
+                // (Re-)Cancel if current thread also interrupted
                 updateStatisticsExecutor.shutdownNow();
             }
         }
