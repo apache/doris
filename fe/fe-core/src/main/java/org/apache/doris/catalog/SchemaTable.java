@@ -397,6 +397,7 @@ public class SchemaTable extends Table {
                             .column("DATA_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("CREATION_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.DATETIME))
+                            .column("SCHEMA_VERSION", ScalarType.createType(PrimitiveType.INT))
                             .build()))
             .put("parameters", new SchemaTable(SystemIdGenerator.getNextId(), "parameters", TableType.SCHEMA,
                     builder().column("SPECIFIC_CATALOG", ScalarType.createVarchar(64))
@@ -489,17 +490,23 @@ public class SchemaTable extends Table {
                             .column("SPILL_THRESHOLD_HIGH_WATERMARK", ScalarType.createVarchar(256))
                             .column("TAG", ScalarType.createVarchar(256))
                             .build()))
-            .put("processlist", new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
-                    builder().column("ID", ScalarType.createType(PrimitiveType.LARGEINT))
-                            .column("USER", ScalarType.createVarchar(32))
-                            .column("HOST", ScalarType.createVarchar(261))
-                            .column("CATALOG", ScalarType.createVarchar(64))
-                            .column("DB", ScalarType.createVarchar(64))
-                            .column("COMMAND", ScalarType.createVarchar(16))
-                            .column("TIME", ScalarType.createType(PrimitiveType.INT))
-                            .column("STATE", ScalarType.createVarchar(64))
-                            .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
-                            .build()))
+            .put("processlist",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
+                            builder().column("CURRENT_CONNECTED", ScalarType.createVarchar(16))
+                                    .column("ID", ScalarType.createType(PrimitiveType.LARGEINT))
+                                    .column("USER", ScalarType.createVarchar(32))
+                                    .column("HOST", ScalarType.createVarchar(261))
+                                    .column("LOGIN_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("CATALOG", ScalarType.createVarchar(64))
+                                    .column("DB", ScalarType.createVarchar(64))
+                                    .column("COMMAND", ScalarType.createVarchar(16))
+                                    .column("TIME", ScalarType.createType(PrimitiveType.INT))
+                                    .column("STATE", ScalarType.createVarchar(64))
+                                    .column("QUERY_ID", ScalarType.createVarchar(256))
+                                    .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
+                                    .column("FE",
+                                            ScalarType.createVarchar(64))
+                                    .column("CLOUD_CLUSTER", ScalarType.createVarchar(64)).build()))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
                             builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
@@ -509,7 +516,19 @@ public class SchemaTable extends Table {
                                     .column("PRIORITY", ScalarType.createType(PrimitiveType.INT))
                                     .column("ENABLED", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("VERSION", ScalarType.createType(PrimitiveType.INT))
-                                    .column("WORKLOAD_GROUP", ScalarType.createStringType())
+                                    .column("WORKLOAD_GROUP", ScalarType.createStringType()).build()))
+            .put("table_options",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "table_options", TableType.SCHEMA,
+                            builder().column("TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_MODEL", ScalarType.createStringType())
+                                    .column("TABLE_MODEL_KEY", ScalarType.createStringType())
+                                    .column("DISTRIBUTE_KEY", ScalarType.createStringType())
+                                    .column("DISTRIBUTE_TYPE", ScalarType.createStringType())
+                                    .column("BUCKETS_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("PROPERTIES", ScalarType.createStringType())
                                     .build()))
             .build();
 

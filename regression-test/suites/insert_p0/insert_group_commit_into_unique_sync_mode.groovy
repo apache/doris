@@ -134,7 +134,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    // sql """ set enable_fallback_to_original_planner=false; """
+                    sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }
@@ -222,7 +222,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    // sql """ set enable_fallback_to_original_planner=false; """
+                    sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }
@@ -313,7 +313,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    // sql """ set enable_fallback_to_original_planner=false; """
+                    sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }

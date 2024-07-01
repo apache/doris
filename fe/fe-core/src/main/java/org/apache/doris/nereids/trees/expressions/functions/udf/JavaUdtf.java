@@ -111,7 +111,7 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
                     signature.argumentsTypes.stream().map(DataType::toCatalogDataType).toArray(Type[]::new),
                     signature.returnType.toCatalogDataType(),
                     signature.hasVarArgs,
-                    URI.create(objectFile),
+                    objectFile == null ? null : URI.create(objectFile),
                     symbol,
                     prepareFn,
                     closeFn
@@ -148,7 +148,7 @@ public class JavaUdtf extends TableGeneratingFunction implements ExplicitlyCasta
 
         JavaUdtf udf = new JavaUdtf(fnName, scalar.getId(), dbName, scalar.getBinaryType(), sig,
                 scalar.getNullableMode(),
-                scalar.getLocation().getLocation(),
+                scalar.getLocation() == null ? null : scalar.getLocation().getLocation(),
                 scalar.getSymbolName(),
                 scalar.getPrepareFnSymbol(),
                 scalar.getCloseFnSymbol(),

@@ -20,16 +20,15 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -103,7 +102,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     public List<Slot> computeOutput() {
         return table.getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(table, col, qualified(), this))
+                .map(col -> SlotReference.fromColumn(table, col, qualified()))
                 .collect(ImmutableList.toImmutableList());
     }
 
@@ -126,35 +125,21 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     }
 
     @Override
-    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+    public void computeUnique(DataTrait.Builder builder) {
         Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
-        if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
-            ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
-            for (Slot slot : outputSet) {
-                if (!(slot instanceof SlotReference)) {
-                    continue;
-                }
-                SlotReference slotRef = (SlotReference) slot;
-                if (slotRef.getColumn().isPresent() && slotRef.getColumn().get().isKey()) {
-                    uniqSlots.add(slot);
-                }
-            }
-            fdBuilder.addUniqueSlot(uniqSlots.build());
-        }
-
         for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
             Set<Column> columns = c.getPrimaryKeys(table);
-            fdBuilder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
+            builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
         }
 
         for (UniqueConstraint c : table.getUniqueConstraints()) {
             Set<Column> columns = c.getUniqueKeys(table);
-            fdBuilder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
+            builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
         }
     }
 
     @Override
-    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+    public void computeUniform(DataTrait.Builder builder) {
         // No uniform slot for catalog relation
     }
 
@@ -208,12 +193,12 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     }
 
     @Override
-    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+    public void computeEqualSet(DataTrait.Builder builder) {
         // don't generate any equal pair
     }
 
     @Override
-    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
+    public void computeFd(DataTrait.Builder builder) {
         // don't generate any equal pair
     }
 }

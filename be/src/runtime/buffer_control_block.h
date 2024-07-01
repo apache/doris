@@ -27,15 +27,16 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "runtime/query_statistics.h"
+#include "runtime/runtime_state.h"
+#include "util/hash_util.hpp"
 
-namespace google {
-namespace protobuf {
+namespace google::protobuf {
 class Closure;
-}
-} // namespace google
+} // namespace google::protobuf
 
 namespace arrow {
 class RecordBatch;
@@ -71,23 +72,21 @@ struct GetResultBatchCtx {
 // buffer used for result customer and producer
 class BufferControlBlock {
 public:
-    BufferControlBlock(const TUniqueId& id, int buffer_size);
-    virtual ~BufferControlBlock();
+    BufferControlBlock(const TUniqueId& id, int buffer_size, int batch_size);
+    ~BufferControlBlock();
 
     Status init();
-    // Only one fragment is written, so can_sink returns true, then the sink must be executed
-    virtual bool can_sink();
-    virtual Status add_batch(std::unique_ptr<TFetchDataResult>& result);
-    virtual Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
+    Status add_batch(RuntimeState* state, std::unique_ptr<TFetchDataResult>& result);
+    Status add_arrow_batch(RuntimeState* state, std::shared_ptr<arrow::RecordBatch>& result);
 
-    virtual void get_batch(GetResultBatchCtx* ctx);
-    virtual Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
+    void get_batch(GetResultBatchCtx* ctx);
+    Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
 
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
-    Status close(Status exec_status);
+    Status close(const TUniqueId& id, Status exec_status);
     // this is called by RPC, called from coordinator
-    virtual void cancel();
+    void cancel();
 
     [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
 
@@ -96,15 +95,15 @@ public:
         // or some other failure.
         // and the number of written rows is only needed when all things go well.
         if (_query_statistics != nullptr) {
-            _query_statistics->set_returned_rows(num_rows);
+            _query_statistics->add_returned_rows(num_rows);
         }
     }
 
+    void set_dependency(const TUniqueId& id,
+                        std::shared_ptr<pipeline::Dependency> result_sink_dependency);
+
 protected:
-    virtual bool _get_batch_queue_empty() {
-        return _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
-    }
-    virtual void _update_batch_queue_empty() {}
+    void _update_dependency();
 
     using FeResultQueue = std::list<std::unique_ptr<TFetchDataResult>>;
     using ArrowFlightResultQueue = std::list<std::shared_ptr<arrow::RecordBatch>>;
@@ -124,45 +123,21 @@ protected:
 
     // protects all subsequent data in this block
     std::mutex _lock;
-    // signal arrival of new batch or the eos/cancelled condition
-    std::condition_variable _data_arrival;
-    // signal removal of data by stream consumer
-    std::condition_variable _data_removal;
+
+    // get arrow flight result is a sync method, need wait for data ready and return result.
+    // TODO, waiting for data will block pipeline, so use a request pool to save requests waiting for data.
+    std::condition_variable _arrow_data_arrival;
 
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 
     // only used for FE using return rows to check limit
     std::unique_ptr<QueryStatistics> _query_statistics;
-};
+    // instance id to dependency
+    std::unordered_map<TUniqueId, std::shared_ptr<pipeline::Dependency>> _result_sink_dependencys;
+    std::unordered_map<TUniqueId, size_t> _instance_rows;
+    std::list<std::unordered_map<TUniqueId, size_t>> _instance_rows_in_queue;
 
-class PipBufferControlBlock : public BufferControlBlock {
-public:
-    PipBufferControlBlock(const TUniqueId& id, int buffer_size)
-            : BufferControlBlock(id, buffer_size) {}
-
-    bool can_sink() override {
-        return _get_batch_queue_empty() || _buffer_rows < _buffer_limit || _is_cancelled;
-    }
-
-    Status add_batch(std::unique_ptr<TFetchDataResult>& result) override;
-
-    Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) override;
-
-    void get_batch(GetResultBatchCtx* ctx) override;
-
-    Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) override;
-
-    void cancel() override;
-
-    void set_dependency(std::shared_ptr<pipeline::Dependency> result_sink_dependency);
-
-private:
-    void _update_dependency();
-    bool _get_batch_queue_empty() override { return _batch_queue_empty; }
-    void _update_batch_queue_empty() override;
-
-    std::atomic_bool _batch_queue_empty {false};
-    std::shared_ptr<pipeline::Dependency> _result_sink_dependency;
+    int _batch_size;
 };
 
 } // namespace doris

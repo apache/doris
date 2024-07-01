@@ -3,7 +3,7 @@
 中文	unicode
 
 -- !sql --
-""
+
 
 -- !sql --
 \N
@@ -31,4 +31,19 @@ UPPER CASE	lower case
 
 -- !sql --
 1	{"tag_key1":123456}
+
+-- !sql --
+\N
+\N
+\N
+\N
+\N
+""
+1234566
+16
+8888888
+"UPPER CASE"
+"dkdkdkdkdkd"
+"ooaoaaaaaaa"
+"xmxxmmmmmm"
 

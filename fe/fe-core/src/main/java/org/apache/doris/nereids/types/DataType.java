@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -109,7 +110,7 @@ public abstract class DataType {
      * @param types data type in string representation
      * @return data type in Nereids
      */
-    public static DataType convertPrimitiveFromStrings(List<String> types, boolean unsigned) {
+    public static DataType convertPrimitiveFromStrings(List<String> types) {
         String type = types.get(0).toLowerCase().trim();
         DataType dataType;
         switch (type) {
@@ -142,7 +143,11 @@ public abstract class DataType {
                 // NOTICE, maybe convert to decimalv3, so do not truc here.
                 switch (types.size()) {
                     case 1:
-                        dataType = DecimalV2Type.CATALOG_DEFAULT;
+                        if (Config.enable_decimal_conversion) {
+                            return DecimalV3Type.createDecimalV3Type(38, 9);
+                        } else {
+                            dataType = DecimalV2Type.CATALOG_DEFAULT;
+                        }
                         break;
                     case 2:
                         dataType = DecimalV2Type.createDecimalV2TypeWithoutTruncate(
@@ -303,11 +308,7 @@ public abstract class DataType {
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
-        if (unsigned) {
-            return dataType.promotion();
-        } else {
-            return dataType;
-        }
+        return dataType;
     }
 
     /**
@@ -577,6 +578,10 @@ public abstract class DataType {
 
     public boolean isIPv4Type() {
         return this instanceof IPv4Type;
+    }
+
+    public boolean isIPType() {
+        return isIPv4Type() || isIPv6Type();
     }
 
     public boolean isIPv6Type() {

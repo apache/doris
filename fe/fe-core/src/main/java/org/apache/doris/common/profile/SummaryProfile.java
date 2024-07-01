@@ -48,13 +48,13 @@ public class SummaryProfile {
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
     public static final String IS_NEREIDS = "Is Nereids";
-    public static final String IS_PIPELINE = "Is Pipeline";
     public static final String TOTAL_INSTANCES_NUM = "Total Instances Num";
     public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
     public static final String TRACE_ID = "Trace ID";
     public static final String WORKLOAD_GROUP = "Workload Group";
-
+    public static final String PHYSICAL_PLAN = "Physical Plan";
+    public static final String DISTRIBUTED_PLAN = "Distributed Plan";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String ANALYSIS_TIME = "Analysis Time";
@@ -87,6 +87,7 @@ public class SummaryProfile {
     public static final String NEREIDS_REWRITE_TIME = "Nereids Rewrite Time";
     public static final String NEREIDS_OPTIMIZE_TIME = "Nereids Optimize Time";
     public static final String NEREIDS_TRANSLATE_TIME = "Nereids Translate Time";
+    public static final String NEREIDS_DISTRIBUTE_TIME = "Nereids Distribute Time";
 
     public static final String FRAGMENT_COMPRESSED_SIZE = "Fragment Compressed Size";
     public static final String FRAGMENT_RPC_COUNT = "Fragment RPC Count";
@@ -105,8 +106,13 @@ public class SummaryProfile {
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
     // add many columns here. Add to ExecutionSummary list.
-    public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
+    public static final ImmutableList<String> SUMMARY_CAPTIONS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
             START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT);
+    public static final ImmutableList<String> SUMMARY_KEYS = new ImmutableList.Builder<String>()
+            .addAll(SUMMARY_CAPTIONS)
+            .add(PHYSICAL_PLAN)
+            .add(DISTRIBUTED_PLAN)
+            .build();
 
     // The display order of execution summary items.
     public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(
@@ -144,8 +150,7 @@ public class SummaryProfile {
             WRITE_RESULT_TIME,
             DORIS_VERSION,
             IS_NEREIDS,
-            IS_PIPELINE,
-            IS_CACHED,
+                    IS_CACHED,
             TOTAL_INSTANCES_NUM,
             INSTANCES_NUM_PER_BE,
             PARALLEL_FRAGMENT_EXEC_INSTANCE,
@@ -197,6 +202,7 @@ public class SummaryProfile {
     private long nereidsRewriteFinishTime = -1;
     private long nereidsOptimizeFinishTime = -1;
     private long nereidsTranslateFinishTime = -1;
+    private long nereidsDistributeFinishTime = -1;
     // timestamp of query begin
     private long queryBeginTime = -1;
     // Analysis end time
@@ -284,7 +290,7 @@ public class SummaryProfile {
 
     public Map<String, String> getAsInfoStings() {
         Map<String, String> infoStrings = Maps.newHashMap();
-        for (String header : SummaryProfile.SUMMARY_KEYS) {
+        for (String header : SummaryProfile.SUMMARY_CAPTIONS) {
             infoStrings.put(header, summaryProfile.getInfoString(header));
         }
         return infoStrings;
@@ -313,6 +319,7 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
         executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
         executionSummaryProfile.addInfoString(NEREIDS_TRANSLATE_TIME, getPrettyNereidsTranslateTime());
+        executionSummaryProfile.addInfoString(NEREIDS_DISTRIBUTE_TIME, getPrettyNereidsDistributeTime());
         executionSummaryProfile.addInfoString(ANALYSIS_TIME,
                 getPrettyTime(queryAnalysisFinishTime, queryBeginTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(PLAN_TIME,
@@ -415,6 +422,10 @@ public class SummaryProfile {
 
     public void setNereidsTranslateTime() {
         this.nereidsTranslateFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setNereidsDistributeTime() {
+        this.nereidsDistributeFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setQueryBeginTime() {
@@ -627,11 +638,6 @@ public class SummaryProfile {
             return this;
         }
 
-        public SummaryBuilder isPipeline(String isPipeline) {
-            map.put(IS_PIPELINE, isPipeline);
-            return this;
-        }
-
         public Map<String, String> build() {
             return map;
         }
@@ -655,6 +661,10 @@ public class SummaryProfile {
 
     public String getPrettyNereidsTranslateTime() {
         return getPrettyTime(nereidsTranslateFinishTime, nereidsOptimizeFinishTime, TUnit.TIME_MS);
+    }
+
+    public String getPrettyNereidsDistributeTime() {
+        return getPrettyTime(nereidsDistributeFinishTime, nereidsTranslateFinishTime, TUnit.TIME_MS);
     }
 
     private String getPrettyGetPartitionVersionTime() {

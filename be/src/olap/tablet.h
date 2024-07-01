@@ -110,6 +110,8 @@ public:
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
     TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
 
+    const std::string& tablet_path() const { return _tablet_path; }
+
     bool set_tablet_schema_into_rowset_meta();
     Status init();
     bool init_succeeded();
@@ -190,6 +192,13 @@ public:
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
 
+    // Find the missed versions until the spec_version.
+    //
+    // for example:
+    //     [0-4][5-5][8-8][9-9][14-14]
+    // if spec_version = 12, it will return [6, 6], [7, 7], [10, 10], [11, 11], [12, 12]
+    Versions calc_missed_versions(int64_t spec_version, Versions existing_versions) const override;
+
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
@@ -258,8 +267,6 @@ public:
     void delete_all_files();
 
     void check_tablet_path_exists();
-
-    bool check_path(const std::string& check_path) const;
 
     TabletInfo get_tablet_info() const;
 
@@ -508,7 +515,7 @@ private:
     ////////////////////////////////////////////////////////////////////////////
     Status _cooldown_data(RowsetSharedPtr rowset);
     Status _follow_cooldowned_data();
-    Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+    Status _read_cooldown_meta(const StorageResource& storage_resource,
                                TabletMetaPB* tablet_meta_pb);
     bool _has_data_to_cooldown();
     int64_t _get_newest_cooldown_time(const RowsetSharedPtr& rowset);
@@ -524,6 +531,8 @@ public:
 private:
     StorageEngine& _engine;
     DataDir* _data_dir = nullptr;
+
+    std::string _tablet_path;
 
     DorisCallOnce<Status> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently

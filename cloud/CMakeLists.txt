@@ -137,7 +137,7 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -pthread -Werror")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++20 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
@@ -188,9 +188,6 @@ endif ()
 if (USE_JEMALLOC)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
 endif()
-if (USE_JEMALLOC_HOOK)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC_HOOK")
-endif()
 
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
@@ -216,7 +213,7 @@ set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
-SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O1 -fsanitize=address -DADDRESS_SANITIZER")
+SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -DADDRESS_SANITIZER")
 SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"

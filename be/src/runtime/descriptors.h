@@ -437,8 +437,6 @@ public:
               _tuple_idx_nullable_map(desc._tuple_idx_nullable_map),
               _tuple_idx_map(desc._tuple_idx_map),
               _has_varlen_slots(desc._has_varlen_slots) {
-        _num_materialized_slots = 0;
-        _num_slots = 0;
         auto it = desc._tuple_desc_map.begin();
         for (; it != desc._tuple_desc_map.end(); ++it) {
             _num_materialized_slots += (*it)->num_materialized_slots();
@@ -500,10 +498,10 @@ private:
     std::vector<int> _tuple_idx_map;
 
     // Provide quick way to check if there are variable length slots.
-    bool _has_varlen_slots;
+    bool _has_varlen_slots = false;
 
-    int _num_materialized_slots;
-    int _num_slots;
+    int _num_materialized_slots = 0;
+    int _num_slots = 0;
 };
 
 } // namespace doris

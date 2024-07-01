@@ -147,11 +147,9 @@ void FileCacheBlockDownloader::download_file_cache_block(
             return;
         }
 
-        auto fs = find_it->second->fs();
-        if (!fs) {
-            LOG(WARNING) << "failed to get fs. tablet_id=" << meta.tablet_id()
-                         << " rowset_id=" << find_it->second->rowset_id()
-                         << " resource_id=" << find_it->second->resource_id();
+        auto storage_resource = find_it->second->remote_storage_resource();
+        if (!storage_resource) {
+            LOG(WARNING) << storage_resource.error();
             return;
         }
 
@@ -171,12 +169,12 @@ void FileCacheBlockDownloader::download_file_cache_block(
         };
 
         DownloadFileMeta download_meta {
-                .path = BetaRowset::remote_segment_path(meta.tablet_id(), meta.rowset_id(),
-                                                        meta.segment_id()),
+                .path = storage_resource.value()->remote_segment_path(*find_it->second,
+                                                                      meta.segment_id()),
                 .file_size = meta.offset() + meta.size(), // To avoid trigger get file size IO
                 .offset = meta.offset(),
                 .download_size = meta.size(),
-                .file_system = std::move(fs),
+                .file_system = storage_resource.value()->fs,
                 .ctx =
                         {
                                 .is_index_data = meta.cache_type() == ::doris::FileCacheType::INDEX,

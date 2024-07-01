@@ -189,6 +189,13 @@ public:
                                              DeleteBitmapPtr& output_rowset_delete_bitmap,
                                              bool allow_delete_in_cumu_compaction);
 
+    // Find the missed versions until the spec_version.
+    //
+    // for example:
+    //     [0-4][5-5][8-8][9-9][14-14]
+    // if spec_version = 12, it will return [6-7],[10-12]
+    Versions calc_missed_versions(int64_t spec_version, Versions existing_versions) const override;
+
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
 
     const auto& rowset_map() const { return _rs_version_map; }

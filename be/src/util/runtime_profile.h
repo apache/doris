@@ -123,7 +123,7 @@ public:
             counter.value = this->value();
             counter.type = this->type();
             counter.__set_level(this->level());
-            tcounters.push_back(counter);
+            tcounters.push_back(std::move(counter));
         }
 
         TUnit::type type() const { return _type; }

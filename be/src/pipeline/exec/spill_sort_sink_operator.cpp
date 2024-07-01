@@ -18,6 +18,8 @@
 #include "spill_sort_sink_operator.h"
 
 #include "pipeline/exec/sort_sink_operator.h"
+#include "pipeline/exec/spill_utils.h"
+#include "runtime/fragment_mgr.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -112,9 +114,11 @@ Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
 }
 
 SpillSortSinkOperatorX::SpillSortSinkOperatorX(ObjectPool* pool, int operator_id,
-                                               const TPlanNode& tnode, const DescriptorTbl& descs)
+                                               const TPlanNode& tnode, const DescriptorTbl& descs,
+                                               bool require_bucket_distribution)
         : DataSinkOperatorX(operator_id, tnode.node_id) {
-    _sort_sink_operator = std::make_unique<SortSinkOperatorX>(pool, operator_id, tnode, descs);
+    _sort_sink_operator = std::make_unique<SortSinkOperatorX>(pool, operator_id, tnode, descs,
+                                                              require_bucket_distribution);
 }
 
 Status SpillSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -167,6 +171,8 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
         local_state._shared_state->update_spill_block_batch_row_count(in_block);
     }
     local_state._eos = eos;
+    DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::sink",
+                    { return Status::InternalError("fault_inject spill_sort_sink sink failed"); });
     RETURN_IF_ERROR(_sort_sink_operator->sink(local_state._runtime_state.get(), in_block, false));
     local_state._mem_tracker->set_consumption(
             local_state._shared_state->in_mem_shared_state->sorter->data_size());
@@ -224,16 +230,7 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
     if (!_eos) {
         Base::_dependency->Dependency::block();
     }
-
-    auto execution_context = state->get_task_execution_context();
-
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::weak_ptr<SpillSortSharedState> shared_state_holder = _shared_state->shared_from_this();
-
     auto query_id = state->query_id();
-    auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
@@ -295,27 +292,29 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
         return Status::OK();
     };
 
-    auto exception_catch_func = [this, query_id, mem_tracker, shared_state_holder,
-                                 execution_context, spill_func]() {
-        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
-        std::shared_ptr<TaskExecutionContext> execution_context_lock;
-        auto shared_state_sptr = shared_state_holder.lock();
-        if (shared_state_sptr) {
-            execution_context_lock = execution_context.lock();
-        }
-        if (!shared_state_sptr || !execution_context_lock) {
-            LOG(INFO) << "query " << print_id(query_id)
-                      << " execution_context released, maybe query was cancelled.";
+    auto exception_catch_func = [this, query_id, spill_func]() {
+        DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::revoke_memory_cancel", {
+            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
+                    query_id, Status::InternalError("fault_inject spill_sort_sink "
+                                                    "revoke_memory canceled"));
             return;
-        }
+        });
 
         _shared_state->sink_status = [&]() {
             RETURN_IF_CATCH_EXCEPTION({ return spill_func(); });
         }();
     };
 
-    status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit_func(
-            exception_catch_func);
+    DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::revoke_memory_submit_func", {
+        status = Status::Error<INTERNAL_ERROR>(
+                "fault_inject spill_sort_sink "
+                "revoke_memory submit_func failed");
+    });
+    if (status.ok()) {
+        status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
+                std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
+                                                exception_catch_func));
+    }
     if (!status.ok()) {
         if (!_eos) {
             Base::_dependency->Dependency::set_ready();

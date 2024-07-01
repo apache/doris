@@ -46,6 +46,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryColumn;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
@@ -379,11 +380,11 @@ public class AnalysisManagerTest {
         };
 
         SlotReference slot1 = new SlotReference(new ExprId(1), "slot1", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column1, Optional.empty(), null);
+                new ArrayList<>(), table, column1, Optional.empty(), ImmutableList.of());
         SlotReference slot2 = new SlotReference(new ExprId(2), "slot2", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column2, Optional.empty(), null);
+                new ArrayList<>(), table, column2, Optional.empty(), ImmutableList.of());
         SlotReference slot3 = new SlotReference(new ExprId(3), "slot3", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column3, Optional.empty(), null);
+                new ArrayList<>(), table, column3, Optional.empty(), ImmutableList.of());
         Set<Slot> set1 = new HashSet<>();
         set1.add(slot1);
         set1.add(slot2);

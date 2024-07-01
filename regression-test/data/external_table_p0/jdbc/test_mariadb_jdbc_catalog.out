@@ -53,6 +53,7 @@ schemata
 session_variables
 statistics
 table_constraints
+table_options
 table_privileges
 tables
 triggers

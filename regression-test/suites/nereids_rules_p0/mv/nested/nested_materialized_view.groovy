@@ -98,11 +98,7 @@ suite("nested_materialized_view") {
 
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_nereids_timeout = false"
-    sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_materialized_view_nest_rewrite = true"
 
     def create_mtmv = { db_name, mv_name, mv_sql ->

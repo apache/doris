@@ -22,8 +22,13 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.event.Event;
+import org.apache.doris.event.EventException;
+import org.apache.doris.event.EventListener;
+import org.apache.doris.event.TableEvent;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
@@ -36,8 +41,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
-public class MTMVService {
+public class MTMVService implements EventListener {
     private static final Logger LOG = LogManager.getLogger(MTMVService.class);
 
     private Map<String, MTMVHookService> hooks = Maps.newConcurrentMap();
@@ -160,6 +166,29 @@ public class MTMVService {
         LOG.info("cancelMTMVTask, CancelMTMVTaskInfo: {}", info);
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.cancelMTMVTask(info);
+        }
+    }
+
+    @Override
+    public void processEvent(Event event) throws EventException {
+        Objects.requireNonNull(event);
+        if (!(event instanceof TableEvent)) {
+            return;
+        }
+        TableEvent tableEvent = (TableEvent) event;
+        LOG.info("processEvent, Event: {}", event);
+        Set<BaseTableInfo> mtmvs = relationManager.getMtmvsByBaseTableOneLevel(
+                new BaseTableInfo(tableEvent.getTableId(), tableEvent.getDbId(), tableEvent.getCtlId()));
+        for (BaseTableInfo baseTableInfo : mtmvs) {
+            try {
+                // check if mtmv should trigger by event
+                MTMV mtmv = MTMVUtil.getMTMV(baseTableInfo.getDbId(), baseTableInfo.getTableId());
+                if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger().equals(RefreshTrigger.COMMIT)) {
+                    jobManager.onCommit(mtmv);
+                }
+            } catch (Exception e) {
+                throw new EventException(e);
+            }
         }
     }
 }

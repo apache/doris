@@ -29,9 +29,13 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_io.h"
+#include "ordinal_page_index.h"
 #include "util/slice.h"
 
 namespace doris {
+
+static bvar::Adder<size_t> g_ordinal_index_memory_bytes("doris_ordinal_index_memory_bytes");
+
 namespace segment_v2 {
 
 void OrdinalIndexWriter::append_entry(ordinal_t ordinal, const PagePointer& data_pp) {
@@ -122,6 +126,10 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
         _pages[i] = reader.get_value(i);
     }
     _ordinals[_num_pages] = _num_values;
+
+    g_ordinal_index_memory_bytes << sizeof(*this) + _ordinals.size() * sizeof(ordinal_t) +
+                                            _pages.size() * sizeof(PagePointer) +
+                                            sizeof(OrdinalIndexReader);
     return Status::OK();
 }
 
@@ -144,6 +152,12 @@ OrdinalPageIndexIterator OrdinalIndexReader::seek_at_or_before(ordinal_t ordinal
         return OrdinalPageIndexIterator(this, _num_pages);
     }
     return OrdinalPageIndexIterator(this, left);
+}
+
+OrdinalIndexReader::~OrdinalIndexReader() {
+    g_ordinal_index_memory_bytes << -sizeof(*this) - _ordinals.size() * sizeof(ordinal_t) -
+                                            _pages.size() * sizeof(PagePointer) -
+                                            sizeof(OrdinalIndexReader);
 }
 
 } // namespace segment_v2

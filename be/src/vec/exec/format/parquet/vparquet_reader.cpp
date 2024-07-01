@@ -426,6 +426,14 @@ Status ParquetReader::set_fill_columns(
         if (iter == predicate_columns.end()) {
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         } else {
+            //For check missing column :   missing column == xx, missing column is null,missing column is not null.
+            if (_slot_id_to_filter_conjuncts->find(iter->second.second) !=
+                _slot_id_to_filter_conjuncts->end()) {
+                for (auto& ctx : _slot_id_to_filter_conjuncts->find(iter->second.second)->second) {
+                    _lazy_read_ctx.missing_columns_conjuncts.emplace_back(ctx);
+                }
+            }
+
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
             _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
         }
@@ -781,8 +789,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         auto& conjuncts = conjunct_iter->second;
         std::vector<int> skipped_page_range;
         const FieldSchema* col_schema = schema_desc.get_column(read_col);
-        static_cast<void>(page_index.collect_skipped_page_range(
-                &column_index, conjuncts, col_schema, skipped_page_range, *_ctz));
+        RETURN_IF_ERROR(page_index.collect_skipped_page_range(&column_index, conjuncts, col_schema,
+                                                              skipped_page_range, *_ctz));
         if (skipped_page_range.empty()) {
             continue;
         }
@@ -790,8 +798,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
-            static_cast<void>(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
-                                                                  page_id, &skipped_row_range));
+            RETURN_IF_ERROR(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
+                                                                page_id, &skipped_row_range));
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
@@ -833,7 +841,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
 
 Status ParquetReader::_process_row_group_filter(const tparquet::RowGroup& row_group,
                                                 bool* filter_group) {
-    static_cast<void>(_process_column_stat_filter(row_group.columns, filter_group));
+    RETURN_IF_ERROR(_process_column_stat_filter(row_group.columns, filter_group));
     _init_chunk_dicts();
     RETURN_IF_ERROR(_process_dict_filter(filter_group));
     _init_bloom_filter();

@@ -49,7 +49,6 @@ class PipelineFragmentContext;
 } // namespace pipeline
 
 struct ReportStatusRequest {
-    bool is_pipeline_x;
     const Status status;
     std::vector<RuntimeState*> runtime_states;
     RuntimeProfile* profile = nullptr;
@@ -72,17 +71,11 @@ class QueryContext {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
 public:
-    QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options, TNetworkAddress coord_addr, bool is_pipeline,
-                 bool is_nereids);
+    QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
+                 TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids,
+                 TNetworkAddress current_connect_fe);
 
     ~QueryContext();
-
-    // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
-    // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
-    bool countdown(int instance_num) {
-        return fragment_num.fetch_sub(instance_num) <= instance_num;
-    }
 
     ExecEnv* exec_env() { return _exec_env; }
 
@@ -106,7 +99,8 @@ public:
 
     [[nodiscard]] bool is_cancelled() const { return !_exec_status.ok(); }
 
-    void cancel_all_pipeline_context(const Status& reason);
+    void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
+    std::string print_all_pipeline_context();
     Status cancel_pipeline_context(const int fragment_id, const Status& reason);
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
@@ -142,17 +136,18 @@ public:
         return _shared_scanner_controller;
     }
 
-    vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
-        DCHECK(_runtime_predicates.contains(source_node_id) || _runtime_predicates.contains(0));
-        if (_runtime_predicates.contains(source_node_id)) {
-            return _runtime_predicates[source_node_id];
-        }
-        return _runtime_predicates[0];
+    bool has_runtime_predicate(int source_node_id) {
+        return _runtime_predicates.contains(source_node_id);
     }
 
-    void init_runtime_predicates(std::vector<int> source_node_ids) {
-        for (int id : source_node_ids) {
-            _runtime_predicates.try_emplace(id);
+    vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
+        DCHECK(has_runtime_predicate(source_node_id));
+        return _runtime_predicates.find(source_node_id)->second;
+    }
+
+    void init_runtime_predicates(const std::vector<TTopnFilterDesc>& topn_filter_descs) {
+        for (auto desc : topn_filter_descs) {
+            _runtime_predicates.try_emplace(desc.source_node_id, desc);
         }
     }
 
@@ -170,13 +165,6 @@ public:
     bool runtime_filter_wait_infinitely() const {
         return _query_options.__isset.runtime_filter_wait_infinitely &&
                _query_options.runtime_filter_wait_infinitely;
-    }
-
-    bool enable_pipeline_x_exec() const {
-        return (_query_options.__isset.enable_pipeline_x_engine &&
-                _query_options.enable_pipeline_x_engine) ||
-               (_query_options.__isset.enable_pipeline_engine &&
-                _query_options.enable_pipeline_engine);
     }
 
     int be_exec_version() const {
@@ -258,16 +246,9 @@ public:
     std::string user;
     std::string group;
     TNetworkAddress coord_addr;
+    TNetworkAddress current_connect_fe;
     TQueryGlobals query_globals;
 
-    /// In the current implementation, for multiple fragments executed by a query on the same BE node,
-    /// we store some common components in QueryContext, and save QueryContext in FragmentMgr.
-    /// When all Fragments are executed, QueryContext needs to be deleted from FragmentMgr.
-    /// Here we use a counter to store the number of Fragments that have not yet been completed,
-    /// and after each Fragment is completed, this value will be reduced by one.
-    /// When the last Fragment is completed, the counter is cleared, and the worker thread of the last Fragment
-    /// will clean up QueryContext.
-    std::atomic<int> fragment_num;
     ObjectPool obj_pool;
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
@@ -335,7 +316,7 @@ private:
 
     std::mutex _profile_mutex;
 
-    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
+    // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:
     // Pipeline 0
     //      PipelineTask 0
@@ -352,34 +333,22 @@ private:
     //      PipelineTask 3
     //              Operator 3
     // fragment_id -> list<profile>
-    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map_x;
-    std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map_x;
-
-    // instance_id -> profile
-    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _profile_map;
-    std::unordered_map<TUniqueId, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
+    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
+    std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
     void _report_query_profile();
-    void _report_query_profile_non_pipeline();
-    void _report_query_profile_x();
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
-    _collect_realtime_query_profile_x() const;
-
-    std::unordered_map<TUniqueId, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
-    _collect_realtime_query_profile_non_pipeline() const;
+    _collect_realtime_query_profile() const;
 
 public:
-    // when fragment of pipeline x is closed, it will register its profile to this map by using add_fragment_profile_x
-    void add_fragment_profile_x(
+    // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
+    void add_fragment_profile(
             int fragment_id,
             const std::vector<std::shared_ptr<TRuntimeProfileTree>>& pipeline_profile,
             std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
 
-    void add_instance_profile(const TUniqueId& iid, std::shared_ptr<TRuntimeProfileTree> profile,
-                              std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
-
-    TReportExecStatusParams get_realtime_exec_status_x() const;
+    TReportExecStatusParams get_realtime_exec_status() const;
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;

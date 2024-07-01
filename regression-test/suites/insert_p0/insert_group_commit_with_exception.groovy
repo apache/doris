@@ -20,9 +20,8 @@ import java.sql.DriverManager
 import java.sql.Statement
 import java.sql.PreparedStatement
 
-suite("insert_group_commit_with_exception") {
+suite("insert_group_commit_with_exception", "nonConcurrent") {
     def table = "insert_group_commit_with_exception"
-
     def getRowCount = { expectedRowCount ->
         def retry = 0
         while (retry < 30) {
@@ -74,9 +73,11 @@ suite("insert_group_commit_with_exception") {
             if (item == "nereids") {
                 sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
-                //sql """ set enable_fallback_to_original_planner=false; """
+                sql """ set enable_fallback_to_original_planner=false; """
+                sql "set global enable_server_side_prepared_statement = true"
             } else {
                 sql """ set enable_nereids_dml = false; """
+                sql "set global enable_server_side_prepared_statement = false"
             }
 
             // insert into without column
@@ -84,22 +85,14 @@ suite("insert_group_commit_with_exception") {
                 def result = sql """ insert into ${table} values(1, 'a', 10, 100)  """
                 assertTrue(false)
             } catch (Exception e) {
-                /*if (item == "nereids") {
-                    assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {*/
-                    assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                //}
+                assertTrue(e.getMessage().contains("Column count doesn't match value count"))
             }
 
             try {
                 def result = sql """ insert into ${table} values(2, 'b')  """
                 assertTrue(false)
             } catch (Exception e) {
-                /*if (item == "nereids") {
-                    assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {*/
-                    assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                //}
+                assertTrue(e.getMessage().contains("Column count doesn't match value count"))
             }
 
             result = sql """ insert into ${table} values(3, 'c', 30)  """
@@ -115,44 +108,27 @@ suite("insert_group_commit_with_exception") {
                 result = sql """ insert into ${table}(id, name) values(5, 'd', 50)  """
                 assertTrue(false)
             } catch (Exception e) {
-                /*if (item == "nereids") {
-                    assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {*/
-                    assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                //}
+                assertTrue(e.getMessage().contains("Column count doesn't match value count"))
             }
 
             try {
                 result = sql """ insert into ${table}(id, name) values(6)  """
                 assertTrue(false)
             } catch (Exception e) {
-                /*if (item == "nereids") {
-                    assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {*/
-                    assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                //}
+                assertTrue(e.getMessage().contains("Column count doesn't match value count"))
             }
 
             try {
                 result = sql """ insert into ${table}(id, names) values(7, 'd')  """
                 assertTrue(false)
             } catch (Exception e) {
-                /*if (item == "nereids") {
-                    assertTrue(e.getMessage().contains("column names is not found in table"))
-                } else {*/
-                    assertTrue(e.getMessage().contains("Unknown column 'names'"))
-                //}
+                assertTrue(e.getMessage().contains("Unknown column 'names'"))
             }
 
 
             // prepare insert
             def db = context.config.defaultDb + "_insert_p0"
             String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, db)
-
-            if (item == "nereids") {
-                println("nereids does not support prepare insert");
-                continue;
-            };
 
             try (Connection connection = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword)) {
                 Statement statement = connection.createStatement();
@@ -161,9 +137,11 @@ suite("insert_group_commit_with_exception") {
                 if (item == "nereids") {
                     statement.execute("set enable_nereids_dml = true;");
                     statement.execute("set enable_nereids_planner=true;");
-                    //statement.execute("set enable_fallback_to_original_planner=false;");
+                    statement.execute("set enable_fallback_to_original_planner=false;");
+                    sql "set global enable_server_side_prepared_statement = true"
                 } else {
                     statement.execute("set enable_nereids_dml = false;");
+                    sql "set global enable_server_side_prepared_statement = false"
                 }
                 // without column
                 try (PreparedStatement ps = connection.prepareStatement("insert into ${table} values(?, ?, ?, ?)")) {
@@ -287,7 +265,13 @@ suite("insert_group_commit_with_exception") {
                         result = ps.executeBatch()
                         assertTrue(false)
                     } catch (Exception e) {
-                        assertTrue(e.getMessage().contains("Column count doesn't match value count"))
+                        logger.info("exception : " + e)
+                        if (item == "legacy") {
+                           assertTrue(e.getMessage().contains("Column count doesn't match value count"))
+                        }
+                        if (item == "nereids") {
+                           assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
+                        }
                     }
                 }
                 getRowCount(14)
@@ -317,4 +301,5 @@ suite("insert_group_commit_with_exception") {
             // try_sql("DROP TABLE ${table}")
         }
     }
+    sql "set global enable_server_side_prepared_statement = true"
 }

@@ -248,4 +248,9 @@ suite("cast") {
         sql """select cast(k11 as time) ct from test order by ct;"""
         exception "cannot cast"
     }
+
+    sql "select cast(1 as signed)"
+    sql "select cast(1 as signed int)"
+    sql "select cast(1 as unsigned)"
+    sql "select cast(1 as unsigned integer)"
 }

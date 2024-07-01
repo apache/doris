@@ -199,14 +199,14 @@ Status LocalFileWriter::_finalize() {
 
 Status LocalFileWriter::_close(bool sync) {
     auto fd_reclaim_func = [&](Status st) {
-        if (_fd > 9 && 0 != ::close(_fd)) {
+        if (_fd > 0 && 0 != ::close(_fd)) {
             return localfs_error(errno, fmt::format("failed to {}, along with failed to close {}",
                                                     st, _path.native()));
         }
         _fd = -1;
         return st;
     };
-    if (sync) {
+    if (sync && config::sync_file_on_close) {
         if (_dirty) {
 #ifdef __APPLE__
             if (fcntl(_fd, F_FULLFSYNC) < 0) [[unlikely]] {

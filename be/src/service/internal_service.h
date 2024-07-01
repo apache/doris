@@ -36,7 +36,6 @@ class StorageEngine;
 class ExecEnv;
 class PHandShakeRequest;
 class PHandShakeResponse;
-class LoadStreamMgr;
 class RuntimeState;
 
 template <typename T>
@@ -162,11 +161,6 @@ public:
                           const ::doris::PSyncFilterSizeRequest* request,
                           ::doris::PSyncFilterSizeResponse* response,
                           ::google::protobuf::Closure* done) override;
-
-    void apply_filter(::google::protobuf::RpcController* controller,
-                      const ::doris::PPublishFilterRequest* request,
-                      ::doris::PPublishFilterResponse* response,
-                      ::google::protobuf::Closure* done) override;
     void apply_filterv2(::google::protobuf::RpcController* controller,
                         const ::doris::PPublishFilterRequestV2* request,
                         ::doris::PPublishFilterResponse* response,
@@ -266,8 +260,6 @@ protected:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
-
-    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
 };
 
 // `StorageEngine` mixin for `PInternalService`

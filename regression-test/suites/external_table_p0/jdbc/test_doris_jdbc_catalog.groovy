@@ -28,20 +28,14 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
 
 
     String resource_name = "jdbc_resource_catalog_doris"
-    String catalog_name = "doris_jdbc_catalog";
-    String internal_db_name = "regression_test_jdbc_catalog_p0";
     String doris_port = context.config.otherConfigs.get("doris_port");
-    String inDorisTable = "test_doris_jdbc_doris_in_tb";
-    String hllTable = "bowen_hll_test"
-    String base_table = "base";
-    String arr_table = "arr";
 
-    sql """create database if not exists ${internal_db_name}; """
+    sql """create database if not exists regression_test_jdbc_catalog_p0; """
 
     qt_sql """select current_catalog()"""
-    sql """drop catalog if exists ${catalog_name} """
+    sql """drop catalog if exists doris_jdbc_catalog """
 
-    sql """ CREATE CATALOG `${catalog_name}` PROPERTIES (
+    sql """ CREATE CATALOG `doris_jdbc_catalog` PROPERTIES (
         "user" = "${jdbcUser}",
         "type" = "jdbc",
         "password" = "${jdbcPassword}",
@@ -49,39 +43,39 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
         "driver_url" = "${driver_url}",
         "driver_class" = "com.mysql.cj.jdbc.Driver"
         )"""
-    sql """use ${internal_db_name}"""
-    sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
+    sql """use regression_test_jdbc_catalog_p0"""
+    sql  """ drop table if exists regression_test_jdbc_catalog_p0.test_doris_jdbc_doris_in_tb """
     sql  """
-          CREATE TABLE ${internal_db_name}.${inDorisTable} (
+          CREATE TABLE regression_test_jdbc_catalog_p0.test_doris_jdbc_doris_in_tb (
             `id` INT NULL COMMENT "主键id",
             `name` string NULL COMMENT "名字"
             ) DISTRIBUTED BY HASH(id) BUCKETS 10
             PROPERTIES("replication_num" = "1");
     """
-    sql """ insert into ${inDorisTable} values (1, 'doris1')"""
-    sql """ insert into ${inDorisTable} values (2, 'doris2')"""
-    sql """ insert into ${inDorisTable} values (3, 'doris3')"""
-    sql """ insert into ${inDorisTable} values (4, 'doris4')"""
-    sql """ insert into ${inDorisTable} values (5, 'doris5')"""
-    sql """ insert into ${inDorisTable} values (6, 'doris6')"""
+    sql """ insert into test_doris_jdbc_doris_in_tb values (1, 'doris1')"""
+    sql """ insert into test_doris_jdbc_doris_in_tb values (2, 'doris2')"""
+    sql """ insert into test_doris_jdbc_doris_in_tb values (3, 'doris3')"""
+    sql """ insert into test_doris_jdbc_doris_in_tb values (4, 'doris4')"""
+    sql """ insert into test_doris_jdbc_doris_in_tb values (5, 'doris5')"""
+    sql """ insert into test_doris_jdbc_doris_in_tb values (6, 'doris6')"""
 
-    order_qt_ex_tb1 """ select * from internal.${internal_db_name}.${inDorisTable} order by id; """
+    order_qt_ex_tb1 """ select * from internal.regression_test_jdbc_catalog_p0.test_doris_jdbc_doris_in_tb order by id; """
 
     qt_sql """select current_catalog()"""
-    sql "switch ${catalog_name}"
+    sql "switch doris_jdbc_catalog"
     qt_sql """select current_catalog()"""
-    sql """ use ${internal_db_name}"""
-    order_qt_ex_tb1 """ select * from ${inDorisTable} order by id; """
+    sql """ use regression_test_jdbc_catalog_p0"""
+    order_qt_ex_tb1 """ select * from test_doris_jdbc_doris_in_tb order by id; """
 
     // test hll query
     sql "switch internal"
-    sql "use ${internal_db_name}"
+    sql "use regression_test_jdbc_catalog_p0"
 
-    sql """ drop table if exists ${hllTable}  """
-    sql """ CREATE TABLE `${hllTable}` (
+    sql """ drop table if exists bowen_hll_test  """
+    sql """ CREATE TABLE `bowen_hll_test` (
           `pin_id` bigint(20) NOT NULL COMMENT "",
           `pv_date` datev2 NOT NULL COMMENT "",
-          `user_log_acct` hll HLL_UNION NULL COMMENT ""
+          `user_log_acct` hll HLL_UNION  COMMENT ""
         ) ENGINE=OLAP
         AGGREGATE KEY(`pin_id`, `pv_date`)
         DISTRIBUTED BY HASH(`pin_id`) BUCKETS 16
@@ -89,16 +83,16 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
         "replication_allocation" = "tag.location.default: 1"
         ); """
 
-    sql """ insert into ${hllTable} values(1, "2023-01-01", hll_hash("1"));"""
-    sql """ insert into ${hllTable} values(2, "2023-01-02", hll_hash("2"));"""
-    sql """ insert into ${hllTable} values(3, "2023-01-03", hll_hash("3"));"""
-    sql """ insert into ${hllTable} values(4, "2023-01-04", hll_hash("4"));"""
-    sql """ insert into ${hllTable} values(5, "2023-01-05", hll_hash("5"));"""
-    sql """ insert into ${hllTable} values(6, "2023-01-06", hll_hash("6"));"""
+    sql """ insert into bowen_hll_test values(1, "2023-01-01", hll_hash("1"));"""
+    sql """ insert into bowen_hll_test values(2, "2023-01-02", hll_hash("2"));"""
+    sql """ insert into bowen_hll_test values(3, "2023-01-03", hll_hash("3"));"""
+    sql """ insert into bowen_hll_test values(4, "2023-01-04", hll_hash("4"));"""
+    sql """ insert into bowen_hll_test values(5, "2023-01-05", hll_hash("5"));"""
+    sql """ insert into bowen_hll_test values(6, "2023-01-06", hll_hash("6"));"""
 
-    sql """drop table if exists ${base_table}"""
+    sql """drop table if exists base"""
     sql """
-        create table ${base_table} (
+        create table base (
             bool_col boolean,
             tinyint_col tinyint,
             smallint_col smallint,
@@ -121,10 +115,10 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
             "replication_allocation" = "tag.location.default: 1"
         );
     """
-    sql """insert into ${base_table} values (true, 1, 1, 1, 1, 1, 1.0, 1.0, 1.0, 1.0, '2021-01-01', '2021-01-01 00:00:00.000', 'a', 'a', '{\"a\": 1}');"""
+    sql """insert into base values (true, 1, 1, 1, 1, 1, 1.0, 1.0, 1.0, 1.0, '2021-01-01', '2021-01-01 00:00:00.000', 'a', 'a', '{\"a\": 1}');"""
     // insert NULL
-    sql """insert into ${base_table} values (null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
-    order_qt_base1 """ select * from ${base_table} order by int_col; """
+    sql """insert into base values (null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
+    order_qt_base1 """ select * from base order by int_col; """
 
     sql """drop table if exists all_null_tbl"""
     sql """
@@ -155,9 +149,9 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """insert into all_null_tbl values (null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
     order_qt_all_null """ select * from all_null_tbl order by int_col; """
 
-    sql """drop table if exists ${arr_table}"""
+    sql """drop table if exists arr"""
     sql """
-        create table ${arr_table} (
+        create table arr (
             int_col int,
             arr_bool_col array<boolean>,
             arr_tinyint_col array<tinyint>,
@@ -182,10 +176,10 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
         );
     """
 
-    sql """insert into ${arr_table} values (1, array(true), array(1), array(1), array(1), array(1), array(1), array(1.0), array(1.0), array(1.0), array(1.0), array('2021-01-01'), array('2021-01-01 00:00:00.000'), array('a'), array('a'), array('a'));"""
+    sql """insert into arr values (1, array(true), array(1), array(1), array(1), array(1), array(1), array(1.0), array(1.0), array(1.0), array(1.0), array('2021-01-01'), array('2021-01-01 00:00:00.000'), array('a'), array('a'), array('a'));"""
     // insert NULL
-    sql """insert into ${arr_table} values (2, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
-    order_qt_arr1 """ select * from ${arr_table} order by int_col; """
+    sql """insert into arr values (2, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
+    order_qt_arr1 """ select * from arr order by int_col; """
 
     sql """drop table if exists test_insert_order"""
 
@@ -208,26 +202,26 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
 
 
     sql """ set return_object_data_as_binary=true """
-    order_qt_tb1 """ select pin_id, hll_union_agg(user_log_acct) from ${hllTable} group by pin_id; """
+    order_qt_tb1 """ select pin_id, hll_union_agg(user_log_acct) from bowen_hll_test group by pin_id; """
 
     // query with jdbc external table
-    sql """ refresh catalog  ${catalog_name} """
+    sql """ refresh catalog  doris_jdbc_catalog """
     qt_sql """select current_catalog()"""
-    sql """ switch ${catalog_name} """
+    sql """ switch doris_jdbc_catalog """
     qt_sql """select current_catalog()"""
-    sql """ use ${internal_db_name} """
-    order_qt_tb2 """ select pin_id, hll_union_agg(user_log_acct) from ${catalog_name}.${internal_db_name}.${hllTable} group by pin_id; """
-    order_qt_base2 """ select * from ${catalog_name}.${internal_db_name}.${base_table} order by int_col; """
-    order_qt_all_null2 """ select * from ${catalog_name}.${internal_db_name}.all_null_tbl order by int_col; """
-    order_qt_arr2 """ select * from ${catalog_name}.${internal_db_name}.${arr_table} order by int_col; """
-    sql """ drop table if exists internal.${internal_db_name}.ctas_base; """
-    sql """ drop table if exists internal.${internal_db_name}.ctas_arr; """
-    order_qt_ctas_base """ create table internal.${internal_db_name}.ctas_base PROPERTIES("replication_num" = "1") as select * from ${catalog_name}.${internal_db_name}.${base_table} order by int_col; """
-    order_qt_ctas_arr """ create table internal.${internal_db_name}.ctas_arr PROPERTIES("replication_num" = "1") as select * from ${catalog_name}.${internal_db_name}.${arr_table} order by int_col; """
-    qt_desc_ctas_base """ desc internal.${internal_db_name}.ctas_base; """
-    qt_desc_ctas_arr """ desc internal.${internal_db_name}.ctas_arr; """
-    order_qt_query_ctas_base """ select * from internal.${internal_db_name}.ctas_base order by int_col; """
-    order_qt_query_ctas_arr """ select * from internal.${internal_db_name}.ctas_arr order by int_col; """
+    sql """ use regression_test_jdbc_catalog_p0 """
+    order_qt_tb2 """ select pin_id, hll_union_agg(user_log_acct) from doris_jdbc_catalog.regression_test_jdbc_catalog_p0.bowen_hll_test group by pin_id; """
+    order_qt_base2 """ select * from doris_jdbc_catalog.regression_test_jdbc_catalog_p0.base order by int_col; """
+    order_qt_all_null2 """ select * from doris_jdbc_catalog.regression_test_jdbc_catalog_p0.all_null_tbl order by int_col; """
+    order_qt_arr2 """ select * from doris_jdbc_catalog.regression_test_jdbc_catalog_p0.arr order by int_col; """
+    sql """ drop table if exists internal.regression_test_jdbc_catalog_p0.ctas_base; """
+    sql """ drop table if exists internal.regression_test_jdbc_catalog_p0.ctas_arr; """
+    order_qt_ctas_base """ create table internal.regression_test_jdbc_catalog_p0.ctas_base PROPERTIES("replication_num" = "1") as select * from doris_jdbc_catalog.regression_test_jdbc_catalog_p0.base order by int_col; """
+    order_qt_ctas_arr """ create table internal.regression_test_jdbc_catalog_p0.ctas_arr PROPERTIES("replication_num" = "1") as select * from doris_jdbc_catalog.regression_test_jdbc_catalog_p0.arr order by int_col; """
+    qt_desc_ctas_base """ desc internal.regression_test_jdbc_catalog_p0.ctas_base; """
+    qt_desc_ctas_arr """ desc internal.regression_test_jdbc_catalog_p0.ctas_arr; """
+    order_qt_query_ctas_base """ select * from internal.regression_test_jdbc_catalog_p0.ctas_base order by int_col; """
+    order_qt_query_ctas_arr """ select * from internal.regression_test_jdbc_catalog_p0.ctas_arr order by int_col; """
 
     // test insert order
     sql """insert into test_insert_order(gameid,did,cid,bid,aid,pname) values('g1',4,3,2,1,'p1')""";
@@ -238,12 +232,12 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     qt_sql """select current_catalog()"""
     sql "switch internal"
     qt_sql """select current_catalog()"""
-    sql "use ${internal_db_name}"
-    sql """ drop table if exists ${inDorisTable} """
-    sql """ drop table if exists ${hllTable} """
-    sql """ drop table if exists ${base_table} """
+    sql "use regression_test_jdbc_catalog_p0"
+    sql """ drop table if exists test_doris_jdbc_doris_in_tb """
+    sql """ drop table if exists bowen_hll_test """
+    sql """ drop table if exists base """
     sql """ drop table if exists all_null_tbl """
-    sql """ drop table if exists ${arr_table} """
+    sql """ drop table if exists arr """
     sql """ drop table if exists test_insert_order """
 
 }

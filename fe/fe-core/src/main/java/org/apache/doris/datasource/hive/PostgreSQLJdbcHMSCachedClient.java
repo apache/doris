@@ -64,6 +64,11 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     }
 
     @Override
+    public void close() {
+        // the jdbc connection is used on demand, so we do not need to close it.
+    }
+
+    @Override
     public Database getDatabase(String dbName) {
         throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
@@ -539,6 +544,10 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     public void dropDatabase(String dbName) {
         throw new NotImplementedException("PostgreSQL dropDatabase not implemented");
+    }
+
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {
+        throw new NotImplementedException("PostgreSQL truncateTable not implemented");
     }
 
     public void createTable(TableMetadata hiveTable, boolean ignoreIfExists) {

@@ -33,8 +33,6 @@
 #include <vector>
 
 #include "gutil/hash/city.h"
-#include "gutil/hash/hash128to64.h"
-#include "gutil/int128.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 #include "util/sse_util.hpp"
@@ -270,13 +268,7 @@ struct StringRef {
 
     // ==
     bool eq(const StringRef& other) const {
-        if (this->size != other.size) {
-            return false;
-        }
-#if defined(__SSE2__) || defined(__aarch64__)
-        return memequalSSE2Wide(this->data, other.data, this->size);
-#endif
-        return string_compare(this->data, this->size, other.data, other.size, this->size) == 0;
+        return (size == other.size) && (memcmp(data, other.data, size) == 0);
     }
 
     bool operator==(const StringRef& other) const { return eq(other); }
@@ -313,25 +305,13 @@ inline std::size_t hash_value(const StringRef& v) {
 
 using StringRefs = std::vector<StringRef>;
 
-/** Hash functions.
-  * You can use either CityHash64,
-  *  or a function based on the crc32 statement,
-  *  which is obviously less qualitative, but on real data sets,
-  *  when used in a hash table, works much faster.
-  * For more information, see hash_map_string_3.cpp
-  */
-
-struct StringRefHash64 {
-    size_t operator()(StringRef x) const { return util_hash::CityHash64(x.data, x.size); }
-};
-
 #if defined(__SSE4_2__) || defined(__aarch64__)
 
 /// Parts are taken from CityHash.
 
 inline doris::vectorized::UInt64 hash_len16(doris::vectorized::UInt64 u,
                                             doris::vectorized::UInt64 v) {
-    return Hash128to64(uint128(u, v));
+    return util_hash::HashLen16(u, v);
 }
 
 inline doris::vectorized::UInt64 shift_mix(doris::vectorized::UInt64 val) {
@@ -373,35 +353,38 @@ inline size_t hash_less_than16(const char* data, size_t size) {
     return hash_less_than8(data, size);
 }
 
-struct CRC32Hash {
-    size_t operator()(const StringRef& x) const {
-        const char* pos = x.data;
-        size_t size = x.size;
+inline size_t crc32_hash(const char* pos, size_t size) {
+    if (size == 0) {
+        return 0;
+    }
 
-        if (size == 0) {
-            return 0;
-        }
+    if (size < 8) {
+        return hash_less_than8(pos, size);
+    }
 
-        if (size < 8) {
-            return hash_less_than8(x.data, x.size);
-        }
+    const char* end = pos + size;
+    size_t res = -1ULL;
 
-        const char* end = pos + size;
-        size_t res = -1ULL;
-
-        do {
-            auto word = unaligned_load<doris::vectorized::UInt64>(pos);
-            res = _mm_crc32_u64(res, word);
-
-            pos += 8;
-        } while (pos + 8 < end);
-
-        auto word = unaligned_load<doris::vectorized::UInt64>(
-                end - 8); /// I'm not sure if this is normal.
+    do {
+        auto word = unaligned_load<doris::vectorized::UInt64>(pos);
         res = _mm_crc32_u64(res, word);
 
-        return res;
-    }
+        pos += 8;
+    } while (pos + 8 < end);
+
+    auto word =
+            unaligned_load<doris::vectorized::UInt64>(end - 8); /// I'm not sure if this is normal.
+    res = _mm_crc32_u64(res, word);
+
+    return res;
+}
+
+inline size_t crc32_hash(const std::string str) {
+    return crc32_hash(str.data(), str.size());
+}
+
+struct CRC32Hash {
+    size_t operator()(const StringRef& x) const { return crc32_hash(x.data, x.size); }
 };
 
 struct StringRefHash : CRC32Hash {};

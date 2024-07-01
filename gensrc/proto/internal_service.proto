@@ -104,6 +104,7 @@ message PTabletWriterOpenRequest {
     optional int64 txn_expiration = 16; // Absolute time
     optional bool write_file_cache = 17;
     optional string storage_vault_id = 18;
+    optional int32 sender_id = 19;
 };
 
 message PTabletWriterOpenResult {
@@ -159,6 +160,8 @@ message PTabletWriterAddBlockRequest {
     optional bool write_single_replica = 12 [default = false];
     map<int64, PSlaveTabletNodes> slave_tablet_nodes = 13;
     optional bool is_single_tablet_block = 14 [default = false];
+    // for auto-partition first stage close, we should hang.
+    optional bool hang_wait = 15 [default = false];
 };
 
 message PSlaveTabletNodes {
@@ -560,7 +563,7 @@ message PMergeFilterRequest {
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
-    optional bool opt_remote_rf = 9;
+    optional bool opt_remote_rf = 9; // Deprecated
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
     optional bool ignored = 12;

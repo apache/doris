@@ -133,10 +133,10 @@ struct OldPercentileState {
         inited_flag = false;
     }
 
-    double get() const { return vec_counts[0].terminate(vec_quantile[0]); }
+    double get() const { return vec_counts.empty() ? 0 : vec_counts[0].terminate(vec_quantile[0]); }
 
     void insert_result_into(IColumn& to) const {
-        auto& column_data = assert_cast<ColumnVector<Float64>&>(to).get_data();
+        auto& column_data = assert_cast<ColumnFloat64&>(to).get_data();
         for (int i = 0; i < vec_counts.size(); ++i) {
             column_data.push_back(vec_counts[i].terminate(vec_quantile[i]));
         }
@@ -157,7 +157,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources = assert_cast<const ColumnVector<Int64>&>(*columns[0]);
-        const auto& quantile = assert_cast<const ColumnVector<Float64>&>(*columns[1]);
+        const auto& quantile = assert_cast<const ColumnFloat64&>(*columns[1]);
         AggregateFunctionPercentileOld::data(place).add(sources.get_int(row_num),
                                                         quantile.get_data(), 1);
     }
@@ -182,7 +182,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& col = assert_cast<ColumnVector<Float64>&>(to);
+        auto& col = assert_cast<ColumnFloat64&>(to);
         col.insert_value(AggregateFunctionPercentileOld::data(place).get());
     }
 };
@@ -208,7 +208,7 @@ public:
         const auto& offset_column_data = quantile_array.get_offsets();
         const auto& nested_column =
                 assert_cast<const ColumnNullable&>(quantile_array.get_data()).get_nested_column();
-        const auto& nested_column_data = assert_cast<const ColumnVector<Float64>&>(nested_column);
+        const auto& nested_column_data = assert_cast<const ColumnFloat64&>(nested_column);
 
         AggregateFunctionPercentileArrayOld::data(place).add(
                 sources.get_int(row_num), nested_column_data.get_data(),

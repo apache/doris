@@ -40,6 +40,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -88,6 +89,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
 
 
@@ -117,6 +119,7 @@ public class ConnectContext {
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
+    protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
     protected volatile String traceId;
     // id for this connection
     protected volatile int connectionId;
@@ -226,7 +229,7 @@ public class ConnectContext {
 
     private String workloadGroupName = "";
     private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
-    private boolean isGroupCommitStreamLoadSql;
+    private boolean isGroupCommit;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
@@ -237,6 +240,10 @@ public class ConnectContext {
     private boolean skipAuth = false;
     private Exec exec;
     private boolean runProcedure = false;
+
+    // isProxy used for forward request from other FE and used in one thread
+    // it's default thread-safe
+    private boolean isProxy = false;
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -251,7 +258,12 @@ public class ConnectContext {
     }
 
     private StatementContext statementContext;
+
+    // legacy planner
     private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
+
+    // new planner
+    private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
 
     private List<TableIf> tables = null;
 
@@ -355,6 +367,7 @@ public class ConnectContext {
             mysqlChannel = new MysqlChannel(connection, this);
         } else if (isProxy) {
             mysqlChannel = new ProxyMysqlChannel();
+            this.isProxy = isProxy;
         } else {
             mysqlChannel = new DummyMysqlChannel();
         }
@@ -385,12 +398,26 @@ public class ConnectContext {
         this.preparedStmtCtxs.put(stmtName, ctx);
     }
 
+    public void addPreparedStatementContext(String stmtName, PreparedStatementContext ctx) throws UserException {
+        if (this.preparedStatementContextMap.size() > sessionVariable.maxPreparedStmtCount) {
+            throw new UserException("Failed to create a server prepared statement"
+                    + "possibly because there are too many active prepared statements on server already."
+                    + "set max_prepared_stmt_count with larger number than " + sessionVariable.maxPreparedStmtCount);
+        }
+        this.preparedStatementContextMap.put(stmtName, ctx);
+    }
+
     public void removePrepareStmt(String stmtName) {
         this.preparedStmtCtxs.remove(stmtName);
+        this.preparedStatementContextMap.remove(stmtName);
     }
 
     public PrepareStmtContext getPreparedStmt(String stmtName) {
         return this.preparedStmtCtxs.get(stmtName);
+    }
+
+    public PreparedStatementContext getPreparedStementContext(String stmtName) {
+        return this.preparedStatementContextMap.get(stmtName);
     }
 
     public List<TableIf> getTables() {
@@ -845,6 +872,10 @@ public class ConnectContext {
         return queryId;
     }
 
+    public TUniqueId nextInstanceId() {
+        return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
+    }
+
     public String getSqlHash() {
         return sqlHash;
     }
@@ -942,8 +973,8 @@ public class ConnectContext {
             // to ms
             long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
-                LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
-                        timeoutTag, getRemoteHostPortString(), timeout);
+                LOG.warn("kill {} timeout, remote: {}, query timeout: {}, query id: {}",
+                        timeoutTag, getRemoteHostPortString(), timeout, queryId);
                 killFlag = true;
             }
         }
@@ -1017,7 +1048,7 @@ public class ConnectContext {
             if (connId == connectionId) {
                 row.add("Yes");
             } else {
-                row.add("");
+                row.add("No");
             }
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
@@ -1042,7 +1073,11 @@ public class ConnectContext {
             }
 
             row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            row.add(cloudCluster);
+            if (cloudCluster == null) {
+                row.add("NULL");
+            } else {
+                row.add(cloudCluster);
+            }
             return row;
         }
     }
@@ -1336,12 +1371,12 @@ public class ConnectContext {
         return this.sessionVariable.getNetWriteTimeout();
     }
 
-    public boolean isGroupCommitStreamLoadSql() {
-        return isGroupCommitStreamLoadSql;
+    public boolean isGroupCommit() {
+        return isGroupCommit;
     }
 
-    public void setGroupCommitStreamLoadSql(boolean groupCommitStreamLoadSql) {
-        isGroupCommitStreamLoadSql = groupCommitStreamLoadSql;
+    public void setGroupCommit(boolean groupCommit) {
+        isGroupCommit = groupCommit;
     }
 
     public Map<String, LiteralExpr> getUserVars() {
@@ -1350,5 +1385,9 @@ public class ConnectContext {
 
     public void setUserVars(Map<String, LiteralExpr> userVars) {
         this.userVars = userVars;
+    }
+
+    public boolean isProxy() {
+        return isProxy;
     }
 }

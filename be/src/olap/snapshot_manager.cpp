@@ -264,7 +264,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.partition_id = org_rowset_meta->partition_id();
     context.tablet_schema_hash = org_rowset_meta->tablet_schema_hash();
     context.rowset_type = org_rowset_meta->rowset_type();
-    context.rowset_dir = new_tablet_path;
+    context.tablet_path = new_tablet_path;
     context.tablet_schema =
             org_rowset_meta->tablet_schema() ? org_rowset_meta->tablet_schema() : tablet_schema;
     context.rowset_state = org_rowset_meta->rowset_state();
@@ -688,8 +688,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     }
                 } else {
                     if (tablet_schema.has_inverted_index()) {
-                        auto index_file =
-                                InvertedIndexDescriptor::get_index_file_name(segment_file_path);
+                        auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(
+                                        segment_file_path));
                         auto snapshot_segment_index_file_path =
                                 fmt::format("{}/{}_{}.binlog-index", schema_full_path, rowset_id,
                                             segment_index);

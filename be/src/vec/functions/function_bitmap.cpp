@@ -993,7 +993,7 @@ struct BitmapToBase64 {
         for (size_t i = 0; i < size; ++i) {
             BitmapValue& bitmap_val = const_cast<BitmapValue&>(data[i]);
             auto ser_size = bitmap_val.getSizeInBytes();
-            output_char_size += ser_size * (int)(4.0 * ceil((double)ser_size / 3.0));
+            output_char_size += (int)(4.0 * ceil((double)ser_size / 3.0));
         }
         ColumnString::check_chars_length(output_char_size, size);
         chars.resize(output_char_size);

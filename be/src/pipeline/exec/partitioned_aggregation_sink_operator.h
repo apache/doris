@@ -18,6 +18,7 @@
 #pragma once
 #include "aggregation_sink_operator.h"
 #include "pipeline/exec/operator.h"
+#include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/spill/spill_stream_manager.h"
 
@@ -306,6 +307,10 @@ public:
 
     DataDistribution required_data_distribution() const override {
         return _agg_sink_operator->required_data_distribution();
+    }
+
+    bool require_data_distribution() const override {
+        return _agg_sink_operator->require_data_distribution();
     }
 
     Status set_child(OperatorXPtr child) override {

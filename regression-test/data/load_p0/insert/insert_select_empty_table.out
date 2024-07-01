@@ -15,3 +15,9 @@ PhysicalOlapTableSink
 PhysicalOlapTableSink
 --PhysicalEmptyRelation
 
+-- !test_insert_empty_agg --
+1
+
+-- !test_insert_empty_agg_select --
+\N	0	\N
+

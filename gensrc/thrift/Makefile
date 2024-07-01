@@ -31,7 +31,7 @@ all: ${GEN_OBJECTS} ${OBJECTS}
 
 $(shell mkdir -p ${BUILD_DIR}/gen_java)
 
-THRIFT_CPP_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen cpp -out ${BUILD_DIR}/gen_cpp --allow-64bit-consts -strict
+THRIFT_CPP_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen cpp:moveable_types -out ${BUILD_DIR}/gen_cpp --allow-64bit-consts -strict
 THRIFT_JAVA_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen java:fullcamel -out ${BUILD_DIR}/gen_java --allow-64bit-consts -strict
 
 ${BUILD_DIR}/gen_cpp:

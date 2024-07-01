@@ -71,3 +71,8 @@ max_failure_num = 100
 enableKafkaTest=true
 
 // vim: tw=10086 et ts=4 sw=4:
+
+// trino-connector catalog test config
+enableTrinoConnectorTest = false
+
+s3Provider = "COS"

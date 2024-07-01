@@ -48,8 +48,8 @@ suite("test_trino_prepare_hive_data_in_case", "p0,external,hive,external_docker,
             sql """
                 create catalog if not exists ${catalog_name} properties (
                     "type"="trino-connector",
-                    "connector.name"="hive",
-                    'hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
+                    "trino.connector.name"="hive",
+                    'trino.hive.metastore.uri' = 'thrift://${externalEnvIp}:${hms_port}'
                 );
             """
             def values2 = sql """select count(*) from ${catalog_name}.`default`.${catalog_name};"""

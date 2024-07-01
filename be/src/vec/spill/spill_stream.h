@@ -44,6 +44,8 @@ public:
 
     ~SpillStream();
 
+    void gc();
+
     int64_t id() const { return stream_id_; }
 
     SpillDataDir* get_data_dir() const { return data_dir_; }
@@ -51,7 +53,7 @@ public:
 
     const std::string& get_spill_dir() const { return spill_dir_; }
 
-    size_t get_written_bytes() const { return writer_->get_written_bytes(); }
+    int64_t get_written_bytes() const { return total_written_bytes_; }
 
     Status prepare_spill();
 
@@ -86,15 +88,13 @@ private:
 
     Status prepare();
 
-    void close();
-
     RuntimeState* state_ = nullptr;
     int64_t stream_id_;
-    std::atomic_bool closed_ = false;
     SpillDataDir* data_dir_ = nullptr;
     std::string spill_dir_;
     size_t batch_rows_;
     size_t batch_bytes_;
+    int64_t total_written_bytes_ = 0;
 
     std::atomic_bool _is_reading = false;
 

@@ -26,6 +26,9 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.time.ZoneOffset;
+import java.util.TimeZone;
+
 public class DateLiteralTest {
 
     @Test
@@ -413,5 +416,17 @@ public class DateLiteralTest {
             hasException = true;
         }
         Assert.assertFalse(hasException);
+    }
+
+    @Test
+    public void testUnixTimestampWithMilliMicroSecond() throws AnalysisException {
+        String s = "2020-12-13 12:13:14.123456";
+        Type type = Type.DATETIMEV2;
+        DateLiteral literal = new DateLiteral(s, type);
+        long l = literal.getUnixTimestampWithMillisecond(TimeZone.getTimeZone(ZoneOffset.UTC));
+        Assert.assertEquals(123, l % 1000);
+
+        long l2 = literal.getUnixTimestampWithMicroseconds(TimeZone.getTimeZone(ZoneOffset.UTC));
+        Assert.assertEquals(123456, l2 % 1000000);
     }
 }

@@ -403,8 +403,8 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
     _generate_key_group_cluster_key_idxes(tablet_schema, column_groups,
                                           key_group_cluster_key_idxes);
 
-    vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
-                                                 reader_type);
+    vectorized::RowSourcesBuffer row_sources_buf(
+            tablet->tablet_id(), dst_rowset_writer->context().tablet_path, reader_type);
     // compact group one by one
     for (auto i = 0; i < column_groups.size(); ++i) {
         VLOG_NOTICE << "row source size: " << row_sources_buf.total_size();

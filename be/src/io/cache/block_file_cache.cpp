@@ -1417,8 +1417,6 @@ void BlockFileCache::check_disk_resource_limit(const std::string& path) {
     }
     if (capacity_percentage >= config::file_cache_enter_disk_resource_limit_mode_percent ||
         inode_is_insufficient(inode_percentage)) {
-        LOG(WARNING) << capacity_percentage << " "
-                     << config::file_cache_enter_disk_resource_limit_mode_percent;
         _disk_resource_limit_mode = true;
     } else if (_disk_resource_limit_mode &&
                (capacity_percentage < config::file_cache_exit_disk_resource_limit_mode_percent) &&
@@ -1426,11 +1424,12 @@ void BlockFileCache::check_disk_resource_limit(const std::string& path) {
         _disk_resource_limit_mode = false;
     }
     if (_disk_resource_limit_mode) {
-        LOG_WARNING("file cache background thread")
-                .tag("space percent", capacity_percentage)
-                .tag("inode percent", inode_percentage)
-                .tag("is inode insufficient", inode_is_insufficient(inode_percentage))
-                .tag("mode", "run in resource limit");
+        // log per mins
+        LOG_EVERY_N(WARNING, 3) << "file cache background thread space percent="
+                                << capacity_percentage << " inode percent=" << inode_percentage
+                                << " is inode insufficient="
+                                << inode_is_insufficient(inode_percentage)
+                                << " mode run in resource limit";
     }
 }
 

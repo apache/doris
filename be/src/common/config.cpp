@@ -78,6 +78,8 @@ DEFINE_String(priority_networks, "");
 // performance or compact
 DEFINE_String(memory_mode, "moderate");
 
+DEFINE_mBool(enable_use_cgroup_memory_info, "true");
+
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of the physical memory ('<int>%').
@@ -133,9 +135,11 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
+DEFINE_mBool(enable_stacktrace_in_allocator_check_failed, "false");
+
 DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
-DEFINE_mBool(enable_memory_orphan_check, "true");
+DEFINE_mBool(enable_memory_orphan_check, "false");
 
 // The maximum time a thread waits for full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -244,7 +248,7 @@ DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> b
     }
     return true;
 });
-DEFINE_Int32(remote_split_source_batch_size, "1024");
+DEFINE_Int32(remote_split_source_batch_size, "10240");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
@@ -253,6 +257,9 @@ DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
 DEFINE_mInt32(fetch_rpc_timeout_seconds, "30");
 // default thrift client retry interval (in milliseconds)
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
+// max message size of thrift request
+// default: 100 * 1024 * 1024
+DEFINE_mInt64(thrift_max_message_size, "104857600");
 // max row count number for single scan range, used in segmentv1
 DEFINE_mInt32(doris_scan_range_row_count, "524288");
 // max bytes number for single scan range, used in segmentv2
@@ -335,6 +342,7 @@ DEFINE_mBool(disable_storage_page_cache, "false");
 DEFINE_mBool(disable_storage_row_cache, "true");
 // whether to disable pk page cache feature in storage
 DEFINE_Bool(disable_pk_storage_page_cache, "false");
+DEFINE_Bool(enable_non_pipeline, "false");
 
 // Cache for mow primary key storage page size
 DEFINE_String(pk_storage_page_cache_limit, "10%");
@@ -429,6 +437,8 @@ DEFINE_Validator(compaction_task_num_per_disk,
                  [](const int config) -> bool { return config >= 2; });
 DEFINE_Validator(compaction_task_num_per_fast_disk,
                  [](const int config) -> bool { return config >= 2; });
+DEFINE_Validator(low_priority_compaction_task_num_per_disk,
+                 [](const int config) -> bool { return config >= 2; });
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DEFINE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
@@ -450,8 +460,8 @@ DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
 
 // Compaction priority schedule
 DEFINE_mBool(enable_compaction_priority_scheduling, "true");
-DEFINE_mInt32(low_priority_compaction_task_num_per_disk, "1");
-DEFINE_mDouble(low_priority_tablet_version_num_ratio, "0.7");
+DEFINE_mInt32(low_priority_compaction_task_num_per_disk, "2");
+DEFINE_mInt32(low_priority_compaction_score_threshold, "200");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DEFINE_Int32(max_meta_checkpoint_threads, "-1");
@@ -498,6 +508,7 @@ DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
+DEFINE_mBool(enable_bthread_transmit_block, "true");
 
 // The maximum amount of data that can be processed by a stream load
 DEFINE_mInt64(streaming_load_max_mb, "10240");
@@ -619,6 +630,9 @@ DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 // sync tablet_meta when modifying meta
 DEFINE_mBool(sync_tablet_meta, "false");
 
+// sync when closing a file writer
+DEFINE_mBool(sync_file_on_close, "true");
+
 // default thrift rpc timeout ms
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
 
@@ -693,7 +707,7 @@ DEFINE_Int64(brpc_socket_max_unwritten_bytes, "-1");
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
 // is greater than 1.8G. This is to avoid the error of Request length overflow (2G).
-DEFINE_mBool(transfer_large_data_by_brpc, "false");
+DEFINE_mBool(transfer_large_data_by_brpc, "true");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
@@ -833,7 +847,7 @@ DEFINE_String(kafka_debug, "disable");
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
-DEFINE_Int32(routine_load_consumer_pool_size, "1024");
+DEFINE_mInt32(routine_load_consumer_pool_size, "1024");
 
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
@@ -1020,7 +1034,7 @@ DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_mBool(inverted_index_compaction_enable, "false");
+DEFINE_mBool(inverted_index_compaction_enable, "true");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
@@ -1054,7 +1068,7 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_mInt32(segment_cache_capacity, "-1");
-DEFINE_mInt32(estimated_num_columns_per_segment, "30");
+DEFINE_mInt32(estimated_num_columns_per_segment, "200");
 DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
 // The value is calculate by storage_page_cache_limit * index_page_cache_percentage
 DEFINE_mInt32(segment_cache_memory_percentage, "2");
@@ -1063,7 +1077,7 @@ DEFINE_mInt32(segment_cache_memory_percentage, "2");
 DEFINE_Bool(enable_feature_binlog, "false");
 
 // enable set in BitmapValue
-DEFINE_Bool(enable_set_in_bitmap_value, "false");
+DEFINE_Bool(enable_set_in_bitmap_value, "true");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "1000");
 DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
@@ -1075,6 +1089,7 @@ DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 // max_write_buffer_number for rocksdb
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
+DEFINE_mBool(allow_zero_date, "false");
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mString(kerberos_ccache_path, "");
 DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
@@ -1098,8 +1113,13 @@ DEFINE_mInt64(lookup_connection_cache_capacity, "2048");
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
+// USED FOR DEBUGING
+// core directly if the compaction found there's duplicate key on mow table
+DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
+// missing rows correctness check when compaction for mow table
+DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
@@ -1150,7 +1170,6 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // Dir of default timezone files
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
-DEFINE_Bool(use_doris_tzfile, "false");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
@@ -1187,9 +1206,9 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
 DEFINE_String(spill_storage_root_path, "");
-DEFINE_String(spill_storage_limit, "20%");   // 20%
-DEFINE_mInt32(spill_gc_interval_ms, "2000"); // 2s
-DEFINE_mInt32(spill_gc_file_count, "2000");
+DEFINE_String(spill_storage_limit, "20%");    // 20%
+DEFINE_mInt32(spill_gc_interval_ms, "2000");  // 2s
+DEFINE_mInt32(spill_gc_work_time_ms, "2000"); // 2s
 DEFINE_Int32(spill_io_thread_pool_thread_num, "-1");
 DEFINE_Validator(spill_io_thread_pool_thread_num, [](const int config) -> bool {
     if (config == -1) {
@@ -1203,6 +1222,8 @@ DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
+DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
+DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 
@@ -1229,6 +1250,9 @@ DEFINE_mInt32(table_sink_partition_write_max_partition_nums_per_writer, "128");
 
 /** Hive sink configurations **/
 DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
+
+/** Iceberg sink configurations **/
+DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
@@ -1271,6 +1295,23 @@ DEFINE_Int64(max_nonblock_close_thread_num, "64");
 // The possibility that mem allocator throws an exception during memory allocation
 // This config is for test usage, be careful when changing it.
 DEFINE_mDouble(mem_alloc_fault_probability, "0.0");
+// The time out milliseconds for remote fetch schema RPC, default 60s
+DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
+
+DEFINE_Int64(s3_file_system_local_upload_buffer_size, "5242880");
+
+//JVM monitoring enable. To prevent be from crashing due to jvm compatibility issues. The default setting is off.
+DEFINE_Bool(enable_jvm_monitor, "false");
+
+DEFINE_Int32(load_data_dirs_threads, "-1");
+
+// Skip loading stale rowset meta when initializing `TabletMeta` from protobuf
+DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
+
+DEFINE_Bool(enable_file_logger, "true");
+
+// The minimum row group size when exporting Parquet files. default 128MB
+DEFINE_Int64(min_row_group_size, "134217728");
 
 // clang-format off
 #ifdef BE_TEST

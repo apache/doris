@@ -24,6 +24,8 @@ suite("test_user_var") {
     sql "SET @d1=true, @d2=false"
     sql "SET @f1=null"
     sql "set @func_1=(abs(1) + 1) * 2"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     qt_integer 'select @a1, @a2, @a3;'
     qt_decimal 'select @b1, @b2, @b3;'

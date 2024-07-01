@@ -15,13 +15,14 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2 RF3
---------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
 ----------------------------------PhysicalProject
-------------------------------------filter((supplier.s_region = 'AMERICA'))
---------------------------------------PhysicalOlapScan[supplier]
+------------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2 RF3
+----------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------------PhysicalProject
+--------------------------------------filter((supplier.s_region = 'AMERICA'))
+----------------------------------------PhysicalOlapScan[supplier]
 ----------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------PhysicalProject
 --------------------------------filter((customer.c_region = 'AMERICA'))

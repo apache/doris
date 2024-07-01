@@ -85,7 +85,7 @@ import java.util.stream.Collectors;
 public class TrinoConnectorJniScanner extends JniScanner {
     private static volatile int physicalProcessorCount = -1;
     private static final Logger LOG = LoggerFactory.getLogger(TrinoConnectorJniScanner.class);
-    private static final String TRINO_CONNECTOR_OPTION_PREFIX = "trino_connector_option_prefix.";
+    private static final String TRINO_CONNECTOR_PROPERTIES_PREFIX = "trino.";
     private final QueryIdGenerator queryIdGenerator = new QueryIdGenerator();
 
 
@@ -148,13 +148,11 @@ public class TrinoConnectorJniScanner extends JniScanner {
 
 
         trinoConnectorOptionParams = params.entrySet().stream()
-                .filter(kv -> kv.getKey().startsWith(TRINO_CONNECTOR_OPTION_PREFIX))
+                .filter(kv -> kv.getKey().startsWith(TRINO_CONNECTOR_PROPERTIES_PREFIX))
                 .collect(Collectors
-                        .toMap(kv1 -> kv1.getKey().substring(TRINO_CONNECTOR_OPTION_PREFIX.length()),
+                        .toMap(kv1 -> kv1.getKey().substring(TRINO_CONNECTOR_PROPERTIES_PREFIX.length()),
                                 kv1 -> kv1.getValue()));
         catalogCreateTime = trinoConnectorOptionParams.remove("create_time");
-        trinoConnectorOptionParams.remove("type");
-        trinoConnectorOptionParams.remove("use_meta_cache");
     }
 
     @Override

@@ -54,7 +54,8 @@ suite("test_schema_change") {
             'AWS_REGION' = '${getS3Region()}',
             'AWS_ENDPOINT' = '${getS3Endpoint()}',
             'AWS_ACCESS_KEY' = '${getS3AK()}',
-            'AWS_SECRET_KEY' = '${getS3SK()}'
+            'AWS_SECRET_KEY' = '${getS3SK()}',
+            "provider" = "${getS3Provider()}"
         )
         PROPERTIES
         (
@@ -89,7 +90,7 @@ suite("test_schema_change") {
 
     sql """ alter table ${tableName} drop column C_NAME"""
 
-    waitSchemaChangeJob = { String tbName /* param */ ->
+    def waitSchemaChangeJob = { String tbName /* param */ ->
         int tryTimes = 20
         while (tryTimes-- > 0) {
             def jobResult = sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """

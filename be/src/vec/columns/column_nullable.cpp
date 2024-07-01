@@ -422,6 +422,7 @@ int ColumnNullable::compare_at(size_t n, size_t m, const IColumn& rhs_,
     return get_nested_column().compare_at(n, m, nullable_rhs.get_nested_column(),
                                           null_direction_hint);
 }
+
 void ColumnNullable::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                       int direction, std::vector<uint8>& cmp_res,
                                       uint8* __restrict filter) const {
@@ -650,12 +651,6 @@ ColumnPtr remove_nullable(const ColumnPtr& column) {
     }
 
     return column;
-}
-
-ColumnPtr ColumnNullable::index(const IColumn& indexes, size_t limit) const {
-    ColumnPtr indexed_data = get_nested_column().index(indexes, limit);
-    ColumnPtr indexed_null_map = get_null_map_column().index(indexes, limit);
-    return ColumnNullable::create(indexed_data, indexed_null_map);
 }
 
 void check_set_nullable(ColumnPtr& argument_column, ColumnVector<UInt8>::MutablePtr& null_map,

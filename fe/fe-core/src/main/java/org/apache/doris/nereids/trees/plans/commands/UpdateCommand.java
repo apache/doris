@@ -27,7 +27,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.analysis.SlotBinder;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -94,8 +94,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // NOTE: update command is executed as insert command, so txn insert can support it
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty()).run(ctx,
-                executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
+                Optional.empty()).run(ctx, executor);
     }
 
     /**
@@ -159,7 +159,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
         boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
                 && selectItems.size() < targetTable.getColumns().size()
-                && !targetTable.hasVariantColumns() && targetTable.getSequenceCol() == null
+                && targetTable.getSequenceCol() == null
                 && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10;
 
         List<String> partialUpdateColNames = new ArrayList<>();
@@ -212,8 +212,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
-        if (!SlotBinder.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
-                || (dbName != null && SlotBinder.compareDbName(tableQualifier.get(1), dbName))) {
+        if (!ExpressionAnalyzer.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
+                || (dbName != null && ExpressionAnalyzer.compareDbName(tableQualifier.get(1), dbName))) {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
     }

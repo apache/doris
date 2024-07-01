@@ -20,16 +20,18 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------filter((l3.l_receiptdate > l3.l_commitdate))
 ----------------------------PhysicalOlapScan[lineitem] apply RFs: RF2
-------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = l1.l_suppkey)) otherCondition=() build RFs:RF1 s_suppkey->[l_suppkey]
---------------------------PhysicalProject
-----------------------------filter((l1.l_receiptdate > l1.l_commitdate))
-------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
---------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = l1.l_suppkey)) otherCondition=() build RFs:RF1 s_suppkey->[l_suppkey]
+----------------------------PhysicalProject
+------------------------------filter((l1.l_receiptdate > l1.l_commitdate))
+--------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
+----------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[supplier] apply RFs: RF0
-------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------PhysicalProject
-----------------------------------filter((nation.n_name = 'SAUDI ARABIA'))
-------------------------------------PhysicalOlapScan[nation]
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[supplier] apply RFs: RF0
+----------------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------------PhysicalProject
+--------------------------------------filter((nation.n_name = 'SAUDI ARABIA'))
+----------------------------------------PhysicalOlapScan[nation]
 

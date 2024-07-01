@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.iceberg.dlf;
 
+import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.util.S3Util;
-import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.iceberg.HiveCompatibleCatalog;
 import org.apache.doris.datasource.iceberg.dlf.client.DLFCachedClientPool;
 import org.apache.doris.datasource.property.PropertyConverter;

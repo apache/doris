@@ -76,6 +76,8 @@ public:
 
     uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
+    int timeout_second() const { return _timeout; }
+
     PipelinePtr add_pipeline();
 
     PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
@@ -89,9 +91,6 @@ public:
     Status prepare(const doris::TPipelineFragmentParams& request);
 
     Status submit();
-
-    void close_if_prepare_failed(Status st);
-    void close_sink();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
@@ -118,8 +117,6 @@ public:
 
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
 
-    [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
-
     void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(_fragment_instance_ids.size());
         for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
@@ -134,10 +131,13 @@ public:
         }
     }
 
-    void add_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handlers.emplace_back(handler);
-    }
+    void clear_finished_tasks() {
+        for (size_t j = 0; j < _tasks.size(); j++) {
+            for (size_t i = 0; i < _tasks[j].size(); i++) {
+                _tasks[j][i]->stop_if_finished();
+            }
+        }
+    };
 
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,

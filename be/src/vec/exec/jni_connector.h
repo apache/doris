@@ -208,8 +208,7 @@ public:
         _is_table_schema = true;
     }
 
-    /// Should release jni resources if other functions are failed.
-    ~JniConnector();
+    ~JniConnector() override = default;
 
     /**
      * Open java scanner, and get the following scanner methods by jni:

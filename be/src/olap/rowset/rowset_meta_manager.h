@@ -71,10 +71,10 @@ public:
                                       RowsetBinlogMetasPB* metas_pb);
     static Status traverse_rowset_metas(OlapMeta* meta,
                                         std::function<bool(const TabletUid&, const RowsetId&,
-                                                           const std::string&)> const& collector);
+                                                           std::string_view)> const& collector);
     static Status traverse_binlog_metas(
             OlapMeta* meta,
-            std::function<bool(const std::string&, const std::string&, bool)> const& func);
+            std::function<bool(std::string_view, std::string_view, bool)> const& func);
 
     static Status remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
 

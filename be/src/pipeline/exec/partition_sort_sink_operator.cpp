@@ -23,6 +23,79 @@
 
 namespace doris::pipeline {
 
+Status PartitionBlocks::append_block_by_selector(const vectorized::Block* input_block, bool eos) {
+    if (_blocks.empty() || reach_limit()) {
+        _init_rows = _partition_sort_info->_runtime_state->batch_size();
+        _blocks.push_back(vectorized::Block::create_unique(
+                vectorized::VectorizedUtils::create_empty_block(_partition_sort_info->_row_desc)));
+    }
+    auto columns = input_block->get_columns();
+    auto mutable_columns = _blocks.back()->mutate_columns();
+    DCHECK(columns.size() == mutable_columns.size());
+    for (int i = 0; i < mutable_columns.size(); ++i) {
+        columns[i]->append_data_by_selector(mutable_columns[i], _selector);
+    }
+    _blocks.back()->set_columns(std::move(mutable_columns));
+    auto selector_rows = _selector.size();
+    _init_rows = _init_rows - selector_rows;
+    _total_rows = _total_rows + selector_rows;
+    _current_input_rows = _current_input_rows + selector_rows;
+    _selector.clear();
+    // maybe better could change by user PARTITION_SORT_ROWS_THRESHOLD
+    if (!eos && _partition_sort_info->_partition_inner_limit != -1 &&
+        _current_input_rows >= PARTITION_SORT_ROWS_THRESHOLD &&
+        _partition_sort_info->_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL) {
+        create_or_reset_sorter_state();
+        RETURN_IF_ERROR(do_partition_topn_sort());
+        _current_input_rows = 0; // reset record
+        _do_partition_topn_count++;
+    }
+    return Status::OK();
+}
+
+void PartitionBlocks::create_or_reset_sorter_state() {
+    if (_partition_topn_sorter == nullptr) {
+        _previous_row = std::make_unique<vectorized::SortCursorCmp>();
+        _partition_topn_sorter = vectorized::PartitionSorter::create_unique(
+                *_partition_sort_info->_vsort_exec_exprs, _partition_sort_info->_limit,
+                _partition_sort_info->_offset, _partition_sort_info->_pool,
+                _partition_sort_info->_is_asc_order, _partition_sort_info->_nulls_first,
+                _partition_sort_info->_row_desc, _partition_sort_info->_runtime_state,
+                _is_first_sorter ? _partition_sort_info->_runtime_profile : nullptr,
+                _partition_sort_info->_has_global_limit,
+                _partition_sort_info->_partition_inner_limit,
+                _partition_sort_info->_top_n_algorithm, _previous_row.get());
+        _partition_topn_sorter->init_profile(_partition_sort_info->_runtime_profile);
+    } else {
+        _partition_topn_sorter->reset_sorter_state(_partition_sort_info->_runtime_state);
+    }
+}
+
+Status PartitionBlocks::do_partition_topn_sort() {
+    for (const auto& block : _blocks) {
+        RETURN_IF_ERROR(_partition_topn_sorter->append_block(block.get()));
+    }
+    _blocks.clear();
+    RETURN_IF_ERROR(_partition_topn_sorter->prepare_for_read());
+    bool current_eos = false;
+    size_t current_output_rows = 0;
+    while (!current_eos) {
+        // output_block maybe need better way
+        auto output_block = vectorized::Block::create_unique(
+                vectorized::VectorizedUtils::create_empty_block(_partition_sort_info->_row_desc));
+        RETURN_IF_ERROR(_partition_topn_sorter->get_next(_partition_sort_info->_runtime_state,
+                                                         output_block.get(), &current_eos));
+        auto rows = output_block->rows();
+        if (rows > 0) {
+            current_output_rows += rows;
+            _blocks.emplace_back(std::move(output_block));
+        }
+    }
+
+    _topn_filter_rows += (_current_input_rows - current_output_rows);
+    return Status::OK();
+}
+
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortNodeSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -35,14 +108,14 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         RETURN_IF_ERROR(p._partition_expr_ctxs[i]->clone(state, _partition_expr_ctxs[i]));
     }
     _partition_exprs_num = p._partition_exprs_num;
-    _partitioned_data = std::make_unique<vectorized::PartitionedHashMapVariants>();
+    _partitioned_data = std::make_unique<PartitionedHashMapVariants>();
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
     _hash_table_size_counter = ADD_COUNTER(_profile, "HashTableSize", TUnit::UNIT);
     _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
     _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
     _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
     _passthrough_rows_counter = ADD_COUNTER(_profile, "PassThroughRowsCounter", TUnit::UNIT);
-    _partition_sort_info = std::make_shared<vectorized::PartitionSortInfo>(
+    _partition_sort_info = std::make_shared<PartitionSortInfo>(
             &_vsort_exec_exprs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
             p._child_x->row_desc(), state, _profile, p._has_global_limit, p._partition_inner_limit,
             p._top_n_algorithm, p._topn_phase);
@@ -103,7 +176,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state.child_input_rows = local_state.child_input_rows + current_rows;
         if (UNLIKELY(_partition_exprs_num == 0)) {
             if (UNLIKELY(local_state._value_places.empty())) {
-                local_state._value_places.push_back(_pool->add(new vectorized::PartitionBlocks(
+                local_state._value_places.push_back(_pool->add(new PartitionBlocks(
                         local_state._partition_sort_info, local_state._value_places.empty())));
             }
             local_state._value_places[0]->append_whole_block(input_block, _child_x->row_desc());
@@ -192,17 +265,17 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                             HashMethodType::try_presis_key(key, origin,
                                                            *local_state._agg_arena_pool);
-                            auto* aggregate_data = _pool->add(new vectorized::PartitionBlocks(
-                                    local_state._partition_sort_info,
-                                    local_state._value_places.empty()));
+                            auto* aggregate_data = _pool->add(
+                                    new PartitionBlocks(local_state._partition_sort_info,
+                                                        local_state._value_places.empty()));
                             local_state._value_places.push_back(aggregate_data);
                             ctor(key, aggregate_data);
                             local_state._num_partition++;
                         };
                         auto creator_for_null_key = [&](auto& mapped) {
-                            mapped = _pool->add(new vectorized::PartitionBlocks(
-                                    local_state._partition_sort_info,
-                                    local_state._value_places.empty()));
+                            mapped = _pool->add(
+                                    new PartitionBlocks(local_state._partition_sort_info,
+                                                        local_state._value_places.empty()));
                             local_state._value_places.push_back(mapped);
                             local_state._num_partition++;
                         };
@@ -221,6 +294,9 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                     }},
             local_state._partitioned_data->method_variant);
 }
+
+constexpr auto init_partition_hash_method =
+        init_hash_method<PartitionedHashMapVariants, PartitionDataPtr>;
 
 Status PartitionSortSinkLocalState::_init_hash_method() {
     RETURN_IF_ERROR(

@@ -68,26 +68,6 @@ public class HMSAnalysisTaskTest {
     }
 
     @Test
-    public void testAutoSampleHugeTable(@Mocked HMSExternalTable tableIf)
-            throws Exception {
-        new MockUp<HMSExternalTable>() {
-            @Mock
-            public long getDataSize(boolean singleReplica) {
-                return 6L * 1024 * 1024 * 1024;
-            }
-        };
-        HMSAnalysisTask task = new HMSAnalysisTask();
-        task.tbl = tableIf;
-        AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
-        analysisInfoBuilder.setJobType(AnalysisInfo.JobType.SYSTEM);
-        analysisInfoBuilder.setAnalysisMethod(AnalysisInfo.AnalysisMethod.FULL);
-        task.info = analysisInfoBuilder.build();
-        TableSample tableSample = task.getTableSample();
-        Assertions.assertFalse(tableSample.isPercent());
-        Assertions.assertEquals(StatisticsUtil.getHugeTableSampleRows(), tableSample.getSampleValue());
-    }
-
-    @Test
     public void testAutoSampleSmallTable(@Mocked HMSExternalTable tableIf)
             throws Exception {
         new MockUp<HMSExternalTable>() {

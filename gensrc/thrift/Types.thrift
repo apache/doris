@@ -114,7 +114,17 @@ enum TStorageBackendType {
     HDFS,
     JFS,
     LOCAL,
-    OFS
+    OFS,
+    AZURE
+}
+
+// Enumerates the storage formats for inverted indexes in src_backends.
+// This enum is used to distinguish between different organizational methods
+// of inverted index data, affecting how the index is stored and accessed.
+enum TInvertedIndexFileStorageFormat {
+    DEFAULT, // Default format, unspecified storage method.
+    V1,      // Index per idx: Each index is stored separately based on its identifier.
+    V2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
 }
 
 struct TScalarType {
@@ -167,6 +177,7 @@ struct TTypeDesc {
     4: optional list<TTypeDesc> sub_types
     5: optional bool result_is_nullable
     6: optional string function_name
+    7: optional i32 be_exec_version
 }
 
 enum TAggregationType {
@@ -225,6 +236,7 @@ enum TTaskType {
     GC_BINLOG,
     CLEAN_TRASH,
     UPDATE_VISIBLE_VERSION,
+    CLEAN_UDF_CACHE,
 
     // CLOUD
     CALCULATE_DELETE_BITMAP = 1000
@@ -384,6 +396,8 @@ struct TFunction {
   12: optional string checksum
   13: optional bool vectorized = false
   14: optional bool is_udtf_function = false
+  15: optional bool is_static_load = false
+  16: optional i64 expiration_time //minutes
 }
 
 enum TJdbcOperation {
@@ -404,7 +418,7 @@ enum TOdbcTableType {
     PRESTO,
     OCEANBASE,
     OCEANBASE_ORACLE,
-    NEBULA,
+    NEBULA, // Deprecated
     DB2
 }
 
@@ -618,6 +632,7 @@ enum TTableType {
     JDBC_TABLE,
     TEST_EXTERNAL_TABLE,
     MAX_COMPUTE_TABLE,
+    LAKESOUL_TABLE,
     TRINO_CONNECTOR_TABLE
 }
 
@@ -716,7 +731,8 @@ enum TMetadataType {
   MATERIALIZED_VIEWS,
   JOBS,
   TASKS,
-  WORKLOAD_SCHED_POLICY
+  WORKLOAD_SCHED_POLICY,
+  PARTITIONS
 }
 
 enum TIcebergQueryType {

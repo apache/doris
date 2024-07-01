@@ -629,6 +629,9 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
         if (expr instanceof NullLiteral) {
             return 1;
         }
@@ -784,6 +787,10 @@ public class DateLiteral extends LiteralExpr {
     @Override
     public double getDoubleValue() {
         return getLongValue();
+    }
+
+    public double getDoubleValueAsDateTime() {
+        return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
     }
 
     @Override
@@ -963,10 +970,23 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public long unixTimestamp(TimeZone timeZone) {
-        ZonedDateTime zonedDateTime = ZonedDateTime.of((int) year, (int) month, (int) day, (int) hour,
-                (int) minute, (int) second, (int) microsecond, ZoneId.of(timeZone.getID()));
-        Timestamp timestamp = Timestamp.from(zonedDateTime.toInstant());
+        Timestamp timestamp = getTimestamp(timeZone);
         return timestamp.getTime();
+    }
+
+    private Timestamp getTimestamp(TimeZone timeZone) {
+        ZonedDateTime zonedDateTime = ZonedDateTime.of((int) year, (int) month, (int) day, (int) hour,
+                (int) minute, (int) second, (int) microsecond * 1000, ZoneId.of(timeZone.getID()));
+        return Timestamp.from(zonedDateTime.toInstant());
+    }
+
+    public long getUnixTimestampWithMillisecond(TimeZone timeZone) {
+        return unixTimestamp(timeZone);
+    }
+
+    public long getUnixTimestampWithMicroseconds(TimeZone timeZone) {
+        Timestamp timestamp = getTimestamp(timeZone);
+        return timestamp.getTime() * 1000 + timestamp.getNanos() / 1000 % 1000;
     }
 
     public static boolean hasTimePart(String format) {
@@ -1759,7 +1779,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
     @Override
-    public void setupParamFromBinary(ByteBuffer data) {
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
         int len = getParmLen(data);
         if (type.getPrimitiveType() == PrimitiveType.DATE) {
             if (len >= 4) {

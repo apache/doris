@@ -24,6 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <ostream>
 
+#include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
@@ -195,8 +196,9 @@ void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indic
             const size_t size_to_append =
                     src_offset_data[src_offset] - src_offset_data[src_offset - 1];
             const size_t offset = src_offset_data[src_offset - 1];
-            memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
-                                                     src_data_ptr + offset, size_to_append);
+
+            memcpy_inlined(dst_data_ptr + dst_chars_pos, src_data_ptr + offset, size_to_append);
+
             dst_chars_pos += size_to_append;
         }
     };
@@ -433,44 +435,6 @@ void ColumnStr<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
 }
 
 template <typename T>
-template <typename Type>
-ColumnPtr ColumnStr<T>::index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const {
-    if (limit == 0) {
-        return ColumnStr<T>::create();
-    }
-
-    auto res = ColumnStr<T>::create();
-
-    Chars& res_chars = res->chars;
-    auto& res_offsets = res->offsets;
-
-    size_t new_chars_size = 0;
-    for (size_t i = 0; i < limit; ++i) {
-        new_chars_size += size_at(indexes[i]);
-    }
-    check_chars_length(new_chars_size, limit);
-    res_chars.resize(new_chars_size);
-
-    res_offsets.resize(limit);
-
-    T current_new_offset = 0;
-
-    for (size_t i = 0; i < limit; ++i) {
-        size_t j = indexes[i];
-        size_t string_offset = offsets[j - 1];
-        size_t string_size = offsets[j] - string_offset;
-
-        memcpy_small_allow_read_write_overflow15(&res_chars[current_new_offset],
-                                                 &chars[string_offset], string_size);
-
-        current_new_offset += string_size;
-        res_offsets[i] = current_new_offset;
-    }
-
-    return res;
-}
-
-template <typename T>
 template <bool positive>
 struct ColumnStr<T>::less {
     const ColumnStr<T>& parent;
@@ -580,7 +544,7 @@ template <typename T>
 void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                     int direction, std::vector<uint8>& cmp_res,
                                     uint8* __restrict filter) const {
-    auto sz = this->size();
+    auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base = assert_cast<const ColumnStr<T>&>(rhs).get_data_at(rhs_row_id);
     size_t begin = simd::find_zero(cmp_res, 0);
@@ -590,20 +554,11 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
             auto value_a = get_data_at(row_id);
             int res = memcmp_small_allow_overflow15(value_a.data, value_a.size, cmp_base.data,
                                                     cmp_base.size);
-            if (res * direction < 0) {
-                filter[row_id] = 1;
-                cmp_res[row_id] = 1;
-            } else if (res * direction > 0) {
-                cmp_res[row_id] = 1;
-            }
+            cmp_res[row_id] = res != 0;
+            filter[row_id] = res * direction < 0;
         }
         begin = simd::find_zero(cmp_res, end + 1);
     }
-}
-
-template <typename T>
-ColumnPtr ColumnStr<T>::index(const IColumn& indexes, size_t limit) const {
-    return select_index_impl(*this, indexes, limit);
 }
 
 template <typename T>

@@ -22,7 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -87,7 +87,7 @@ public class DeriveStatsJobTest {
 
         return (LogicalOlapScan) new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), table1,
                 Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
-                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> FunctionalDependencies.EMPTY_FUNC_DEPS)), ImmutableList.of());
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> DataTrait.EMPTY_TRAIT)), ImmutableList.of());
     }
 
     private LogicalAggregate constructAgg(Plan child) {

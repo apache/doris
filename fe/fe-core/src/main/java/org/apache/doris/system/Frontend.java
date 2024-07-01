@@ -226,4 +226,8 @@ public class Frontend implements Writable {
     public HostInfo toHostInfo() {
         return new HostInfo(host, editLogPort);
     }
+
+    public boolean isOldStyleNodeName() {
+        return nodeName.equals(host + "_" + editLogPort);
+    }
 }

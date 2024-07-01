@@ -117,6 +117,8 @@ struct FileBuffer {
     */
     bool is_cancelled() const { return _state.is_cancelled(); }
 
+    std::string_view get_string_view_data() const;
+
     BufferType _type;
     std::function<FileBlocksHolderPtr()> _alloc_holder;
     size_t _offset;

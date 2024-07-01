@@ -25,35 +25,13 @@
 
 #include "pipeline/exec/hashjoin_build_sink.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 
 void SharedHashTableController::set_builder_and_consumers(TUniqueId builder, int node_id) {
     // Only need to set builder and consumers with pipeline engine enabled.
-    DCHECK(_pipeline_engine_enabled);
     std::lock_guard<std::mutex> lock(_mutex);
     DCHECK(_builder_fragment_ids.find(node_id) == _builder_fragment_ids.cend());
     _builder_fragment_ids.insert({node_id, builder});
-    _dependencies.insert({node_id, {}});
-    _finish_dependencies.insert({node_id, {}});
-}
-
-bool SharedHashTableController::should_build_hash_table(const TUniqueId& fragment_instance_id,
-                                                        int my_node_id) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    auto it = _builder_fragment_ids.find(my_node_id);
-    if (_pipeline_engine_enabled) {
-        if (it != _builder_fragment_ids.cend()) {
-            return it->second == fragment_instance_id;
-        }
-        return false;
-    }
-
-    if (it == _builder_fragment_ids.cend()) {
-        _builder_fragment_ids.insert({my_node_id, fragment_instance_id});
-        return true;
-    }
-    return false;
 }
 
 SharedHashTableContextPtr SharedHashTableController::get_context(int my_node_id) {
@@ -62,20 +40,6 @@ SharedHashTableContextPtr SharedHashTableController::get_context(int my_node_id)
         _shared_contexts.insert({my_node_id, std::make_shared<SharedHashTableContext>()});
     }
     return _shared_contexts[my_node_id];
-}
-
-void SharedHashTableController::signal(int my_node_id, Status status) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    auto it = _shared_contexts.find(my_node_id);
-    if (it != _shared_contexts.cend()) {
-        it->second->signaled = true;
-        it->second->status = status;
-        _shared_contexts.erase(it);
-    }
-    for (auto& dep : _dependencies[my_node_id]) {
-        dep->set_ready();
-    }
-    _cv.notify_all();
 }
 
 void SharedHashTableController::signal(int my_node_id) {
@@ -108,19 +72,4 @@ TUniqueId SharedHashTableController::get_builder_fragment_instance_id(int my_nod
     return it->second;
 }
 
-Status SharedHashTableController::wait_for_signal(RuntimeState* state,
-                                                  const SharedHashTableContextPtr& context) {
-    std::unique_lock<std::mutex> lock(_mutex);
-    // maybe builder signaled before other instances waiting,
-    // so here need to check value of `signaled`
-    while (!context->signaled) {
-        _cv.wait_for(lock, std::chrono::milliseconds(400),
-                     [&]() { return context->signaled.load(); });
-        // return if the instances is cancelled(eg. query timeout)
-        RETURN_IF_CANCELLED(state);
-    }
-    return context->status;
-}
-
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

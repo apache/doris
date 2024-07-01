@@ -135,7 +135,7 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range) {
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-        static_cast<void>(delete_reader.set_fill_columns(partition_columns, missing_columns));
+        RETURN_IF_ERROR(delete_reader.set_fill_columns(partition_columns, missing_columns));
 
         bool eof = false;
         while (!eof) {

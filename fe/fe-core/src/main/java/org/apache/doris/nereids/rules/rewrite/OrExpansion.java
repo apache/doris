@@ -47,7 +47,6 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -91,20 +90,6 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
     }
 
     @Override
-    public Plan visit(Plan plan, OrExpandsionContext ctx) {
-        List<Plan> newChildren = new ArrayList<>();
-        boolean hasNewChildren = false;
-        for (Plan child : plan.children()) {
-            Plan newChild = child.accept(this, ctx);
-            if (newChild != child) {
-                hasNewChildren = true;
-            }
-            newChildren.add(newChild);
-        }
-        return hasNewChildren ? plan.withChildren(newChildren) : plan;
-    }
-
-    @Override
     public Plan visitLogicalCTEAnchor(
             LogicalCTEAnchor<? extends Plan, ? extends Plan> anchor, OrExpandsionContext ctx) {
         Plan child1 = anchor.child(0).accept(this, ctx);
@@ -135,8 +120,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         if (join.isMarkJoin() || !JoinUtils.shouldNestedLoopJoin(join)) {
             return join;
         }
-        if (!(supportJoinType.contains(join.getJoinType())
-                && ConnectContext.get().getSessionVariable().getEnablePipelineEngine())) {
+        if (!supportJoinType.contains(join.getJoinType())) {
             return join;
         }
         Preconditions.checkArgument(join.getHashJoinConjuncts().isEmpty(),

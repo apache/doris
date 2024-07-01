@@ -120,9 +120,7 @@ private:
 
     std::unique_ptr<RowwiseIterator> _iterator;
 
-    // make sure this handle is initialized and valid before
-    // reading data.
-    SegmentCacheHandle _segment_cache_handle;
+    std::vector<uint32_t> _segments_rows;
 
     StorageReadOptions _read_options;
 

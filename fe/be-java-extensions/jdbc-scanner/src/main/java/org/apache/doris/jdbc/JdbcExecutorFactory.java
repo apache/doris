@@ -42,7 +42,7 @@ public class JdbcExecutorFactory {
             case PRESTO:
                 return "org/apache/doris/jdbc/TrinoJdbcExecutor";
             default:
-                return "org/apache/doris/jdbc/DefaultJdbcExecutor";
+                throw new IllegalArgumentException("Unsupported jdbc type: " + type);
         }
     }
 }

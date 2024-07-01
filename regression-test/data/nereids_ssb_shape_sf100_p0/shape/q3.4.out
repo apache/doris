@@ -11,13 +11,14 @@ PhysicalResultSink
 ----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
-----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
-------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
 --------------------------PhysicalProject
-----------------------------filter(s_city IN ('UNITED KI1', 'UNITED KI5'))
-------------------------------PhysicalOlapScan[supplier]
+----------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
+--------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------------PhysicalProject
+------------------------------filter(s_city IN ('UNITED KI1', 'UNITED KI5'))
+--------------------------------PhysicalOlapScan[supplier]
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------filter(c_city IN ('UNITED KI1', 'UNITED KI5'))

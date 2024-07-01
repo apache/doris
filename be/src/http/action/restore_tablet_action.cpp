@@ -276,7 +276,7 @@ bool RestoreTabletAction::_get_timestamp_and_count_from_schema_hash_path(
     path time_label_path = schema_hash_path.parent_path().parent_path();
     std::string time_label = time_label_path.filename().string();
     std::vector<std::string> parts;
-    static_cast<void>(doris::split_string<char>(time_label, '.', &parts));
+    static_cast<void>(doris::split_string(time_label, '.', &parts));
     if (parts.size() != 2) {
         LOG(WARNING) << "invalid time label:" << time_label;
         return false;

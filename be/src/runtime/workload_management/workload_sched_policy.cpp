@@ -75,6 +75,8 @@ bool WorkloadSchedPolicy::is_match(WorkloadQueryInfo* query_info_ptr) {
 
 void WorkloadSchedPolicy::exec_action(WorkloadQueryInfo* query_info) {
     for (int i = 0; i < _action_list.size(); i++) {
+        query_info->policy_id = this->_id;
+        query_info->policy_name = this->_name;
         _action_list[i]->exec(query_info);
     }
 }

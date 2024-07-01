@@ -30,9 +30,10 @@ namespace doris {
 namespace vectorized {
 
 class VHiveUtils {
-public:
-    VHiveUtils() = delete;
+private:
+    VHiveUtils();
 
+public:
     static const std::regex PATH_CHAR_TO_ESCAPE;
 
     static std::string make_partition_name(const std::vector<THiveColumn>& columns,

@@ -37,6 +37,7 @@ import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemProviderImpl;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.base.Strings;
@@ -59,7 +60,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     // broker name for file split and query scan.
     public static final String BIND_BROKER_NAME = "broker.name";
-    private static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
 
     // -1 means file cache no ttl set
     public static final int FILE_META_CACHE_NO_TTL = -1;
@@ -163,6 +163,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void onRefresh(boolean invalidCache) {
+        super.onRefresh(invalidCache);
+        if (metadataOps != null) {
+            metadataOps.close();
+        }
+    }
+
+    @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
@@ -236,9 +244,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public void setDefaultPropsIfMissing(boolean isReplay) {
         super.setDefaultPropsIfMissing(isReplay);
-        if (catalogProperty.getOrDefault(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty()) {
+        if (ifNotSetFallbackToSimpleAuth()) {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
-            catalogProperty.addProperty(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
+            catalogProperty.addProperty(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
         }
     }
 

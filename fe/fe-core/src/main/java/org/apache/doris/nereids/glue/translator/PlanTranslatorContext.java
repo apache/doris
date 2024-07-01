@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -90,7 +91,7 @@ public class PlanTranslatorContext {
     private final Map<ExprId, ColumnRefExpr> exprIdToColumnRef = Maps.newHashMap();
 
     private final List<ScanNode> scanNodes = Lists.newArrayList();
-
+    private final List<PhysicalRelation> physicalRelations = Lists.newArrayList();
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator = PlanFragmentId.createGenerator();
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
@@ -239,8 +240,13 @@ public class PlanTranslatorContext {
         return exprIdToColumnRef.get(exprId);
     }
 
-    public void addScanNode(ScanNode scanNode) {
+    public void addScanNode(ScanNode scanNode, PhysicalRelation physicalRelation) {
         scanNodes.add(scanNode);
+        physicalRelations.add(physicalRelation);
+    }
+
+    public List<PhysicalRelation> getPhysicalRelations() {
+        return physicalRelations;
     }
 
     public ExprId findExprId(SlotId slotId) {
@@ -287,12 +293,12 @@ public class PlanTranslatorContext {
             slotDescriptor.setLabel(slotReference.getName());
         } else {
             slotRef = new SlotRef(slotDescriptor);
-            if (slotReference.hasSubColPath()) {
-                slotDescriptor.setSubColLables(slotReference.getSubColPath());
+            if (slotReference.hasSubColPath() && slotReference.getColumn().isPresent()) {
+                slotDescriptor.setSubColLables(slotReference.getSubPath());
                 // use lower case name for variant's root, since backend treat parent column as lower case
                 // see issue: https://github.com/apache/doris/pull/32999/commits
                 slotDescriptor.setMaterializedColumnName(slotRef.getColumnName().toLowerCase()
-                            + "." + String.join(".", slotReference.getSubColPath()));
+                            + "." + String.join(".", slotReference.getSubPath()));
             }
         }
         slotRef.setTable(table);

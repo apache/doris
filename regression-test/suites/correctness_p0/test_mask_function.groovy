@@ -75,4 +75,21 @@ suite("test_mask_function") {
     qt_select_digital_masking """
         select digital_masking(13812345678);
     """
+
+    test {
+        sql """ select mask_last_n("12345", -100); """
+        exception "function mask_last_n only accept non-negative input for 2nd argument but got -100"
+    }
+    test {
+        sql """ select mask_first_n("12345", -100); """
+        exception "function mask_first_n only accept non-negative input for 2nd argument but got -100"
+    }
+    test {
+        sql """ select mask_last_n("12345", id) from table_mask_test; """
+        exception "mask_last_n must accept literal for 2nd argument"
+    }
+    test {
+        sql """ select mask_first_n("12345", id) from table_mask_test; """
+        exception "mask_first_n must accept literal for 2nd argument"
+    }
 }

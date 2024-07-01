@@ -75,9 +75,9 @@ Status ColdDataCompaction::execute_compact() {
 
 Status ColdDataCompaction::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // write output rowset to storage policy resource
-    io::RemoteFileSystemSPtr fs;
-    RETURN_IF_ERROR(get_remote_file_system(tablet()->storage_policy_id(), &fs));
-    ctx.fs = std::move(fs);
+    auto storage_resource =
+            DORIS_TRY(get_resource_by_storage_policy_id(tablet()->storage_policy_id()));
+    ctx.storage_resource = std::move(storage_resource);
     return CompactionMixin::construct_output_rowset_writer(ctx);
 }
 

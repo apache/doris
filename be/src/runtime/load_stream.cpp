@@ -30,6 +30,7 @@
 #include <memory>
 #include <sstream>
 
+#include "bvar/bvar.h"
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
@@ -48,6 +49,7 @@
 
 namespace doris {
 
+bvar::Adder<int64_t> g_load_stream_cnt("load_stream_count");
 bvar::LatencyRecorder g_load_stream_flush_wait_ms("load_stream_flush_wait_ms");
 bvar::Adder<int> g_load_stream_flush_running_threads("load_stream_flush_wait_threads");
 
@@ -330,13 +332,14 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
 // 2. There are some problems in _profile->to_thrift()
 LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile)
         : _load_id(load_id), _enable_profile(false), _load_stream_mgr(load_stream_mgr) {
+    g_load_stream_cnt << 1;
     _profile = std::make_unique<RuntimeProfile>("LoadStream");
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
     TUniqueId load_tid = ((UniqueId)load_id).to_thrift();
 #ifndef BE_TEST
     std::shared_ptr<QueryContext> query_context =
-            ExecEnv::GetInstance()->fragment_mgr()->get_query_context(load_tid);
+            ExecEnv::GetInstance()->fragment_mgr()->get_or_erase_query_ctx_with_lock(load_tid);
     if (query_context != nullptr) {
         _query_thread_context = {load_tid, query_context->query_mem_tracker};
     } else {
@@ -354,13 +357,14 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
 }
 
 LoadStream::~LoadStream() {
+    g_load_stream_cnt << -1;
     LOG(INFO) << "load stream is deconstructed " << *this;
 }
 
 Status LoadStream::init(const POpenLoadStreamRequest* request) {
     _txn_id = request->txn_id();
     _total_streams = request->total_streams();
-    DCHECK(_total_streams > 0) << "total streams should be greator than 0";
+    _is_incremental = (_total_streams == 0);
 
     _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request->schema()));

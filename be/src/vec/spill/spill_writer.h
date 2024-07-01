@@ -44,7 +44,7 @@ public:
 
     int64_t get_id() const { return stream_id_; }
 
-    size_t get_written_bytes() const { return total_written_bytes_; }
+    int64_t get_written_bytes() const { return total_written_bytes_; }
 
     const std::string& get_file_path() const { return file_path_; }
 
@@ -75,7 +75,7 @@ private:
     std::unique_ptr<doris::io::FileWriter> file_writer_;
 
     size_t written_blocks_ = 0;
-    size_t total_written_bytes_ = 0;
+    int64_t total_written_bytes_ = 0;
     std::string meta_;
 
     RuntimeProfile::Counter* write_bytes_counter_;

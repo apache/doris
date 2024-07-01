@@ -95,7 +95,6 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
 
     sql """
     drop table if exists lineitem

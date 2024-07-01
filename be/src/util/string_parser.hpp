@@ -279,6 +279,11 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
         [[fallthrough]];
     case '+':
         ++i;
+        // only one '+'/'-' char, so could return failure directly
+        if (UNLIKELY(len == 1)) {
+            *result = PARSE_FAILURE;
+            return 0;
+        }
     }
 
     // This is the fast path where the string cannot overflow.
@@ -594,123 +599,74 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
     bool found_exponent = false;
     int8_t exponent = 0;
     T value = 0;
-    if constexpr (TYPE_DECIMALV2 == P) {
-        // decimalv2 do not care type_scale and type_precision,just keep the origin logic
-        for (int i = 0; i < len; ++i) {
-            const char& c = s[i];
-            if (LIKELY('0' <= c && c <= '9')) {
-                found_value = true;
-                // Ignore digits once the type's precision limit is reached. This avoids
-                // overflowing the underlying storage while handling a string like
-                // 10000000000e-10 into a DECIMAL(1, 0). Adjustments for ignored digits and
-                // an exponent will be made later.
-                if (LIKELY(type_precision > precision)) {
-                    value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
-                } else {
-                    *result = StringParser::PARSE_OVERFLOW;
-                    value = is_negative
-                                    ? vectorized::min_decimal_value<DecimalType>(type_precision)
-                                    : vectorized::max_decimal_value<DecimalType>(type_precision);
-                    return value;
-                }
-                DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
+    bool has_round = false;
+    for (int i = 0; i < len; ++i) {
+        const char& c = s[i];
+        if (LIKELY('0' <= c && c <= '9')) {
+            found_value = true;
+            // Ignore digits once the type's precision limit is reached. This avoids
+            // overflowing the underlying storage while handling a string like
+            // 10000000000e-10 into a DECIMAL(1, 0). Adjustments for ignored digits and
+            // an exponent will be made later.
+            if (LIKELY(type_precision > precision) && !has_round) {
+                value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
                 ++precision;
                 scale += found_dot;
-            } else if (c == '.' && LIKELY(!found_dot)) {
-                found_dot = 1;
-            } else if ((c == 'e' || c == 'E') && LIKELY(!found_exponent)) {
-                found_exponent = true;
-                exponent = string_to_int_internal<int8_t>(s + i + 1, len - i - 1, result);
-                if (UNLIKELY(*result != StringParser::PARSE_SUCCESS)) {
-                    if (*result == StringParser::PARSE_OVERFLOW && exponent < 0) {
-                        *result = StringParser::PARSE_UNDERFLOW;
-                    }
-                    return 0;
-                }
-                break;
-            } else {
-                if (value == 0) {
-                    *result = StringParser::PARSE_FAILURE;
-                    return 0;
-                }
-                *result = StringParser::PARSE_SUCCESS;
-                value *= get_scale_multiplier<T>(type_scale - scale);
-
-                return is_negative ? T(-value) : T(value);
-            }
-        }
-    } else {
-        // decimalv3
-        bool has_round = false;
-        for (int i = 0; i < len; ++i) {
-            const char& c = s[i];
-            if (LIKELY('0' <= c && c <= '9')) {
-                found_value = true;
-                // Ignore digits once the type's precision limit is reached. This avoids
-                // overflowing the underlying storage while handling a string like
-                // 10000000000e-10 into a DECIMAL(1, 0). Adjustments for ignored digits and
-                // an exponent will be made later.
-                if (LIKELY(type_precision > precision) && !has_round) {
-                    value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
-                    ++precision;
-                    scale += found_dot;
-                    cur_digit = precision - scale;
-                } else if (!found_dot && max_digit < (precision - scale)) {
-                    *result = StringParser::PARSE_OVERFLOW;
-                    value = is_negative
-                                    ? vectorized::min_decimal_value<DecimalType>(type_precision)
+                cur_digit = precision - scale;
+            } else if (!found_dot && max_digit < (precision - scale)) {
+                *result = StringParser::PARSE_OVERFLOW;
+                value = is_negative ? vectorized::min_decimal_value<DecimalType>(type_precision)
                                     : vectorized::max_decimal_value<DecimalType>(type_precision);
-                    return value;
-                } else if (found_dot && scale >= type_scale && !has_round) {
-                    // make rounding cases
-                    if (c > '4') {
-                        value += 1;
-                    }
-                    has_round = true;
-                    continue;
-                } else if (!found_dot) {
-                    ++cur_digit;
+                return value;
+            } else if (found_dot && scale >= type_scale && !has_round) {
+                // make rounding cases
+                if (c > '4') {
+                    value += 1;
                 }
-                DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
-            } else if (c == '.' && LIKELY(!found_dot)) {
-                found_dot = 1;
-            } else if ((c == 'e' || c == 'E') && LIKELY(!found_exponent)) {
-                found_exponent = true;
-                exponent = string_to_int_internal<int8_t>(s + i + 1, len - i - 1, result);
-                if (UNLIKELY(*result != StringParser::PARSE_SUCCESS)) {
-                    if (*result == StringParser::PARSE_OVERFLOW && exponent < 0) {
-                        *result = StringParser::PARSE_UNDERFLOW;
-                    }
-                    return 0;
-                }
-                break;
-            } else {
-                if (value == 0) {
-                    *result = StringParser::PARSE_FAILURE;
-                    return 0;
-                }
-                // here to handle
-                *result = StringParser::PARSE_SUCCESS;
-                if (type_scale >= scale) {
-                    value *= get_scale_multiplier<T>(type_scale - scale);
-                    // here meet non-valid character, should return the value, keep going to meet
-                    // the E/e character because we make right user-given type_precision
-                    // not max number type_precision
-                    if (!is_numeric_ascii(c)) {
-                        if (cur_digit > type_precision) {
-                            *result = StringParser::PARSE_OVERFLOW;
-                            value = is_negative ? vectorized::min_decimal_value<DecimalType>(
-                                                          type_precision)
-                                                : vectorized::max_decimal_value<DecimalType>(
-                                                          type_precision);
-                            return value;
-                        }
-                        return is_negative ? T(-value) : T(value);
-                    }
-                }
-
-                return is_negative ? T(-value) : T(value);
+                has_round = true;
+                continue;
+            } else if (!found_dot) {
+                ++cur_digit;
             }
+            DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
+        } else if (c == '.' && LIKELY(!found_dot)) {
+            found_dot = 1;
+        } else if ((c == 'e' || c == 'E') && LIKELY(!found_exponent)) {
+            found_exponent = true;
+            exponent = string_to_int_internal<int8_t>(s + i + 1, len - i - 1, result);
+            if (UNLIKELY(*result != StringParser::PARSE_SUCCESS)) {
+                if (*result == StringParser::PARSE_OVERFLOW && exponent < 0) {
+                    *result = StringParser::PARSE_UNDERFLOW;
+                }
+                return 0;
+            }
+            break;
+        } else {
+            if (value == 0) {
+                *result = StringParser::PARSE_FAILURE;
+                return 0;
+            }
+            // here to handle
+            *result = StringParser::PARSE_SUCCESS;
+            if (type_scale >= scale) {
+                value *= get_scale_multiplier<T>(type_scale - scale);
+                // here meet non-valid character, should return the value, keep going to meet
+                // the E/e character because we make right user-given type_precision
+                // not max number type_precision
+                if (!is_numeric_ascii(c)) {
+                    if (cur_digit > type_precision) {
+                        *result = StringParser::PARSE_OVERFLOW;
+                        value = is_negative
+                                        ? vectorized::min_decimal_value<DecimalType>(type_precision)
+                                        : vectorized::max_decimal_value<DecimalType>(
+                                                  type_precision);
+                        return value;
+                    }
+                    return is_negative ? T(-value) : T(value);
+                }
+            }
+
+            return is_negative ? T(-value) : T(value);
         }
     }
 

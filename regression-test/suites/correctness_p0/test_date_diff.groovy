@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_date_diff") {
+    sql """ drop table if exists dt6  """
     sql """
         create table dt6(
             k0 datetime(6) null

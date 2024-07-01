@@ -55,7 +55,7 @@ using namespace FunctionsLogicalDetail;
 template <class Op>
 void vector_const(const IColumn* left, const ColumnConst* right, IColumn* res, size_t rows) {
     const auto* __restrict l_datas = assert_cast<const ColumnUInt8*>(left)->get_data().data();
-    auto r_data = (uint8)right->get_uint(0);
+    auto r_data = (uint8_t)right->get_bool(0);
     auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data().data();
 
     for (size_t i = 0; i < rows; ++i) {

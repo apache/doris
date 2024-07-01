@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
     doris::ExecEnv::GetInstance()->set_dummy_lru_cache(std::make_shared<doris::DummyLRUCache>());
     doris::ExecEnv::GetInstance()->set_storage_page_cache(
             doris::StoragePageCache::create_global_cache(1 << 30, 10, 0));
-    doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000));
+    doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000, 1000));
     std::string conf = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     auto st = doris::config::init(conf.c_str(), false);
     doris::ExecEnv::GetInstance()->set_tablet_schema_cache(
@@ -76,6 +76,7 @@ int main(int argc, char** argv) {
 
     ::testing::TestEventListeners& listeners = ::testing::UnitTest::GetInstance()->listeners();
     listeners.Append(new TestListener);
+    doris::ExecEnv::GetInstance()->set_tracking_memory(false);
 
     int res = RUN_ALL_TESTS();
     return res;

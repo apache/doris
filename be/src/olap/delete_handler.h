@@ -18,12 +18,9 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <stdint.h>
 
-#include <memory>
+#include <cstdint>
 #include <string>
-#include <unordered_map>
-#include <vector>
 
 #include "common/factory_creator.h"
 #include "common/status.h"
@@ -64,7 +61,7 @@ public:
                                             const std::vector<TCondition>& conditions,
                                             DeletePredicatePB* del_pred);
 
-    static void convert_to_sub_pred_v2(DeletePredicatePB* delete_pred, TabletSchemaSPtr schema);
+    static Status convert_to_sub_pred_v2(DeletePredicatePB* delete_pred, TabletSchemaSPtr schema);
 
     /**
      * Use regular expression to extract 'column_name', 'op' and 'operands'
@@ -88,12 +85,6 @@ private:
                                          const std::string& condition_op,
                                          const std::string& value_str);
 
-    // construct sub condition from TCondition
-    static std::string construct_sub_predicate(const TCondition& condition);
-
-    // make operators from FE adaptive to BE
-    [[nodiscard]] static std::string trans_op(const string& op);
-
     // extract 'column_name', 'op' and 'operands' to condition
     static Status parse_condition(const DeleteSubPredicatePB& sub_cond, TCondition* condition);
 
@@ -107,7 +98,8 @@ public:
     // input:
     //     * schema: tablet's schema, the delete conditions and data rows are in this schema
     //     * version: maximum version
-    //     * with_sub_pred_v2: whether to use delete sub predicate v2 (v2 is based on PB, v1 is based on condition string)
+    //     * with_sub_pred_v2: whether to use delete sub predicate v2 (v2 is based on PB and use column uid to specify a column,
+    //         v1 is based on condition string, and relies on regex for parse)
     // return:
     //     * Status::Error<DELETE_INVALID_PARAMETERS>(): input parameters are not valid
     //     * Status::Error<MEM_ALLOC_FAILED>(): alloc memory failed

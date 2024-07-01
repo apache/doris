@@ -185,20 +185,20 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
-        auto& col = assert_cast<const ColumnBitmap&>(*assert_cast<const IColumn*>(column));
-        auto* data = col.get_data().data();
+        const auto& col = assert_cast<const ColumnBitmap&>(*column);
+        const auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             this->data(places[i] + offset).value |= data[i];
         }
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
-        auto& col = assert_cast<const ColumnBitmap&>(*assert_cast<const IColumn*>(column));
-        auto* data = col.get_data().data();
+        const auto& col = assert_cast<const ColumnBitmap&>(*column);
+        const auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             if (places[i]) {
                 this->data(places[i] + offset).value |= data[i];
