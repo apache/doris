@@ -40,6 +40,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
@@ -346,7 +347,9 @@ public class StringLiteral extends LiteralExpr {
         }
         byte[] bytes = new byte[strLen];
         data.get(bytes);
-        value = new String(bytes);
+        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
+        // different environment
+        value = new String(bytes, StandardCharsets.UTF_8);
         if (LOG.isDebugEnabled()) {
             LOG.debug("parsed value '{}'", value);
         }
