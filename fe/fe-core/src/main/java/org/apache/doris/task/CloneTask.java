@@ -89,6 +89,7 @@ public class CloneTask extends AgentTask {
         }
         request.setTimeoutS(timeoutS);
         request.setPartitionId(partitionId);
+        request.setTableId(tableId);
 
         return request;
     }
