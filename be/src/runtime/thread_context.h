@@ -27,6 +27,7 @@
 #include <string>
 #include <thread>
 
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "gutil/macros.h"
@@ -206,10 +207,6 @@ public:
         DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
                thread_mem_tracker()->label() != "Orphan")
                 << doris::memory_orphan_check_msg;
-        // make sure huge memory is allocated by doris Allocator
-        if (size > config::debug_max_memory_size_by_native_allocator) {
-            DCHECK(doris::allocator_working == true);
-        }
 #endif
         thread_mem_tracker_mgr->consume(size, skip_large_memory_check);
     }
@@ -453,6 +450,14 @@ public:
     ~ScopedAllocatorTagger() { doris::allocator_working = false; }
 };
 
+void allocator_detect(size_t size){    
+#ifndef NDEBUG
+    if (size >= config::debug_max_memory_size_by_native_allocator) {
+        DCHECK (doris::allocator_working == true);
+    }
+#endif
+};
+
 // Basic macros for mem tracker, usually do not need to be modified and used.
 #if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
 // used to fix the tracking accuracy of caches.
@@ -473,17 +478,22 @@ public:
 // Mem Hook to consume thread mem tracker
 #define CONSUME_THREAD_MEM_TRACKER_BY_HOOK(size)           \
     do {                                                   \
+        allocator_detect(size);            \
         if (doris::use_mem_hook) {                         \
             doris::thread_context()->consume_memory(size); \
         }                                                  \
     } while (0)
+
 #define RELEASE_THREAD_MEM_TRACKER_BY_HOOK(size) CONSUME_THREAD_MEM_TRACKER_BY_HOOK(-size)
+
 #define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)           \
     do {                                                                   \
+        allocator_detect(size_fn(__VA_ARGS__));                            \
         if (doris::use_mem_hook) {                                         \
             doris::thread_context()->consume_memory(size_fn(__VA_ARGS__)); \
         }                                                                  \
     } while (0)
+
 #define RELEASE_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)            \
     do {                                                                    \
         if (doris::use_mem_hook) {                                          \
