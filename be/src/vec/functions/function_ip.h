@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <memory>
 
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -592,6 +593,12 @@ public:
     }
 };
 
+struct CIDRMinMaxValue {
+    PrimitiveType type;
+    Field min_value;
+    Field max_value;
+};
+
 class FunctionIsIPAddressInRange : public IFunction {
 public:
     static constexpr auto name = "is_ip_address_in_range";
@@ -605,12 +612,119 @@ public:
         return std::make_shared<DataTypeUInt8>();
     }
 
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+
+        DCHECK(context->get_num_args() >= 1);
+        // now we only support same
+        std::shared_ptr<CIDRMinMaxValue> state = std::make_shared<CIDRMinMaxValue>();
+        Field field;
+        // now we only deal with const cidr string
+        if (context->get_constant_col(1)) {
+            DCHECK(context->get_arg_type(1)->is_string_type());
+            context->get_constant_col(1)->column_ptr->get(0, field);
+            // make cidr from string
+            IPAddressCIDR cidr = parse_ip_with_cidr(
+                    context->get_constant_col(1)->column_ptr->get_data_at(0).to_string_view());
+            if (context->get_arg_type(0)->type == PrimitiveType::TYPE_IPV4) {
+                auto range = apply_cidr_mask(cidr._address.as_v4(), cidr._prefix);
+                state->type = PrimitiveType::TYPE_IPV4;
+                state->min_value = range.first;
+                state->max_value = range.second;
+            } else if (context->get_arg_type(0)->type == PrimitiveType::TYPE_IPV6) {
+                auto cidr_range_ipv6_col = ColumnIPv6::create(2, 0);
+                auto& cidr_range_ipv6_data = cidr_range_ipv6_col->get_data();
+                apply_cidr_mask(reinterpret_cast<char*>(*cidr._address.as_v6()),
+                                reinterpret_cast<char*>(&cidr_range_ipv6_data[0]),
+                                reinterpret_cast<char*>(&cidr_range_ipv6_data[1]), cidr._prefix);
+                state->type = PrimitiveType::TYPE_IPV6;
+                state->min_value = cidr_range_ipv6_data[0];
+                state->max_value = cidr_range_ipv6_data[1];
+            }
+            context->set_function_state(scope, state);
+        }
+        return Status::OK();
+    }
+
+    /**
+     * eval inverted index. we can filter ip rows with inverted index iter given a range of ip address
+     */
+    Status eval_inverted_index(FunctionContext* context,
+                               const vectorized::IndexFieldNameAndTypePair& data_type_with_name,
+                               segment_v2::InvertedIndexIterator* iter, uint32_t num_rows,
+                               roaring::Roaring* bitmap) const override {
+        std::shared_ptr<roaring::Roaring> min_roaring = std::make_shared<roaring::Roaring>();
+        std::shared_ptr<roaring::Roaring> max_roaring = std::make_shared<roaring::Roaring>();
+        auto* param_value = reinterpret_cast<CIDRMinMaxValue*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        if (param_value == nullptr || param_value->min_value.is_null() ||
+            param_value->max_value.is_null()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, param_value is nullptr or value is null");
+        }
+        if (iter->get_inverted_index_reader_type() != segment_v2::InvertedIndexReaderType::BKD) {
+            // parser is not none we can not make sure the result is correct in expr combination
+            // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
+            // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
+            // but query is also tokenized, and FULLTEXT reader will catch this row as matched,
+            // so array_index(array, 'tall:120cm, weight: 35kg') return this rowid,
+            // but we expect it to be filtered, because we want row is equal to 'tall:120cm, weight: 35kg'
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, ip range reader can only support by bkd "
+                    "reader");
+        }
+        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+        // >= min ip
+        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
+                param_value->type, &param_value->min_value, query_param));
+        Status st = iter->read_from_inverted_index(
+                data_type_with_name.first, query_param->get_value(),
+                segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY, num_rows, min_roaring);
+        if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
+            // if analyzed param with no term, we do not filter any rows
+            // return all rows with OK status
+            bitmap->addRange(0, num_rows);
+            return Status::OK();
+        } else if (st != Status::OK()) {
+            return st;
+        }
+        // <= max ip
+        query_param = nullptr;
+        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
+                param_value->type, &param_value->max_value, query_param));
+        st = iter->read_from_inverted_index(data_type_with_name.first, query_param->get_value(),
+                                            segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY,
+                                            num_rows, max_roaring);
+        if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
+            // if analyzed param with no term, we do not filter any rows
+            // return all rows with OK status
+            bitmap->addRange(0, num_rows);
+            return Status::OK();
+        } else if (st != Status::OK()) {
+            return st;
+        }
+
+        // mask out null_bitmap, since NULL cmp VALUE will produce NULL
+        //  and be treated as false in WHERE
+        // keep it after query, since query will try to read null_bitmap and put it to cache
+        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        if (null_bitmap) {
+            *bitmap -= *null_bitmap;
+        }
+
+        // last we should make intersect with filtered rows
+        *bitmap = *min_roaring & *max_roaring;
+        return Status::OK();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
         const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
-        WhichDataType addr_type(addr_column_with_type_and_name.type);
-        WhichDataType cidr_type(cidr_column_with_type_and_name.type);
         const auto& [addr_column, addr_const] =
                 unpack_if_const(addr_column_with_type_and_name.column);
         const auto& [cidr_column, cidr_const] =
@@ -625,85 +739,6 @@ public:
             auto addr_idx = index_check_const(i, addr_const);
             auto cidr_idx = index_check_const(i, cidr_const);
 
-            const auto addr =
-                    IPAddressVariant(str_addr_column->get_data_at(addr_idx).to_string_view());
-            const auto cidr =
-                    parse_ip_with_cidr(str_cidr_column->get_data_at(cidr_idx).to_string_view());
-            col_res_data[i] = is_address_in_range(addr, cidr) ? 1 : 0;
-        }
-
-        block.replace_by_position(result, std::move(col_res));
-        return Status::OK();
-    }
-};
-
-// old version throw exception when meet null value
-class FunctionIsIPAddressInRangeOld : public IFunction {
-public:
-    static constexpr auto name = "is_ip_address_in_range";
-    static FunctionPtr create() { return std::make_shared<FunctionIsIPAddressInRange>(); }
-
-    String get_name() const override { return name; }
-
-    size_t get_number_of_arguments() const override { return 2; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeUInt8>();
-    }
-
-    bool use_default_implementation_for_nulls() const override { return false; }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
-        const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
-        WhichDataType addr_type(addr_column_with_type_and_name.type);
-        WhichDataType cidr_type(cidr_column_with_type_and_name.type);
-        const auto& [addr_column, addr_const] =
-                unpack_if_const(addr_column_with_type_and_name.column);
-        const auto& [cidr_column, cidr_const] =
-                unpack_if_const(cidr_column_with_type_and_name.column);
-        const ColumnString* str_addr_column = nullptr;
-        const ColumnString* str_cidr_column = nullptr;
-        const NullMap* null_map_addr = nullptr;
-        const NullMap* null_map_cidr = nullptr;
-
-        if (addr_type.is_nullable()) {
-            const auto* addr_column_nullable =
-                    assert_cast<const ColumnNullable*>(addr_column.get());
-            str_addr_column = assert_cast<const ColumnString*>(
-                    addr_column_nullable->get_nested_column_ptr().get());
-            null_map_addr = &addr_column_nullable->get_null_map_data();
-        } else {
-            str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
-        }
-
-        if (cidr_type.is_nullable()) {
-            const auto* cidr_column_nullable =
-                    assert_cast<const ColumnNullable*>(cidr_column.get());
-            str_cidr_column = assert_cast<const ColumnString*>(
-                    cidr_column_nullable->get_nested_column_ptr().get());
-            null_map_cidr = &cidr_column_nullable->get_null_map_data();
-        } else {
-            str_cidr_column = assert_cast<const ColumnString*>(cidr_column.get());
-        }
-
-        auto col_res = ColumnUInt8::create(input_rows_count, 0);
-        auto& col_res_data = col_res->get_data();
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto addr_idx = index_check_const(i, addr_const);
-            auto cidr_idx = index_check_const(i, cidr_const);
-            if (null_map_addr && (*null_map_addr)[addr_idx]) [[unlikely]] {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "The arguments of function {} must be String, not NULL",
-                                get_name());
-            }
-            if (null_map_cidr && (*null_map_cidr)[cidr_idx]) [[unlikely]] {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "The arguments of function {} must be String, not NULL",
-                                get_name());
-            }
             const auto addr =
                     IPAddressVariant(str_addr_column->get_data_at(addr_idx).to_string_view());
             const auto cidr =
@@ -795,21 +830,6 @@ public:
                 result, ColumnStruct::create(Columns {std::move(col_lower_range_output),
                                                       std::move(col_upper_range_output)}));
         return Status::OK();
-    }
-
-private:
-    static inline std::pair<UInt32, UInt32> apply_cidr_mask(UInt32 src, UInt8 bits_to_keep) {
-        if (bits_to_keep >= 8 * sizeof(UInt32)) {
-            return {src, src};
-        }
-        if (bits_to_keep == 0) {
-            return {static_cast<UInt32>(0), static_cast<UInt32>(-1)};
-        }
-        UInt32 mask = static_cast<UInt32>(-1) << (8 * sizeof(UInt32) - bits_to_keep);
-        UInt32 lower = src & mask;
-        UInt32 upper = lower | ~mask;
-
-        return {lower, upper};
     }
 };
 
@@ -934,18 +954,6 @@ public:
         }
         return ColumnStruct::create(
                 Columns {std::move(col_res_lower_range), std::move(col_res_upper_range)});
-    }
-
-private:
-    static void apply_cidr_mask(const char* __restrict src, char* __restrict dst_lower,
-                                char* __restrict dst_upper, UInt8 bits_to_keep) {
-        // little-endian mask
-        const auto& mask = get_cidr_mask_ipv6(bits_to_keep);
-
-        for (int8_t i = IPV6_BINARY_LENGTH - 1; i >= 0; --i) {
-            dst_lower[i] = src[i] & mask[i];
-            dst_upper[i] = dst_lower[i] | ~mask[i];
-        }
     }
 };
 
