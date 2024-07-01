@@ -34,11 +34,16 @@ suite ("test_follower_consistent_auth","p0,auth") {
 
         String user = 'test_follower_consistent_user'
         String pwd = 'C123_567p'
-        String dbName = 'test_select_column_auth_db'
-        String tableName = 'test_select_column_auth_table'
-        String role = 'test_select_column_auth_role'
-        String wg = 'test_select_column_auth_wg'
-        String rg = 'test_select_column_auth_rg'
+        String dbName = 'test_follower_consistent_db'
+        String tableName = 'test_follower_consistent_table'
+        String role = 'test_follower_consistent_role'
+        String wg = 'test_follower_consistent_wg'
+        String rg = 'test_follower_consistent_rg'
+        String mv_name = 'test_follower_consistent_mv'
+        String mtmv_name = 'test_follower_consistent_mtmv'
+        String view_name = 'test_follower_consistent_view'
+        String rollup_name = 'test_follower_consistent_rollup'
+        String catalog_name = 'test_follower_consistent_catalog'
         try_sql("DROP role ${role}")
         sql """CREATE ROLE ${role}"""
         sql """drop WORKLOAD GROUP if exists '${wg}'"""
@@ -76,12 +81,12 @@ suite ("test_follower_consistent_auth","p0,auth") {
         );
         """
 
-        sql """create view ${dbName}.v1 as select * from ${dbName}.${tableName};"""
-        sql """alter table ${dbName}.${tableName} add rollup rollup1(username)"""
+        sql """create view ${dbName}.${view_name} as select * from ${dbName}.${tableName};"""
+        sql """alter table ${dbName}.${tableName} add rollup ${rollup_name}(username)"""
         sleep(5 * 1000)
-        sql """create materialized view mv1 as select username from ${dbName}.${tableName}"""
+        sql """create materialized view ${mv_name} as select username from ${dbName}.${tableName}"""
         sleep(5 * 1000)
-        sql """CREATE MATERIALIZED VIEW ${dbName}.mtmv1 
+        sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmv_name} 
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
         DISTRIBUTED BY RANDOM BUCKETS 1 
         PROPERTIES ('replication_num' = '1') 
@@ -93,13 +98,13 @@ suite ("test_follower_consistent_auth","p0,auth") {
         (3, "333");
         """
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
-        sql """refresh MATERIALIZED VIEW ${dbName}.mtmv1 auto"""
+        sql """refresh MATERIALIZED VIEW ${dbName}.${mtmv_name} auto"""
         sql """grant select_priv on regression_test to ${user}"""
 
 
         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
             try {
-                sql "SHOW CATALOG RECYCLE BIN WHERE NAME = 'test'"
+                sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
             } catch (Exception e) {
                 log.info(e.getMessage())
                 assertTrue(e.getMessage().contains("Admin_priv"))
@@ -107,7 +112,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
             try {
-                sql "SHOW CATALOG RECYCLE BIN WHERE NAME = 'test'"
+                sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
             } catch (Exception e) {
                 log.info(e.getMessage())
                 assertTrue(e.getMessage().contains("Admin_priv"))
@@ -157,7 +162,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
 
         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
             try {
-                sql "select username from ${dbName}.v1"
+                sql "select username from ${dbName}.${view_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
                 assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
@@ -165,24 +170,24 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
             try {
-                sql "select username from ${dbName}.v1"
+                sql "select username from ${dbName}.${view_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
                 assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
             }
         }
-        sql """grant select_priv(username) on ${dbName}.v1 to ${user}"""
+        sql """grant select_priv(username) on ${dbName}.${view_name} to ${user}"""
         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
-            sql "select username from ${dbName}.v1"
+            sql "select username from ${dbName}.${view_name}"
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
-            sql "select username from ${dbName}.v1"
+            sql "select username from ${dbName}.${view_name}"
         }
 
 
         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
             try {
-                sql "select username from ${dbName}.mtmv1"
+                sql "select username from ${dbName}.${mtmv_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
                 assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
@@ -190,18 +195,18 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
             try {
-                sql "select username from ${dbName}.mtmv1"
+                sql "select username from ${dbName}.${mtmv_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
                 assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
             }
         }
-        sql """grant select_priv(username) on ${dbName}.mtmv1 to ${user}"""
+        sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
-            sql "select username from ${dbName}.mtmv1"
+            sql "select username from ${dbName}.${mtmv_name}"
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
-            sql "select username from ${dbName}.mtmv1"
+            sql "select username from ${dbName}.${mtmv_name}"
         }
 
 
