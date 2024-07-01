@@ -65,6 +65,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
     _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
     _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
+    _init_brpc_stub_timer = ADD_TIMER(_profile, "InitBrpcStubTime");
     _overall_throughput = _profile->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -96,9 +97,12 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     }
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
-    // Make sure brpc stub is ready before execution.
-    for (int i = 0; i < channels.size(); ++i) {
-        RETURN_IF_ERROR(channels[i]->init_stub(state));
+    {
+        SCOPED_TIMER(_init_brpc_stub_timer);
+        // Make sure brpc stub is ready before execution.
+        for (int i = 0; i < channels.size(); ++i) {
+            RETURN_IF_ERROR(channels[i]->init_stub(state));
+        }
     }
     return Status::OK();
 }

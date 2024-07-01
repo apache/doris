@@ -36,6 +36,8 @@
 #include <chrono>
 #include <sstream>
 
+#include "util/defer_op.h"
+
 #ifdef __APPLE__
 #ifndef HOST_NAME_MAX
 #define HOST_NAME_MAX MAXHOSTNAMELEN
@@ -119,18 +121,19 @@ bool parse_endpoint(const std::string& endpoint, std::string* host, uint16_t* po
 
 Status hostname_to_ip(const std::string& host, std::string& ip) {
     auto start = std::chrono::high_resolution_clock::now();
+    Defer _report([&]() {
+        auto current = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(current - start);
+        if (duration.count() >= 500) {
+            LOG(WARNING) << "hostname_to_ip cost to mush time, cost_time:" << duration.count()
+                         << "ms hostname:" << host << " ip:" << ip;
+        }
+    });
     Status status = hostname_to_ipv4(host, ip);
     if (status.ok()) {
         return status;
     }
     status = hostname_to_ipv6(host, ip);
-
-    auto current = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(current - start);
-    if (duration.count() >= 500) {
-        LOG(WARNING) << "hostname_to_ip cost to mush time, cost_time:" << duration.count()
-                     << "ms hostname:" << host << " ip:" << ip;
-    }
     return status;
 }
 
