@@ -83,9 +83,11 @@ VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(BufferControlBlock* sin
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     _init_profile();
-    if (nullptr == _sinker) {
-        return Status::InternalError("sinker is NULL pointer.");
-    }
+    // TODO: for PointQueryExecutor, the sinker is null, but we still need call init(),
+    // so comment out this check temporarily.
+    // if (nullptr == _sinker) {
+    //     return Status::InternalError("sinker is NULL pointer.");
+    // }
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
 
@@ -95,12 +97,15 @@ Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
 
 template <bool is_binary_format>
 void VMysqlResultWriter<is_binary_format>::_init_profile() {
-    _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
-    _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
-    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
-    _copy_buffer_timer = ADD_CHILD_TIMER(_parent_profile, "CopyBufferTime", "AppendBatchTime");
-    _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
-    _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
+    if (_parent_profile != nullptr) {
+        // for PointQueryExecutor, _parent_profile is null
+        _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
+        _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
+        _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
+        _copy_buffer_timer = ADD_CHILD_TIMER(_parent_profile, "CopyBufferTime", "AppendBatchTime");
+        _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
+        _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
+    }
 }
 
 template <bool is_binary_format>
