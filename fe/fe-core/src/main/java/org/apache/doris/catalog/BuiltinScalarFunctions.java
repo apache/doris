@@ -132,6 +132,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalo
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -213,6 +214,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToStri
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4ToIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6CIDRToRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
@@ -579,6 +581,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(CurrentDate.class, "curdate", "current_date"),
             scalar(CurrentTime.class, "curtime", "current_time"),
             scalar(CurrentUser.class, "current_user"),
+            scalar(CutIpv6.class, "cut_ipv6"),
             scalar(Database.class, "database", "schema"),
             scalar(Date.class, "date"),
             scalar(DateDiff.class, "datediff"),
@@ -656,6 +659,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ipv4StringToNum.class, "ipv4_string_to_num"),
             scalar(Ipv4StringToNumOrDefault.class, "ipv4_string_to_num_or_default"),
             scalar(Ipv4StringToNumOrNull.class, "ipv4_string_to_num_or_null", "inet_aton"),
+            scalar(Ipv4ToIpv6.class, "ipv4_to_ipv6"),
             scalar(Ipv6NumToString.class, "ipv6_num_to_string", "inet6_ntoa"),
             scalar(Ipv6StringToNum.class, "ipv6_string_to_num"),
             scalar(Ipv6StringToNumOrDefault.class, "ipv6_string_to_num_or_default"),
@@ -667,12 +671,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(IsIpAddressInRange.class, "is_ip_address_in_range"),
             scalar(Ipv4CIDRToRange.class, "ipv4_cidr_to_range"),
             scalar(Ipv6CIDRToRange.class, "ipv6_cidr_to_range"),
-            scalar(ToIpv4.class, "to_ipv4"),
-            scalar(ToIpv4OrDefault.class, "to_ipv4_or_default"),
-            scalar(ToIpv4OrNull.class, "to_ipv4_or_null"),
-            scalar(ToIpv6.class, "to_ipv6"),
-            scalar(ToIpv6OrDefault.class, "to_ipv6_or_default"),
-            scalar(ToIpv6OrNull.class, "to_ipv6_or_null"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),
@@ -888,6 +886,12 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ToDate.class, "to_date"),
             scalar(ToDateV2.class, "to_datev2"),
             scalar(ToDays.class, "to_days"),
+            scalar(ToIpv4.class, "to_ipv4"),
+            scalar(ToIpv4OrDefault.class, "to_ipv4_or_default"),
+            scalar(ToIpv4OrNull.class, "to_ipv4_or_null"),
+            scalar(ToIpv6.class, "to_ipv6"),
+            scalar(ToIpv6OrDefault.class, "to_ipv6_or_default"),
+            scalar(ToIpv6OrNull.class, "to_ipv6_or_null"),
             scalar(Tokenize.class, "tokenize"),
             scalar(ToMonday.class, "to_monday"),
             scalar(ToQuantileState.class, "to_quantile_state"),

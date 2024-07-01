@@ -1315,6 +1315,8 @@ DEFINE_Int64(min_row_group_size, "134217728");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 
+DEFINE_mBool(enable_parquet_page_index, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

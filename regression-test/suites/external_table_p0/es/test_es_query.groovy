@@ -89,7 +89,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         // test external table for datetime
         sql """
             CREATE TABLE `test_v1` (
-                `c_datetime` array<datev2> NULL,
+                `c_datetime` array<datetimev2> NULL,
                 `c_long` array<bigint(20)> NULL,
                 `c_unsigned_long` array<largeint(40)> NULL,
                 `c_text` array<text> NULL,
@@ -130,9 +130,10 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql04 """select message from test_v1 where message != ''"""
         order_qt_sql05 """select message from test_v1 where message is not null"""
         order_qt_sql06 """select message from test_v1 where not_null_or_empty(message)"""
+        order_qt_sql07 """select * from test_v1 where esquery(c_datetime, '{"term":{"c_datetime":"2020-01-01 12:00:00"}}');"""
        sql """
             CREATE TABLE `test_v2` (
-                `c_datetime` array<datev2> NULL,
+                `c_datetime` array<datetimev2> NULL,
                 `c_long` array<bigint(20)> NULL,
                 `c_unsigned_long` array<largeint(40)> NULL,
                 `c_text` array<text> NULL,
@@ -169,6 +170,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql20 """select * from test_v2 where test2='text#1'"""
         order_qt_sql21 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
         order_qt_sql22 """select test4,test5,test6,test7,test8 from test_v2 order by test8"""
+        order_qt_sql23 """select * from test_v2 where esquery(c_long, '{"term":{"c_long":"-1"}}');"""
 
         sql """switch test_es_query_es5"""
         order_qt_sql_5_02 """select * from test1 where test2='text#1'"""
@@ -188,6 +190,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql_5_16 """select message from test1 where message != ''"""
         order_qt_sql_5_17 """select message from test1 where message is not null"""
         order_qt_sql_5_18 """select message from test1 where not_null_or_empty(message)"""
+        order_qt_sql_5_19 """select * from test1 where esquery(c_unsigned_long, '{"match":{"c_unsigned_long":0}}')"""
 
         sql """switch test_es_query_es6"""
         // order_qt_sql_6_01 """show tables"""
@@ -208,6 +211,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql_6_16 """select message from test1 where message != ''"""
         order_qt_sql_6_17 """select message from test1 where message is not null"""
         order_qt_sql_6_18 """select message from test1 where not_null_or_empty(message)"""
+        order_qt_sql_6_19 """select * from test1 where esquery(c_person, '{"match":{"c_person.name":"Andy"}}')"""
 
         List<List<String>> tables6N = sql """show tables"""
         boolean notContainHide = true
@@ -252,6 +256,7 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql_7_21 """select message from test1 where not_null_or_empty(message)"""
         order_qt_sql_7_22 """select * from test1 where esquery(my_wildcard, '{ "wildcard": { "my_wildcard": { "value":"*quite*lengthy" } } }');"""
         order_qt_sql_7_23 """select * from test1 where level = 'debug'"""
+        order_qt_sql_7_24 """select * from test1 where esquery(c_float, '{"match":{"c_float":1.1}}')"""
 
         List<List<String>> tables7N = sql """show tables"""
         boolean notContainHide7 = true
@@ -296,5 +301,6 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         order_qt_sql_8_19 """select message from test1 where not_null_or_empty(message)"""
         order_qt_sql_8_20 """select * from test1 where esquery(my_wildcard, '{ "wildcard": { "my_wildcard": { "value":"*quite*lengthy" } } }');"""
         order_qt_sql_8_21 """select * from test1 where level = 'debug'"""
+        order_qt_sql_8_22 """select * from test1 where esquery(c_ip, '{"match":{"c_ip":"192.168.0.1"}}')"""
     }
 }

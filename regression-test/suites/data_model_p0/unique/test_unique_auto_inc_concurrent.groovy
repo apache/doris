@@ -46,8 +46,9 @@ suite("test_unique_table_auto_inc_concurrent") {
         }
 
         threads.each { thread -> thread.join() }
+        sql "sync"
 
-        qt_sql "select count(id), count(distinct id) from ${table1};"
+        qt_sql "select id, count(*) from ${table1} group by id having count(*) > 1;"
     }
 
     run_test(15, 10000, 10)

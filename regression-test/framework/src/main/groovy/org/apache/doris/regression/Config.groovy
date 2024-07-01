@@ -564,16 +564,6 @@ class Config {
         return config
     }
 
-    static String getProvider(String endpoint) {
-        def providers = ["cos", "oss", "s3", "obs", "bos"]
-        for (final def provider in providers) {
-            if (endpoint.containsIgnoreCase(provider)) {
-                return provider
-            }
-        }
-        return ""
-    }
-
     static void checkCloudSmokeEnv(Properties properties) {
         // external stage obj info
         String s3Endpoint = properties.getOrDefault("s3Endpoint", "")
@@ -589,8 +579,7 @@ class Config {
                 s3EndpointConf:s3Endpoint,
                 s3BucketConf:s3BucketName,
                 s3AKConf:s3AK,
-                s3SKConf:s3SK,
-                s3ProviderConf:getProvider(s3Endpoint)
+                s3SKConf:s3SK
         ]
         for (final def item in items) {
             if (item.value == null || item.value.isEmpty()) {

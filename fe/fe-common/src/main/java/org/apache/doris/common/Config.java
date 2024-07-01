@@ -162,9 +162,9 @@ public class Config extends ConfigBase {
             "MySQL Jdbc Catalog mysql does not support pushdown functions"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
-    @ConfField(description = {"SQLServer Jdbc Catalog 关闭加密",
-            "SQLServer Jdbc Catalog close encrypt"})
-    public static boolean disable_jdbc_sqlserver_encrypt = false;
+    @ConfField(description = {"强制 SQLServer Jdbc Catalog 加密为 false",
+            "Force SQLServer Jdbc Catalog encrypt to false"})
+    public static boolean force_sqlserver_jdbc_encrypt_false = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
@@ -1948,16 +1948,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static long max_hive_partition_cache_num = 100000;
 
-    @ConfField(mutable = false, masterOnly = false, description = {"Hive表到分区名列表缓存的最大数量。",
-        "Max cache number of hive table to partition names list."})
+    @ConfField(mutable = false, masterOnly = false, description = {"Hive表名缓存的最大数量。",
+            "Max cache number of hive table name list."})
     public static long max_hive_table_cache_num = 1000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "Hive分区表缓存的最大数量", "Max cache number of hive partition table"
+    })
+    public static long max_hive_partition_table_cache_num = 1000;
+
     @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
-        "Max number of hive partition values to return while list partitions, -1 means no limitation."})
+            "Max number of hive partition values to return while list partitions, -1 means no limitation."})
     public static short max_hive_list_partition_num = -1;
 
     @ConfField(mutable = false, masterOnly = false, description = {"远程文件系统缓存的最大数量",
-        "Max cache number of remote file system."})
+            "Max cache number of remote file system."})
     public static long max_remote_file_system_cache_num = 100;
 
     @ConfField(mutable = false, masterOnly = false, description = {"外表行数缓存最大数量",

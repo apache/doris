@@ -205,7 +205,9 @@ public class CloudPartition extends Partition {
         for (int i = 0; i < size; ++i) {
             Long version = versions.get(i);
             if (version > Partition.PARTITION_INIT_VERSION) {
-                partitions.get(i).setCachedVisibleVersion(versions.get(i), versionUpdateTimesMs.get(i));
+                // For compatibility, the existing partitions may not have mtime
+                long mTime = versions.size() == versionUpdateTimesMs.size() ? versionUpdateTimesMs.get(i) : 0;
+                partitions.get(i).setCachedVisibleVersion(versions.get(i), mTime);
             }
         }
 

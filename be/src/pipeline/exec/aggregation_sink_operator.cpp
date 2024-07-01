@@ -329,6 +329,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
         if (limit) {
             need_do_agg = _emplace_into_hash_table_limit(_places.data(), block, key_locs,
                                                          key_columns, rows);
+            rows = block->rows();
         } else {
             _emplace_into_hash_table(_places.data(), key_columns, rows);
         }
@@ -589,7 +590,8 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                         bool need_filter = false;
                         {
                             SCOPED_TIMER(_hash_table_limit_compute_timer);
-                            need_filter = _shared_state->do_limit_filter(block, num_rows);
+                            need_filter =
+                                    _shared_state->do_limit_filter(block, num_rows, &key_locs);
                         }
 
                         auto& need_computes = _shared_state->need_computes;

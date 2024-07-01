@@ -311,7 +311,8 @@ public:
 
     Status reset_hash_table();
 
-    bool do_limit_filter(vectorized::Block* block, size_t num_rows);
+    bool do_limit_filter(vectorized::Block* block, size_t num_rows,
+                         const std::vector<int>* key_locs = nullptr);
     void build_limit_heap(size_t hash_table_size);
 
     // We should call this function only at 1st phase.

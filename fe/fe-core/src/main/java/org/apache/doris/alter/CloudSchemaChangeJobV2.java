@@ -112,10 +112,6 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
             return;
         }
 
-        if (Env.isCheckpointThread()) {
-            return;
-        }
-
         List<Long> shadowIdxList = indexIdMap.keySet().stream().collect(Collectors.toList());
         dropIndex(shadowIdxList);
     }
