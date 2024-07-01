@@ -133,6 +133,8 @@ inline thread_local constinit ThreadContext* thread_context_ptr = nullptr;
 // use mem hook to consume thread mem tracker.
 inline thread_local bool use_mem_hook = false;
 
+inline thread_local bool allocator_working = false;
+
 static std::string memory_orphan_check_msg =
         "If you crash here, it means that SCOPED_ATTACH_TASK and "
         "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER are not used correctly. starting position of "
@@ -204,6 +206,10 @@ public:
         DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
                thread_mem_tracker()->label() != "Orphan")
                 << doris::memory_orphan_check_msg;
+        // make sure huge memory is allocated by doris Allocator
+        if (size > 10 * 1024 * 1024) {
+            DCHECK(doris::allocator_working == true);
+        }
 #endif
         thread_mem_tracker_mgr->consume(size, skip_large_memory_check);
     }
@@ -289,7 +295,7 @@ public:
     }
 };
 
-// must call create_thread_local_if_not_exits() before use thread_context().
+// must call create_thread_local_if_not_exits() before using thread_context().
 static ThreadContext* thread_context() {
     if (pthread_context_ptr_init) {
         // in pthread
@@ -437,6 +443,17 @@ public:
     ~ScopeSkipMemoryCheck() {
         doris::thread_context()->skip_memory_check--;
         ThreadLocalHandle::del_thread_local_if_count_is_zero();
+    }
+};
+
+class ScopedAllocatorTagger {
+public:
+    explicit ScopedAllocatorTagger() {
+        doris::allocator_working = true;
+    }
+
+    ~ScopedAllocatorTagger() {
+        doris::allocator_working = false;
     }
 };
 
