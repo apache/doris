@@ -1109,15 +1109,6 @@ void TabletManager::update_root_path_info(std::map<string, DataDirInfo>* path_ma
 void TabletManager::get_partition_related_tablets(int64_t partition_id,
                                                   std::set<TabletInfo>* tablet_infos) {
     std::shared_lock rdlock(_partition_tablet_map_lock);
-    LOG(INFO) << "get_partition_related_tablets, partition_id: " << partition_id;
-    LOG(INFO) << "_partition_tablet_map.size():" << _partition_tablet_map.size();
-    for (auto [pid, _] : _partition_tablet_map) {
-        LOG(INFO) << "_partition_tablet_map[" << pid << "]:";
-        auto& infos = _partition_tablet_map[pid];
-        for (auto& info : infos) {
-            LOG(INFO) << "info: " << info.to_string();
-        }
-    }
     if (_partition_tablet_map.find(partition_id) != _partition_tablet_map.end()) {
         *tablet_infos = _partition_tablet_map[partition_id];
     }
@@ -1213,8 +1204,6 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id) {
 
 void TabletManager::_add_tablet_to_partition(const TabletSharedPtr& tablet) {
     std::lock_guard<std::shared_mutex> wrlock(_partition_tablet_map_lock);
-    LOG(INFO) << "add tablet to _partition_tablet_map: partition_id: " << tablet->partition_id();
-    LOG(INFO) << "add tablet to _partition_tablet_map: tablet_info: " << tablet->get_tablet_info().to_string();
     _partition_tablet_map[tablet->partition_id()].insert(tablet->get_tablet_info());
 }
 
