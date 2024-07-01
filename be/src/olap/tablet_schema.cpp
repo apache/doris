@@ -550,7 +550,8 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         CHECK(column.children_columns_size() == 1) << "ARRAY type has more than 1 children types.";
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-        CHECK(column.children_columns_size() == 2) << "MAP type has more than 2 children types.";
+        DCHECK(column.children_columns_size() == 2) << "MAP type has more than 2 children types.";
+        LOG(WARNING) << "MAP type has more than 2 children types.";
     }
     for (size_t i = 0; i < column.children_columns_size(); i++) {
         TabletColumn child_column;
@@ -615,7 +616,8 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         CHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-        CHECK(_sub_columns.size() == 2) << "MAP type has more than 2 children types.";
+        DCHECK(_sub_columns.size() == 2) << "MAP type has more than 2 children types.";
+        LOG(WARNING) << "MAP type has more than 2 children types.";
     }
 
     for (size_t i = 0; i < _sub_columns.size(); i++) {

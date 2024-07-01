@@ -40,7 +40,7 @@ public class AutoIncrementGenerator implements Writable, GsonPostProcessable {
 
     public static final long NEXT_ID_INIT_VALUE = 1;
     // _MIN_BATCH_SIZE = 4064 in load task
-    private static final long BATCH_ID_INTERVAL = 50000;
+    private static final long BATCH_ID_INTERVAL = 500000;
 
     @SerializedName(value = "dbId")
     private Long dbId;
@@ -48,7 +48,6 @@ public class AutoIncrementGenerator implements Writable, GsonPostProcessable {
     private Long tableId;
     @SerializedName(value = "columnId")
     private Long columnId;
-    @SerializedName(value = "nextId")
     private long nextId;
     @SerializedName(value = "batchEndId")
     private long batchEndId;
@@ -86,10 +85,10 @@ public class AutoIncrementGenerator implements Writable, GsonPostProcessable {
         long endId = startId + length;
         nextId = startId + length;
         if (endId > batchEndId) {
-            batchEndId = (endId / BATCH_ID_INTERVAL + 1) * BATCH_ID_INTERVAL;
             Preconditions.checkState(editLog != null);
             AutoIncrementIdUpdateLog info = new AutoIncrementIdUpdateLog(dbId, tableId, columnId, batchEndId);
             editLog.logUpdateAutoIncrementId(info);
+            batchEndId = (endId / BATCH_ID_INTERVAL + 1) * BATCH_ID_INTERVAL;
         }
         LOG.info("[getAutoIncrementRange result][{}, {}]", startId, length);
         return Pair.of(startId, length);
