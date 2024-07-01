@@ -448,13 +448,9 @@ public:
 
 class ScopedAllocatorTagger {
 public:
-    explicit ScopedAllocatorTagger() {
-        doris::allocator_working = true;
-    }
+    explicit ScopedAllocatorTagger() { doris::allocator_working = true; }
 
-    ~ScopedAllocatorTagger() {
-        doris::allocator_working = false;
-    }
+    ~ScopedAllocatorTagger() { doris::allocator_working = false; }
 };
 
 // Basic macros for mem tracker, usually do not need to be modified and used.
