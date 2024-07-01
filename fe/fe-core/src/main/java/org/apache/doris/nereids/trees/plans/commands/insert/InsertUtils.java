@@ -472,7 +472,8 @@ public class InsertUtils {
             }
             throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
         }
-        return InsertUtils.normalizeMaybeHintPlan(logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx), Optional.empty());
+        return InsertUtils.normalizeMaybeHintPlan(logicalQuery,
+                InsertUtils.getTargetTable(logicalQuery, ctx), Optional.empty());
     }
 
     // check for insert into t1(a,b,gen_col) select 1,2,3;
