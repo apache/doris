@@ -160,7 +160,9 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     // init collect iterator
     StorageReadOptions opts;
     opts.record_rowids = read_params.record_rowids;
-    opts.block_row_max = read_params.batch_size;
+    if (read_params.batch_size > 0) {
+        opts.block_row_max = read_params.batch_size;
+    }
     RETURN_IF_ERROR(_vcollect_iter->init(opts, sample_info));
 
     // In agg keys value columns compact, get first row for _init_agg_state
@@ -214,7 +216,11 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 Status VerticalBlockReader::init(const ReaderParams& read_params,
                                  CompactionSampleInfo* sample_info) {
     StorageReadOptions opts;
-    _reader_context.batch_size = read_params.batch_size;
+    if (read_params.batch_size > 0) {
+        _reader_context.batch_size = read_params.batch_size;
+    } else {
+        _reader_context.batch_size = opts.block_row_max;
+    }
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
     _arena = std::make_unique<Arena>();
