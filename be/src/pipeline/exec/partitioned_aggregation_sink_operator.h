@@ -54,7 +54,8 @@ public:
     };
     template <typename HashTableCtxType, typename HashTableType>
     Status _spill_hash_table(RuntimeState* state, HashTableCtxType& context,
-                             HashTableType& hash_table, bool eos) {
+                             AggSharedState* in_mem_shared_state, HashTableType& hash_table,
+                             bool eos) {
         Status status;
         Defer defer {[&]() {
             if (!status.ok()) {
@@ -64,15 +65,15 @@ public:
 
         context.init_iterator();
 
-        Base::_shared_state->in_mem_shared_state->aggregate_data_container->init_once();
+        in_mem_shared_state->aggregate_data_container->init_once();
 
         static int spill_batch_rows = 4096;
         int row_count = 0;
 
         std::vector<TmpSpillInfo<typename HashTableType::key_type>> spill_infos(
                 Base::_shared_state->partition_count);
-        auto& iter = Base::_shared_state->in_mem_shared_state->aggregate_data_container->iterator;
-        while (iter != Base::_shared_state->in_mem_shared_state->aggregate_data_container->end() &&
+        auto& iter = in_mem_shared_state->aggregate_data_container->iterator;
+        while (iter != in_mem_shared_state->aggregate_data_container->end() &&
                !state->is_cancelled()) {
             const auto& key = iter.template get_key<typename HashTableType::key_type>();
             auto partition_index = Base::_shared_state->get_partition_index(hash_table.hash(key));
@@ -84,9 +85,10 @@ public:
                 for (int i = 0; i < Base::_shared_state->partition_count && !state->is_cancelled();
                      ++i) {
                     if (spill_infos[i].keys_.size() >= spill_batch_rows) {
-                        status = _spill_partition(
-                                state, context, Base::_shared_state->spill_partitions[i],
-                                spill_infos[i].keys_, spill_infos[i].values_, nullptr, false);
+                        status = _spill_partition(state, context, in_mem_shared_state,
+                                                  Base::_shared_state->spill_partitions[i],
+                                                  spill_infos[i].keys_, spill_infos[i].values_,
+                                                  nullptr, false);
                         RETURN_IF_ERROR(status);
                     }
                 }
@@ -99,7 +101,8 @@ public:
             auto spill_null_key_data =
                     (hash_null_key_data && i == Base::_shared_state->partition_count - 1);
             if (spill_infos[i].keys_.size() > 0 || spill_null_key_data) {
-                status = _spill_partition(state, context, Base::_shared_state->spill_partitions[i],
+                status = _spill_partition(state, context, in_mem_shared_state,
+                                          Base::_shared_state->spill_partitions[i],
                                           spill_infos[i].keys_, spill_infos[i].values_,
                                           spill_null_key_data
                                                   ? hash_table.template get_null_key_data<
@@ -122,6 +125,7 @@ public:
 
     template <typename HashTableCtxType, typename KeyType>
     Status _spill_partition(RuntimeState* state, HashTableCtxType& context,
+                            AggSharedState* in_mem_shared_state,
                             AggSpillPartitionSPtr& spill_partition, std::vector<KeyType>& keys,
                             std::vector<vectorized::AggregateDataPtr>& values,
                             const vectorized::AggregateDataPtr null_key_data, bool is_last) {
@@ -134,7 +138,7 @@ public:
                                          Base::_spill_write_disk_timer,
                                          Base::_spill_write_wait_io_timer);
 
-        status = to_block(context, keys, values, null_key_data);
+        status = to_block(context, keys, in_mem_shared_state, values, null_key_data);
         RETURN_IF_ERROR(status);
 
         if (is_last) {
@@ -162,6 +166,7 @@ public:
 
     template <typename HashTableCtxType, typename KeyType>
     Status to_block(HashTableCtxType& context, std::vector<KeyType>& keys,
+                    AggSharedState* in_mem_shared_state,
                     std::vector<vectorized::AggregateDataPtr>& values,
                     const vectorized::AggregateDataPtr null_key_data) {
         SCOPED_TIMER(_spill_serialize_hash_table_timer);
@@ -177,26 +182,18 @@ public:
             values.emplace_back(null_key_data);
         }
 
-        for (size_t i = 0;
-             i < Base::_shared_state->in_mem_shared_state->aggregate_evaluators.size(); ++i) {
-            Base::_shared_state->in_mem_shared_state->aggregate_evaluators[i]
-                    ->function()
-                    ->serialize_to_column(values,
-                                          Base::_shared_state->in_mem_shared_state
-                                                  ->offsets_of_aggregate_states[i],
-                                          value_columns_[i], values.size());
+        for (size_t i = 0; i < in_mem_shared_state->aggregate_evaluators.size(); ++i) {
+            in_mem_shared_state->aggregate_evaluators[i]->function()->serialize_to_column(
+                    values, in_mem_shared_state->offsets_of_aggregate_states[i], value_columns_[i],
+                    values.size());
         }
 
         vectorized::ColumnsWithTypeAndName key_columns_with_schema;
         for (int i = 0; i < key_columns_.size(); ++i) {
             key_columns_with_schema.emplace_back(
                     std::move(key_columns_[i]),
-                    Base::_shared_state->in_mem_shared_state->probe_expr_ctxs[i]
-                            ->root()
-                            ->data_type(),
-                    Base::_shared_state->in_mem_shared_state->probe_expr_ctxs[i]
-                            ->root()
-                            ->expr_name());
+                    in_mem_shared_state->probe_expr_ctxs[i]->root()->data_type(),
+                    in_mem_shared_state->probe_expr_ctxs[i]->root()->expr_name());
         }
         key_block_ = key_columns_with_schema;
 
@@ -204,9 +201,7 @@ public:
         for (int i = 0; i < value_columns_.size(); ++i) {
             value_columns_with_schema.emplace_back(
                     std::move(value_columns_[i]), value_data_types_[i],
-                    Base::_shared_state->in_mem_shared_state->aggregate_evaluators[i]
-                            ->function()
-                            ->get_name());
+                    in_mem_shared_state->aggregate_evaluators[i]->function()->get_name());
         }
         value_block_ = value_columns_with_schema;
 
@@ -320,6 +315,8 @@ public:
     size_t revocable_mem_size(RuntimeState* state) const override;
 
     Status revoke_memory(RuntimeState* state) override;
+
+    bool try_reserve_memory(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
 
 private:
     friend class PartitionedAggSinkLocalState;

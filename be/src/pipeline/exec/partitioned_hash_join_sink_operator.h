@@ -45,12 +45,13 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
     Status revoke_memory(RuntimeState* state);
     size_t revocable_mem_size(RuntimeState* state) const;
+    size_t estimate_memory(vectorized::Block* block, bool eos) const;
 
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}
 
-    void _spill_to_disk(uint32_t partition_index,
+    void _spill_to_disk(const vectorized::Block& partitioned_block,
                         const vectorized::SpillStreamSPtr& spilling_stream);
 
     Status _partition_block(RuntimeState* state, vectorized::Block* in_block, size_t begin,
@@ -129,6 +130,8 @@ public:
     bool require_data_distribution() const override {
         return _inner_probe_operator->require_data_distribution();
     }
+
+    bool try_reserve_memory(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
 
 private:
     friend class PartitionedHashJoinSinkLocalState;

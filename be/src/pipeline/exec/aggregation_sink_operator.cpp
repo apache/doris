@@ -868,6 +868,33 @@ Status AggSinkOperatorX::reset_hash_table(RuntimeState* state) {
     return Status::OK();
 }
 
+int64_t AggSinkOperatorX::estimate_memory_for_block(RuntimeState* state, vectorized::Block* block) {
+    auto& local_state = get_local_state(state);
+    return local_state.estimate_memory(block);
+}
+
+int64_t AggSinkLocalState::estimate_memory(vectorized::Block* block) {
+    if (!block || block->empty()) {
+        return 0;
+    }
+
+    const auto& rows = block->rows();
+    size_t estimated_size = _shared_state->aggregate_data_container->estimate_for_expanding(rows);
+
+    std::visit(vectorized::Overload {
+                       [](std::monostate& arg) {
+                           throw Exception(ErrorCode::INTERNAL_ERROR, "uninitialized hash table");
+                       },
+                       [&](auto& arg) {
+                           auto& hash_table = *arg.hash_table;
+                           if (hash_table.add_elem_size_overflow(rows)) {
+                               estimated_size += hash_table.estimate_for_expanding(rows);
+                           }
+                       }},
+               _shared_state->agg_data->method_variant);
+    return estimated_size;
+}
+
 Status AggSinkLocalState::close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);

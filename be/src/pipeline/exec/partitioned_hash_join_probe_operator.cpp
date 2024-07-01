@@ -268,11 +268,6 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
     }
 
     auto& mutable_block = _shared_state->partitioned_build_blocks[partition_index];
-    if (!mutable_block) {
-        ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilled_stream);
-        spilled_stream.reset();
-        return Status::OK();
-    }
 
     std::weak_ptr<PartitionedHashJoinSharedState> shared_state_holder =
             _shared_state->shared_from_this();
@@ -325,8 +320,12 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
                 break;
             }
 
-            if (mutable_block->empty()) {
-                *mutable_block = std::move(block);
+            if (!mutable_block) [[unlikely]] {
+                mutable_block = vectorized::MutableBlock::create_unique(block.clone_empty());
+            }
+
+            if (!mutable_block || mutable_block->empty()) {
+                mutable_block = vectorized::MutableBlock::create_unique(std::move(block));
             } else {
                 DCHECK_EQ(mutable_block->columns(), block.columns());
                 st = mutable_block->merge(std::move(block));
