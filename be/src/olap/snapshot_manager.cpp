@@ -186,9 +186,6 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         }
 
         rowset_meta->set_tablet_id(tablet_id);
-        if (table_id > 0) {
-            rowset_meta.set_table_id(table_id);
-        }
         if (partition_id != -1) {
             rowset_meta->set_partition_id(partition_id);
         }
