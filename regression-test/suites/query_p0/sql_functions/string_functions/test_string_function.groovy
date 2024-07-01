@@ -137,6 +137,10 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select split_part('abc##123###xyz', '##', -1)"
     qt_sql "select split_part('abc##123###xyz', '##', -2)"
     qt_sql "select split_part('abc##123###xyz', '##', -4)"
+    qt_sql "select split_part('abc', '|', 1)"
+    qt_sql "select split_part('abc', '||', 1)"
+    qt_sql "select split_part('abc', '|', -1)"
+    qt_sql "select split_part('abc', '||', -1)"
 
     qt_sql "select starts_with(\"hello world\",\"hello\");"
     qt_sql "select starts_with(\"hello world\",\"world\");"
