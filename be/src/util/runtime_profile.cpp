@@ -55,7 +55,18 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
     _counter_map["TotalTime"] = &_counter_total_time;
 }
 
-RuntimeProfile::~RuntimeProfile() = default;
+RuntimeProfile::~RuntimeProfile() {
+    {
+        std::lock_guard<std::mutex> l(_counter_map_lock);
+        _counter_map.clear();
+        _child_counter_map.clear();
+    }
+
+    {
+        std::lock_guard<std::mutex> l(_children_lock);
+        _child_map.clear();
+    }
+}
 
 void RuntimeProfile::merge(RuntimeProfile* other) {
     DCHECK(other != nullptr);
