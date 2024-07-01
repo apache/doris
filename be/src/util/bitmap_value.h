@@ -1662,7 +1662,6 @@ public:
             case SINGLE: {
                 _set.insert(_sv);
                 _type = SET;
-                _convert_to_bitmap_if_need();
                 break;
             }
             case BITMAP:
@@ -1673,9 +1672,11 @@ public:
                 _type = BITMAP;
                 break;
             case SET: {
-                _convert_to_bitmap_if_need();
                 break;
             }
+            }
+            if (_type == SET) {
+                _convert_to_bitmap_if_need();
             }
         }
 
