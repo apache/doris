@@ -55,7 +55,7 @@ public:
         // send_filter_size may call dependency->sub(), so we call set_dependency firstly for all rf to avoid dependency set_ready repeatedly
         for (auto* runtime_filter : _runtime_filters) {
             if (runtime_filter->need_sync_filter_size()) {
-                RETURN_IF_ERROR(runtime_filter->send_filter_size(hash_table_size));
+                RETURN_IF_ERROR(runtime_filter->send_filter_size(state, hash_table_size));
             }
         }
         return Status::OK();
@@ -102,10 +102,8 @@ public:
 
             if (filter->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
                 if (filter->need_sync_filter_size() != filter->isset_synced_size()) {
-                    LOG(WARNING) << "sync filter size meet error, filter: "
-                                 << filter->debug_string();
-                    filter->set_ignored();
-                    continue;
+                    return Status::InternalError("sync filter size meet error, filter: {}",
+                                                 filter->debug_string());
                 }
                 RETURN_IF_ERROR(
                         filter->init_bloom_filter(get_real_size(filter, local_hash_table_size)));

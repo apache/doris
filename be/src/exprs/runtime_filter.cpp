@@ -1054,7 +1054,7 @@ public:
             : Base(req, callback), _dependency(std::move(dependency)) {}
 };
 
-Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
+Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
     DCHECK(is_producer());
 
     if (_need_local_merge) {
@@ -1105,7 +1105,7 @@ Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
 
     request->set_filter_size(local_filter_size);
     request->set_filter_id(_filter_id);
-    callback->cntl_->set_timeout_ms(config::sync_filter_rpc_timeout_ms);
+    callback->cntl_->set_timeout_ms(std::min(3600, state->execution_timeout()) * 1000);
 
     stub->send_filter_size(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
                            closure.get());
