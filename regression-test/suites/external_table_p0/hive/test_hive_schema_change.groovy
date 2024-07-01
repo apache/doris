@@ -89,7 +89,7 @@ alter table type_change_parquet change column fd_double fd_double double;
 alter table type_change_parquet change column date_timestamp date_timestamp timestamp;
 alter table type_change_parquet change column timestamp_date timestamp_date date;
 */
-suite("test_hive_schema_change", "p2,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_schema_change", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_star_qualifier", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_hive_star_qualifier", "p0,external,hive,external_docker,external_docker_hive") {
     String catalog_name = "test_hive_star_qualifier"
 
     def test1 = """select * from ${catalog_name}.multi_catalog.one_partition order by id;"""
