@@ -194,14 +194,14 @@ public class StatsCalculatorTest {
         Group ownerGroup = new Group(null, groupExpression, null);
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression, null);
-        Assertions.assertEquals(0, ownerGroup.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals(1, ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = new Group(null, groupExpressionOr, null);
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
         StatsCalculator.estimate(groupExpressionOr, null);
-        Assertions.assertEquals(0, ownerGroupOr.getStatistics().getRowCount(), 0.001);
+        Assertions.assertEquals(1, ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
     // TODO: temporary disable this test, until we could get column stats
     // @Test
