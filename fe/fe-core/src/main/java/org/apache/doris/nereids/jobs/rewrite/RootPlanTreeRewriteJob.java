@@ -39,7 +39,6 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
     private final boolean once;
     private final Predicate<Plan> isTraverseChildren;
 
-
     public RootPlanTreeRewriteJob(List<Rule> rules, RewriteJobBuilder rewriteJobBuilder, boolean once) {
         this(rules, rewriteJobBuilder, plan -> true, once);
     }
