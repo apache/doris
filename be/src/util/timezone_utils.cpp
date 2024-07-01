@@ -21,6 +21,7 @@
 #include <cctz/time_zone.h>
 #include <fcntl.h>
 #include <glog/logging.h>
+#include <re2/re2.h>
 #include <re2/stringpiece.h>
 #include <sys/mman.h>
 #include <sys/stat.h>

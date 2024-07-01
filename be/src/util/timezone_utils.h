@@ -18,8 +18,6 @@
 
 #pragma once
 
-#include <re2/re2.h>
-
 #include <string>
 
 namespace cctz {

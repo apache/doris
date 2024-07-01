@@ -177,7 +177,7 @@ TEST(VTimestampFunctionsTest, second_test) {
 
 TEST(VTimestampFunctionsTest, from_unix_test) {
     std::string func_name = "from_unixtime";
-    TimezoneUtils::load_timezone_names();
+    TimezoneUtils::load_timezones_to_cache();
 
     InputTypeSet input_types = {TypeIndex::Int64};
 
