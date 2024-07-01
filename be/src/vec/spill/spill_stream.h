@@ -40,6 +40,8 @@ public:
                 std::string spill_dir, size_t batch_rows, size_t batch_bytes,
                 RuntimeProfile* profile);
 
+    SpillStream() = delete;
+
     ~SpillStream();
 
     int64_t id() const { return stream_id_; }
@@ -98,6 +100,8 @@ private:
 
     SpillWriterUPtr writer_;
     SpillReaderUPtr reader_;
+
+    TUniqueId query_id_;
 
     RuntimeProfile* profile_ = nullptr;
     RuntimeProfile::Counter* write_wait_io_timer_ = nullptr;

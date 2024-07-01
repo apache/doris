@@ -122,29 +122,14 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
     /// So, we need hold the pointer of shared state.
     std::weak_ptr<PartitionedHashJoinSharedState> shared_state_holder =
             _shared_state->shared_from_this();
-
-    _dependency->block();
     auto query_id = state->query_id();
     auto mem_tracker = state->get_query_ctx()->query_mem_tracker;
-    auto spill_func = [shared_state_holder, execution_context,
-                       build_blocks = std::move(build_blocks), state, query_id, mem_tracker,
-                       num_slots, this]() mutable {
-        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+    auto spill_func = [build_blocks = std::move(build_blocks), state, num_slots, this]() mutable {
         Defer defer {[&]() {
             // need to reset build_block here, or else build_block will be destructed
             // after SCOPED_ATTACH_TASK_WITH_ID and will trigger memory_orphan_check failure
             build_blocks.clear();
         }};
-
-        std::shared_ptr<TaskExecutionContext> execution_context_lock;
-        auto shared_state_sptr = shared_state_holder.lock();
-        if (shared_state_sptr) {
-            execution_context_lock = execution_context.lock();
-        }
-        if (!shared_state_sptr || !execution_context_lock || state->is_cancelled()) {
-            LOG(INFO) << "execution_context released, maybe query was canceled.";
-            return;
-        }
 
         auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
         auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
@@ -228,8 +213,36 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
 
         _dependency->set_ready();
     };
+
+    auto exception_catch_func = [spill_func, shared_state_holder, execution_context, state,
+                                 query_id, mem_tracker, this]() mutable {
+        SCOPED_ATTACH_TASK_WITH_ID(mem_tracker, query_id);
+        std::shared_ptr<TaskExecutionContext> execution_context_lock;
+        auto shared_state_sptr = shared_state_holder.lock();
+        if (shared_state_sptr) {
+            execution_context_lock = execution_context.lock();
+        }
+        if (!shared_state_sptr || !execution_context_lock || state->is_cancelled()) {
+            LOG(INFO) << "execution_context released, maybe query was canceled.";
+            return;
+        }
+
+        auto status = [&]() {
+            RETURN_IF_CATCH_EXCEPTION(spill_func());
+            return Status::OK();
+        }();
+
+        if (!status.ok()) {
+            std::unique_lock<std::mutex> lock(_spill_lock);
+            _spill_status = status;
+            _spill_status_ok = false;
+            _dependency->set_ready();
+        }
+    };
     auto* thread_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
-    return thread_pool->submit_func(spill_func);
+
+    _dependency->block();
+    return thread_pool->submit_func(exception_catch_func);
 }
 
 Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
@@ -288,7 +301,18 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
             }
             _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
             SCOPED_TIMER(_spill_build_timer);
-            _spill_to_disk(i, spilling_stream);
+
+            auto status = [&]() {
+                RETURN_IF_CATCH_EXCEPTION(_spill_to_disk(i, spilling_stream));
+                return Status::OK();
+            }();
+
+            if (!status.OK()) {
+                std::unique_lock<std::mutex> lock(_spill_lock);
+                _dependency->set_ready();
+                _spill_status_ok = false;
+                _spill_status = std::move(status);
+            }
         });
 
         if (!st.ok()) {
