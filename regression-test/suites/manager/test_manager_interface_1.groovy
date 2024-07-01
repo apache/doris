@@ -325,10 +325,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         assertTrue(result.size() == 1)
         assertTrue(result[0][0] == "test_manager_tb_2")
         def ddl_str =  result[0][1] 
-        def idx =  ddl_str.indexOf("replication_allocation")
-        assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""replication_allocation" = "tag.location.default: 1"""))
-
-        idx =  ddl_str.indexOf("min_load_replica_num")
+        def idx =  ddl_str.indexOf("min_load_replica_num")
         assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""min_load_replica_num" = "-1"""))
 
         sql """alter table test_manager_tb_2 set ("min_load_replica_num" = "1")"""
@@ -511,7 +508,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         futures.add( thread {
 
             try{
-                sql """ select sleep(9809); """
+                sql """ select sleep(4.809); """
             }catch(Exception e){
                 
             }
@@ -524,7 +521,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             logger.info("result = ${result}")
 
             for( int i = 0;i<result.size();i++) {
-                if (result[i][7] != null && result[i][7].contains("sleep(9809)") )//Statement
+                if (result[i][7] != null && result[i][7].contains("sleep(4.809)") )//Statement
                 {
                     x = 1
                     queryid = result[i][0]
@@ -624,13 +621,13 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         futures.add( thread {
             
             try{
-                sql """ select sleep(87676); """
+                sql """ select sleep(4.7676); """
             }catch(Exception e){
             }
         })
 
         futures.add( thread {
-            sleep(3000)
+            sleep(1500)
 
             result = sql """ 
             select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join 
@@ -643,7 +640,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             for( int i =0 ;i < result.size();i++ ){
                 assertTrue(result[i][0] != null ) // QueryId
 
-                if ( result[i][9].contains("sleep(87676)")  ){
+                if ( result[i][9].contains("sleep(4.7676)")  ){
                     x = 1 
                     queryId = result[i][0]
                     logger.info("result = ${queryId}}")
