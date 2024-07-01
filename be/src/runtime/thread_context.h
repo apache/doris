@@ -207,7 +207,7 @@ public:
                thread_mem_tracker()->label() != "Orphan")
                 << doris::memory_orphan_check_msg;
         // make sure huge memory is allocated by doris Allocator
-        if (size > 10 * 1024 * 1024) {
+        if (size > config::debug_max_memory_size_by_native_allocator) {
             DCHECK(doris::allocator_working == true);
         }
 #endif

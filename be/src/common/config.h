@@ -1399,6 +1399,9 @@ DECLARE_Bool(enable_file_logger);
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
 
+// If native memory allocator allocates more memory than this value, an exception will be thrown.
+DECLARE_Int64(debug_max_memory_size_by_native_allocator);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
