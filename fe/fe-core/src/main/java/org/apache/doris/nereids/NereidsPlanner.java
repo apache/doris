@@ -602,8 +602,8 @@ public class NereidsPlanner extends Planner {
             }
         }
 
-        if (physicalPlan instanceof PhysicalResultSink &&
-                physicalPlan.child(0) instanceof PhysicalHashAggregate && !getScanNodes().isEmpty()
+        if (physicalPlan instanceof PhysicalResultSink
+                && physicalPlan.child(0) instanceof PhysicalHashAggregate && !getScanNodes().isEmpty()
                 && getScanNodes().get(0) instanceof IcebergScanNode) {
             List<Column> columns = Lists.newArrayList();
             NamedExpression output = physicalPlan.getOutput().get(0);
