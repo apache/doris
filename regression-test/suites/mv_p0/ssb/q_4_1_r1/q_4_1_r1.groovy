@@ -101,6 +101,9 @@ suite ("q_4_1_r1") {
     sql """INSERT INTO lineorder_flat (LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE, C_NAME, C_ADDRESS, C_CITY, C_NATION, C_REGION, C_PHONE, C_MKTSEGMENT, S_NAME, S_ADDRESS, S_CITY, S_NATION, S_REGION, S_PHONE, P_NAME, P_MFGR, P_CATEGORY, P_BRAND, P_COLOR,P_TYPE,P_SIZE,P_CONTAINER) VALUES (1 , 1 , 1 , 1 , 1 , 1 , '1' , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , '2023-06-09' , 'shipmode' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' , 'phone' , 'mktsegment' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' ,'phone', 'name', 'MFGR#1', 'category', 'brand', 'color', 'type', 4 ,'container');"""
 
     qt_select_star "select * from lineorder_flat order by 1,2,P_MFGR;"
+
+    sql """analyze table lineorder_flat with sync;"""
+    sql """set enable_stats=false;"""
     
     explain {
         sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
@@ -126,4 +129,18 @@ suite ("q_4_1_r1") {
                 AND P_MFGR IN ('MFGR#1', 'MFGR#2')
                 GROUP BY YEAR, C_NATION
                 ORDER BY YEAR ASC, C_NATION ASC;"""
+    sql """set enable_stats=true;"""
+    explain {
+        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+            C_NATION,
+            SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
+            FROM lineorder_flat
+            WHERE
+            C_REGION = 'AMERICA'
+            AND S_REGION = 'AMERICA'
+            AND P_MFGR IN ('MFGR#1', 'MFGR#2')
+            GROUP BY YEAR, C_NATION
+            ORDER BY YEAR ASC, C_NATION ASC;""")
+        contains "(lineorder_mv)"
+    }
 }

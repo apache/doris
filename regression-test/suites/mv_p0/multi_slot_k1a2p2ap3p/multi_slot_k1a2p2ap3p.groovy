@@ -44,9 +44,18 @@ suite ("multi_slot_k1a2p2ap3p") {
 
     qt_select_star "select * from d_table order by k1;"
 
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3")
         contains "(k1a2p2ap3p)"
     }
     qt_select_mv "select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3")
+        contains "(k1a2p2ap3p)"
+    }
 }
