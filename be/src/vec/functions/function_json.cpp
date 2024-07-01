@@ -1280,7 +1280,7 @@ private:
         for (auto col = 1; col + 1 < data_columns.size() - 1; col += 2) {
             json_paths.emplace_back(std::vector<std::vector<JsonPath>>());
             for (auto row = 0; row < input_rows_count; row++) {
-                const auto& path = data_columns[col]->get_data_at(
+                const auto path = data_columns[col]->get_data_at(
                         index_check_const(row, column_is_consts[col]));
                 std::string_view path_string(path.data, path.size);
                 std::vector<JsonPath> parsed_paths;
@@ -1329,7 +1329,7 @@ public:
                         size_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         bool is_nullable = false;
-        auto ret_null_map = ColumnUInt8::create(0, 0);
+        MutableColumnPtr ret_null_map = nullptr;
 
         std::vector<const ColumnString*> data_columns;
         std::vector<const ColumnUInt8*> nullmaps;
