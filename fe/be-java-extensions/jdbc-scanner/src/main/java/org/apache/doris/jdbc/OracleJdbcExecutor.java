@@ -27,10 +27,12 @@ import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.sql.Clob;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 
 public class OracleJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(OracleJdbcExecutor.class);
@@ -112,6 +114,8 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
                             LOG.error("Failed to get string from clob", e);
                             return null;
                         }
+                    } else if (input instanceof byte[]) {
+                        return convertByteArrayToString((byte[]) input);
                     } else {
                         return input.toString();
                     }
@@ -119,5 +123,33 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
             default:
                 return null;
         }
+    }
+
+    private String convertByteArrayToString(byte[] bytes) {
+        if (isValidUtf8(bytes)) {
+            return new String(bytes, StandardCharsets.UTF_8);
+        } else {
+            // Convert byte[] to hexadecimal string with "0x" prefix
+            return "0x" + bytesToHex(bytes);
+        }
+    }
+
+    private boolean isValidUtf8(byte[] bytes) {
+        try {
+            // Decode and re-encode the bytes to check if they are valid UTF-8
+            String decoded = new String(bytes, StandardCharsets.UTF_8);
+            byte[] reEncoded = decoded.getBytes(StandardCharsets.UTF_8);
+            return Arrays.equals(bytes, reEncoded);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X", b));
+        }
+        return sb.toString();
     }
 }
