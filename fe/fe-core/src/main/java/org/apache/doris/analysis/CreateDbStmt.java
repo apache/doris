@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -29,6 +28,8 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -84,11 +85,11 @@ public class CreateDbStmt extends DdlStmt {
         }
         FeNameFormat.checkCatalogName(ctlName);
         FeNameFormat.checkDbName(dbName);
-        if(StringUtils.isNotEmpty(engineName)){
-            if(!engineName.equals(ENGINE_MATERIALIZED_CDC)) {
+        if (StringUtils.isNotEmpty(engineName)) {
+            if (!engineName.equals(ENGINE_MATERIALIZED_CDC)) {
                 throw new AnalysisException("Unknown engine name: " + engineName);
             }
-            if(!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)){
+            if (!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
                 throw new AnalysisException("MaterializedCdc engine database must be created in internal catalog");
             }
         }
@@ -110,7 +111,7 @@ public class CreateDbStmt extends DdlStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE DATABASE ").append("`").append(dbName).append("`");
-        if (StringUtils.isNotEmpty(engineName)){
+        if (StringUtils.isNotEmpty(engineName)) {
             stringBuilder.append("\nENGINE = ").append(engineName.toLowerCase());
         }
         if (properties.size() > 0) {

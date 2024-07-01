@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
-import org.apache.doris.nereids.trees.expressions.functions.table.Cdc;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
 import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
@@ -97,8 +96,5 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitQuery(Query query, C context) {
         return visitTableValuedFunction(query, context);
-    }
-    default R visitCdc(Cdc cdc, C context) {
-        return visitTableValuedFunction(cdc, context);
     }
 }

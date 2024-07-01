@@ -17,8 +17,6 @@
 
 package org.apache.doris.tablefunction;
 
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.job.common.JobType;
@@ -32,6 +30,9 @@ import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TTasksMetadataParams;
+
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -87,7 +88,7 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
             return MTMVTask.COLUMN_TO_INDEX.get(columnName.toLowerCase());
         } else if (JobType.INSERT == jobType) {
             return InsertTask.COLUMN_TO_INDEX.get(columnName.toLowerCase());
-        } if (JobType.CDC == jobType) {
+        } else if (JobType.CDC == jobType) {
             return CdcDatabaseTask.COLUMN_TO_INDEX.get(columnName.toLowerCase());
         } else {
             throw new AnalysisException("Invalid job type: " + jobType.toString());

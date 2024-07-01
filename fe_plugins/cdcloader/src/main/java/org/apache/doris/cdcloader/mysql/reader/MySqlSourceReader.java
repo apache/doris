@@ -10,6 +10,7 @@ import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.doris.cdcloader.mysql.constants.LoadConstants;
 import org.apache.doris.cdcloader.mysql.rest.model.FetchRecordReq;
 import org.apache.doris.cdcloader.mysql.rest.model.JobConfig;
 import org.apache.doris.cdcloader.mysql.serialize.JsonSerializer;
@@ -61,6 +62,7 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
     private static final String SPLIT_ID = "splitId";
     private static final String FINISH_SPLITS = "finishSplits";
     private static final String ASSIGNED_SPLITS = "assignedSplits";
+    private static final String SNAPSHOT_TABLE = "snapshotTable";
     private Map<Long, MySqlSourceConfig> sourceConfigMap;
     private Map<Long, SnapshotSplitReader> reusedSnapshotReaderMap;
     private Map<Long, BinlogSplitReader> reusedBinlogReaderMap;
@@ -85,12 +87,17 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
 
     @Override
     public List<AbstractSourceSplit> getSourceSplits(JobConfig config) throws JsonProcessingException {
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+        }
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
         StartupMode startupMode = sourceConfig.getStartupOptions().startupMode;
         List<MySqlSnapshotSplit> remainingSnapshotSplits = new ArrayList<>();
         MySqlBinlogSplit remainingBinlogSplit = null;
         if(startupMode.equals(StartupMode.INITIAL)){
-            remainingSnapshotSplits = startSplitChunks(sourceConfig);
+            String snapshotTable = config.getConfig().get(SNAPSHOT_TABLE);
+            remainingSnapshotSplits = startSplitChunks(sourceConfig, snapshotTable, config.getConfig());
         }else{
             remainingBinlogSplit = new MySqlBinlogSplit(
                 BINLOG_SPLIT_ID,
@@ -275,12 +282,16 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
         return binlogSplit;
     }
 
-    private List<MySqlSnapshotSplit> startSplitChunks(MySqlSourceConfig sourceConfig){
+    private List<MySqlSnapshotSplit> startSplitChunks(MySqlSourceConfig sourceConfig, String snapshotTable, Map<String, String> config){
+        List<TableId> remainingTables = new ArrayList<>();
+        if(snapshotTable != null){
+            //need add database name
+            String database = config.get(LoadConstants.DATABASE_NAME);
+            remainingTables.add(TableId.parse(database + "." + snapshotTable));
+        }
         List<MySqlSnapshotSplit> remainingSplits = new ArrayList<>();
         MySqlSnapshotSplitAssigner splitAssigner =
-            new MySqlSnapshotSplitAssigner(sourceConfig, 1, new ArrayList<>(), false);
-        //增加remainSplits，alreadyProcessTables
-        //new MySqlSnapshotSplitAssigner(sourceConfig, 1, new ArrayList<>(), false);
+            new MySqlSnapshotSplitAssigner(sourceConfig, 1, remainingTables, false);
         splitAssigner.open();
         while (true) {
             Optional<MySqlSplit> mySqlSplit = splitAssigner.getNext();

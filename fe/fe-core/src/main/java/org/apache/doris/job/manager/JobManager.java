@@ -17,9 +17,6 @@
 
 package org.apache.doris.job.manager;
 
-import com.google.common.collect.Lists;
-import lombok.extern.log4j.Log4j2;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.catalog.Database;
@@ -45,6 +42,10 @@ import org.apache.doris.job.scheduler.JobScheduler;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.Lists;
+import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -126,7 +127,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
-    public Map<Long, T> getJobMap(){
+    public Map<Long, T> getJobMap() {
         return jobMap;
     }
 

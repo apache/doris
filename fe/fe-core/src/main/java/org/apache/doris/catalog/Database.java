@@ -720,7 +720,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                     : Config.default_db_max_running_txn_num;
         }
 
-        if(Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_134){
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_134) {
             dbEngineName = Text.readString(in);
         }
     }

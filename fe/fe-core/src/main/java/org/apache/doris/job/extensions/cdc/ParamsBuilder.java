@@ -40,8 +40,8 @@ public class ParamsBuilder {
         paramsList.add("--frontends");
         paramsList.add(frontends);
         paramsList.addAll(cdcConfig.entrySet().stream()
-            .map(entry -> String.format("--cdc-conf %s=%s", entry.getKey(), entry.getValue()))
-            .collect(Collectors.toList()));
+                .map(entry -> String.format("--cdc-conf %s=%s", entry.getKey(), entry.getValue()))
+                .collect(Collectors.toList()));
         return String.join(" ", paramsList);
     }
 }

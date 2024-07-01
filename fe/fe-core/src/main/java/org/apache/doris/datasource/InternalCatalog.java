@@ -17,18 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import lombok.Getter;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.time.StopWatch;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AddRollupClause;
@@ -155,8 +143,8 @@ import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.job.exception.JobException;
-import org.apache.doris.job.extensions.cdc.utils.CdcUtils;
 import org.apache.doris.job.extensions.cdc.CdcDatabaseJob;
+import org.apache.doris.job.extensions.cdc.utils.CdcUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -188,6 +176,19 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import lombok.Getter;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -457,28 +458,32 @@ public class InternalCatalog implements CatalogIf<Database> {
         String engineName = db.getDbEngineName();
         String fullDbName = db.getFullName();
         DatabaseProperty dbProperties = db.getDbProperties();
-        if(dbProperties == null || MapUtils.isEmpty(dbProperties.getProperties())){
+        if (dbProperties == null || MapUtils.isEmpty(dbProperties.getProperties())) {
             return;
         }
         Map<String, String> properties = dbProperties.getProperties();
-        if(CreateDbStmt.ENGINE_MATERIALIZED_CDC.equals(engineName)){
-            try{
+        if (CreateDbStmt.ENGINE_MATERIALIZED_CDC.equals(engineName)) {
+            try {
                 List<CreateTableStmt> tables = CdcUtils.generateCreateTableStmts(fullDbName, properties);
-                for(CreateTableStmt table : tables){
+                if (tables.isEmpty()) {
+                    throw new DdlException("No table found to sync");
+                }
+                for (CreateTableStmt table : tables) {
                     createTable(table);
                 }
-                if(Config.enable_cdc_scanner){
-                    CdcDatabaseJob cdcDatabaseJob = new CdcDatabaseJob(db.getId(), fullDbName, properties, CdcDatabaseJob.generateJobExecConfig(properties));
+                if (Config.enable_cdc_scanner) {
+                    List<String> syncTables = tables.stream().map(CreateTableStmt::getTableName).collect(Collectors.toList());
+                    CdcDatabaseJob cdcDatabaseJob = new CdcDatabaseJob(db.getId(), fullDbName, syncTables, properties, CdcDatabaseJob.generateJobExecConfig(properties));
                     Env.getCurrentEnv().getJobManager().registerJob(cdcDatabaseJob);
-                }else {
+                } else {
                     throw new DdlException("please set enable_cdc_scanner=true first");
                 }
-            }catch (Throwable t){
+            } catch (Throwable t) {
                 LOG.error("Failed to create cdc database job", t);
-                try{
+                try {
                     DropDbStmt dropDbStmt = new DropDbStmt(true, new DbName(INTERNAL_CATALOG_NAME, fullDbName), true);
                     dropDb(dropDbStmt);
-                }catch (Throwable th){
+                } catch (Throwable th) {
                     LOG.warn("Rollback drop cdc database failed, please drop database by manual, erros msg" + th.getMessage());
                 }
                 throw new DdlException("Failed to create cdc database job, " + t.getMessage());

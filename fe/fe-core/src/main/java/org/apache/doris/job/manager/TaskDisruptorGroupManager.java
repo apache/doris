@@ -66,7 +66,7 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
             ? Config.job_mtmv_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
     private static final int DISPATCH_CDC_THREAD_NUM = Config.job_cdc_task_consumer_thread_num > 0
-        ? Config.job_cdc_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
+            ? Config.job_cdc_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
     private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
     private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
@@ -120,12 +120,12 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
             cdcTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<CdcDatabaseTask>();
         }
         EventTranslatorVararg<ExecuteTaskEvent<CdcDatabaseTask>> eventTranslator =
-            (event, sequence, args) -> {
-                event.setTask((CdcDatabaseTask) args[0]);
-                event.setJobConfig((JobExecutionConfiguration) args[1]);
-            };
+                (event, sequence, args) -> {
+                    event.setTask((CdcDatabaseTask) args[0]);
+                    event.setJobConfig((JobExecutionConfiguration) args[1]);
+                };
         TaskDisruptor cdcDisruptor = new TaskDisruptor<>(cdcEventFactory, DISPATCH_CDC_TASK_QUEUE_SIZE,
-            cdcTaskThreadFactory, new BlockingWaitStrategy(), cdcTaskExecutorHandlers, eventTranslator);
+                cdcTaskThreadFactory, new BlockingWaitStrategy(), cdcTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.CDC, cdcDisruptor);
     }
 

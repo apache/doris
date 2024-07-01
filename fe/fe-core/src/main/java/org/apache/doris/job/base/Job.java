@@ -113,13 +113,13 @@ public interface Job<T extends AbstractTask, C> {
     /**
      * initialize job
      */
-    default void initialize() throws JobException {};
+    default void initialize() throws JobException {}
 
     /**
      * status changed
      * @throws JobException If register job failed.
      */
-    default void onStatusChanged(JobStatus oldStatus, JobStatus newStatus) throws JobException{};
+    default void onStatusChanged(JobStatus oldStatus, JobStatus newStatus) throws JobException {}
 
     /**
      * register job failed

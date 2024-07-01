@@ -1,10 +1,22 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.job.extensions.cdc;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -25,6 +37,12 @@ import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,17 +54,17 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
     private static final Logger LOG = LogManager.getLogger(CdcDatabaseTask.class);
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-        new Column("TaskId", ScalarType.createStringType()),
-        new Column("JobId", ScalarType.createStringType()),
-        new Column("JobName", ScalarType.createStringType()),
-        new Column("Status", ScalarType.createStringType()),
-        new Column("ErrorMsg", ScalarType.createStringType()),
-        new Column("CreateTime", ScalarType.createStringType()),
-        new Column("StartTime", ScalarType.createStringType()),
-        new Column("FinishTime", ScalarType.createStringType()),
-        new Column("Backend", ScalarType.createStringType()),
-        new Column("StartOffset", ScalarType.createStringType()),
-        new Column("EndOffset", ScalarType.createStringType()));
+            new Column("TaskId", ScalarType.createStringType()),
+            new Column("JobId", ScalarType.createStringType()),
+            new Column("JobName", ScalarType.createStringType()),
+            new Column("Status", ScalarType.createStringType()),
+            new Column("ErrorMsg", ScalarType.createStringType()),
+            new Column("CreateTime", ScalarType.createStringType()),
+            new Column("StartTime", ScalarType.createStringType()),
+            new Column("FinishTime", ScalarType.createStringType()),
+            new Column("Backend", ScalarType.createStringType()),
+            new Column("StartOffset", ScalarType.createStringType()),
+            new Column("EndOffset", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -66,7 +84,8 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
     private Map<String, String> finishedMeta;
     private Map<String, String> config;
 
-    public CdcDatabaseTask(long dbId, Backend backend, Long jobId, Map<String, String> meta, Map<String, String> config) {
+    public CdcDatabaseTask(long dbId, Backend backend, Long jobId, Map<String, String> meta,
+            Map<String, String> config) {
         this.dbId = dbId;
         this.backend = backend;
         this.jobId = jobId;
@@ -88,18 +107,18 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
     public void run() throws JobException {
         createLoadTask();
 
-        //begin txn
+        // begin txn
 
-        //Call the BE interface and pass host, port, jobId
-        //mock pull data
+        // Call the BE interface and pass host, port, jobId
+        // mock pull data
         System.out.println("====run task...");
-        try{
+        try {
             String response = RestService.fetchRecords(Pair.of(backend.getHost(), 10000), jobId, meta, config);
             System.out.println(response);
             Map map = new ObjectMapper().readValue(response, Map.class);
             Map<String, String> res = new ObjectMapper().convertValue(map.get("meta"), Map.class);
             finishedMeta = res;
-        }catch (Exception ex){
+        } catch (Exception ex) {
             LOG.error("Run task failed,", ex);
             throw new JobException(ex.getMessage());
         }
@@ -107,7 +126,7 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
 
     private void createLoadTask() throws JobException {
         long txnId = beginTxn();
-        //参数
+        // 参数
         // jobid， meta， config，txnid，sourcetype
 
 
@@ -119,13 +138,14 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
         // begin a txn for task
         try {
             txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(dbId,
-                Lists.newArrayList(), DebugUtil.printId(id), null,
-                new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING, getJobId(),
-                60000);
+                    Lists.newArrayList(), DebugUtil.printId(id), null,
+                    new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE,
+                            FrontendOptions.getLocalHostAddress()),
+                    TransactionState.LoadJobSourceType.BACKEND_STREAMING, getJobId(),
+                    60000);
         } catch (Exception ex) {
             LOG.warn("failed to begin txn for cdc load task: {}, job id: {}",
-                DebugUtil.printId(id), jobId, ex);
+                    DebugUtil.printId(id), jobId, ex);
             throw new JobException("failed to begin txn");
         }
         return txnId;
@@ -138,7 +158,8 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getTaskId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobName())));
-        trow.addToColumnValue(new TCell().setStringVal(super.getStatus() == null ? FeConstants.null_string : super.getStatus().toString()));
+        trow.addToColumnValue(new TCell().setStringVal(
+                super.getStatus() == null ? FeConstants.null_string : super.getStatus().toString()));
         trow.addToColumnValue(new TCell().setStringVal(super.getErrMsg()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getStartTimeMs())));
@@ -146,13 +167,13 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
         trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
         trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(meta)));
         trow.addToColumnValue(new TCell()
-            .setStringVal(finishedMeta == null ? FeConstants.null_string : new Gson().toJson(finishedMeta)));
+                .setStringVal(finishedMeta == null ? FeConstants.null_string : new Gson().toJson(finishedMeta)));
         return trow;
     }
 
     @Override
     public void onSuccess() throws JobException {
-        CdcDatabaseJob job = (CdcDatabaseJob)Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        CdcDatabaseJob job = (CdcDatabaseJob) Env.getCurrentEnv().getJobManager().getJob(getJobId());
         job.updateOffset(finishedMeta);
         super.onSuccess();
         job.recordTasks(this);
@@ -160,7 +181,7 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
 
     @Override
     public void onFail() throws JobException {
-        CdcDatabaseJob job = (CdcDatabaseJob)Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        CdcDatabaseJob job = (CdcDatabaseJob) Env.getCurrentEnv().getJobManager().getJob(getJobId());
         super.onFail();
         job.recordTasks(this);
     }
@@ -174,24 +195,24 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
         if (LOG.isDebugEnabled()) {
             LOG.debug(new LogBuilder(LogKey.SCHEDULER_TASK, txnState.getLabel())
-                .add("txn_state", txnState)
-                .add("msg", "task before committed")
-                .build());
+                    .add("txn_state", txnState)
+                    .add("msg", "task before committed")
+                    .build());
         }
-        //todo:
+        // todo:
         // 1. 校验当前的task的状态，是否已经fail+cancel
         // 2. 更新offset，如果comit成功，记录editlog，否则回滚offset
     }
 
     @Override
     public void beforeAborted(TransactionState txnState) throws TransactionException {
-        //todo
+        // todo
         // 1. 校验当前的task的状态，是否已经fail+cancel
     }
 
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
-        //todo:
+        // todo:
         // 1. 找到正在runing的task的taskid
         // 2. updateEditLog
     }
@@ -201,8 +222,9 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
     }
 
     @Override
-    public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason) throws UserException {
-        //todo: rollback offset
+    public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason)
+            throws UserException {
+        // todo: rollback offset and split
     }
 
     @Override
