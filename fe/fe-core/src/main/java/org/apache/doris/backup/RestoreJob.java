@@ -388,7 +388,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     @Override
-    public void run() {
+    public synchronized void run() {
         if (state == RestoreJobState.FINISHED || state == RestoreJobState.CANCELLED) {
             return;
         }
