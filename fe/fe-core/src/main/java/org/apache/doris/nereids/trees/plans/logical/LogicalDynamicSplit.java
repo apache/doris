@@ -63,9 +63,15 @@ public class LogicalDynamicSplit<CHILD_TYPE extends Plan> extends LogicalUnary<C
 
     public LogicalDynamicSplit(SplitColumnInfo splitColumnInfo, Range range, AtomicBoolean replaced, CHILD_TYPE child) {
 
-        super(PlanType.LOGICAL_BATCH_FILTER, child);
-        this.splitColumnInfo = splitColumnInfo;
+        this(splitColumnInfo, range, replaced, Optional.empty(), Optional.empty(), child);
+    }
+
+    public LogicalDynamicSplit(SplitColumnInfo splitColumnInfo, Range range, AtomicBoolean replaced,
+                               Optional<GroupExpression> groupExpression,
+                               Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(PlanType.LOGICAL_BATCH_FILTER, groupExpression, logicalProperties, child);
         this.range = range;
+        this.splitColumnInfo = splitColumnInfo;
         this.replaced = replaced;
     }
 
@@ -112,14 +118,16 @@ public class LogicalDynamicSplit<CHILD_TYPE extends Plan> extends LogicalUnary<C
 
     @Override
     public LogicalDynamicSplit<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalDynamicSplit<>(splitColumnInfo, range, replaced, child());
+        return new LogicalDynamicSplit<>(splitColumnInfo, range, replaced,
+                groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalDynamicSplit<>(splitColumnInfo, range, replaced, children.get(0));
+        return new LogicalDynamicSplit<>(splitColumnInfo, range,
+                replaced, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override

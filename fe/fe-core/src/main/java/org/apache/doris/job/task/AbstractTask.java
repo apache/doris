@@ -171,7 +171,7 @@ public abstract class AbstractTask implements Task {
             onSuccess();
         } catch (Exception e) {
             this.errMsg = e.getMessage();
-            onFail(errMsg);
+            onFail();
             log.warn("execute task error, job id is {}, task id is {}", jobId, taskId, e);
         } finally {
             closeOrReleaseResources();

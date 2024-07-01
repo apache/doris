@@ -145,9 +145,6 @@ public class AbstractInsertTask extends AbstractTask {
             }
             command.runWithUpdateInfo(ctx, stmtExecutor, loadStatistic);
         } catch (Exception e) {
-            onFail(e.getMessage());
-            log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
-                    getTaskId(), sql, e);
             throw new JobException(e);
         }
     }

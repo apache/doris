@@ -17,9 +17,20 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Information for a batch insert job
@@ -57,9 +68,42 @@ public class BatchInsertJobInfo {
         this.insertSql = insertSql;
     }
 
+    /**
+     * analyze job info from insert sql
+     * @param ctx ctx
+     * @param stmtExecutor executor
+     * @throws Exception if analyze failed
+     */
     public void analyze(ConnectContext ctx, StmtExecutor stmtExecutor) throws Exception {
         splitColumnInfo.analyze(ctx);
-        //todo Inspect the split column in the source table.
+        LogicalPlan logicalPlan = insertIntoTableCommand.getLogicalQuery();
+        List<UnboundRelation> unboundRelationList = new ArrayList<>((logicalPlan
+                .collect(UnboundRelation.class::isInstance)));
+        if (unboundRelationList.isEmpty()) {
+            throw new AnalysisException("No unbound relation found, please check your sql: " + this.insertSql);
+        }
+        boolean splitTableFound = false;
+        for (UnboundRelation unboundRelation : unboundRelationList) {
+            String tableName = unboundRelation.getTableName();
+            List<String> tableNameParts = getTableNameParts(tableName);
+            TableNameInfo tableNameInfo = new TableNameInfo(tableNameParts);
+            tableNameInfo.analyze(ctx);
+            TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(tableNameInfo.getCtl())
+                    .getDbOrAnalysisException(tableNameInfo.getDb())
+                    .getTableOrAnalysisException(tableNameInfo.getTbl());
+            if (table.getDatabase().getCatalog().getName().equals(splitColumnInfo.getTableNameInfo().getCtl())
+                    && table.getDatabase().getFullName().equals(splitColumnInfo.getTableNameInfo().getDb())
+                    && table.getName().equals(splitColumnInfo.getTableNameInfo().getTbl())) {
+
+                splitTableFound = true;
+                break;
+            }
+        }
+        if (!splitTableFound) {
+            throw new AnalysisException("Split table: " + splitColumnInfo.getTableNameInfo().getTbl()
+                    + " not found in the query table. insert sql is: " + insertSql);
+        }
         //check insert into table command
         insertIntoTableCommand.initPlan(ctx, stmtExecutor, false);
     }
@@ -86,6 +130,14 @@ public class BatchInsertJobInfo {
 
     public String getInsertSql() {
         return insertSql;
+    }
+
+    private List<String> getTableNameParts(String tableName) {
+        if (!tableName.contains(".")) {
+            return Collections.singletonList(tableName);
+        }
+        return Arrays.stream(tableName.split("\\."))
+                .collect(Collectors.toList());
     }
 
 }

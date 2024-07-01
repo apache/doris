@@ -253,7 +253,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support [olap, hive, iceberg] table");
             }
-            if (null != dynamicSplitReplacedSet && dynamicSplitReplacedSet.stream().anyMatch(AtomicBoolean::get)) {
+            if (null != dynamicSplitReplacedSet && dynamicSplitReplacedSet.stream().anyMatch(status -> !status.get())) {
                 throw new AnalysisException("dynamic split not replaced, please check the query plan. Sql");
             }
             if (!needBeginTransaction) {
@@ -300,6 +300,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitInsertIntoTableCommand(this, context);
+    }
+
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
     }
 
     private boolean childIsEmptyRelation(PhysicalSink sink) {

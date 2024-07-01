@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
@@ -27,5 +26,5 @@ import org.apache.doris.nereids.trees.plans.Plan;
  */
 public interface MatchedAction<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
 
-    OUTPUT_TYPE apply(MatchingContext<INPUT_TYPE> ctx) throws AnalysisException;
+    OUTPUT_TYPE apply(MatchingContext<INPUT_TYPE> ctx);
 }
