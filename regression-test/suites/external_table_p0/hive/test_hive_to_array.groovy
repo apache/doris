@@ -15,14 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_text_garbled_file", "p2,external,hive,external_remote,external_remote_hive") {
-    //test hive garbled files  , prevent be hanged
+suite("test_hive_to_array", "p0,external,hive,external_docker,external_docker_hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable Hive test.")
+        return
+    }
 
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "test_text_garbled_file"
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
+        String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = hivePrefix + "_test_hive_to_array"
         sql """drop catalog if exists ${catalog_name};"""
         sql """
             create catalog if not exists ${catalog_name} properties (
@@ -34,13 +37,15 @@ suite("test_text_garbled_file", "p2,external,hive,external_remote,external_remot
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
-
-            
-        order_qt_garbled_file """
-        select * from ${catalog_name}.multi_catalog.test_csv_format_error;        
-        """ 
-
         
+        sql """ use multi_catalog """ 
+
+        order_qt_types """ select * from hive_textfile_array_all_types"""
+
+        order_qt_array """ select * from hive_textfile_nestedarray""" 
+
+        order_qt_delimiter """ select * from hive_textfile_array_delimiter""" 
+
     }
 }
 
