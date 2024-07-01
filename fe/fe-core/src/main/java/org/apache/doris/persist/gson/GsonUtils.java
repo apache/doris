@@ -179,6 +179,7 @@ import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.BulkLoadJob;
+import org.apache.doris.load.loadv2.IngestionLoadJob.IngestionLoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.InsertLoadJob;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
@@ -374,7 +375,9 @@ public class GsonUtils {
     // runtime adapter for class "LoadJobStateUpdateInfo"
     private static RuntimeTypeAdapterFactory<LoadJobStateUpdateInfo> loadJobStateUpdateInfoTypeAdapterFactory
             = RuntimeTypeAdapterFactory.of(LoadJobStateUpdateInfo.class, "clazz")
-            .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName());
+            .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName())
+            .registerSubtype(IngestionLoadJobStateUpdateInfo.class,
+                    IngestionLoadJobStateUpdateInfo.class.getSimpleName());
 
     // runtime adapter for class "Policy"
     private static RuntimeTypeAdapterFactory<Policy> policyTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
@@ -406,7 +409,7 @@ public class GsonUtils {
                 .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
                 .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName())
                 .registerSubtype(
-                            TrinoConnectorExternalCatalog.class, TrinoConnectorExternalCatalog.class.getSimpleName())
+                        TrinoConnectorExternalCatalog.class, TrinoConnectorExternalCatalog.class.getSimpleName())
                 .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
                 .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName());
         if (Config.isNotCloudMode()) {
@@ -426,9 +429,9 @@ public class GsonUtils {
                     .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
     private static RuntimeTypeAdapterFactory<org.apache.doris.job.base.AbstractJob>
             jobExecutorRuntimeTypeAdapterFactory
-                    = RuntimeTypeAdapterFactory.of(org.apache.doris.job.base.AbstractJob.class, "clazz")
-                            .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName())
-                            .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName());
+            = RuntimeTypeAdapterFactory.of(org.apache.doris.job.base.AbstractJob.class, "clazz")
+            .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName())
+            .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<MTMVSnapshotIf> mtmvSnapshotTypeAdapterFactory =
             RuntimeTypeAdapterFactory.of(MTMVSnapshotIf.class, "clazz")
@@ -558,24 +561,24 @@ public class GsonUtils {
 
     private static RuntimeTypeAdapterFactory<org.apache.doris.backup.AbstractJob>
             jobBackupTypeAdapterFactory
-                    = RuntimeTypeAdapterFactory.of(org.apache.doris.backup.AbstractJob.class, "clazz")
-                    .registerSubtype(BackupJob.class, BackupJob.class.getSimpleName())
-                    .registerSubtype(RestoreJob.class, RestoreJob.class.getSimpleName());
+            = RuntimeTypeAdapterFactory.of(org.apache.doris.backup.AbstractJob.class, "clazz")
+            .registerSubtype(BackupJob.class, BackupJob.class.getSimpleName())
+            .registerSubtype(RestoreJob.class, RestoreJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<LoadJob> loadJobTypeAdapterFactory
-                    = RuntimeTypeAdapterFactory.of(LoadJob.class, "clazz")
-                    .registerSubtype(BrokerLoadJob.class, BrokerLoadJob.class.getSimpleName())
-                    .registerSubtype(BulkLoadJob.class, BulkLoadJob.class.getSimpleName())
-                    .registerSubtype(CloudBrokerLoadJob.class, CloudBrokerLoadJob.class.getSimpleName())
-                    .registerSubtype(CopyJob.class, CopyJob.class.getSimpleName())
-                    .registerSubtype(InsertLoadJob.class, InsertLoadJob.class.getSimpleName())
-                    .registerSubtype(MiniLoadJob.class, MiniLoadJob.class.getSimpleName())
-                    .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName());
+            = RuntimeTypeAdapterFactory.of(LoadJob.class, "clazz")
+            .registerSubtype(BrokerLoadJob.class, BrokerLoadJob.class.getSimpleName())
+            .registerSubtype(BulkLoadJob.class, BulkLoadJob.class.getSimpleName())
+            .registerSubtype(CloudBrokerLoadJob.class, CloudBrokerLoadJob.class.getSimpleName())
+            .registerSubtype(CopyJob.class, CopyJob.class.getSimpleName())
+            .registerSubtype(InsertLoadJob.class, InsertLoadJob.class.getSimpleName())
+            .registerSubtype(MiniLoadJob.class, MiniLoadJob.class.getSimpleName())
+            .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<PartitionItem> partitionItemTypeAdapterFactory
-                    = RuntimeTypeAdapterFactory.of(PartitionItem.class, "clazz")
-                    .registerSubtype(ListPartitionItem.class, ListPartitionItem.class.getSimpleName())
-                    .registerSubtype(RangePartitionItem.class, RangePartitionItem.class.getSimpleName());
+            = RuntimeTypeAdapterFactory.of(PartitionItem.class, "clazz")
+            .registerSubtype(ListPartitionItem.class, ListPartitionItem.class.getSimpleName())
+            .registerSubtype(RangePartitionItem.class, RangePartitionItem.class.getSimpleName());
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.
@@ -888,7 +891,7 @@ public class GsonUtils {
 
         @Override
         public AtomicBoolean deserialize(JsonElement jsonElement, Type type,
-                JsonDeserializationContext jsonDeserializationContext)
+                                         JsonDeserializationContext jsonDeserializationContext)
                 throws JsonParseException {
             JsonObject jsonObject = jsonElement.getAsJsonObject();
             boolean value = jsonObject.get("boolean").getAsBoolean();
@@ -897,7 +900,7 @@ public class GsonUtils {
 
         @Override
         public JsonElement serialize(AtomicBoolean atomicBoolean, Type type,
-                JsonSerializationContext jsonSerializationContext) {
+                                     JsonSerializationContext jsonSerializationContext) {
             JsonObject jsonObject = new JsonObject();
             jsonObject.addProperty("boolean", atomicBoolean.get());
             return jsonObject;
@@ -907,7 +910,7 @@ public class GsonUtils {
     public static final class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?, ?>> {
         @Override
         public ImmutableMap<?, ?> deserialize(final JsonElement json, final Type type,
-                final JsonDeserializationContext context) throws JsonParseException {
+                                              final JsonDeserializationContext context) throws JsonParseException {
             final Type type2 = TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
             final Map<?, ?> map = context.deserialize(json, type2);
             return ImmutableMap.copyOf(map);
@@ -917,7 +920,7 @@ public class GsonUtils {
     public static final class ImmutableListDeserializer implements JsonDeserializer<ImmutableList<?>> {
         @Override
         public ImmutableList<?> deserialize(final JsonElement json, final Type type,
-                final JsonDeserializationContext context) throws JsonParseException {
+                                            final JsonDeserializationContext context) throws JsonParseException {
             final Type type2 = TypeUtils.parameterize(List.class, ((ParameterizedType) type).getActualTypeArguments());
             final List<?> list = context.deserialize(json, type2);
             return ImmutableList.copyOf(list);

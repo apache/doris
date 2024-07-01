@@ -87,6 +87,7 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 
+import cfjd.com.google.gson.annotations.SerializedName;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -751,6 +752,8 @@ public class IngestionLoadJob extends LoadJob {
 
         // get etl output files and update loading state
         unprotectedUpdateToLoadingState(etlStatus, filePathToSize);
+        // log loading state
+        unprotectedLogUpdateStateInfo();
         // prepare loading infos
         unprotectedPrepareLoadingInfos();
     }
@@ -1000,4 +1003,63 @@ public class IngestionLoadJob extends LoadJob {
         }
     }
 
+    private void unprotectedLogUpdateStateInfo() {
+        IngestionLoadJobStateUpdateInfo info =
+                new IngestionLoadJobStateUpdateInfo(id, state, transactionId, etlStartTimestamp, loadStartTimestamp,
+                        etlStatus, tabletMetaToFileInfo);
+        Env.getCurrentEnv().getEditLog().logUpdateLoadJob(info);
+    }
+
+    public static class IngestionLoadJobStateUpdateInfo extends LoadJobStateUpdateInfo {
+
+        @SerializedName(value = "etlStartTimestamp")
+        private long etlStartTimestamp;
+        @SerializedName(value = "etlStatus")
+        private EtlStatus etlStatus;
+        @SerializedName(value = "tabletMetaToFileInfo")
+        private Map<String, Pair<String, Long>> tabletMetaToFileInfo;
+
+        public IngestionLoadJobStateUpdateInfo(long jobId, JobState state, long transactionId,
+                                               long etlStartTimestamp, long loadStartTimestamp, EtlStatus etlStatus,
+                                               Map<String, Pair<String, Long>> tabletMetaToFileInfo) {
+            super(jobId, state, transactionId, loadStartTimestamp);
+            this.etlStartTimestamp = etlStartTimestamp;
+            this.etlStatus = etlStatus;
+            this.tabletMetaToFileInfo = tabletMetaToFileInfo;
+        }
+
+        public long getEtlStartTimestamp() {
+            return etlStartTimestamp;
+        }
+
+        public EtlStatus getEtlStatus() {
+            return etlStatus;
+        }
+
+        public Map<String, Pair<String, Long>> getTabletMetaToFileInfo() {
+            return tabletMetaToFileInfo;
+        }
+
+    }
+
+    @Override
+    public void replayUpdateStateInfo(LoadJobStateUpdateInfo info) {
+        super.replayUpdateStateInfo(info);
+        IngestionLoadJobStateUpdateInfo stateUpdateInfo = (IngestionLoadJobStateUpdateInfo) info;
+        this.etlStartTimestamp = stateUpdateInfo.etlStartTimestamp;
+        this.etlStatus = stateUpdateInfo.etlStatus;
+        this.tabletMetaToFileInfo.clear();
+        this.tabletMetaToFileInfo.putAll(stateUpdateInfo.tabletMetaToFileInfo);
+        switch (state) {
+            case ETL:
+                break;
+            case LOADING:
+                unprotectedPrepareLoadingInfos();
+                break;
+            default:
+                LOG.warn("replay update load job state info failed. error: wrong state. job id: {}, state: {}", id,
+                        state);
+                break;
+        }
+    }
 }
