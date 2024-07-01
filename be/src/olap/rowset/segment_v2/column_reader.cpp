@@ -128,6 +128,7 @@ Status ColumnReader::create_map(const ColumnReaderOptions& opts, const ColumnMet
                                 const io::FileReaderSPtr& file_reader,
                                 std::unique_ptr<ColumnReader>* reader) {
     // map reader now has 3 sub readers for key, value, offsets(scalar), null(scala)
+    DCHECK(meta.children_columns_size() == 3 || meta.children_columns_size() == 4);
     std::unique_ptr<ColumnReader> key_reader;
     RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(0),
                                          meta.children_columns(0).num_rows(), file_reader,
