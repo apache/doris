@@ -38,11 +38,16 @@ import java.util.Optional;
   * If you want to cache the result set in fe, you can implement this interface and write this code:
   * </p>
   * <pre>
-  * sqlCacheContext.get().setResultSetInFe(resultSet);
-  * Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
-  * statementContext.getConnectContext(),
-  * statementContext.getOriginStatement().originStmt
-  * );
+  * StatementContext statementContext = cascadesContext.getStatementContext();
+  * boolean enableSqlCache
+  *         = CacheAnalyzer.canUseSqlCache(statementContext.getConnectContext().getSessionVariable());
+  * if (sqlCacheContext.isPresent() && enableSqlCache) {
+  *     sqlCacheContext.get().setResultSetInFe(resultSet);
+  *     Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
+  *             statementContext.getConnectContext(),
+  *             statementContext.getOriginStatement().originStmt
+  *     );
+  * }
   * </pre>
   */
 public interface ComputeResultSet {
