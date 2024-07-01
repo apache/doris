@@ -112,58 +112,42 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
     *find_block = false;
     *eos = false;
     std::unique_lock l(mutex);
-    if (!_need_commit) {
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                                  _start_time)
-                    .count() >= _group_commit_interval_ms) {
-            _need_commit = true;
-        }
-    }
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::steady_clock::now() - _start_time)
-                            .count();
-    if (!runtime_state->is_cancelled() && status.ok() && _block_queue.empty() && !_need_commit) {
-        if (_group_commit_interval_ms - duration <= 0) {
-            _need_commit = true;
-        } else {
-            get_block_dep->block();
-            return Status::OK();
-        }
-    } else if (!runtime_state->is_cancelled() && status.ok() && _block_queue.empty() &&
-               _need_commit && !_load_ids_to_write_dep.empty()) {
-        if (duration >= 10 * _group_commit_interval_ms) {
-            std::stringstream ss;
-            ss << "[";
-            for (auto& id : _load_ids_to_write_dep) {
-                ss << id.first.to_string() << ", ";
-            }
-            ss << "]";
-            LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
-                      << ", label=" << label << ", instance_id=" << load_instance_id
-                      << ", duration=" << duration << ", load_ids=" << ss.str()
-                      << ", runtime_state=" << runtime_state;
-        }
-        get_block_dep->block();
-        return Status::OK();
-    }
-    if (runtime_state->is_cancelled()) {
+    if (runtime_state->is_cancelled() || !status.ok()) {
         auto st = runtime_state->cancel_reason();
         _cancel_without_lock(st);
         return status;
     }
-    if (!_block_queue.empty()) {
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - _start_time)
+                            .count();
+    if (!_need_commit && duration >= _group_commit_interval_ms) {
+        _need_commit = true;
+    }
+    auto get_load_ids = [&]() {
+        std::stringstream ss;
+        ss << "[";
+        for (auto& id : _load_ids_to_write_dep) {
+            ss << id.first.to_string() << ", ";
+        }
+        ss << "]";
+        return ss.str();
+    };
+    if (_block_queue.empty()) {
+        if (_need_commit && duration >= 10 * _group_commit_interval_ms) {
+            LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
+                      << ", label=" << label << ", instance_id=" << load_instance_id
+                      << ", duration=" << duration << ", load_ids=" << get_load_ids();
+        }
+        if (!_load_ids_to_write_dep.empty()) {
+            get_block_dep->block();
+        }
+    } else {
         const BlockData block_data = _block_queue.front();
         block->swap(*block_data.block);
         *find_block = true;
         _block_queue.pop_front();
         int before_block_queues_bytes = _all_block_queues_bytes->load();
         _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
-        std::stringstream ss;
-        ss << "[";
-        for (const auto& id : _load_ids_to_write_dep) {
-            ss << id.first.to_string() << ", ";
-        }
-        ss << "]";
         VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::get_block). "
                    << "block queue size is " << _block_queue.size() << ", block rows is "
                    << block->rows() << ", block bytes is " << block->bytes()
@@ -172,9 +156,8 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
                    << ", after remove block, all block queues bytes is "
                    << _all_block_queues_bytes->load() << ", txn_id=" << txn_id
                    << ", label=" << label << ", instance_id=" << load_instance_id
-                   << ", load_ids=" << ss.str() << ", runtime_state=" << runtime_state
-                   << ", the block is " << block->dump_data() << ", the block column size is "
-                   << block->columns_bytes();
+                   << ", load_ids=" << get_load_ids() << ", the block is " << block->dump_data()
+                   << ", the block column size is " << block->columns_bytes();
     }
     if (_block_queue.empty() && _need_commit && _load_ids_to_write_dep.empty()) {
         *eos = true;
@@ -254,6 +237,9 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
     }
     for (auto& id : _load_ids_to_write_dep) {
         id.second->set_always_ready();
+    }
+    for (auto read_dep : _read_deps) {
+        read_dep->set_ready();
     }
 }
 
