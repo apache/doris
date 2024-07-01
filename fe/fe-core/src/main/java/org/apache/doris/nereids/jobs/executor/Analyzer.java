@@ -112,66 +112,66 @@ public class Analyzer extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> buildAnalyzerJobs(Optional<CustomTableResolver> customTableResolver) {
         return jobs(
-                // we should eliminate hint before "Subquery unnesting".
-                topDown(new AnalyzeCTE()),
-                topDown(new EliminateLogicalSelectHint()),
-                bottomUp(
-                        new BindRelation(customTableResolver),
-                        new CheckPolicy()
-                ),
-                bottomUp(new BindExpression()),
-                topDown(new BindSink()),
-                bottomUp(new CheckAfterBind()),
-                bottomUp(
-                        new ProjectToGlobalAggregate(),
-                        // this rule check's the logicalProject node's isDistinct property
-                        // and replace the logicalProject node with a LogicalAggregate node
-                        // so any rule before this, if create a new logicalProject node
-                        // should make sure isDistinct property is correctly passed around.
-                        // please see rule BindSlotReference or BindFunction for example
-                        new EliminateDistinctConstant(),
-                        new ProjectWithDistinctToAggregate(),
-                        new ReplaceExpressionByChildOutput(),
-                        new OneRowRelationExtractAggregate()
-                ),
-                topDown(
-                        new FillUpMissingSlots(),
-                        // We should use NormalizeRepeat to compute nullable properties for LogicalRepeat in the analysis
-                        // stage. NormalizeRepeat will compute nullable property, add virtual slot, LogicalAggregate and
-                        // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
-                        new NormalizeRepeat()
-                ),
-                bottomUp(new AdjustAggregateNullableForEmptySet()),
-                // consider sql with user defined var @t_zone
-                // set @t_zone='GMT';
-                // SELECT
-                //     DATE_FORMAT(convert_tz(dt, time_zone, @t_zone),'%Y-%m-%d') day
-                // FROM
-                //     t
-                // GROUP BY
-                //     1;
-                // @t_zone must be replaced as 'GMT' before EliminateGroupByConstant and NormalizeAggregate rule.
-                // So need run VariableToLiteral rule before the two rules.
-                topDown(new VariableToLiteral()),
-                // run CheckAnalysis before EliminateGroupByConstant in order to report error message correctly like bellow
-                // select SUM(lo_tax) FROM lineorder group by 1;
-                // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
-                bottomUp(new CheckAnalysis()),
-                topDown(new EliminateGroupByConstant()),
+            // we should eliminate hint before "Subquery unnesting".
+            topDown(new AnalyzeCTE()),
+            topDown(new EliminateLogicalSelectHint()),
+            bottomUp(
+                    new BindRelation(customTableResolver),
+                    new CheckPolicy()
+            ),
+            bottomUp(new BindExpression()),
+            topDown(new BindSink()),
+            bottomUp(new CheckAfterBind()),
+            bottomUp(
+                    new ProjectToGlobalAggregate(),
+                    // this rule check's the logicalProject node's isDistinct property
+                    // and replace the logicalProject node with a LogicalAggregate node
+                    // so any rule before this, if create a new logicalProject node
+                    // should make sure isDistinct property is correctly passed around.
+                    // please see rule BindSlotReference or BindFunction for example
+                    new EliminateDistinctConstant(),
+                    new ProjectWithDistinctToAggregate(),
+                    new ReplaceExpressionByChildOutput(),
+                    new OneRowRelationExtractAggregate()
+            ),
+            topDown(
+                    new FillUpMissingSlots(),
+                    // We should use NormalizeRepeat to compute nullable properties for LogicalRepeat in the analysis
+                    // stage. NormalizeRepeat will compute nullable property, add virtual slot, LogicalAggregate and
+                    // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
+                    new NormalizeRepeat()
+            ),
+            bottomUp(new AdjustAggregateNullableForEmptySet()),
+            // consider sql with user defined var @t_zone
+            // set @t_zone='GMT';
+            // SELECT
+            //     DATE_FORMAT(convert_tz(dt, time_zone, @t_zone),'%Y-%m-%d') day
+            // FROM
+            //     t
+            // GROUP BY
+            //     1;
+            // @t_zone must be replaced as 'GMT' before EliminateGroupByConstant and NormalizeAggregate rule.
+            // So need run VariableToLiteral rule before the two rules.
+            topDown(new VariableToLiteral()),
+            // run CheckAnalysis before EliminateGroupByConstant in order to report error message correctly like bellow
+            // select SUM(lo_tax) FROM lineorder group by 1;
+            // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
+            bottomUp(new CheckAnalysis()),
+            topDown(new EliminateGroupByConstant()),
 
-                topDown(new SimplifyAggGroupBy()),
-                // run BuildAggForRandomDistributedTable before NormalizeAggregate in order to optimize the agg plan
-                topDown(new BuildAggForRandomDistributedTable()),
-                topDown(new NormalizeAggregate()),
-                topDown(new HavingToFilter()),
-                bottomUp(new SemiJoinCommute()),
-                bottomUp(
-                        new CollectSubQueryAlias(),
-                        new CollectJoinConstraint()
-                ),
-                topDown(new LeadingJoin()),
-                bottomUp(new SubqueryToApply()),
-                topDown(new MergeProjects())
+            topDown(new SimplifyAggGroupBy()),
+            // run BuildAggForRandomDistributedTable before NormalizeAggregate in order to optimize the agg plan
+            topDown(new BuildAggForRandomDistributedTable()),
+            topDown(new NormalizeAggregate()),
+            topDown(new HavingToFilter()),
+            bottomUp(new SemiJoinCommute()),
+            bottomUp(
+                    new CollectSubQueryAlias(),
+                    new CollectJoinConstraint()
+            ),
+            topDown(new LeadingJoin()),
+            bottomUp(new SubqueryToApply()),
+            topDown(new MergeProjects())
         );
     }
 }
