@@ -136,18 +136,17 @@ Status InvertedIndexSearcherCache::get_index_searcher(const io::FileSystemSPtr& 
             std::unique_ptr<MemTracker>(new MemTracker("InvertedIndexSearcherCacheWithRead"));
 #ifndef BE_TEST
     {
-        bool exists = false;
-        {
-            SCOPED_RAW_TIMER(&stats->inverted_index_query_file_exists_timer);
-            RETURN_IF_ERROR(fs->exists(file_path, &exists));
-        }
-        if (!exists) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                    "inverted index path: {} not exist.", file_path);
-        }
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         SCOPED_CONSUME_MEM_TRACKER(mem_tracker.get());
-        index_searcher = build_index_searcher(fs, index_dir, file_name);
+        try {
+            index_searcher = build_index_searcher(fs, index_dir, file_name);
+        } catch (CLuceneError& err) {
+            if (err.number() == CL_ERR_FileNotFound) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                        "inverted index path: {} not exist.", file_path);
+            }
+            throw err;
+        }
     }
 #endif
 

@@ -22,11 +22,13 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.clone.RebalancerTestUtil;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
@@ -46,6 +48,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.Iterator;
@@ -1718,5 +1721,41 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.create_history_partition\" = \"true\"\n"
                 + ");";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt2));
+    }
+
+    @Test
+    public void testAutoBuckets() throws Exception {
+        String createOlapTblStmt = " CREATE TABLE test.test_autobucket_dynamic_partition \n"
+                + " (k1 DATETIME)\n"
+                + " PARTITION BY RANGE (k1) () DISTRIBUTED BY HASH (k1) BUCKETS AUTO\n"
+                + " PROPERTIES (\n"
+                + " \"dynamic_partition.enable\" = \"true\",\n"
+                + " \"dynamic_partition.time_unit\" = \"YEAR\",\n"
+                + " \"dynamic_partition.end\" = \"1\",\n"
+                + " \"dynamic_partition.prefix\" = \"p\",\n"
+                + " \"replication_allocation\" = \"tag.location.default: 1\"\n"
+                + ")";
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt));
+        Database db =
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("test_autobucket_dynamic_partition");
+        List<Partition> partitions = Lists.newArrayList(table.getAllPartitions());
+        Assert.assertEquals(2, partitions.size());
+        for (Partition partition : partitions) {
+            Assert.assertEquals(FeConstants.default_bucket_num, partition.getDistributionInfo().getBucketNum());
+            partition.setVisibleVersionAndTime(2L, System.currentTimeMillis());
+        }
+        RebalancerTestUtil.updateReplicaDataSize(1, 1, 1);
+
+        String alterStmt =
+                "alter table test.test_autobucket_dynamic_partition set ('dynamic_partition.end' = '2')";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt));
+        List<Pair<Long, Long>> tempDynamicPartitionTableInfo = Lists.newArrayList(Pair.of(db.getId(), table.getId()));
+        Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartition(tempDynamicPartitionTableInfo, false);
+
+        partitions = Lists.newArrayList(table.getAllPartitions());
+        partitions.sort(Comparator.comparing(Partition::getId));
+        Assert.assertEquals(3, partitions.size());
+        Assert.assertEquals(1, partitions.get(2).getDistributionInfo().getBucketNum());
     }
 }

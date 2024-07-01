@@ -587,8 +587,6 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_inverted_index_query_cache_miss_counter,
                    stats.inverted_index_query_cache_miss);
     COUNTER_UPDATE(olap_parent->_inverted_index_query_timer, stats.inverted_index_query_timer);
-    COUNTER_UPDATE(olap_parent->_inverted_index_query_file_exists_timer,
-                   stats.inverted_index_query_file_exists_timer);
     COUNTER_UPDATE(olap_parent->_inverted_index_query_null_bitmap_timer,
                    stats.inverted_index_query_null_bitmap_timer);
     COUNTER_UPDATE(olap_parent->_inverted_index_query_bitmap_copy_timer,

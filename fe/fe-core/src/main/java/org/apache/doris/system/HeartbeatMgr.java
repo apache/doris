@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.resource.Tag;
@@ -53,6 +54,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -235,6 +237,14 @@ public class HeartbeatMgr extends MasterDaemon {
                     result = new THeartbeatResult();
                     result.setStatus(new TStatus(TStatusCode.OK));
                     result.setBackendInfo(backendInfo);
+                }
+
+                String debugDeadBeIds = DebugPointUtil.getDebugParamOrDefault(
+                        "HeartbeatMgr.BackendHeartbeatHandler", "deadBeIds", "");
+                if (!Strings.isNullOrEmpty(debugDeadBeIds)
+                        && Arrays.stream(debugDeadBeIds.split(",")).anyMatch(id -> Long.parseLong(id) == backendId)) {
+                    result.getStatus().setStatusCode(TStatusCode.INTERNAL_ERROR);
+                    result.getStatus().addToErrorMsgs("debug point HeartbeatMgr.deadBeIds set dead be");
                 }
 
                 ok = true;
