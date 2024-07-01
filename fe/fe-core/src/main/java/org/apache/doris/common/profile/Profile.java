@@ -20,6 +20,8 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
 
@@ -56,7 +58,6 @@ public class Profile {
     private static final Logger LOG = LogManager.getLogger(Profile.class);
     private static final int MergedProfileLevel = 1;
     private final String name;
-    private final boolean isPipelineX;
     private SummaryProfile summaryProfile;
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     private boolean isFinished;
@@ -64,9 +65,8 @@ public class Profile {
 
     private int profileLevel = 3;
 
-    public Profile(String name, boolean isEnable, int profileLevel, boolean isPipelineX) {
+    public Profile(String name, boolean isEnable, int profileLevel) {
         this.name = name;
-        this.isPipelineX = isPipelineX;
         this.summaryProfile = new SummaryProfile();
         // if disabled, just set isFinished to true, so that update() will do nothing
         this.isFinished = !isEnable;
@@ -110,6 +110,14 @@ public class Profile {
                 }
                 summaryInfo.put(SummaryProfile.PHYSICAL_PLAN,
                         builder.toString().replace("\n", "\n     "));
+
+                FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
+                if (distributedPlans != null) {
+                    summaryInfo.put(SummaryProfile.DISTRIBUTED_PLAN,
+                            DistributedPlan.toString(Lists.newArrayList(distributedPlans.values()))
+                                    .replace("\n", "\n     ")
+                    );
+                }
             }
             summaryProfile.update(summaryInfo);
             for (ExecutionProfile executionProfile : executionProfiles) {
@@ -185,9 +193,7 @@ public class Profile {
     }
 
     private RuntimeProfile composeRootProfile() {
-
         RuntimeProfile rootProfile = new RuntimeProfile(name);
-        rootProfile.setIsPipelineX(isPipelineX);
         rootProfile.addChild(summaryProfile.getSummary());
         rootProfile.addChild(summaryProfile.getExecutionSummary());
         for (ExecutionProfile executionProfile : executionProfiles) {

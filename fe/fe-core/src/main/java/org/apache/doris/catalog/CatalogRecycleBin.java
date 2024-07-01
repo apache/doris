@@ -32,6 +32,8 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -42,6 +44,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table.Cell;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,17 +61,20 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class CatalogRecycleBin extends MasterDaemon implements Writable {
+public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CatalogRecycleBin.class);
     private static final int DEFAULT_INTERVAL_SECONDS = 30; // 30 seconds
     // erase meta at least after minEraseLatency milliseconds
     // to avoid erase log ahead of drop log
     private static final long minEraseLatency = 10 * 60 * 1000;  // 10 min
 
+    @SerializedName(value = "itd")
     private Map<Long, RecycleDatabaseInfo> idToDatabase;
+    @SerializedName(value = "itt")
     private Map<Long, RecycleTableInfo> idToTable;
+    @SerializedName(value = "itp")
     private Map<Long, RecyclePartitionInfo> idToPartition;
-
+    @SerializedName(value = "itr")
     private Map<Long, Long> idToRecycleTime;
 
     public CatalogRecycleBin() {
@@ -1281,35 +1287,25 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     // this class is not protected by any lock, will throw ConcurrentModificationException.
     @Override
     public synchronized void write(DataOutput out) throws IOException {
-        int count = idToDatabase.size();
-        out.writeInt(count);
-        for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
-            out.writeLong(entry.getKey());
-            entry.getValue().write(out);
-        }
-
-        count = idToTable.size();
-        out.writeInt(count);
-        for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
-            out.writeLong(entry.getKey());
-            entry.getValue().write(out);
-        }
-
-        count = idToPartition.size();
-        out.writeInt(count);
-        for (Map.Entry<Long, RecyclePartitionInfo> entry : idToPartition.entrySet()) {
-            out.writeLong(entry.getKey());
-            entry.getValue().write(out);
-        }
-
-        count = idToRecycleTime.size();
-        out.writeInt(count);
-        for (Map.Entry<Long, Long> entry : idToRecycleTime.entrySet()) {
-            out.writeLong(entry.getKey());
-            out.writeLong(entry.getValue());
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    public static CatalogRecycleBin read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
+            return GsonUtils.GSON.fromJson(Text.readString(in), CatalogRecycleBin.class);
+        }
+
+        CatalogRecycleBin bin = new CatalogRecycleBin();
+        bin.readFields(in);
+        return bin;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        updateDbInfoForLowerVersion();
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         int count = in.readInt();
         for (int i = 0; i < count; i++) {
@@ -1368,9 +1364,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
-    public class RecycleDatabaseInfo implements Writable {
+    public class RecycleDatabaseInfo {
+        @SerializedName("db")
         private Database db;
+        @SerializedName("tns")
         private Set<String> tableNames;
+        @SerializedName("tis")
         private Set<Long> tableIds;
 
         public RecycleDatabaseInfo() {
@@ -1400,23 +1399,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             return this.tableIds = tableIds;
         }
 
-        @Override
-        public void write(DataOutput out) throws IOException {
-            db.write(out);
-
-            int count = tableNames.size();
-            out.writeInt(count);
-            for (String tableName : tableNames) {
-                Text.writeString(out, tableName);
-            }
-
-            count = tableIds.size();
-            out.writeInt(count);
-            for (long tableId : tableIds) {
-                out.writeLong(tableId);
-            }
-        }
-
         public void readFields(DataInput in) throws IOException {
             db = Database.read(in);
 
@@ -1435,8 +1417,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
-    public class RecycleTableInfo implements Writable {
+    public class RecycleTableInfo {
+        @SerializedName("did")
         private long dbId;
+        @SerializedName("t")
         private Table table;
 
         public RecycleTableInfo() {
@@ -1456,27 +1440,31 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             return table;
         }
 
-        @Override
-        public void write(DataOutput out) throws IOException {
-            out.writeLong(dbId);
-            table.write(out);
-        }
-
+        @Deprecated
         public void readFields(DataInput in) throws IOException {
             dbId = in.readLong();
             table = Table.read(in);
         }
     }
 
-    public class RecyclePartitionInfo implements Writable {
+    public class RecyclePartitionInfo {
+        @SerializedName("did")
         private long dbId;
+        @SerializedName("tid")
         private long tableId;
+        @SerializedName("p")
         private Partition partition;
+        @SerializedName("r")
         private Range<PartitionKey> range;
+        @SerializedName("lpi")
         private PartitionItem listPartitionItem;
+        @SerializedName("dp")
         private DataProperty dataProperty;
+        @SerializedName("ra")
         private ReplicaAllocation replicaAlloc;
+        @SerializedName("im")
         private boolean isInMemory;
+        @SerializedName("mu")
         private boolean isMutable = true;
 
         public RecyclePartitionInfo() {
@@ -1532,27 +1520,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         public boolean isMutable() {
             return isMutable;
-        }
-
-        @Override
-        public void write(DataOutput out) throws IOException {
-            out.writeLong(dbId);
-            out.writeLong(tableId);
-            partition.write(out);
-            RangeUtils.writeRange(out, range);
-            listPartitionItem.write(out);
-            dataProperty.write(out);
-            replicaAlloc.write(out);
-            out.writeBoolean(isInMemory);
-            if (Config.isCloudMode()) {
-                // HACK: the origin implementation of the cloud mode has code likes:
-                //
-                //     out.writeBoolean(isPersistent);
-                //
-                // keep the compatibility here.
-                out.writeBoolean(false);
-            }
-            out.writeBoolean(isMutable);
         }
 
         public void readFields(DataInput in) throws IOException {

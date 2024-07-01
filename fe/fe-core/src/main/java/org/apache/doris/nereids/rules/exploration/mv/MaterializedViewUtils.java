@@ -19,16 +19,25 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -43,18 +52,24 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
@@ -62,7 +77,9 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashSet;
@@ -209,9 +226,29 @@ public class MaterializedViewUtils {
                 materializedView,
                 materializedView.getFullQualifiers(),
                 ImmutableList.of(),
+                materializedView.getPartitionIds(),
                 materializedView.getBaseIndexId(),
                 PreAggStatus.on(),
+                ImmutableList.of(),
                 // this must be empty, or it will be used to sample
+                ImmutableList.of(),
+                Optional.empty());
+    }
+
+    /**
+     * LIke above but generate scan plan for sync materialized view
+     */
+    public static Plan generateMvScanPlan(OlapTable olapTable, long indexId, CascadesContext cascadesContext) {
+        return new LogicalOlapScan(
+                cascadesContext.getStatementContext().getNextRelationId(),
+                olapTable,
+                ImmutableList.of(olapTable.getQualifiedDbName()),
+                // this must be empty, or it will be used to sample
+                ImmutableList.of(),
+                olapTable.getPartitionIds(),
+                indexId,
+                PreAggStatus.unset(),
+                ImmutableList.of(),
                 ImmutableList.of(),
                 Optional.empty());
     }
@@ -253,6 +290,52 @@ public class MaterializedViewUtils {
         return new LogicalProject<>(originalRewrittenPlanExprIds.stream()
                 .map(exprId -> (NamedExpression) exprIdToNewRewrittenSlot.get(exprId)).collect(Collectors.toList()),
                 rewrittenPlan);
+    }
+
+    /**
+     * Extract nondeterministic function form plan, if the function is in whiteExpressionSet,
+     * the function would be considered as deterministic function and will not return
+     * in the result expression result
+     */
+    public static List<Expression> extractNondeterministicFunction(Plan plan) {
+        List<Expression> nondeterministicFunctions = new ArrayList<>();
+        plan.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
+        return nondeterministicFunctions;
+    }
+
+    /**
+     * createMTMVCache from querySql
+     */
+    public static MTMVCache createMTMVCache(String querySql, ConnectContext connectContext) {
+        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(querySql);
+        StatementContext mvSqlStatementContext = new StatementContext(connectContext,
+                new OriginStatement(querySql, 0));
+        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
+        if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
+            mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
+        }
+        // Can not convert to table sink, because use the same column from different table when self join
+        // the out slot is wrong
+        planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ALL_PLAN);
+        Plan originPlan = planner.getRewrittenPlan();
+        // Eliminate result sink because sink operator is useless in query rewrite by materialized view
+        // and the top sort can also be removed
+        Plan mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
+            @Override
+            public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Object context) {
+                return logicalResultSink.child().accept(this, context);
+            }
+        }, null);
+        // Optimize by rules to remove top sort
+        CascadesContext parentCascadesContext = CascadesContext.initContext(mvSqlStatementContext, mvPlan,
+                PhysicalProperties.ANY);
+        mvPlan = MaterializedViewUtils.rewriteByRules(parentCascadesContext, childContext -> {
+            Rewriter.getCteChildrenRewriter(childContext,
+                    ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
+            return childContext.getRewritePlan();
+        }, mvPlan, originPlan);
+        return new MTMVCache(mvPlan, originPlan,
+                planner.getCascadesContext().getMemo().getRoot().getStatistics(), null);
     }
 
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
@@ -299,58 +382,12 @@ public class MaterializedViewUtils {
 
         @Override
         public Void visitLogicalProject(LogicalProject<? extends Plan> project, IncrementCheckerContext context) {
-            NamedExpression mvPartitionColumn = context.getMvPartitionColumn();
             List<Slot> output = project.getOutput();
-            if (context.getMvPartitionColumn().isColumnFromTable()) {
-                return visit(project, context);
+            boolean isValid = checkPartition(output, project, context);
+            if (!isValid) {
+                return null;
             }
-            for (Slot projectSlot : output) {
-                if (!projectSlot.equals(mvPartitionColumn.toSlot())) {
-                    continue;
-                }
-                if (projectSlot.isColumnFromTable()) {
-                    context.setMvPartitionColumn(projectSlot);
-                } else {
-                    // should be only use date_trunc
-                    Expression shuttledExpression =
-                            ExpressionUtils.shuttleExpressionWithLineage(projectSlot, project, new BitSet());
-                    // merge date_trunc
-                    shuttledExpression = new ExpressionNormalization().rewrite(shuttledExpression,
-                            new ExpressionRewriteContext(context.getCascadesContext()));
-
-                    List<Expression> expressions = shuttledExpression.collectToList(Expression.class::isInstance);
-                    for (Expression expression : expressions) {
-                        if (SUPPORT_EXPRESSION_TYPES.stream().noneMatch(
-                                supportExpression -> supportExpression.isAssignableFrom(expression.getClass()))) {
-                            context.addFailReason(
-                                    String.format("partition column use invalid implicit expression, invalid "
-                                                    + "expression is %s", expression));
-                            return null;
-                        }
-                    }
-                    List<DateTrunc> dataTruncExpressions =
-                            shuttledExpression.collectToList(DateTrunc.class::isInstance);
-                    if (dataTruncExpressions.size() != 1) {
-                        // mv time unit level is little then query
-                        context.addFailReason("partition column time unit level should be "
-                                + "greater than sql select column");
-                        return null;
-                    }
-                    Optional<Slot> columnExpr =
-                            shuttledExpression.getArgument(0).collectFirst(Slot.class::isInstance);
-                    if (!columnExpr.isPresent() || !columnExpr.get().isColumnFromTable()) {
-                        context.addFailReason(String.format("partition reference column should be direct column "
-                                + "rather then expression except date_trunc, columnExpr is %s", columnExpr));
-                        return null;
-                    }
-                    context.setPartitionExpression(shuttledExpression);
-                    context.setMvPartitionColumn(columnExpr.get());
-                }
-                return visit(project, context);
-            }
-            context.addFailReason(String.format("partition reference column should be direct column "
-                    + "rather then expression except date_trunc, current project is %s", project));
-            return null;
+            return visit(project, context);
         }
 
         @Override
@@ -452,18 +489,8 @@ public class MaterializedViewUtils {
                 context.addFailReason("group by sets is empty, doesn't contain the target partition");
                 return null;
             }
-            Set<Column> originalGroupbyExprSet = new HashSet<>();
-            groupByExprSet.forEach(groupExpr -> {
-                if (groupExpr instanceof SlotReference && groupExpr.isColumnFromTable()) {
-                    originalGroupbyExprSet.add(((SlotReference) groupExpr).getColumn().get());
-                }
-            });
-            SlotReference contextPartitionColumn = getContextPartitionColumn(context);
-            if (contextPartitionColumn == null) {
-                return null;
-            }
-            if (!originalGroupbyExprSet.contains(contextPartitionColumn.getColumn().get())) {
-                context.addFailReason("group by sets doesn't contain the target partition");
+            boolean isValid = checkPartition(groupByExprSet, aggregate, context);
+            if (!isValid) {
                 return null;
             }
             return visit(aggregate, context);
@@ -495,6 +522,8 @@ public class MaterializedViewUtils {
                     || plan instanceof LogicalWindow) {
                 return super.visit(plan, context);
             }
+            context.addFailReason(String.format("Unsupported plan operate in track partition, "
+                    + "the invalid plan node is %s", plan.getClass().getSimpleName()));
             return null;
         }
 
@@ -529,6 +558,99 @@ public class MaterializedViewUtils {
                 return null;
             }
             return (SlotReference) context.getMvPartitionColumn();
+        }
+
+        /**
+         * Given a partition named expression and expressionsToCheck, check the partition is valid
+         * example 1:
+         * partition expression is date_trunc(date_alias#25, 'hour') AS `date_trunc(date_alias, 'hour')`#30
+         * expressionsToCheck is date_trunc(date_alias, 'hour')#30
+         * expressionsToCheck is the slot to partition expression, but they are expression
+         * example 2:
+         * partition expression is L_SHIPDATE#10
+         * expressionsToCheck isL_SHIPDATE#10
+         * both of them are slot
+         * example 3:
+         * partition expression is date_trunc(L_SHIPDATE#10, 'hour')#30
+         * expressionsToCheck is L_SHIPDATE#10
+         * all above should check successfully
+         * */
+        private static boolean checkPartition(Collection<? extends Expression> expressionsToCheck, Plan plan,
+                IncrementCheckerContext context) {
+            NamedExpression partitionColumn = context.getMvPartitionColumn();
+            for (Expression projectSlot : expressionsToCheck) {
+                if (projectSlot.isColumnFromTable() && projectSlot.equals(partitionColumn.toSlot())) {
+                    continue;
+                }
+                // check the expression which use partition column
+                Expression expressionToCheck =
+                        ExpressionUtils.shuttleExpressionWithLineage(projectSlot, plan, new BitSet());
+                // merge date_trunc
+                expressionToCheck = new ExpressionNormalization().rewrite(expressionToCheck,
+                        new ExpressionRewriteContext(context.getCascadesContext()));
+
+                Expression partitionExpression = context.getPartitionExpression().isPresent()
+                        ? context.getPartitionExpression().get() :
+                        ExpressionUtils.shuttleExpressionWithLineage(partitionColumn, plan, new BitSet());
+                // merge date_trunc
+                partitionExpression = new ExpressionNormalization().rewrite(partitionExpression,
+                        new ExpressionRewriteContext(context.getCascadesContext()));
+
+                Set<SlotReference> expressionToCheckColumns =
+                        expressionToCheck.collectToSet(SlotReference.class::isInstance);
+                Set<SlotReference> partitionColumns =
+                        partitionExpression.collectToSet(SlotReference.class::isInstance);
+                if (Sets.intersection(expressionToCheckColumns, partitionColumns).isEmpty()
+                        || expressionToCheckColumns.isEmpty() || partitionColumns.isEmpty()) {
+                    // this expression doesn't use partition column
+                    continue;
+                }
+                if (expressionToCheckColumns.size() > 1 || partitionColumns.size() > 1) {
+                    context.addFailReason(
+                            String.format("partition expression use more than one slot reference, invalid "
+                                            + "expressionToCheckColumns is %s, partitionColumnDateColumns is %s",
+                                    expressionToCheckColumns, partitionColumns));
+                    return false;
+                }
+                List<Expression> expressions = expressionToCheck.collectToList(Expression.class::isInstance);
+                for (Expression expression : expressions) {
+                    if (SUPPORT_EXPRESSION_TYPES.stream().noneMatch(
+                            supportExpression -> supportExpression.isAssignableFrom(expression.getClass()))) {
+                        context.addFailReason(
+                                String.format("column to check use invalid implicit expression, invalid "
+                                        + "expression is %s", expression));
+                        return false;
+                    }
+                }
+                List<Expression> partitionExpressions = partitionExpression.collectToList(
+                        Expression.class::isInstance);
+                for (Expression expression : partitionExpressions) {
+                    if (SUPPORT_EXPRESSION_TYPES.stream().noneMatch(
+                            supportExpression -> supportExpression.isAssignableFrom(expression.getClass()))) {
+                        context.addFailReason(
+                                String.format("partition column use invalid implicit expression, invalid "
+                                        + "expression is %s", expression));
+                        return false;
+                    }
+                }
+                List<DateTrunc> expressionToCheckDataTruncList =
+                        expressionToCheck.collectToList(DateTrunc.class::isInstance);
+                List<DateTrunc> partitionColumnDateTrucList =
+                        partitionExpression.collectToList(DateTrunc.class::isInstance);
+                if (expressionToCheckDataTruncList.size() > 1 || partitionColumnDateTrucList.size() > 1) {
+                    // mv time unit level is little then query
+                    context.addFailReason("partition column time unit level should be "
+                            + "greater than sql select column");
+                    return false;
+                }
+                if (!partitionColumn.isColumnFromTable()) {
+                    context.setMvPartitionColumn(partitionColumns.iterator().next());
+                }
+                if (!context.getPartitionExpression().isPresent()) {
+                    context.setPartitionExpression(partitionExpression);
+                }
+            }
+            return true;
         }
     }
 

@@ -36,27 +36,10 @@ class DorisFSDirectory;
 using InvertedIndexDirectoryMap =
         std::map<std::pair<int64_t, std::string>, std::unique_ptr<lucene::store::Directory>>;
 
-class DorisCompoundFileWriter : LUCENE_BASE {
+class FileInfo {
 public:
-    DorisCompoundFileWriter() = default;
-    DorisCompoundFileWriter(CL_NS(store)::Directory* dir);
-    ~DorisCompoundFileWriter() override = default;
-    /** Returns the directory of the compound file. */
-    CL_NS(store)::Directory* getDirectory();
-    virtual size_t writeCompoundFile();
-    static void copyFile(const char* fileName, lucene::store::Directory* dir,
-                         lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
-
-private:
-    class FileInfo {
-    public:
-        std::string filename;
-        int32_t filesize;
-    };
-
-    void sort_files(std::vector<FileInfo>& file_infos);
-
-    CL_NS(store)::Directory* directory = nullptr;
+    std::string filename;
+    int32_t filesize;
 };
 
 class InvertedIndexFileWriter {
@@ -74,12 +57,16 @@ public:
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     ~InvertedIndexFileWriter() = default;
-    size_t write();
+    size_t write_v2();
+    size_t write_v1();
     Status close();
     size_t headerLength();
-    std::string get_index_file_path() const;
     size_t get_index_file_size() const { return _file_size; }
     const io::FileSystemSPtr& get_fs() const { return _fs; }
+    void sort_files(std::vector<FileInfo>& file_infos);
+    void copyFile(const char* fileName, lucene::store::Directory* dir,
+                  lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
+    InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
 
 private:
     InvertedIndexDirectoryMap _indices_dirs;

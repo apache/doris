@@ -55,12 +55,13 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
                 // all conjuncts match with pattern `key = ?`
                 expression -> (expression instanceof EqualTo)
                         && (removeCast(expression.child(0)).isKeyColumnFromTable()
-                        || ((SlotReference) expression.child(0)).getName().equals(Column.DELETE_SIGN))
+                        || (expression.child(0) instanceof SlotReference
+                        && ((SlotReference) expression.child(0)).getName().equals(Column.DELETE_SIGN)))
                         && expression.child(1).isLiteral());
     }
 
     private boolean scanMatchShortCircuitCondition(LogicalOlapScan olapScan) {
-        if (!ConnectContext.get().getSessionVariable().enableShortCircuitQuery) {
+        if (!ConnectContext.get().getSessionVariable().isEnableShortCircuitQuery()) {
             return false;
         }
         OlapTable olapTable = olapScan.getTable();

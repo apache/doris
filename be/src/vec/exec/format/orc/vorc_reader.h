@@ -313,7 +313,8 @@ private:
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
         OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
+                                         cvb->toString());
         }
         auto* cvb_data = data->data.data();
         auto& column_data = static_cast<ColumnVector<CppType>&>(*data_column).get_data();
@@ -355,7 +356,8 @@ private:
                                            orc::ColumnVectorBatch* cvb, size_t num_values) {
         OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
+                                         cvb->toString());
         }
         if (_decimal_scale_params_index >= _decimal_scale_params.size()) {
             DecimalScaleParams temp_scale_params;
@@ -443,7 +445,8 @@ private:
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
         auto* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
+                                         cvb->toString());
         }
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
         auto& column_data = static_cast<ColumnVector<DorisColumnType>&>(*data_column).get_data();

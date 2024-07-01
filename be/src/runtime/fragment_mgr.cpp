@@ -51,6 +51,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -117,6 +118,9 @@ uint64_t get_fragment_last_active_time() {
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
         return "";
+    }
+    if (file_name.compare(0, 4, "http") == 0) {
+        return file_name;
     }
     std::stringstream url;
     url << "http://" << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
@@ -239,56 +243,42 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
             params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
         }
-        if (req.is_pipeline_x) {
-            params.__isset.detailed_report = true;
-            DCHECK(!req.runtime_states.empty());
-            const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
-            if (enable_profile) {
-                params.__isset.profile = true;
-                params.__isset.loadChannelProfile = false;
-                for (auto* rs : req.runtime_states) {
-                    DCHECK(req.load_channel_profile);
-                    TDetailedReportParams detailed_param;
-                    rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
-                    // merge all runtime_states.loadChannelProfile to req.load_channel_profile
-                    req.load_channel_profile->update(detailed_param.loadChannelProfile);
-                }
-                req.load_channel_profile->to_thrift(&params.loadChannelProfile);
-            } else {
-                params.__isset.profile = false;
+        params.__isset.detailed_report = true;
+        DCHECK(!req.runtime_states.empty());
+        const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
+        if (enable_profile) {
+            params.__isset.profile = true;
+            params.__isset.loadChannelProfile = false;
+            for (auto* rs : req.runtime_states) {
+                DCHECK(req.load_channel_profile);
+                TDetailedReportParams detailed_param;
+                rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
+                // merge all runtime_states.loadChannelProfile to req.load_channel_profile
+                req.load_channel_profile->update(detailed_param.loadChannelProfile);
             }
+            req.load_channel_profile->to_thrift(&params.loadChannelProfile);
+        } else {
+            params.__isset.profile = false;
+        }
 
-            if (enable_profile) {
-                DCHECK(req.profile != nullptr);
+        if (enable_profile) {
+            DCHECK(req.profile != nullptr);
+            TDetailedReportParams detailed_param;
+            detailed_param.__isset.fragment_instance_id = false;
+            detailed_param.__isset.profile = true;
+            detailed_param.__isset.loadChannelProfile = false;
+            detailed_param.__set_is_fragment_level(true);
+            req.profile->to_thrift(&detailed_param.profile);
+            params.detailed_report.push_back(detailed_param);
+            for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
                 TDetailedReportParams detailed_param;
                 detailed_param.__isset.fragment_instance_id = false;
                 detailed_param.__isset.profile = true;
                 detailed_param.__isset.loadChannelProfile = false;
-                detailed_param.__set_is_fragment_level(true);
-                req.profile->to_thrift(&detailed_param.profile);
-                params.detailed_report.push_back(detailed_param);
-                for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
-                    TDetailedReportParams detailed_param;
-                    detailed_param.__isset.fragment_instance_id = false;
-                    detailed_param.__isset.profile = true;
-                    detailed_param.__isset.loadChannelProfile = false;
-                    pipeline_profile->to_thrift(&detailed_param.profile);
-                    params.detailed_report.push_back(std::move(detailed_param));
-                }
-            }
-        } else {
-            if (req.profile != nullptr) {
-                req.profile->to_thrift(&params.profile);
-                if (req.load_channel_profile) {
-                    req.load_channel_profile->to_thrift(&params.loadChannelProfile);
-                }
-                params.__isset.profile = true;
-                params.__isset.loadChannelProfile = true;
-            } else {
-                params.__isset.profile = false;
+                pipeline_profile->to_thrift(&detailed_param.profile);
+                params.detailed_report.push_back(std::move(detailed_param));
             }
         }
-
         if (!req.runtime_state->output_files().empty()) {
             params.__isset.delta_urls = true;
             for (auto& it : req.runtime_state->output_files()) {
@@ -497,7 +487,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
         stream_load_ctx->table = params.txn_conf.tbl;
         stream_load_ctx->txn_id = params.txn_conf.txn_id;
         stream_load_ctx->id = UniqueId(params.query_id);
-        stream_load_ctx->put_result.pipeline_params = params;
+        stream_load_ctx->put_result.__set_pipeline_params(params);
         stream_load_ctx->use_streaming = true;
         stream_load_ctx->load_type = TLoadType::MANUL_LOAD;
         stream_load_ctx->load_src_type = TLoadSourceType::RAW;
@@ -607,12 +597,14 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
                   << ", total fragment num on current host: " << params.fragment_num_on_host
                   << ", fe process uuid: " << params.query_options.fe_process_uuid
-                  << ", query type: " << params.query_options.query_type;
+                  << ", query type: " << params.query_options.query_type
+                  << ", report audit fe:" << params.current_connect_fe;
 
         // This may be a first fragment request of the query.
         // Create the query fragments context.
-        query_ctx = QueryContext::create_shared(query_id, _exec_env, params.query_options,
-                                                params.coord, pipeline, params.is_nereids);
+        query_ctx =
+                QueryContext::create_shared(query_id, _exec_env, params.query_options, params.coord,
+                                            pipeline, params.is_nereids, params.current_connect_fe);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
@@ -1022,7 +1014,6 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     query_options.mem_limit = params.mem_limit;
     query_options.query_type = TQueryType::EXTERNAL;
     query_options.be_exec_version = BeExecVersionManager::get_newest_version();
-    query_options.__set_enable_pipeline_x_engine(true);
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();

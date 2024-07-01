@@ -69,6 +69,11 @@ public class RollupRenameClause extends AlterTableClause {
     }
 
     @Override
+    public boolean needChangeMTMVState() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         return "RENAME ROLLUP " + rollupName + " " + newRollupName;
     }

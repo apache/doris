@@ -85,7 +85,7 @@
 #define MEMORY_ORPHAN_CHECK() (void)0
 #endif
 
-#if defined(USE_MEM_TRACKER) && !defined(BE_TEST) && defined(USE_JEMALLOC_HOOK)
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
 // Count a code segment memory (memory malloc - memory free) to int64_t
 // Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT_BY_HOOK(&scope_mem); xxx; xxx; }
 #define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \

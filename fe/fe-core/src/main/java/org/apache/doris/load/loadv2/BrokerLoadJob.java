@@ -240,8 +240,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
         if (enableProfile) {
             this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true,
-                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")),
-                    false);
+                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")));
             // profile is registered in ProfileManager, so that we can get realtime profile
             jobProfile.updateSummary(loadStartTimestamp, getSummaryInfo(false), false, null);
         }

@@ -57,7 +57,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 public class TransactionState implements Writable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
@@ -79,6 +78,7 @@ public class TransactionState implements Writable {
         ROUTINE_LOAD_TASK(4), // routine load task use this type
         BATCH_LOAD_JOB(5); // load job v2 for broker load
 
+        @SerializedName("f")
         private final int flag;
 
         private LoadJobSourceType(int flag) {
@@ -309,8 +309,6 @@ public class TransactionState implements Writable {
     // table id -> schema info
     private Map<Long, SchemaInfo> txnSchemas = new HashMap<>();
 
-    @Getter
-    private List<SubTransactionState> subTransactionStates;
     @Getter
     @SerializedName(value = "sti")
     private List<Long> subTxnIds;
@@ -712,9 +710,6 @@ public class TransactionState implements Writable {
         if (idToTableCommitInfos != null && !idToTableCommitInfos.isEmpty()) {
             sb.append(", table commit info: ").append(idToTableCommitInfos);
         }
-        if (subTransactionStates != null) {
-            sb.append(", sub txn states: ").append(subTransactionStates);
-        }
         if (subTxnIds != null) {
             sb.append(", sub txn ids: ").append(subTxnIds);
         }
@@ -873,17 +868,8 @@ public class TransactionState implements Writable {
         return true;
     }
 
-    public void resetSubTransactionStates() {
-        this.subTransactionStates = new ArrayList<>();
-    }
-
-    public void setSubTransactionStates(List<SubTransactionState> subTransactionStates) {
-        this.subTransactionStates = subTransactionStates;
-    }
-
-    public void resetSubTxnIds() {
-        this.subTxnIds = subTransactionStates.stream().map(SubTransactionState::getSubTransactionId)
-                .collect(Collectors.toList());
+    public void setSubTxnIds(List<Long> subTxnIds) {
+        this.subTxnIds = subTxnIds;
     }
 
     public TableCommitInfo getTableCommitInfoBySubTxnId(long subTxnId) {

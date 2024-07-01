@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("double_write_schema_change_with_variant") {
+suite("double_write_schema_change_with_variant", "nonConcurrent") {
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -70,6 +70,7 @@ suite("double_write_schema_change_with_variant") {
     """
 
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "6294967296")
+    set_be_config.call("write_buffer_size", "10240")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-2.json'}""")
@@ -112,5 +113,7 @@ suite("double_write_schema_change_with_variant") {
 
     // createMV("create materialized view xxx as select k, sum(k) from ${table_name} group by k order by k;")
     // qt_sql "select v['type'], v['id'], v['created_at'] from ${table_name} where cast(v['id'] as bigint) != 25061216922 order by k,  cast(v['id'] as bigint) limit 10"
+    // restore configs
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "2147483648")
+    set_be_config.call("write_buffer_size", "209715200")
 }

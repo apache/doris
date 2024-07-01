@@ -233,20 +233,13 @@ public class StreamLoadHandler {
                 planner = new StreamLoadPlanner(db, table, streamLoadTask);
             }
             int index = multiTableFragmentInstanceIdIndex != null
-                        ? multiTableFragmentInstanceIdIndex.getAndIncrement() : 0;
-            if (Config.enable_pipeline_load) {
-                TPipelineFragmentParams pipeResult = null;
-                pipeResult = planner.planForPipeline(streamLoadTask.getId(), index);
-                pipeResult.setTableName(table.getName());
-                pipeResult.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
-                fragmentParams.add(pipeResult);
-            } else {
-                TPipelineFragmentParams result = null;
-                result = planner.plan(streamLoadTask.getId(), index);
-                result.setTableName(table.getName());
-                result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
-                fragmentParams.add(result);
-            }
+                    ? multiTableFragmentInstanceIdIndex.getAndIncrement() : 0;
+            TPipelineFragmentParams result = null;
+            result = planner.plan(streamLoadTask.getId(), index);
+            result.setTableName(table.getName());
+            result.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
+            result.setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
+            fragmentParams.add(result);
 
             if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {
                 // add table indexes to transaction state

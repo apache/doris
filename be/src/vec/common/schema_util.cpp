@@ -236,28 +236,6 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
     return result;
 }
 
-TabletColumn get_least_type_column(const TabletColumn& original, const DataTypePtr& new_type,
-                                   const ExtraInfo& ext_info, bool* changed) {
-    TabletColumn result_column;
-    vectorized::DataTypePtr original_type = original.get_vec_type();
-    vectorized::DataTypePtr common_type;
-    vectorized::get_least_supertype<vectorized::LeastSupertypeOnError::Jsonb>(
-            vectorized::DataTypes {original_type, new_type}, &common_type);
-    if (!original_type->equals(*common_type)) {
-        // update to common type
-        *changed = true;
-        vectorized::schema_util::get_column_by_type(common_type, original.name(), result_column,
-                                                    ext_info);
-    } else {
-        *changed = false;
-        result_column = original;
-        result_column.set_parent_unique_id(ext_info.parent_unique_id);
-        result_column.set_unique_id(ext_info.unique_id);
-        result_column.set_path_info(ext_info.path_info);
-    }
-    return result_column;
-}
-
 void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
                                   TabletSchemaSPtr& common_schema, bool update_sparse_column,
                                   int32_t variant_col_unique_id,
@@ -286,7 +264,7 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
             continue;
         }
         DataTypePtr common_type;
-        get_least_supertype<LeastSupertypeOnError::Jsonb>(subtypes, &common_type);
+        get_least_supertype_jsonb(subtypes, &common_type);
         if (!common_type->is_nullable()) {
             common_type = make_nullable(common_type);
         }
@@ -389,7 +367,8 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
         // add index meta
         TabletIndex index_info = *source_index_meta;
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        const auto* target_index_meta = target_schema->get_inverted_index(target);
+        // get_inverted_index: No need to check, just inherit directly
+        const auto* target_index_meta = target_schema->get_inverted_index(target, false);
         if (target_index_meta != nullptr) {
             // already exist
             target_schema->update_index(target, index_info);
@@ -491,36 +470,8 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         var.assume_mutable_ref().finalize();
 
         MutableColumnPtr variant_column;
-        bool record_raw_string_with_serialization = false;
-        // set
-        auto encode_rowstore = [&]() {
-            if (!ctx.record_raw_json_column) {
-                return Status::OK();
-            }
-            auto* var = static_cast<vectorized::ColumnObject*>(variant_column.get());
-            if (record_raw_string_with_serialization) {
-                // encode to raw json column
-                auto raw_column = vectorized::ColumnString::create();
-                for (size_t i = 0; i < var->rows(); ++i) {
-                    std::string raw_str;
-                    RETURN_IF_ERROR(var->serialize_one_row_to_string(i, &raw_str));
-                    raw_column->insert_data(raw_str.c_str(), raw_str.size());
-                }
-                var->set_rowstore_column(raw_column->get_ptr());
-            } else {
-                // use original input json column
-                auto original_var_root = vectorized::check_and_get_column<vectorized::ColumnObject>(
-                                                 remove_nullable(column_ref).get())
-                                                 ->get_root();
-                var->set_rowstore_column(original_var_root);
-            }
-            return Status::OK();
-        };
-
         if (!var.is_scalar_variant()) {
             variant_column = var.assume_mutable();
-            record_raw_string_with_serialization = true;
-            RETURN_IF_ERROR(encode_rowstore());
             // already parsed
             continue;
         }
@@ -557,8 +508,6 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
             result = ColumnNullable::create(result, null_map);
         }
         block.get_by_position(variant_pos[i]).column = result;
-        RETURN_IF_ERROR(encode_rowstore());
-        // block.get_by_position(variant_pos[i]).type = std::make_shared<DataTypeObject>("json", true);
     }
     return Status::OK();
 }
@@ -599,35 +548,6 @@ Status encode_variant_sparse_subcolumns(ColumnObject& column) {
     return Status::OK();
 }
 
-static void _append_column(const TabletColumn& parent_variant,
-                           const ColumnObject::Subcolumns::NodePtr& subcolumn,
-                           TabletSchemaSPtr& to_append, bool is_sparse) {
-    // If column already exist in original tablet schema, then we pick common type
-    // and cast column to common type, and modify tablet column to common type,
-    // otherwise it's a new column
-    CHECK(to_append.use_count() == 1);
-    const std::string& column_name =
-            parent_variant.name_lower_case() + "." + subcolumn->path.get_path();
-    const vectorized::DataTypePtr& final_data_type_from_object =
-            subcolumn->data.get_least_common_type();
-    vectorized::PathInDataBuilder full_path_builder;
-    auto full_path = full_path_builder.append(parent_variant.name_lower_case(), false)
-                             .append(subcolumn->path.get_parts(), false)
-                             .build();
-    TabletColumn tablet_column = vectorized::schema_util::get_column_by_type(
-            final_data_type_from_object, column_name,
-            vectorized::schema_util::ExtraInfo {.unique_id = -1,
-                                                .parent_unique_id = parent_variant.unique_id(),
-                                                .path_info = full_path});
-
-    if (!is_sparse) {
-        to_append->append_column(std::move(tablet_column));
-    } else {
-        to_append->mutable_column_by_uid(parent_variant.unique_id())
-                .append_sparse_column(std::move(tablet_column));
-    }
-}
-
 // sort by paths in lexicographical order
 vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
         const vectorized::ColumnObject::Subcolumns& subcolumns) {
@@ -639,70 +559,12 @@ vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
     return sorted;
 }
 
-void rebuild_schema_and_block(const TabletSchemaSPtr& original,
-                              const std::vector<int>& variant_positions, Block& flush_block,
-                              TabletSchemaSPtr& flush_schema) {
-    // rebuild schema and block with variant extracted columns
+// ---------------------------
 
-    // 1. Flatten variant column into flat columns, append flatten columns to the back of original Block and TabletSchema
-    // those columns are extracted columns, leave none extracted columns remain in original variant column, which is
-    // JSONB format at present.
-    // 2. Collect columns that need to be added or modified when data type changes or new columns encountered
-    for (size_t variant_pos : variant_positions) {
-        auto column_ref = flush_block.get_by_position(variant_pos).column;
-        bool is_nullable = column_ref->is_nullable();
-        const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
-                remove_nullable(column_ref)->assume_mutable_ref());
-        const TabletColumn& parent_column = *original->columns()[variant_pos];
-        CHECK(object_column.is_finalized());
-        std::shared_ptr<vectorized::ColumnObject::Subcolumns::Node> root;
-        // common extracted columns
-        for (const auto& entry : get_sorted_subcolumns(object_column.get_subcolumns())) {
-            if (entry->path.empty()) {
-                // root
-                root = entry;
-                continue;
-            }
-            _append_column(parent_column, entry, flush_schema, false);
-            const std::string& column_name =
-                    parent_column.name_lower_case() + "." + entry->path.get_path();
-            flush_block.insert({entry->data.get_finalized_column_ptr()->get_ptr(),
-                                entry->data.get_least_common_type(), column_name});
-        }
-
-        // add sparse columns to flush_schema
-        for (const auto& entry : get_sorted_subcolumns(object_column.get_sparse_subcolumns())) {
-            _append_column(parent_column, entry, flush_schema, true);
-        }
-
-        // Create new variant column and set root column
-        auto obj = vectorized::ColumnObject::create(true, false);
-        // '{}' indicates a root path
-        static_cast<vectorized::ColumnObject*>(obj.get())->add_sub_column(
-                {}, root->data.get_finalized_column_ptr()->assume_mutable(),
-                root->data.get_least_common_type());
-        // // set for rowstore
-        if (original->store_row_column()) {
-            static_cast<vectorized::ColumnObject*>(obj.get())->set_rowstore_column(
-                    object_column.get_rowstore_column());
-        }
-        vectorized::ColumnPtr result = obj->get_ptr();
-        if (is_nullable) {
-            const auto& null_map = assert_cast<const vectorized::ColumnNullable&>(*column_ref)
-                                           .get_null_map_column_ptr();
-            result = vectorized::ColumnNullable::create(result, null_map);
-        }
-        flush_block.get_by_position(variant_pos).column = result;
-        vectorized::PathInDataBuilder full_root_path_builder;
-        auto full_root_path =
-                full_root_path_builder.append(parent_column.name_lower_case(), false).build();
-        TabletColumn new_col = flush_schema->column(variant_pos);
-        new_col.set_path_info(full_root_path);
-        flush_schema->replace_column(variant_pos, new_col);
-        VLOG_DEBUG << "set root_path : " << full_root_path.get_path();
-    }
-
-    vectorized::schema_util::inherit_column_attributes(flush_schema);
+std::string dump_column(DataTypePtr type, const ColumnPtr& col) {
+    Block tmp;
+    tmp.insert(ColumnWithTypeAndName {col, type, col->get_name()});
+    return tmp.dump_data(0, tmp.rows());
 }
 
 // ---------------------------
@@ -733,13 +595,5 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
                   ->assume_mutable();
     return Status::OK();
 }
-// ---------------------------
-
-std::string dump_column(DataTypePtr type, const ColumnPtr& col) {
-    Block tmp;
-    tmp.insert(ColumnWithTypeAndName {col, type, col->get_name()});
-    return tmp.dump_data(0, tmp.rows());
-}
-// ---------------------------
 
 } // namespace doris::vectorized::schema_util

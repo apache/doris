@@ -130,6 +130,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
+    @SerializedName(value = "rowStoreColumns")
+    protected List<String> rowStoreColumns = null;
+    @SerializedName(value = "storeRowColumn")
+    protected boolean storeRowColumn = false;
+    @SerializedName(value = "hasRowStoreChange")
+    protected boolean hasRowStoreChange = false;
+
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
 
@@ -174,6 +181,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.hasBfChange = hasBfChange;
         this.bfColumns = bfColumns;
         this.bfFpp = bfFpp;
+    }
+
+    public void setStoreRowColumnInfo(boolean hasRowStoreChange,
+                        boolean storeRowColumn, List<String> rowStoreColumns) {
+        this.hasRowStoreChange = hasRowStoreChange;
+        this.storeRowColumn = storeRowColumn;
+        this.rowStoreColumns = rowStoreColumns;
     }
 
     public void setAlterIndexInfo(boolean indexChange, List<Index> indexes) {
@@ -277,14 +291,17 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     tbl.getTimeSeriesCompactionLevelThreshold(),
                                     tbl.storeRowColumn(),
-                                    binlogConfig, objectPool);
+                                    binlogConfig,
+                                    tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                                    objectPool);
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
                             }
-                            createReplicaTask.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
+                            createReplicaTask.setInvertedIndexFileStorageFormat(tbl
+                                                    .getInvertedIndexFileStorageFormat());
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas
                     } // end for rollupTablets
@@ -700,6 +717,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         // update index
         if (indexChange) {
             tbl.setIndexes(indexes);
+        }
+        // update row store
+        if (hasRowStoreChange) {
+            tbl.setStoreRowColumn(storeRowColumn);
+            tbl.setRowStoreColumns(rowStoreColumns);
         }
 
         // set storage format of table, only set if format is v2

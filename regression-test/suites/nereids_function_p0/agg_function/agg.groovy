@@ -1580,6 +1580,8 @@ suite("nereids_agg_fn") {
 		select percentile(kbint, 0.6) from fn_test group by kbool order by kbool'''
 	qt_sql_percentile_BigInt_Double '''
 		select percentile(kbint, 0.6) from fn_test'''
+	qt_sql_percentile_Null_Empty '''
+		select percentile(1, 0.6) from fn_test where kbint > 100;'''
 	qt_sql_percentile_BigInt_Double_agg_phase_1 '''
 		select count(id), percentile(kbint, 0.6) from fn_test group by id order by id'''
 	qt_sql_percentile_BigInt_Double_agg_phase_2 '''

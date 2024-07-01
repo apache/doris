@@ -53,7 +53,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
     }
 
     @Override
-    protected void deleteNotExistPartitionStats() throws DdlException {
+    protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
     }
 
     protected void doFull() throws Exception {

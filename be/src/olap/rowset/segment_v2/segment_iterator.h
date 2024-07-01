@@ -396,7 +396,7 @@ private:
     // read schema from scanner
     SchemaSPtr _schema;
     // storage type schema related to _schema, since column in segment may be different with type in _schema
-    std::vector<vectorized::NameAndTypePair> _storage_name_and_type;
+    std::vector<vectorized::IndexFieldNameAndTypePair> _storage_name_and_type;
     // vector idx -> column iterarator
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;

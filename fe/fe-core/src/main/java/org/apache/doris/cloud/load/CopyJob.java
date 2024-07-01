@@ -48,13 +48,13 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -80,11 +80,15 @@ public class CopyJob extends CloudBrokerLoadJob {
     private String pattern;
     @Getter
     private ObjectInfo objectInfo;
+
+    @SerializedName("cid")
     @Getter
     private String copyId;
     @Getter
     private boolean forceCopy;
+    @SerializedName("lfp")
     private String loadFilePaths = "";
+    @SerializedName("pty")
     private Map<String, String> properties = new HashMap<>();
     private volatile boolean abortedCopy = false;
     private boolean isReplay = false;
@@ -230,15 +234,6 @@ public class CopyJob extends CloudBrokerLoadJob {
     protected LoadJobFinalOperation getLoadJobFinalOperation() {
         return new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
                 finishTimestamp, state, failMsg, copyId, loadFilePaths, properties);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, copyId);
-        Text.writeString(out, loadFilePaths);
-        Gson gson = new Gson();
-        Text.writeString(out, properties == null ? "" : gson.toJson(properties));
     }
 
     @Override

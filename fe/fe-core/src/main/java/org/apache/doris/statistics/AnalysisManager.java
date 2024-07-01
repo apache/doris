@@ -668,7 +668,7 @@ public class AnalysisManager implements Writable {
         StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, partitions);
     }
 
-    public void dropStats(TableIf table) throws DdlException {
+    public void dropStats(TableIf table, PartitionNames partitionNames) throws DdlException {
         TableStatsMeta tableStats = findTableStatsStatus(table.getId());
         if (tableStats == null) {
             return;
@@ -676,10 +676,15 @@ public class AnalysisManager implements Writable {
         long catalogId = table.getDatabase().getCatalog().getId();
         long dbId = table.getDatabase().getId();
         long tableId = table.getId();
-        invalidateLocalStats(catalogId, dbId, tableId, null, tableStats, null);
+        invalidateLocalStats(catalogId, dbId, tableId, null, tableStats, partitionNames);
         // Drop stats ddl is master only operation.
-        invalidateRemoteStats(catalogId, dbId, tableId, null, null);
-        StatisticsRepository.dropStatistics(catalogId, dbId, table.getId(), null, null);
+        Set<String> partitions = null;
+        if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
+            partitions = new HashSet<>(partitionNames.getPartitionNames());
+        }
+        // Drop stats ddl is master only operation.
+        invalidateRemoteStats(catalogId, dbId, tableId, null, partitions);
+        StatisticsRepository.dropStatistics(catalogId, dbId, table.getId(), null, partitions);
     }
 
     public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
@@ -783,7 +788,7 @@ public class AnalysisManager implements Writable {
         StringBuilder partNamePredicate = new StringBuilder();
         while (iterator.hasNext()) {
             partNamePredicate.append("'");
-            partNamePredicate.append(iterator.next());
+            partNamePredicate.append(StatisticsUtil.escapeSQL(iterator.next()));
             partNamePredicate.append("'");
             partNamePredicate.append(",");
         }

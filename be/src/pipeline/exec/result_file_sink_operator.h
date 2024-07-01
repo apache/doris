@@ -107,7 +107,7 @@ private:
 
     // Owned by the RuntimeState.
     RowDescriptor _output_row_descriptor;
-    int _buf_size = 1024; // Allocated from _pool
+    int _buf_size = 4096; // Allocated from _pool
     bool _is_top_sink = true;
     std::string _header;
     std::string _header_type;
