@@ -270,6 +270,102 @@ suite('test_mix_partial_update') {
                 sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableInsertName2}' ORDER BY createtime DESC LIMIT 1 """
                 time 60
             }
+
+            sql "insert into ${tableInsertName2} (k1,c2,c3,c4) values(3,3,3,{'a':300,'b':300})"
+            qt_select_D "select k1,c1,c2,c3,c4 from ${tableInsertName2}"
+            qt_select_DD "select count(*) from ${tableInsertName2} where c5 = c7"
+
+            // do heavy weight schema change
+            sql """ ALTER TABLE ${tableInsertName2} add column `k2` int after k1; """
+            waitForSchemaChangeDone {
+                sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableInsertName2}' ORDER BY createtime DESC LIMIT 1 """
+                time 60
+            }
+
+            sql "insert into ${tableInsertName2} (k1,k2,c2,c3,c4) values(4,4,4,4,{'a':400,'b':400})"
+            qt_select_E "select k1,c1,c2,c3,c4 from ${tableInsertName2}"
+            qt_select_EE "select count(*) from ${tableInsertName2} where c5 = c7"
+
+            def tableStreamName2 = "test_mix_partial_update2"
+            sql "DROP TABLE IF EXISTS ${tableStreamName2};"
+            sql """ CREATE TABLE IF NOT EXISTS ${tableStreamName2} (
+                    `k1` int NOT NULL,
+                    `c1` bigint NOT NULL auto_increment(100),
+                    `c2` int,
+                    `c3` int,
+                    `c4` map<string, int>,
+                    `c5` datetimev2(3) DEFAULT CURRENT_TIMESTAMP,
+                    `c6` datetimev2(3) DEFAULT CURRENT_TIMESTAMP
+                    )UNIQUE KEY(k1)
+                DISTRIBUTED BY HASH(k1) BUCKETS 1
+                PROPERTIES (
+                    "disable_auto_compaction" = "true",
+                    "replication_num" = "1",
+                    "store_row_column" = "${use_row_store}"); """
+
+            //sql "insert into ${tableInsertName2} (k1,c2,c3,c4) values(1,1,1,{'a':100,'b':100})"
+            streamLoad {
+                table "${tableStreamName2}"
+                set 'columns', 'k1,c2,c3,c4'
+                set 'format', 'csv'
+                file "test_mix_partial_update_load_A.csv"
+                time 10000 // limit inflight 10s
+            }
+            qt_select_A "select k1,c1,c2,c3,c4 from ${tableStreamName2}"
+            qt_select_AA "select count(*) from ${tableStreamName2} where c5 = c6"
+
+
+            // sql "insert into ${tableStreamName2} (k1,c2,c3,c4) values(2,2,2,{'a':200,'b':200})"
+            streamLoad {
+                table "${tableStreamName2}"
+                set 'columns', 'k1,c2,c3,c4'
+                set 'partial_columns', 'true'
+                set 'format', 'csv'
+                file "test_mix_partial_update_load_B.csv"
+                time 10000 // limit inflight 10s
+            }
+            qt_select_B "select k1,c1,c2,c3,c4 from ${tableStreamName2}"
+            qt_select_BB "select count(*) from ${tableStreamName2} where c5 = c6"
+
+            sql "update ${tableStreamName2} set c1 = 100"
+            qt_select_C "select k1,c1,c2,c3,c4 from ${tableStreamName2}"
+            qt_select_CC "select count(*) from ${tableStreamName2} where c5 = c6"
+
+            // do light weight schema change
+            sql """ ALTER TABLE ${tableStreamName2} add column `c7` datetimev2(3) DEFAULT CURRENT_TIMESTAMP after c6; """
+            waitForSchemaChangeDone {
+                sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableStreamName2}' ORDER BY createtime DESC LIMIT 1 """
+                time 60
+            }
+
+            // sql "insert into ${tableInsertName2} (k1,c2,c3,c4) values(3,3,3,{'a':300,'b':300})"
+            streamLoad {
+                table "${tableStreamName2}"
+                set 'columns', 'k1,c2,c3,c4'
+                set 'format', 'csv'
+                file "test_mix_partial_update_load_C.csv"
+                time 10000 // limit inflight 10s
+            }
+            qt_select_D "select k1,c1,c2,c3,c4 from ${tableStreamName2}"
+            qt_select_DD "select count(*) from ${tableStreamName2} where c5 = c7"
+
+            // do heavy weight schema change
+            sql """ ALTER TABLE ${tableStreamName2} add column `k2` int after k1; """
+            waitForSchemaChangeDone {
+                sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableInsertName2}' ORDER BY createtime DESC LIMIT 1 """
+                time 60
+            }
+
+            // sql "insert into ${tableInsertName2} (k1,k2,c2,c3,c4) values(4,4,4,4,{'a':400,'b':400})"
+            streamLoad {
+                table "${tableStreamName2}"
+                set 'columns', 'k1,k2,c2,c3,c4'
+                set 'format', 'csv'
+                file "test_mix_partial_update_load_D.csv"
+                time 10000 // limit inflight 10s
+            }
+            qt_select_E "select k1,c1,c2,c3,c4 from ${tableStreamName2}"
+            qt_select_EE "select count(*) from ${tableStreamName2} where c5 = c7"
         }
     }
 }
