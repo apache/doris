@@ -259,7 +259,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     }
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the Memory Hook again, so suspend consumption to avoid falling into an infinite loop.
-    if (_untracked_mem == 0 || !init()) {
+    if (_untracked_mem == 0 || _reserved_mem != 0 || !init()) {
         return;
     }
     _stop_consume = true;
