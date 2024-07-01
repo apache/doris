@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -250,7 +251,8 @@ public class Alter {
                     } else if (alterClause instanceof DropPartitionFromIndexClause) {
                         // do nothing
                     } else if (alterClause instanceof AddPartitionClause
-                            || alterClause instanceof AddPartitionLikeClause) {
+                            || alterClause instanceof AddPartitionLikeClause
+                            || alterClause instanceof AlterMultiPartitionClause) {
                         needProcessOutsideTableLock = true;
                     } else {
                         throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
@@ -506,6 +508,8 @@ public class Alter {
             } else if (alterClause instanceof ModifyTablePropertiesClause) {
                 Map<String, String> properties = alterClause.getProperties();
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
+            } else if (alterClause instanceof AlterMultiPartitionClause) {
+                Env.getCurrentEnv().addMultiPartitions(db, tableName, (AlterMultiPartitionClause) alterClause);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
             }
