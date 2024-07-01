@@ -37,6 +37,7 @@ suite("test_create_table_auto_partition") {
 
     // The AUTO PARTITION func call must wrapped with ().
     def text = sql_return_maparray "show create table test_create_table_auto_partition_table"
+    logger.info("SHOW CREATE TABLE: ${text}")
     def createTable = text[0]['Create Table']
     assertTrue(createTable.contains("AUTO PARTITION BY RANGE (date_trunc(`TIME_STAMP`, 'month')"))
 }
