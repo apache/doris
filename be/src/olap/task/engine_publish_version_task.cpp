@@ -143,7 +143,9 @@ Status EnginePublishVersionTask::finish() {
 
     // check if the related tablet remained all have the version
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
+        LOG(INFO) << "par_ver_info: " << par_ver_info;
         int64_t partition_id = par_ver_info.partition_id;
+        LOG(INFO) << "par_ver_id: " << partition_id;
         // get all partition related tablets and check whether the tablet have the related version
         std::set<TabletInfo> partition_related_tablet_infos;
         StorageEngine::instance()->tablet_manager()->get_partition_related_tablets(
@@ -151,6 +153,7 @@ Status EnginePublishVersionTask::finish() {
 
         Version version(par_ver_info.version, par_ver_info.version);
         for (auto& tablet_info : partition_related_tablet_infos) {
+            LOG(INFO) << "tablet info in partition_related_tablet_infos: " << tablet_info.to_string();
             // has to use strict mode to check if check all tablets
             if (!_publish_version_req.strict_mode) {
                 break;

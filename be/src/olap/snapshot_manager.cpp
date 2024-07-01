@@ -117,7 +117,8 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 }
 
 Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id,
-                                           int64_t replica_id, const int32_t& schema_hash) {
+                                           int64_t replica_id, int64_t table_id, int64_t partition_id,
+                                           const int32_t& schema_hash) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     // check clone dir existed
@@ -149,6 +150,12 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     // equal to tablet id in meta
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     new_tablet_meta_pb.set_replica_id(replica_id);
+    if (table_id > 0) {
+        new_tablet_meta_pb.set_table_id(table_id);
+    }
+    if (partition_id > 0) {
+        new_tablet_meta_pb.set_partition_id(partition_id);
+    }
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchemaSPtr tablet_schema;
     tablet_schema =
@@ -177,6 +184,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         }
         // FIXME(cyx): Redundant?
         rowset_meta->set_tablet_id(tablet_id);
+        if (partition_id > 0) {
+            rowset_meta->set_partition_id(partition_id);
+        }
         rowset_meta->set_tablet_schema_hash(schema_hash);
         Version rowset_version = {visible_rowset.start_version(), visible_rowset.end_version()};
         rs_version_map[rowset_version] = rowset_meta;
