@@ -224,6 +224,8 @@ public:
 
     std::set<string> get_broken_paths() { return _broken_paths; }
 
+    int get_disk_num() { return _disk_num; }
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -468,6 +470,8 @@ private:
     std::map<TStorageMedium::type, int> _last_use_index;
 
     std::unique_ptr<CreateTabletIdxCache> _create_tablet_idx_lru_cache;
+
+    int _disk_num {-1};
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
