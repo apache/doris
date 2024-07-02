@@ -335,7 +335,7 @@ public class TempPartitionTest {
                 + " properties('strict_range' = 'false');";
         alterTable(stmtStr, true);
 
-        stmtStr = "alter table db2.tbl2 replace partition(p1, p2) with temporary partition(tp1, tp2)"
+        stmtStr = "alter table db2.tbl2 replace partition(p1, p2) with temporary partition(tp1, tp2) force"
                 + " properties('strict_range' = 'false', 'use_temp_partition_name' = 'true');";
         alterTable(stmtStr, false);
         checkShowPartitionsResultNum("db2.tbl2", true, 1);
@@ -710,7 +710,7 @@ public class TempPartitionTest {
         stmtStr = "alter table db4.tbl4 replace partition(p1, p2) with temporary partition(tp2, tp3);";
         alterTable(stmtStr, true);
 
-        stmtStr = "alter table db4.tbl4 replace partition(p1, p2) with temporary partition(tp1, tp2)"
+        stmtStr = "alter table db4.tbl4 replace partition(p1, p2) with temporary partition(tp1, tp2) force"
                 + " properties('use_temp_partition_name' = 'true');";
         alterTable(stmtStr, false);
         checkShowPartitionsResultNum("db4.tbl4", true, 1); // tp3
@@ -1069,7 +1069,7 @@ public class TempPartitionTest {
         stmtStr = "alter table db5.tbl5 replace partition(p1, p2) with temporary partition(tp2, tp3);";
         alterTable(stmtStr, true);
 
-        stmtStr = "alter table db5.tbl5 replace partition(p1, p2) with temporary partition(tp1, tp2)"
+        stmtStr = "alter table db5.tbl5 replace partition(p1, p2) with temporary partition(tp1, tp2) force"
                 + " properties('use_temp_partition_name' = 'true');";
         alterTable(stmtStr, false);
         checkShowPartitionsResultNum("db5.tbl5", true, 1); // tp3
