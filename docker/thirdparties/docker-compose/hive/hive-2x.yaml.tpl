@@ -89,7 +89,7 @@ services:
       - hive-metastore-postgresql
     healthcheck:
       test: ["CMD", "sh", "-c", "/mnt/scripts/healthy_check.sh"]
-      interval: 5s
+      interval: 15s
       timeout: 60s
       retries: 120
     network_mode: "host"
