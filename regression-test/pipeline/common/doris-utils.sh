@@ -734,6 +734,31 @@ function check_if_need_gcore() {
     fi
 }
 
+prepare_java_udf() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    # custom_lib相关的case需要在fe启动前把编译好的jar放到 $DORIS_HOME/fe/custom_lib/
+    install_java
+    OLD_JAVA_HOME=${JAVA_HOME}
+    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
+    export JAVA_HOME
+    if bash "${DORIS_HOME}"/../run-regression-test.sh --clean &&
+        bash "${DORIS_HOME}"/../run-regression-test.sh --compile; then
+        echo
+    else
+        echo "ERROR: failed to compile java udf"
+    fi
+    JAVA_HOME=${OLD_JAVA_HOME}
+    export JAVA_HOME
+
+    if ls "${DORIS_HOME}"/fe/custom_lib/*.jar &&
+        ls "${DORIS_HOME}"/be/custom_lib/*.jar; then
+        echo "INFO: java udf prepared."
+    else
+        echo "ERROR: failed to prepare java udf"
+        return 1
+    fi
+}
+
 function print_running_pipeline_tasks() {
     webserver_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf webserver_port)
     mkdir -p "${DORIS_HOME}"/be/log/

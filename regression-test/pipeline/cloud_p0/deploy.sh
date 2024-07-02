@@ -76,6 +76,7 @@ exit_flag=0
     if ! create_warehouse; then exit 1; fi
     if ! warehouse_add_fe; then exit 1; fi
     if ! warehouse_add_be; then exit 1; fi
+    if ! prepare_java_udf; then exit 1; fi
     if ! start_doris_fe; then exit 1; fi
     if ! start_doris_be; then exit 1; fi
     if ! check_doris_ready; then exit 1; fi
