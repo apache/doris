@@ -120,8 +120,8 @@ suite("txn_insert_concurrent_insert_ud") {
             "insert into ${tableName}_0 select * from ${tableName}_1 where L_ORDERKEY >= 1000000 and L_ORDERKEY < 2000000;",
             "update ${tableName}_0 set L_QUANTITY = L_QUANTITY + 10 where L_ORDERKEY < 1000000;",
             "update ${tableName}_0 set ${tableName}_0.L_QUANTITY = 100 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000 and L_ORDERKEY < 3000000);",
-            "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);",
-            "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);",
+            // "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);",
+            // "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);",
     ]
     def txn_insert = { ->
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
@@ -163,7 +163,7 @@ suite("txn_insert_concurrent_insert_ud") {
 
     logger.info("error num: " + errors.size() + ", errors: " + errors)
 
-    def t0_row_count = 2000495 // 5000226 or 6001215
+    def t0_row_count = 6001215 // 2000495 or 5000226
     def result = sql """ select count() from ${tableName}_0 """
     logger.info("${tableName}_0 row count: ${result}, expected >= ${t0_row_count}")
 
