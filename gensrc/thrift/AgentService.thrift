@@ -266,7 +266,7 @@ struct TCloneReq {
     10: optional i32 timeout_s;
     11: optional Types.TReplicaId replica_id = 0
     12: optional i64 partition_id
-    13: optional i64 table_id = 0
+    13: optional i64 table_id = -1
 }
 
 struct TCompactionReq {
