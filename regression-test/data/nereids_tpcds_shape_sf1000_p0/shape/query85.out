@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF9 ws_web_page_sk->[wp_web_page_sk]
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF9 ws_web_page_sk->[wp_web_page_sk]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[web_page] apply RFs: RF9
 --------------------PhysicalProject

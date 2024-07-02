@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_addr_sk = current_addr.ca_address_sk)) otherCondition=(( not (ca_city = bought_city))) build RFs:RF5 c_current_addr_sk->[ca_address_sk]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer.c_current_addr_sk = current_addr.ca_address_sk)) otherCondition=(( not (ca_city = bought_city))) build RFs:RF5 c_current_addr_sk->[ca_address_sk]
 ------------PhysicalProject
 --------------PhysicalOlapScan[customer_address] apply RFs: RF5
 ------------PhysicalProject
@@ -15,7 +15,7 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ss_addr_sk->[ca_address_sk]
+----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ss_addr_sk->[ca_address_sk]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer_address] apply RFs: RF3
 ------------------------PhysicalProject
