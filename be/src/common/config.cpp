@@ -66,7 +66,14 @@ DEFINE_mString(public_access_ip, "");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
-DEFINE_Int32(brpc_num_threads, "256");
+DEFINE_Int32(brpc_num_threads, "-1");
+DEFINE_Validator(brpc_num_threads, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        brpc_num_threads = std::min(256, CpuInfo::num_cores());
+    }
+    return true;
+});
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
