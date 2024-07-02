@@ -1403,6 +1403,13 @@ DECLARE_Bool(enable_file_logger);
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
 
+// Wheather to ignore not found file in external teble(eg, hive)
+// Default is true, if set to false, the not found file will result in query failure.
+DECLARE_mBool(ignore_not_found_file_in_external_table);
+
+// If set to false, the parquet reader will not use page index to filter data.
+// This is only for debug purpose, in case sometimes the page index
+// filter wrong data.
 DECLARE_mBool(enable_parquet_page_index);
 
 #ifdef BE_TEST
