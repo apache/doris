@@ -112,30 +112,28 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
     reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
                                                           : io::FileCachePolicy::NO_CACHE;
     reader_options.is_doris_table = true;
-    if (!fs->open_file(path, &h->_reader, &reader_options).ok()) {
-        error.set(CL_ERR_IO, "open file error");
+    Status st = fs->open_file(path, &h->_reader, &reader_options);
+    DBUG_EXECUTE_IF("inverted file read error: index file not found",
+                    { st = Status::Error<doris::ErrorCode::NOT_FOUND>("index file not found"); })
+    if (st.code() == ErrorCode::NOT_FOUND) {
+        error.set(CL_ERR_FileNotFound, "File does not exist");
+    } else if (st.code() == ErrorCode::IO_ERROR) {
+        error.set(CL_ERR_IO, "File open io error");
+    } else if (st.code() == ErrorCode::PERMISSION_DENIED) {
+        error.set(CL_ERR_IO, "File Access denied");
+    } else {
+        error.set(CL_ERR_IO, "Could not open file");
     }
 
     //Check if a valid handle was retrieved
-    if (h->_reader) {
+    if (st.ok() && h->_reader) {
         //Store the file length
         h->_length = h->_reader->size();
         h->_fpos = 0;
         ret = _CLNEW FSIndexInput(std::move(h), buffer_size);
         return true;
-
-    } else {
-        int err = errno;
-        if (err == ENOENT) {
-            error.set(CL_ERR_IO, "File does not exist");
-        } else if (err == EACCES) {
-            error.set(CL_ERR_IO, "File Access denied");
-        } else if (err == EMFILE) {
-            error.set(CL_ERR_IO, "Too many open files");
-        } else {
-            error.set(CL_ERR_IO, "Could not open file");
-        }
     }
+
     //delete h->_shared_lock;
     //_CLDECDELETE(h)
     return false;
@@ -349,19 +347,6 @@ void DorisFSDirectory::init(const io::FileSystemSPtr& fs, const char* path,
     }
 
     lucene::store::Directory::setLockFactory(lock_factory);
-
-    // It's fail checking directory existence in S3.
-    if (_fs->type() == io::FileSystemType::S3) {
-        return;
-    }
-    bool exists = false;
-    LOG_AND_THROW_IF_ERROR(_fs->exists(directory, &exists),
-                           "Doris compound directory init IO error");
-    if (!exists) {
-        auto e = "Doris compound directory init error: " + directory + " is not a directory";
-        LOG(WARNING) << e;
-        _CLTHROWA(CL_ERR_IO, e.c_str());
-    }
 }
 
 void DorisFSDirectory::priv_getFN(char* buffer, const char* name) const {
@@ -432,7 +417,13 @@ int64_t DorisFSDirectory::fileLength(const char* name) const {
     char buffer[CL_MAX_DIR];
     priv_getFN(buffer, name);
     int64_t size = -1;
-    LOG_AND_THROW_IF_ERROR(_fs->file_size(buffer, &size), "Get file size IO error");
+    Status st = _fs->file_size(buffer, &size);
+    DBUG_EXECUTE_IF("inverted file read error: index file not found",
+                    { st = Status::Error<doris::ErrorCode::NOT_FOUND>("index file not found"); })
+    if (st.code() == ErrorCode::NOT_FOUND) {
+        _CLTHROWA(CL_ERR_FileNotFound, "File does not exist");
+    }
+    LOG_AND_THROW_IF_ERROR(st, "Get file size IO error");
     return size;
 }
 
