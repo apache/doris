@@ -22,7 +22,6 @@
 #include <memory>
 #include <vector>
 
-#include "common/options.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/result_writer.h"

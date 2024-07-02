@@ -148,7 +148,7 @@ public:
          *      NULL
          *      null
          */
-        char* null_format;
+        const char* null_format;
         int null_len;
 
         /**
@@ -158,7 +158,7 @@ public:
          *      if set to '"', the array<string> will be:
          *       ["abc", "def", "", "hig"]
          */
-        char* nested_string_wrapper;
+        const char* nested_string_wrapper;
         int wrapper_len;
 
         [[nodiscard]] char get_collection_delimiter(
