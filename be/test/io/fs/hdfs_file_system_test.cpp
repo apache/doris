@@ -18,10 +18,10 @@
 #include <gtest/gtest.h>
 
 #include "common/config.h"
-#include "common/sync_point.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "sync_point.h"
 
 namespace doris {
 

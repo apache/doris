@@ -17,7 +17,7 @@
 
 #include "recycler/obj_storage_client.h"
 
-#include "common/sync_point.h"
+#include "sync_point.h"
 
 namespace doris::cloud {
 

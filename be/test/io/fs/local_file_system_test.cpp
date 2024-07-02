@@ -30,10 +30,10 @@
 #include <vector>
 
 #include "common/status.h"
-#include "common/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "sync_point.h"
 #include "util/slice.h"
 
 namespace doris {

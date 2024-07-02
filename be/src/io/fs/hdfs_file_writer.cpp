@@ -31,7 +31,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
@@ -41,6 +40,7 @@
 #include "io/hdfs_util.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
+#include "sync_point.h"
 #include "util/bvar_helper.h"
 #include "util/jni-util.h"
 

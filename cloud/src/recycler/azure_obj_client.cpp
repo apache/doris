@@ -32,7 +32,7 @@
 #include <ranges>
 
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "sync_point.h"
 
 using namespace Azure::Storage::Blobs;
 

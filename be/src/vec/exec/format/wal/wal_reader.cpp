@@ -19,10 +19,10 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "gutil/strings/split.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/runtime_state.h"
+#include "sync_point.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {

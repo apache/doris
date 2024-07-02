@@ -29,7 +29,6 @@
 #include <utility>
 #include <vector>
 
-#include "common/sync_point.h"
 #include "common/util.h"
 #include "meta-service/codec.h"
 #include "meta-service/doris_txn.h"
@@ -39,6 +38,7 @@
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
+#include "sync_point.h"
 
 namespace doris::cloud {
 

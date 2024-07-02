@@ -24,9 +24,9 @@
 #include <shared_mutex>
 
 #include "common/status.h"
-#include "common/sync_point.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_meta.h"
+#include "sync_point.h"
 
 namespace doris {
 

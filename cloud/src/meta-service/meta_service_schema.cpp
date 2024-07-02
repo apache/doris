@@ -30,12 +30,12 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "common/util.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
+#include "sync_point.h"
 
 namespace doris::cloud {
 namespace config {

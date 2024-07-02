@@ -22,11 +22,11 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
 #include "gen_cpp/cloud.pb.h"
 #include "olap/compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "service/backend_options.h"
+#include "sync_point.h"
 #include "util/trace.h"
 #include "util/uuid_generator.h"
 

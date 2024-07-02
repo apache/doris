@@ -66,9 +66,9 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/s3_common.h"
+#include "sync_point.h"
 #include "util/bvar_helper.h"
 
 namespace Aws::S3::Model {
