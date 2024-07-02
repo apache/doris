@@ -136,6 +136,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -3090,6 +3091,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         OlapTable olapTable = db.getOlapTableOrDdlException(dbTbl.getTbl());
 
         long rowsToTruncate = 0;
+        if (olapTable instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ConnectContext.get())) {
+            throw new DdlException("Not allowed to perform current operation on async materialized view");
+        }
 
         BinlogConfig binlogConfig;
         olapTable.readLock();
