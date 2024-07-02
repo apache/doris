@@ -105,9 +105,9 @@ public:
 
         size_t size() const;
 
-        size_t byteSize() const;
+        size_t byte_size() const;
 
-        size_t allocatedBytes() const;
+        size_t allocated_bytes() const;
 
         bool is_finalized() const;
 
@@ -124,7 +124,7 @@ public:
         size_t get_dimensions() const { return least_common_type.get_dimensions(); }
 
         /// Checks the consistency of column's parts stored in @data.
-        void checkTypes() const;
+        void check_types() const;
 
         /// Inserts a field, which scalars can be arbitrary, but number of
         /// dimensions should be consistent with current common type.
@@ -133,11 +133,11 @@ public:
 
         void insert(Field field, FieldInfo info);
 
-        void insertDefault();
+        void insert_default();
 
-        void insertManyDefaults(size_t length);
+        void insert_many_defaults(size_t length);
 
-        void insertRangeFrom(const Subcolumn& src, size_t start, size_t length);
+        void insert_range_from(const Subcolumn& src, size_t start, size_t length);
 
         void pop_back(size_t n);
 
