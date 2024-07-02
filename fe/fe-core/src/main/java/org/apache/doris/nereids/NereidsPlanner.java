@@ -203,7 +203,7 @@ public class NereidsPlanner extends Planner {
                 analyze(showAnalyzeProcess(explainLevel, showPlanProcess));
                 // minidump of input must be serialized first, this process ensure minidump string not null
                 try {
-                    MinidumpUtils.serializeInputsToDumpFile(plan, cascadesContext.getTables());
+                    MinidumpUtils.serializeInputsToDumpFile(plan, ConnectContext.get().getTables());
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
@@ -260,6 +260,8 @@ public class NereidsPlanner extends Planner {
                 }
                 // serialize optimized plan to dumpfile, dumpfile do not have this part means optimize failed
                 MinidumpUtils.serializeOutputToDumpFile(physicalPlan);
+                MinidumpUtils.serializeOutputMessagesToDumpFile("PhysicalPlan", physicalPlan.treeString());
+                MinidumpUtils.serializeOutputMessagesToDumpFile("Memo", cascadesContext.getMemo().toString());
                 NereidsTracer.output(statementContext.getConnectContext());
 
                 return physicalPlan;
@@ -463,7 +465,7 @@ public class NereidsPlanner extends Planner {
         String used = "";
         String unUsed = "";
         String syntaxError = "";
-        int distributeHintIndex = 1;
+        int distributeHintIndex = 0;
         for (Hint hint : hints) {
             String distributeIndex = "";
             if (hint instanceof DistributeHint) {
