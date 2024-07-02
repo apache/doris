@@ -603,6 +603,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
 
+    public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1984,6 +1986,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
             checker = "checkExternalAggPartitionBits", fuzzy = true)
     public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
+
+    @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, description = {
+            "在CTAS中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即65533。默认为 true。",
+            "In CTAS (Create Table As Select), if CHAR/VARCHAR columns do not originate from the source table,"
+                    + " whether to set the length of such a column to MAX, which is 65533. The default is true."
+    })
+    public boolean useMaxLengthOfVarcharInCtas = true;
 
     public boolean isEnableJoinSpill() {
         return enableJoinSpill;
