@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "arrow/status.h"
-#include "common/serde_info.h"
 #include "common/status.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
@@ -144,6 +143,24 @@ public:
          */
         bool _output_object_data = true;
 
+        /**
+         * The format of null value in nested type, eg:
+         *      NULL
+         *      null
+         */
+        char* null_format;
+        int null_len;
+
+        /**
+         * The wrapper char for string type in nested type.
+         *  eg, if set to empty, the array<string> will be:
+         *       [abc, def, , hig]
+         *      if set to '"', the array<string> will be:
+         *       ["abc", "def", "", "hig"]
+         */
+        char* nested_string_wrapper;
+        int wrapper_len;
+
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
             CHECK(0 <= hive_text_complex_type_delimiter_level &&
@@ -253,11 +270,11 @@ public:
     // MySQL serializer and deserializer
     virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                          int row_idx, bool col_const,
-                                         const SerdeInfo& serde_info) const = 0;
+                                         const FormatOptions& options) const = 0;
 
     virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                          int row_idx, bool col_const,
-                                         const SerdeInfo& serde_info) const = 0;
+                                         const FormatOptions& options) const = 0;
     // Thrift serializer and deserializer
 
     // JSON serializer and deserializer

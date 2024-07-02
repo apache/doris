@@ -230,7 +230,7 @@ template <bool is_binary_format>
 Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
                                                       MysqlRowBuffer<is_binary_format>& result,
                                                       int row_idx, bool col_const,
-                                                      const SerdeInfo& serde_info) const {
+                                                      const FormatOptions& options) const {
     int buf_ret = 0;
     auto& data = assert_cast<const ColumnType&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
@@ -270,16 +270,16 @@ template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
                                                      MysqlRowBuffer<true>& row_buffer, int row_idx,
                                                      bool col_const,
-                                                     const SerdeInfo& serde_info) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
+                                                     const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
                                                      MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                      bool col_const,
-                                                     const SerdeInfo& serde_info) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
+                                                     const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 #define WRITE_INTEGRAL_COLUMN_TO_ORC(ORC_TYPE)                    \

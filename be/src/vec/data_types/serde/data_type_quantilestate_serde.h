@@ -113,13 +113,13 @@ public:
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int row_idx, bool col_const,
-                                 const SerdeInfo& serde_info) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
+                                 const FormatOptions& options) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const,
-                                 const SerdeInfo& serde_info) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
+                                 const FormatOptions& options) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
@@ -132,7 +132,7 @@ public:
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const, const SerdeInfo& serde_info) const;
+                                  int row_idx, bool col_const, const FormatOptions& options) const;
 };
 
 // QuantileState is binary data which is not shown by mysql
@@ -140,7 +140,7 @@ template <bool is_binary_format>
 Status DataTypeQuantileStateSerDe::_write_column_to_mysql(const IColumn& column,
                                                           MysqlRowBuffer<is_binary_format>& result,
                                                           int row_idx, bool col_const,
-                                                          const SerdeInfo& serde_info) const {
+                                                          const FormatOptions& options) const {
     auto& data_column = reinterpret_cast<const ColumnQuantileState&>(column);
 
     if (_return_object_as_string) {

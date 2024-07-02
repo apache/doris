@@ -119,25 +119,23 @@ template <bool is_binary_format>
 Status DataTypeDateV2SerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
                                                    int row_idx, bool col_const,
-                                                   const SerdeInfo& serde_info) const {
+                                                   const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnVector<UInt32>&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     DateV2Value<DateV2ValueType> date_val =
             binary_cast<UInt32, DateV2Value<DateV2ValueType>>(data[col_index]);
     // _nesting_level >= 2 means this datetimev2 is in complex type
     // and we should add double quotes
-    if (_nesting_level >= 2 && serde_info.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(serde_info.nested_string_wrapper,
-                                             serde_info.wrapper_len))) {
+    if (_nesting_level >= 2 && options.wrapper_len > 0) {
+        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
     if (UNLIKELY(0 != result.push_vec_datetime(date_val))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
-    if (_nesting_level >= 2 && serde_info.wrapper_len > 0) {
-        if (UNLIKELY(0 != result.push_string(serde_info.nested_string_wrapper,
-                                             serde_info.wrapper_len))) {
+    if (_nesting_level >= 2 && options.wrapper_len > 0) {
+        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
@@ -147,15 +145,15 @@ Status DataTypeDateV2SerDe::_write_column_to_mysql(const IColumn& column,
 Status DataTypeDateV2SerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<true>& row_buffer, int row_idx,
                                                   bool col_const,
-                                                  const SerdeInfo& serde_info) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeDateV2SerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                   bool col_const,
-                                                  const SerdeInfo& serde_info) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

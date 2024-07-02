@@ -334,7 +334,7 @@ template <bool is_binary_format>
 Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
                                                    int row_idx, bool col_const,
-                                                   const SerdeInfo& serde_info) const {
+                                                   const FormatOptions& options) const {
     auto& col = assert_cast<const ColumnStruct&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     result.open_dynamic_mode();
@@ -352,37 +352,35 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
         // eg: `"col_name": `
         // eg: `col_name=`
         std::string col_name;
-        if (serde_info.wrapper_len > 0) {
-            col_name = serde_info.nested_string_wrapper + elem_names[j] +
-                       serde_info.nested_string_wrapper;
+        if (options.wrapper_len > 0) {
+            col_name =
+                    options.nested_string_wrapper + elem_names[j] + options.nested_string_wrapper;
         } else {
             col_name = elem_names[j];
         }
-        col_name += serde_info.mapkey_delim;
+        col_name += options.map_key_delim;
         if (0 != result.push_string(col_name.c_str(), col_name.length())) {
             return Status::InternalError("pack mysql buffer failed.");
         }
 
         if (col.get_column_ptr(j)->is_null_at(col_index)) {
-            if (0 != result.push_string(serde_info.null_format, serde_info.null_len)) {
+            if (0 != result.push_string(options.null_format, options.null_len)) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
             if (remove_nullable(col.get_column_ptr(j))->is_column_string() &&
-                serde_info.wrapper_len > 0) {
-                if (0 !=
-                    result.push_string(serde_info.nested_string_wrapper, serde_info.wrapper_len)) {
+                options.wrapper_len > 0) {
+                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
                 RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql(
-                        col.get_column(j), result, col_index, false, serde_info));
-                if (0 !=
-                    result.push_string(serde_info.nested_string_wrapper, serde_info.wrapper_len)) {
+                        col.get_column(j), result, col_index, false, options));
+                if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
             } else {
                 RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql(
-                        col.get_column(j), result, col_index, false, serde_info));
+                        col.get_column(j), result, col_index, false, options));
             }
         }
         begin = false;
@@ -397,15 +395,15 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
 Status DataTypeStructSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<true>& row_buffer, int row_idx,
                                                   bool col_const,
-                                                  const SerdeInfo& serde_info) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeStructSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                   bool col_const,
-                                                  const SerdeInfo& serde_info) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

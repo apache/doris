@@ -22,7 +22,7 @@
 #include <memory>
 #include <vector>
 
-#include "common/serde_info.h"
+#include "common/options.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/result_writer.h"
@@ -57,7 +57,7 @@ public:
 private:
     void _init_profile();
 
-    Status _set_serde_info(const TSerdeDialect::type& serde_dialect);
+    Status _set_options(const TSerdeDialect::type& serde_dialect);
 
     template <PrimitiveType type, bool is_nullable>
     Status _add_one_column(const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
@@ -91,7 +91,7 @@ private:
 
     uint64_t _bytes_sent = 0;
 
-    SerdeInfo _serde_info;
+    DataTypeSerDe::FormatOptions _options;
 };
 } // namespace vectorized
 } // namespace doris

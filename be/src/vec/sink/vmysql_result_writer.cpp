@@ -91,7 +91,7 @@ Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
 
-    RETURN_IF_ERROR(_set_serde_info(state->query_options().serde_dialect));
+    RETURN_IF_ERROR(_set_options(state->query_options().serde_dialect));
     return Status::OK();
 }
 
@@ -110,30 +110,28 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
 }
 
 template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::_set_serde_info(
+Status VMysqlResultWriter<is_binary_format>::_set_options(
         const TSerdeDialect::type& serde_dialect) {
     switch (serde_dialect) {
     case TSerdeDialect::DORIS:
         // eg:
         //  array: ["abc", "def", "", null]
         //  map: {"k1":null, "k2":"v3"}
-        _serde_info.nested_string_wrapper = "\"";
-        _serde_info.wrapper_len = 1;
-        _serde_info.mapkey_delim = ":";
-        _serde_info.delim_len = 1;
-        _serde_info.null_format = "null";
-        _serde_info.null_len = 4;
+        _options.nested_string_wrapper = "\"";
+        _options.wrapper_len = 1;
+        _options.map_key_delim = ":";
+        _options.null_format = "null";
+        _options.null_len = 4;
         break;
     case TSerdeDialect::PRESTO:
         // eg:
         //  array: [abc, def, , NULL]
         //  map: {k1=NULL, k2=v3}
-        _serde_info.nested_string_wrapper = "";
-        _serde_info.wrapper_len = 0;
-        _serde_info.mapkey_delim = "=";
-        _serde_info.delim_len = 1;
-        _serde_info.null_format = "NULL";
-        _serde_info.null_len = 4;
+        _options.nested_string_wrapper = "";
+        _options.wrapper_len = 0;
+        _options.map_key_delim = "=";
+        _options.null_format = "NULL";
+        _options.null_len = 4;
         break;
     default:
         return Status::InternalError("unknown serde dialect: {}", serde_dialect);
@@ -217,7 +215,7 @@ Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& i
             for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
                 RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
                         *(arguments[col_idx].column), row_buffer, row_idx,
-                        arguments[col_idx].is_const, _serde_info));
+                        arguments[col_idx].is_const, _options));
             }
 
             // copy MysqlRowBuffer to Thrift

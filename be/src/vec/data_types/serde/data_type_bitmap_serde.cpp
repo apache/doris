@@ -106,7 +106,7 @@ template <bool is_binary_format>
 Status DataTypeBitMapSerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
                                                    int row_idx, bool col_const,
-                                                   const SerdeInfo& serde_info) const {
+                                                   const FormatOptions& options) const {
     auto& data_column = assert_cast<const ColumnBitmap&>(column);
     if (_return_object_as_string) {
         const auto col_index = index_check_const(row_idx, col_const);
@@ -128,15 +128,15 @@ Status DataTypeBitMapSerDe::_write_column_to_mysql(const IColumn& column,
 Status DataTypeBitMapSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<true>& row_buffer, int row_idx,
                                                   bool col_const,
-                                                  const SerdeInfo& serde_info) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeBitMapSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                   bool col_const,
-                                                  const SerdeInfo& serde_info) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, serde_info);
+                                                  const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
