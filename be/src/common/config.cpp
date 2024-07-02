@@ -1328,6 +1328,9 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 // filter wrong data.
 DEFINE_mBool(enable_parquet_page_index, "true");
 
+// If native memory allocator allocates more memory than this value, an exception will be thrown.
+DEFINE_Int64(debug_max_memory_size_by_native_allocator, "1048576")
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
