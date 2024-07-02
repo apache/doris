@@ -342,7 +342,6 @@ public:
     int num_materialized_slots() const { return _num_materialized_slots; }
     const std::vector<SlotDescriptor*>& slots() const { return _slots; }
 
-    bool has_varlen_slots() const { return _has_varlen_slots; }
     const TableDescriptor* table_desc() const { return _table_desc; }
 
     TupleId id() const { return _id; }
@@ -364,9 +363,6 @@ private:
     int _num_materialized_slots;
     std::vector<SlotDescriptor*> _slots; // contains all slots
 
-    // Provide quick way to check if there are variable length slots.
-    // True if _string_slots or _collection_slots have entries.
-    bool _has_varlen_slots;
     bool _own_slots = false;
 
     TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slot = false);
@@ -435,8 +431,7 @@ public:
     RowDescriptor(const RowDescriptor& desc)
             : _tuple_desc_map(desc._tuple_desc_map),
               _tuple_idx_nullable_map(desc._tuple_idx_nullable_map),
-              _tuple_idx_map(desc._tuple_idx_map),
-              _has_varlen_slots(desc._has_varlen_slots) {
+              _tuple_idx_map(desc._tuple_idx_map) {
         auto it = desc._tuple_desc_map.begin();
         for (; it != desc._tuple_desc_map.end(); ++it) {
             _num_materialized_slots += (*it)->num_materialized_slots();
@@ -460,9 +455,6 @@ public:
     // Returns INVALID_IDX if id not part of this row.
     int get_tuple_idx(TupleId id) const;
 
-    // Return true if any Tuple has variable length slots.
-    bool has_varlen_slots() const { return _has_varlen_slots; }
-
     // Return descriptors for all tuples in this row, in order of appearance.
     const std::vector<TupleDescriptor*>& tuple_descriptors() const { return _tuple_desc_map; }
 
@@ -485,9 +477,6 @@ private:
     // Initializes tupleIdxMap during c'tor using the _tuple_desc_map.
     void init_tuple_idx_map();
 
-    // Initializes _has_varlen_slots during c'tor using the _tuple_desc_map.
-    void init_has_varlen_slots();
-
     // map from position of tuple w/in row to its descriptor
     std::vector<TupleDescriptor*> _tuple_desc_map;
 
@@ -496,9 +485,6 @@ private:
 
     // map from TupleId to position of tuple w/in row
     std::vector<int> _tuple_idx_map;
-
-    // Provide quick way to check if there are variable length slots.
-    bool _has_varlen_slots = false;
 
     int _num_materialized_slots = 0;
     int _num_slots = 0;

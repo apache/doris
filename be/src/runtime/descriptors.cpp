@@ -292,26 +292,16 @@ std::string JdbcTableDescriptor::debug_string() const {
 }
 
 TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slots)
-        : _id(tdesc.id),
-          _num_materialized_slots(0),
-          _has_varlen_slots(false),
-          _own_slots(own_slots) {}
+        : _id(tdesc.id), _num_materialized_slots(0), _own_slots(own_slots) {}
 
 TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc, bool own_slots)
-        : _id(pdesc.id()),
-          _num_materialized_slots(0),
-          _has_varlen_slots(false),
-          _own_slots(own_slots) {}
+        : _id(pdesc.id()), _num_materialized_slots(0), _own_slots(own_slots) {}
 
 void TupleDescriptor::add_slot(SlotDescriptor* slot) {
     _slots.push_back(slot);
 
     if (slot->is_materialized()) {
         ++_num_materialized_slots;
-
-        if (slot->type().is_string_type() || slot->type().is_collection_type()) {
-            _has_varlen_slots = true;
-        }
     }
 }
 
@@ -338,10 +328,6 @@ std::string TupleDescriptor::debug_string() const {
         }
         out << _slots[i]->debug_string();
     }
-
-    out << "]";
-    out << " has_varlen_slots=" << _has_varlen_slots;
-    out << ")";
     return out.str();
 }
 
@@ -364,13 +350,11 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
     }
 
     init_tuple_idx_map();
-    init_has_varlen_slots();
 }
 
 RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)
         : _tuple_desc_map(1, tuple_desc), _tuple_idx_nullable_map(1, is_nullable) {
     init_tuple_idx_map();
-    init_has_varlen_slots();
     _num_slots = tuple_desc->slots().size();
 }
 
@@ -386,7 +370,6 @@ RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescrip
                                    rhs_row_desc._tuple_idx_nullable_map.begin(),
                                    rhs_row_desc._tuple_idx_nullable_map.end());
     init_tuple_idx_map();
-    init_has_varlen_slots();
 
     _num_slots = lhs_row_desc.num_slots() + rhs_row_desc.num_slots();
 }
@@ -401,16 +384,6 @@ void RowDescriptor::init_tuple_idx_map() {
     _tuple_idx_map.resize(max_id + 1, INVALID_IDX);
     for (int i = 0; i < _tuple_desc_map.size(); ++i) {
         _tuple_idx_map[_tuple_desc_map[i]->id()] = i;
-    }
-}
-
-void RowDescriptor::init_has_varlen_slots() {
-    _has_varlen_slots = false;
-    for (auto& i : _tuple_desc_map) {
-        if (i->has_varlen_slots()) {
-            _has_varlen_slots = true;
-            break;
-        }
     }
 }
 
