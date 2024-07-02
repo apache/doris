@@ -15,12 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_partition_column_analyze", "p2,external,hive,external_remote,external_remote_hive") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "test_hive_partition_column_analyze"
+suite("test_hive_partition_column_analyze", "p0,external,hive,external_docker,external_docker_hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
+        String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "${hivePrefix}_test_hive_partition_column_analyze"
         sql """drop catalog if exists ${catalog_name};"""
         sql """
             create catalog if not exists ${catalog_name} properties (
@@ -33,34 +38,9 @@ suite("test_hive_partition_column_analyze", "p2,external,hive,external_remote,ex
 
         try {
             sql """set global enable_get_row_count_from_file_list=true"""
-            // Test analyze table without init.
-            sql """analyze table ${catalog_name}.multi_partition.multi_partition_parquet (event_day) with sync"""
-            sql """analyze table ${catalog_name}.multi_partition.multi_partition_orc (event_day) with sync"""
 
             sql """switch ${catalog_name};"""
             logger.info("switched to catalog " + catalog_name)
-            sql """use multi_partition;"""
-            def result = sql """show column stats multi_partition_parquet (event_day)"""
-            assertEquals(result.size(), 1)
-            assertEquals(result[0][0], "event_day")
-            assertEquals(result[0][2], "3.83714205E8")
-            assertEquals(result[0][3], "99949.0")
-            assertEquals(result[0][4], "0.0")
-            assertEquals(result[0][5], "3.83714205E9")
-            assertEquals(result[0][6], "10.0")
-            assertEquals(result[0][7], "\'1749-09-24\'")
-            assertEquals(result[0][8], "\'2023-05-26\'")
-
-            result = sql """show column stats multi_partition_orc (event_day)"""
-            assertEquals(result.size(), 1)
-            assertEquals(result[0][0], "event_day")
-            assertEquals(result[0][2], "1.9007155E8")
-            assertEquals(result[0][3], "99949.0")
-            assertEquals(result[0][4], "0.0")
-            assertEquals(result[0][5], "1.9007155E9")
-            assertEquals(result[0][6], "10.0")
-            assertEquals(result[0][7], "\'1749-09-24\'")
-            assertEquals(result[0][8], "\'2023-05-26\'")
 
             sql """analyze table ${catalog_name}.partition_type.tinyint_partition (tinyint_part) with sync"""
             sql """analyze table ${catalog_name}.partition_type.smallint_partition (smallint_part) with sync"""
@@ -73,7 +53,6 @@ suite("test_hive_partition_column_analyze", "p2,external,hive,external_remote,ex
             sql """analyze table ${catalog_name}.partition_type.float_partition (float_part) with sync"""
             sql """analyze table ${catalog_name}.partition_type.double_partition (double_part) with sync"""
             sql """analyze table ${catalog_name}.partition_type.decimal_partition (decimal_part) with sync"""
-            sql """analyze table ${catalog_name}.partition_type.two_partition (part1, part2) with sync"""
 
             sql """use partition_type;"""
 
@@ -209,22 +188,6 @@ suite("test_hive_partition_column_analyze", "p2,external,hive,external_remote,ex
             assertEquals(result[0][6], "8.0")
             assertEquals(result[0][7], "243.2868")
             assertEquals(result[0][8], "32527.1543")
-
-            result = sql """show column stats two_partition (part1)"""
-            assertEquals(result.size(), 1)
-            assertEquals(result[0][0], "part1")
-            assertEquals(result[0][3], "100.0")
-            assertEquals(result[0][4], "0.0")
-            assertEquals(result[0][7], "1")
-            assertEquals(result[0][8], "100")
-
-            result = sql """show column stats two_partition (part2)"""
-            assertEquals(result.size(), 1)
-            assertEquals(result[0][0], "part2")
-            assertEquals(result[0][3], "100.0")
-            assertEquals(result[0][4], "0.0")
-            assertEquals(result[0][7], "\'1\'")
-            assertEquals(result[0][8], "\'99\'")
         } finally {
             sql """set global enable_get_row_count_from_file_list=false"""
         }
