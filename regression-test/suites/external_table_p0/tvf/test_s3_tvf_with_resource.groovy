@@ -175,4 +175,52 @@ suite("test_s3_tvf_with_resource", "p0") {
     } finally {
     }
 
+    // test auth
+    String user = 'test_s3_tvf_with_resource_user'
+    String pwd = 'C123_567p'
+    String viewName = "test_s3_tvf_with_resource_view"
+    try_sql("DROP USER ${user}")
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    String dbName = context.config.getDbNameByFile(context.file)
+    sql """grant select_priv on ${dbName}.${viewName} to ${user}"""
+    sql "drop view if exists ${viewName}"
+    sql """
+        create view ${viewName} as
+        SELECT * FROM S3 (
+                           "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
+                           "format" = "hive_text",
+                           "csv_schema"="k1:int;k2:string;k3:double",
+                           "resource" = "${resource_name}"
+                       )  where k1 > 100  order by k3,k2,k1;
+        """
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
+    // not have usage priv, can not select tvf with resource
+    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        test {
+                sql """
+                    SELECT * FROM S3 (
+                                        "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
+                                        "format" = "hive_text",
+                                        "csv_schema"="k1:int;k2:string;k3:double",
+                                        "resource" = "${resource_name}"
+                                    )  where k1 > 100  order by k3,k2,k1;
+                    """
+                exception "Access denied"
+            }
+    }
+
+    // only have select_priv of view,can select view with resource
+    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+            sql """SELECT * FROM ${viewName};"""
+    }
+
+    try_sql("DROP USER ${user}")
+    sql "drop view if exists ${viewName}"
 }
