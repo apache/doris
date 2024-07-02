@@ -21,10 +21,13 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -36,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -43,6 +47,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -201,8 +206,9 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         filter.child().accept(this, context);
 
         boolean visibleFilter = false;
-
+        Set<SlotReference> slotReferencesSet = new HashSet<>();
         for (Expression expr : filter.getExpressions()) {
+            collectValidFilterColumns(expr, slotReferencesSet);
             for (Slot inputSlot : expr.getInputSlots()) {
                 if (isVisibleColumn(inputSlot)) {
                     visibleFilter = true;
@@ -216,6 +222,19 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         if (visibleFilter) {
             // skip filters like: __DORIS_DELETE_SIGN__ = 0
             context.getRuntimeFilterContext().addEffectiveSrcNode(filter, RuntimeFilterContext.EffectiveSrcType.NATIVE);
+        }
+
+        RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
+        for (SlotReference slot : slotReferencesSet) {
+            List<RuntimeFilter> runtimeFilters = rfCtx.getTargetExprIdToFilter().get(slot.getExprId());
+            if (runtimeFilters != null && !runtimeFilters.isEmpty()) {
+                for (RuntimeFilter runtimeFilter : runtimeFilters) {
+                    AbstractPhysicalJoin join = runtimeFilter.getBuilderNode();
+                    if (join instanceof PhysicalHashJoin) {
+                        rfCtx.removeFilters(slot.getExprId(), (PhysicalHashJoin) join);
+                    }
+                }
+            }
         }
         return filter;
     }
@@ -301,5 +320,19 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
 
         double buildNdvInProbeRange = buildColumnStat.ndvIntersection(probeColumnStat);
         return probeColumnStat.ndv > buildNdvInProbeRange * (1 + ColumnStatistic.STATS_ERROR);
+    }
+
+    private void collectValidFilterColumns(Expression filterExpr, Set<SlotReference> filterColumns) {
+        if (filterExpr instanceof EqualTo) {
+            if (filterExpr.child(0) instanceof SlotReference && filterExpr.child(1) instanceof Literal) {
+                filterColumns.add((SlotReference) filterExpr.child(0));
+            } else if (filterExpr.child(1) instanceof SlotReference && filterExpr.child(0) instanceof Literal) {
+                filterColumns.add((SlotReference) filterExpr.child(1));
+            }
+        } else if (filterExpr instanceof InPredicate) {
+            // TODO
+        } else {
+            // TODO
+        }
     }
 }
