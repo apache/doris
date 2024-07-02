@@ -1250,6 +1250,11 @@ DEFINE_Int64(min_row_group_size, "134217728");
 // The time out milliseconds for remote fetch schema RPC, default 60s
 DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
 
+// If set to false, the parquet reader will not use page index to filter data.
+// This is only for debug purpose, in case sometimes the page index
+// filter wrong data.
+DEFINE_mBool(enable_parquet_page_index, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
