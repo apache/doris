@@ -19,6 +19,8 @@ suite("explain_dml") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     multi_sql """
+        set enable_nereids_planner=true;
+        set enable_fallback_to_original_planner=false;
         drop table if exists epldel1;
         CREATE TABLE epldel1
         (id INT, c1 BIGINT, c2 STRING, c3 DOUBLE, c4 DATE)
