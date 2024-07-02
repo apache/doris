@@ -424,6 +424,7 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
+ColumnPtr remove_nullalbe_with_default(const ColumnPtr& column, bool need_to_default);
 // check if argument column is nullable. If so, extract its concrete column and set null_map.
 //TODO: use this to replace inner usages.
 // is_single: whether null_map is null map of a ColumnConst

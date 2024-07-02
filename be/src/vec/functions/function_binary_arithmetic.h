@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "runtime/decimalv2_value.h"
 #include "udf/udf.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -957,6 +958,7 @@ public:
         return need_replace_null_data_to_default_;
     }
 
+    bool use_default_implementation_for_nulls() const override { return false; }
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypes get_variadic_argument_types_impl() const override {
@@ -967,6 +969,15 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DCHECK(arguments.size() == 2);
+        auto ret_type = _get_return_type_impl(remove_nullable(arguments));
+        if (arguments[0]->is_nullable() || arguments[1]->is_nullable()) {
+            return make_nullable(ret_type);
+        }
+        return ret_type;
+    }
+
+    DataTypePtr _get_return_type_impl(const DataTypes& arguments) const {
         DataTypePtr type_res;
         bool valid = cast_both_types(
                 arguments[0].get(), arguments[1].get(), [&](const auto& left, const auto& right) {
@@ -1013,25 +1024,27 @@ public:
         return type_res;
     }
 
+    void insert_result_column(Block& block, size_t result, const ColumnNumbers& args,
+                              ColumnPtr& res, size_t input_rows_count) const {
+        if (!have_null_column(block, args)) {
+            return block.replace_by_position(result, std::move(res));
+        }
+        block.get_by_position(result).column =
+                wrap_in_nullable(res, block, args, result, input_rows_count);
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        auto* left_generic = block.get_by_position(arguments[0]).type.get();
-        auto* right_generic = block.get_by_position(arguments[1]).type.get();
-        auto* result_generic = block.get_by_position(result).type.get();
-        if (left_generic->is_nullable()) {
-            left_generic =
-                    static_cast<const DataTypeNullable*>(left_generic)->get_nested_type().get();
-        }
-        if (right_generic->is_nullable()) {
-            right_generic =
-                    static_cast<const DataTypeNullable*>(right_generic)->get_nested_type().get();
-        }
-        if (result_generic->is_nullable()) {
-            result_generic =
-                    static_cast<const DataTypeNullable*>(result_generic)->get_nested_type().get();
-        }
-
-        bool check_overflow_for_decimal = context->check_overflow_for_decimal();
+        const bool check_overflow_for_decimal = context->check_overflow_for_decimal();
+        const bool need_to_default =
+                need_replace_null_data_to_default() && check_overflow_for_decimal;
+        const auto* left_generic = remove_nullable(block.get_by_position(arguments[0]).type).get();
+        const auto* right_generic = remove_nullable(block.get_by_position(arguments[1]).type).get();
+        const auto* result_generic = remove_nullable(block.get_by_position(result).type).get();
+        const ColumnPtr& left_col = remove_nullalbe_with_default(
+                block.get_by_position(arguments[0]).column, need_to_default);
+        const ColumnPtr& right_col = remove_nullalbe_with_default(
+                block.get_by_position(arguments[1]).column, need_to_default);
         Status status;
         bool valid = cast_both_types(
                 left_generic, right_generic, result_generic,
@@ -1065,24 +1078,22 @@ public:
                                     std::conditional_t<IsDataTypeDecimal<ExpectedResultDataType>,
                                                        ExpectedResultDataType, ResultDataType>,
                                     Operation, Name, is_to_null_type,
-                                    true>::execute(block.get_by_position(arguments[0]).column,
-                                                   block.get_by_position(arguments[1]).column, left,
-                                                   right,
+                                    true>::execute(left_col, right_col, left, right,
                                                    remove_nullable(
                                                            block.get_by_position(result).type));
-                            block.replace_by_position(result, std::move(column_result));
+                            insert_result_column(block, result, arguments, column_result,
+                                                 input_rows_count);
                         } else {
                             auto column_result = ConstOrVectorAdapter<
                                     LeftDataType, RightDataType,
                                     std::conditional_t<IsDataTypeDecimal<ExpectedResultDataType>,
                                                        ExpectedResultDataType, ResultDataType>,
                                     Operation, Name, is_to_null_type,
-                                    false>::execute(block.get_by_position(arguments[0]).column,
-                                                    block.get_by_position(arguments[1]).column,
-                                                    left, right,
+                                    false>::execute(left_col, right_col, left, right,
                                                     remove_nullable(
                                                             block.get_by_position(result).type));
-                            block.replace_by_position(result, std::move(column_result));
+                            insert_result_column(block, result, arguments, column_result,
+                                                 input_rows_count);
                         }
                         return true;
                     }
