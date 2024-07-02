@@ -73,7 +73,7 @@ suite('test_manager_interface_2',"p0") {
         sql """create database test_manager_partitions_case """
         sql """ use test_manager_partitions_case """ 
     
-        sql """ create table test_manager_tb2
+        sql """ create table test_manager_tb
         (
             k1 TINYINT,
             k2 CHAR(10) COMMENT "string column",    
