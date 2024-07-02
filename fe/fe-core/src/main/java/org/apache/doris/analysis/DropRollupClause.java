@@ -50,7 +50,7 @@ public class DropRollupClause extends AlterTableClause {
 
     @Override
     public boolean allowOpMTMV() {
-        return false;
+        return true;
     }
 
     @Override
