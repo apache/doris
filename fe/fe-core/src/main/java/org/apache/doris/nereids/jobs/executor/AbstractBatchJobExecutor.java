@@ -71,11 +71,11 @@ public abstract class AbstractBatchJobExecutor {
     }
 
     /** notTraverseChildrenOf */
-    public static List<RewriteJob> notTraverseChildrenOf(
-            Set<Class<? extends Plan>> notTraverseClasses, Supplier<List<RewriteJob>> jobs) {
+    public static <T> T notTraverseChildrenOf(
+            Set<Class<? extends Plan>> notTraverseClasses, Supplier<T> action) {
         try {
             NOT_TRAVERSE_CHILDREN.set((Set) notTraverseClasses);
-            return jobs.get();
+            return action.get();
         } finally {
             NOT_TRAVERSE_CHILDREN.remove();
         }

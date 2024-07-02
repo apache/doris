@@ -21,7 +21,6 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 
 import java.util.List;
 import java.util.Objects;
@@ -118,16 +117,13 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
         // some rule return new plan tree, which the number of new plan node > 1,
         // we should transform this new plan nodes too.
         // NOTICE: this relay on pull up cte anchor
-        if (!(rewriteJobContext.plan instanceof LogicalCTEAnchor)) {
+        if (isTraverseChildren.test(plan)) {
             pushChildrenJobs(plan);
         }
     }
 
     private void pushChildrenJobs(Plan plan) {
         List<Plan> children = plan.children();
-        if (!isTraverseChildren.test(plan)) {
-            return;
-        }
         switch (children.size()) {
             case 0: return;
             case 1:

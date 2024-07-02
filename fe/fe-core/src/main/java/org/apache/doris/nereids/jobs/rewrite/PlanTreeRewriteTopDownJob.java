@@ -21,7 +21,6 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 
 import java.util.List;
 import java.util.Objects;
@@ -60,7 +59,7 @@ public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
             pushJob(new PlanTreeRewriteTopDownJob(newRewriteJobContext, context, isTraverseChildren, rules));
 
             // NOTICE: this relay on pull up cte anchor
-            if (!(this.rewriteJobContext.plan instanceof LogicalCTEAnchor)) {
+            if (isTraverseChildren.test(rewriteJobContext.plan)) {
                 pushChildrenJobs(newRewriteJobContext);
             }
         } else {
@@ -74,9 +73,6 @@ public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
     }
 
     private void pushChildrenJobs(RewriteJobContext rewriteJobContext) {
-        if (!isTraverseChildren.test(rewriteJobContext.plan)) {
-            return;
-        }
         List<Plan> children = rewriteJobContext.plan.children();
         switch (children.size()) {
             case 0: return;

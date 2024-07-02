@@ -48,6 +48,7 @@ import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 
 import com.google.common.collect.ImmutableSet;
@@ -105,7 +106,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
         return notTraverseChildrenOf(
-                ImmutableSet.of(LogicalView.class),
+                ImmutableSet.of(LogicalView.class, LogicalCTEAnchor.class),
                 () -> buildAnalyzerJobs(customTableResolver)
         );
     }
