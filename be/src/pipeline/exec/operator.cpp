@@ -55,6 +55,9 @@
 #include "pipeline/exec/partitioned_aggregation_source_operator.h"
 #include "pipeline/exec/partitioned_hash_join_probe_operator.h"
 #include "pipeline/exec/partitioned_hash_join_sink_operator.h"
+#include "pipeline/exec/partitioned_set_probe_sink_operator.h"
+#include "pipeline/exec/partitioned_set_sink_operator.h"
+#include "pipeline/exec/partitioned_set_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
@@ -681,6 +684,10 @@ DECLARE_OPERATOR_X(SetProbeSinkLocalState<true>)
 DECLARE_OPERATOR_X(SetProbeSinkLocalState<false>)
 DECLARE_OPERATOR_X(SetSinkLocalState<true>)
 DECLARE_OPERATOR_X(SetSinkLocalState<false>)
+DECLARE_OPERATOR_X(PartitionedSetProbeSinkLocalState<true>)
+DECLARE_OPERATOR_X(PartitionedSetProbeSinkLocalState<false>)
+DECLARE_OPERATOR_X(PartitionedSetSinkLocalState<true>)
+DECLARE_OPERATOR_X(PartitionedSetSinkLocalState<false>)
 DECLARE_OPERATOR_X(PartitionedHashJoinSinkLocalState)
 DECLARE_OPERATOR_X(GroupCommitBlockSinkLocalState)
 
@@ -709,6 +716,8 @@ DECLARE_OPERATOR_X(MultiCastDataStreamSourceLocalState)
 DECLARE_OPERATOR_X(PartitionSortSourceLocalState)
 DECLARE_OPERATOR_X(SetSourceLocalState<true>)
 DECLARE_OPERATOR_X(SetSourceLocalState<false>)
+DECLARE_OPERATOR_X(PartitionedSetSourceLocalState<true>)
+DECLARE_OPERATOR_X(PartitionedSetSourceLocalState<false>)
 DECLARE_OPERATOR_X(DataGenLocalState)
 DECLARE_OPERATOR_X(SchemaScanLocalState)
 DECLARE_OPERATOR_X(MetaScanLocalState)
@@ -741,6 +750,7 @@ template class PipelineXSinkLocalState<UnionSharedState>;
 template class PipelineXSinkLocalState<PartitionSortNodeSharedState>;
 template class PipelineXSinkLocalState<MultiCastSharedState>;
 template class PipelineXSinkLocalState<SetSharedState>;
+template class PipelineXSinkLocalState<PartitionedSetSharedState>;
 template class PipelineXSinkLocalState<LocalExchangeSharedState>;
 template class PipelineXSinkLocalState<BasicSharedState>;
 
@@ -757,6 +767,7 @@ template class PipelineXLocalState<UnionSharedState>;
 template class PipelineXLocalState<MultiCastSharedState>;
 template class PipelineXLocalState<PartitionSortNodeSharedState>;
 template class PipelineXLocalState<SetSharedState>;
+template class PipelineXLocalState<PartitionedSetSharedState>;
 template class PipelineXLocalState<LocalExchangeSharedState>;
 template class PipelineXLocalState<BasicSharedState>;
 

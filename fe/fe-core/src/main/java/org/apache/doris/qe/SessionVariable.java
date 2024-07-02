@@ -542,6 +542,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
     public static final String ENABLE_SORT_SPILL = "enable_sort_spill";
     public static final String ENABLE_AGG_SPILL = "enable_agg_spill";
+    public static final String ENABLE_SET_SPILL = "enable_set_spill";
     public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
 
@@ -1956,6 +1957,14 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableAggSpill = false;
 
     @VariableMgr.VarAttr(
+            name = ENABLE_SET_SPILL,
+            description = {"控制是否启用集合算子（intersect/except）落盘。默认为 false。",
+                    "Controls whether to enable spill to disk of intersect/except operation. "
+                            + "The default value is false."},
+            needForward = true, fuzzy = true)
+    public boolean enableSetSpill = false;
+
+    @VariableMgr.VarAttr(
             name = ENABLE_FORCE_SPILL,
             description = {"控制是否开启强制落盘（即使在内存足够的情况），默认为 false。",
                     "Controls whether enable force spill."
@@ -2140,6 +2149,7 @@ public class SessionVariable implements Serializable, Writable {
                 this.enableJoinSpill = true;
                 this.enableSortSpill = true;
                 this.enableAggSpill = true;
+                this.enableSetSpill = true;
 
                 randomInt = random.nextInt(4);
                 switch (randomInt) {
@@ -2160,6 +2170,7 @@ public class SessionVariable implements Serializable, Writable {
                 this.enableJoinSpill = false;
                 this.enableSortSpill = false;
                 this.enableAggSpill = false;
+                this.enableSetSpill = false;
             }
         }
     }
@@ -3549,6 +3560,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableJoinSpill(enableJoinSpill);
         tResult.setEnableSortSpill(enableSortSpill);
         tResult.setEnableAggSpill(enableAggSpill);
+        tResult.setEnableSetSpill(enableSetSpill);
         tResult.setEnableForceSpill(enableForceSpill);
         tResult.setMinRevocableMem(minRevocableMem);
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);

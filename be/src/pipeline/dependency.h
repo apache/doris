@@ -773,6 +773,23 @@ public:
     }
 };
 
+struct PartitionedSetSharedState : public BasicSharedState,
+                                   public std::enable_shared_from_this<PartitionedSetSharedState> {
+    ENABLE_FACTORY_CREATOR(PartitionedSetSharedState)
+public:
+    bool need_to_spill = false;
+    std::unique_ptr<RuntimeState> inner_runtime_state;
+    std::shared_ptr<SetSharedState> inner_shared_state;
+    std::vector<std::unique_ptr<RuntimeState>> inner_probe_runtime_states;
+    std::vector<vectorized::SpillStreamSPtr> spill_streams;
+    std::vector<std::vector<vectorized::SpillStreamSPtr>> probe_spill_streams;
+    std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
+
+    /// init in build side
+    int child_quantity;
+    std::vector<Dependency*> probe_finished_children_dependency;
+};
+
 enum class ExchangeType : uint8_t {
     NOOP = 0,
     // Shuffle data by Crc32HashPartitioner<LocalExchangeChannelIds>.
