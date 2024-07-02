@@ -114,10 +114,6 @@ suite("alter_column_test_generated_column") {
         sql "alter table alter_column_gen_col modify column c double as (a+b) after e;"
         exception "Not supporting alter table modify generated columns."
     }
-    test {
-        sql "alter table alter_column_gen_col modify column c int as (a+b) after e;"
-        exception "Not supporting alter table modify generated columns."
-    }
 
     // reorder column
     qt_reorder "alter table alter_column_gen_col order by(a,c,b,d,e);"

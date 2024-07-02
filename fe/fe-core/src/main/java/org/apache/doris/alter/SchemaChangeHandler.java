@@ -1387,6 +1387,14 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (!alterColumn.equals(originSchema.get(i))) {
                         needAlterColumns.add(alterColumn);
                         hasColumnChange = true;
+                    } else {
+                        Column oriColumn = originSchema.get(i);
+                        if ((oriColumn.getGeneratedColumnInfo() != null
+                                || alterColumn.getGeneratedColumnInfo() != null)
+                                        && !oriColumn.getGeneratedColumnInfo().getExprSql()
+                                                .equals(alterColumn.getGeneratedColumnInfo().getExprSql())) {
+                            throw new DdlException("Not supporting alter table modify generated columns.");
+                        }
                     }
                 }
             }
