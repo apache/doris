@@ -15,12 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_statistic_auto", "p2,external,hive,external_remote,external_remote_hive") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "test_hive_statistic_auto"
+suite("test_hive_statistic_auto", "p0,external,hive,external_docker,external_docker_hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable Hive test.")
+        return;
+    }
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
+        String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "${hivePrefix}_test_hive_statistic_auto"
         sql """drop catalog if exists ${catalog_name};"""
         sql """
             create catalog if not exists ${catalog_name} properties (

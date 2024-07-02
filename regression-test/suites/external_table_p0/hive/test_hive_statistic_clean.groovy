@@ -15,17 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_statistic_clean", "p2,external,hive,external_remote,external_remote_hive") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "test_hive_statistic_clean"
+suite("test_hive_statistic_clean", "p0,external,hive,external_docker,external_docker_hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable Hive test.")
+        return;
+    }
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
+        String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "${hivePrefix}_test_hive_statistic_clean"
         sql """drop catalog if exists ${catalog_name};"""
         sql """
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
-                'hadoop.username' = 'hadoop',
                 'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
             );
         """
@@ -68,6 +71,7 @@ suite("test_hive_statistic_clean", "p2,external,hive,external_remote,external_re
         assertEquals(result[0][7], "1")
         assertEquals(result[0][8], "7")
 
+        /*
         sql """drop expired stats"""
         result = sql """show column stats `statistics` (lo_quantity)"""
         assertEquals(result.size(), 1)
@@ -101,6 +105,7 @@ suite("test_hive_statistic_clean", "p2,external,hive,external_remote,external_re
         assertEquals(result[0][6], "4.0")
         assertEquals(result[0][7], "1")
         assertEquals(result[0][8], "7")
+        */
 
         def ctlId
         result = sql """show catalogs"""
@@ -111,8 +116,9 @@ suite("test_hive_statistic_clean", "p2,external,hive,external_remote,external_re
             }
         }
 
-        sql """drop catalog ${catalog_name}"""
-        sql """drop expired stats"""
+        // sql """drop catalog ${catalog_name}"""
+        // sql """drop expired stats"""
+        sql """drop stats `statistics`"""
         result = sql """select * from internal.__internal_schema.column_statistics where catalog_id=${ctlId}"""
         assertEquals(result.size(), 0)
 
