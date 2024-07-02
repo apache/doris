@@ -73,15 +73,48 @@ public:
         auto result = check_column_const_set_readability(column, row_num);
         ColumnPtr ptr = result.first;
         row_num = result.second;
-
-        if (_nesting_level > 1) {
-            bw.write('"');
-        }
-
         const auto& value = assert_cast<const ColumnType&>(*ptr).get_data_at(row_num);
-        bw.write(value.data, value.size);
+
         if (_nesting_level > 1) {
+            // _nested_level > 1 means string is in a complex type, we add double quotes, and escape
+            // which should make deal with some special characters in json str
             bw.write('"');
+            if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+                // we should make deal with some special characters in json str
+                StringRef str_ref = value;
+                for (char it : str_ref) {
+                    switch (it) {
+                    case '\b':
+                        bw.write("\\b", 2);
+                        break;
+                    case '\f':
+                        bw.write("\\f", 2);
+                        break;
+                    case '\n':
+                        bw.write("\\n", 2);
+                        break;
+                    case '\r':
+                        bw.write("\\r", 2);
+                        break;
+                    case '\t':
+                        bw.write("\\t", 2);
+                        break;
+                    case '\\':
+                        bw.write("\\\\", 2);
+                        break;
+                    case '"':
+                        bw.write("\\\"", 2);
+                        break;
+                    default:
+                        bw.write(it);
+                    }
+                }
+            } else {
+                bw.write(value.data, value.size);
+            }
+            bw.write('"');
+        } else {
+            bw.write(value.data, value.size);
         }
         return Status::OK();
     }
