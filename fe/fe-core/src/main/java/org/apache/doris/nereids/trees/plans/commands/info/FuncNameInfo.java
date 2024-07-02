@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -27,6 +28,8 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Objects;
@@ -36,6 +39,7 @@ import java.util.Optional;
  * procedure, function, package name info
  */
 public class FuncNameInfo {
+    private static final Logger LOG = LogManager.getLogger(FuncNameInfo.class);
     private final List<String> nameParts;
     private String ctl = "";
     private long ctlId = -1;
@@ -101,13 +105,16 @@ public class FuncNameInfo {
             return;
         }
         try {
+            LOG.info("yy debug before ctl: {}", ctl);
             if (Strings.isNullOrEmpty(ctl)) {
                 ctl = ctx.getDefaultCatalog();
                 if (Strings.isNullOrEmpty(ctl)) {
                     ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
                 }
             }
-            ctlId = ctx.getCatalog(ctl).getId();
+            LOG.info("yy debug after ctl: {}", ctl);
+            ctlId = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(ctl).getId();
+            LOG.info("yy debug after2 ctl: {}", ctl);
             if (Strings.isNullOrEmpty(db)) {
                 db = ctx.getDatabase();
                 if (Strings.isNullOrEmpty(db)) {
@@ -120,7 +127,7 @@ public class FuncNameInfo {
                 throw new AnalysisException("procedure/function/package name is null");
             }
         } catch (Exception e) {
-            throw new AnalysisException("failed to analyze procedure name", e);
+            throw new AnalysisException("failed to analyze procedure name: " + e.getMessage(), e);
         }
         isAnalyzed = true;
     }
@@ -179,3 +186,4 @@ public class FuncNameInfo {
         return nameParts.stream().map(Utils::quoteIfNeeded).reduce((left, right) -> left + "." + right).orElse("");
     }
 }
+
