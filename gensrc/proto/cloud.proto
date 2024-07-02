@@ -404,6 +404,7 @@ message TxnRunningPB {
 message VersionPB {
     optional int64 version = 1;
     optional int64 update_time_ms = 2;
+    optional int64 txn_id = 3;
 }
 
 message RecycleTxnPB {

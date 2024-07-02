@@ -190,4 +190,8 @@ CONF_String(priority_networks, "");
 
 CONF_Bool(enable_cluster_name_check, "false");
 
+CONF_Bool(enable_txn_lazy_commit, "true");
+CONF_Int32(txn_lazy_commit_rowsets_thresold, "1");
+CONF_Int32(txn_lazy_commit_worker_num, "8");
+
 } // namespace doris::cloud::config

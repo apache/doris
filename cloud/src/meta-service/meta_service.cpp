@@ -68,6 +68,11 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
+extern void make_committed_txn_visible(const std::string& instance_id, int64_t txn_id,
+                                std::shared_ptr<TxnKv> txn_kv, MetaServiceCode& code,
+                                std::string& msg, std::stringstream& ss,
+                                std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
+
 MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
                                  std::shared_ptr<ResourceManager> resource_mgr,
                                  std::shared_ptr<RateLimiter> rate_limiter) {
@@ -75,6 +80,7 @@ MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
     resource_mgr_ = resource_mgr;
     rate_limiter_ = rate_limiter;
     rate_limiter_->init(this);
+    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>();
 }
 
 MetaServiceImpl::~MetaServiceImpl() = default;
@@ -268,6 +274,12 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 msg = "malformed version value";
                 return;
             }
+
+            if (version_pb.has_txn_id()) {
+                make_committed_txn_visible(instance_id, version_pb.txn_id(), txn_kv_, code, msg, ss,
+                                           txn_lazy_committer_);
+            }
+
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
         }
@@ -389,6 +401,10 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                         msg = "malformed version value";
                         break;
+                    }
+                    if (version_pb.has_txn_id()) {
+                        make_committed_txn_visible(instance_id, version_pb.txn_id(), txn_kv_, code,
+                                                   msg, ss, txn_lazy_committer_);
                     }
                     response->add_versions(version_pb.version());
                     response->add_version_update_time_ms(version_pb.update_time_ms());
