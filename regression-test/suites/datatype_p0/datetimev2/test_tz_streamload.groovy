@@ -58,7 +58,7 @@ suite("test_tz_streamload") {
     sql "sync"
     qt_table1 "select * from ${table1} order by k1"
 
-    streamLoad {
+    streamLoad { // contain more complex format
         table "${table2}"
         set 'column_separator', ','
         set 'columns', 'id,createTime,createTime=date_add(createTime, INTERVAL 8 HOUR)'

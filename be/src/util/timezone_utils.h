@@ -18,10 +18,7 @@
 
 #pragma once
 
-#include <re2/re2.h>
-
 #include <string>
-#include <unordered_map>
 
 namespace cctz {
 class time_zone;
@@ -29,12 +26,14 @@ class time_zone;
 
 namespace doris {
 
+// When BE start, we call load_timezones_to_cache to fill lower_zone_cache_ with lower case timezone name as key
+// for compatibility. then when we `find_cctz_time_zone`, just convert to lower case and find in cache. if miss,
+// use parse_tz_offset_string to try to parse as offset format string.
+// The whole timezone function is powered by system tzdata, which offered by TZDIR or `/usr/share/zoneinfo`
 class TimezoneUtils {
 public:
-    static void load_timezone_names();
-    // we support to parse lower_case timezone name iff execution environment has timezone file
     static void load_timezones_to_cache();
-    // when use this, timezone will be saved in cache.
+
     static bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz);
 
     static const std::string default_time_zone;
@@ -43,12 +42,6 @@ private:
     // for ut only
     static void clear_timezone_caches();
 
-    static bool find_cctz_time_zone_impl(const std::string& timezone, cctz::time_zone& ctz);
-
-    static bool inited_;
-    static std::unordered_map<std::string, std::string> timezone_names_map_;
-
-    // RE2 obj is thread safe
-    static RE2 time_zone_offset_format_reg;
+    static bool parse_tz_offset_string(const std::string& timezone, cctz::time_zone& ctz);
 };
 } // namespace doris

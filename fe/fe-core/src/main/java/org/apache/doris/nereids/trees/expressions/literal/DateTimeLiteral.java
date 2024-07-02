@@ -32,6 +32,7 @@ import org.apache.logging.log4j.Logger;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.TemporalQueries;
@@ -131,6 +132,7 @@ public class DateTimeLiteral extends DateLiteral {
 
     @Override
     protected void init(String s) throws AnalysisException {
+        // TODO: check and do fast parse like fastParseDate
         TemporalAccessor temporal = parse(s);
 
         year = DateUtils.getOrDefault(temporal, ChronoField.YEAR);
@@ -142,8 +144,13 @@ public class DateTimeLiteral extends DateLiteral {
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
         if (zoneId != null) {
-            int offset = DateUtils.getTimeZone().getRules().getOffset(Instant.now()).getTotalSeconds()
-                    - zoneId.getRules().getOffset(Instant.now()).getTotalSeconds();
+            // get correct DST of that time.
+            Instant thatTime = ZonedDateTime
+                    .of((int) year, (int) month, (int) day, (int) hour, (int) minute, (int) second, 0, zoneId)
+                    .toInstant();
+
+            int offset = DateUtils.getTimeZone().getRules().getOffset(thatTime).getTotalSeconds()
+                    - zoneId.getRules().getOffset(thatTime).getTotalSeconds();
             if (offset != 0) {
                 DateTimeLiteral result = (DateTimeLiteral) this.plusSeconds(offset);
                 this.second = result.second;
