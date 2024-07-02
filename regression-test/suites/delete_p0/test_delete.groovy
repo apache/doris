@@ -535,10 +535,14 @@ suite("test_delete") {
     """
     sql """
         insert into table_decimal values
-        (false, '-9999782574499444.2', -20);
+        (false, '-9999782574499444.2', -20),
+        (true, '-1', 10);
     """
 
-    test {
-        sql "delete from table_decimal where k1 = false and k2 = '-9999782574499444.2' and k3 = '-20'"
-    }
+    sql """
+        delete from table_decimal where k1 = false and k2 = '-9999782574499444.2' and k3 = '-20';
+    """
+    qt_check_decimal """
+        select * from table_decimal;
+    """
 }
