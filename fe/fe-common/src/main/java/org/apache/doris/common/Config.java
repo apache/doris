@@ -2652,6 +2652,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean checkpoint_after_check_compatibility = false;
 
+    // The max number of profiles that can be stored to storage.
+    @ConfField
+    public static int max_profile_on_storage = 500;
+
     // Advance the next id before transferring to the master.
     @ConfField(description = {
             "是否在成为 Master 后推进 ID 分配器，保证即使回滚元数据时，它也不会回滚",

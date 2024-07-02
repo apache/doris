@@ -120,6 +120,7 @@ import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -306,8 +307,10 @@ public class StmtExecutor {
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
-        this.profile = new Profile("Query", this.context.getSessionVariable().enableProfile,
-                this.context.getSessionVariable().profileLevel);
+        this.profile = new Profile(
+                this.context.getSessionVariable().enableProfile,
+                this.context.getSessionVariable().profileLevel,
+                this.context.getSessionVariable().getAutoProfileThresholdMs());
     }
 
     // for test
@@ -337,8 +340,10 @@ public class StmtExecutor {
             this.statementContext.setParsedStatement(parsedStmt);
         }
         this.context.setStatementContext(statementContext);
-        this.profile = new Profile("Query", context.getSessionVariable().enableProfile(),
-                context.getSessionVariable().profileLevel);
+        this.profile = new Profile(
+                            context.getSessionVariable().enableProfile(),
+                            context.getSessionVariable().profileLevel,
+                            context.getSessionVariable().getAutoProfileThresholdMs());
     }
 
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
@@ -379,6 +384,10 @@ public class StmtExecutor {
         }
         builder.taskType(profileType.name());
         builder.startTime(TimeUtils.longToTimeString(context.getStartTime()));
+        // TODO: Never use custom data format when deliverying information between two systems.
+        // UI can not order profile by TOTAL_TIME since its not a sortable string (2h1m3s > 2h1s?)
+        // to get decoded info, UI need to decode it first, it means others need to
+        // reference the implementation of DebugUtil.getPrettyStringMs to figure out the format
         if (isFinished) {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
             builder.totalTime(DebugUtil.getPrettyStringMs(currentTimestamp - context.getStartTime()));
@@ -1164,8 +1173,14 @@ public class StmtExecutor {
         // failed, the insert stmt should be success
         try {
             profile.updateSummary(context.startTime, getSummaryInfo(isFinished), isFinished, this.planner);
+            // TODO: Push profile should only be called once at beginning of query
+            ProfileManager.getInstance().pushProfile(profile);
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ignore this error", t);
+        } finally {
+            if (isFinished) {
+                ProfileManager.getInstance().markQueryFinished(context.queryId());
+            }
         }
     }
 

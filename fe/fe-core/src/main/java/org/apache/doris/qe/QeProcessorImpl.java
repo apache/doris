@@ -167,18 +167,9 @@ public final class QeProcessorImpl implements QeProcessor {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Deregister query id {}", DebugUtil.printId(queryId));
             }
-            ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(queryId);
-            if (executionProfile != null) {
-                executionProfile.setQueryFinishTime(System.currentTimeMillis());
-                if (queryInfo.connectContext != null) {
-                    long autoProfileThresholdMs = queryInfo.connectContext
-                            .getSessionVariable().getAutoProfileThresholdMs();
-                    if (autoProfileThresholdMs > 0 && System.currentTimeMillis() - queryInfo.getStartExecTime()
-                            < autoProfileThresholdMs) {
-                        ProfileManager.getInstance().removeProfile(executionProfile.getSummaryProfile().getProfileId());
-                    }
-                }
-            }
+
+            ProfileManager.getInstance().markQueryFinished(queryId);
+
             if (queryInfo.getConnectContext() != null
                     && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
             ) {
