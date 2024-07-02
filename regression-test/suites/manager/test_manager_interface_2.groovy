@@ -73,7 +73,7 @@ suite('test_manager_interface_2',"p0") {
         sql """create database test_manager_partitions_case """
         sql """ use test_manager_partitions_case """ 
     
-        sql """ create table test_manager_tb
+        sql """ create table test_manager_tb2
         (
             k1 TINYINT,
             k2 CHAR(10) COMMENT "string column",    
@@ -183,10 +183,11 @@ suite('test_manager_interface_2',"p0") {
         sql """ALTER SYSTEM ADD BACKEND "${address}:${notExistPort}";"""
 
         result = sql """SHOW BACKENDS;"""
-
+        println result
         def x = 0 
         for(int i  =0 ;i<result.size();i++) {
             //HeartbeatPort: 
+            
             if (result[i][2].toBigInteger() == notExistPort) {
                 assertTrue(result[i][0]!=null)//name 
 
@@ -224,6 +225,7 @@ suite('test_manager_interface_2',"p0") {
         sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_query" = "true"); """
         sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_load" = "true"); """
         result = sql """SHOW BACKENDS;"""
+        println result
         x = 0
         for(int i  =0 ;i<result.size();i++) {
             //HeartbeatPort: 
@@ -250,7 +252,8 @@ suite('test_manager_interface_2',"p0") {
         assertTrue(x==0)
 
 
-        result = sql """ SHOW FRONTENDS """ 
+        result = sql """ SHOW FRONTENDS """
+        println result
         x = 0
         for(int i  =0 ;i<result.size();i++) {
             if (result[i][18]=="Yes") {
@@ -290,6 +293,7 @@ suite('test_manager_interface_2',"p0") {
         sql """ALTER SYSTEM ADD BROKER test_manager_broker "${address}:${notExistPort}";"""
         result = sql """ show broker """ 
         x =  0
+        println result
         for ( int i =0 ;i<result.size();i++){
 
             assertTrue(result[i][3] in ["true","false"])//Alive
