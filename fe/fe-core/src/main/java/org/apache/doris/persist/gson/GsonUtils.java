@@ -175,6 +175,7 @@ import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.fs.remote.dfs.JFSFileSystem;
 import org.apache.doris.fs.remote.dfs.OFSFileSystem;
+import org.apache.doris.job.extensions.cdc.CdcDatabaseJob;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
@@ -424,11 +425,13 @@ public class GsonUtils {
             RuntimeTypeAdapterFactory.of(
                             AbstractDataSourceProperties.class, "clazz")
                     .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
+
     private static RuntimeTypeAdapterFactory<org.apache.doris.job.base.AbstractJob>
             jobExecutorRuntimeTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(org.apache.doris.job.base.AbstractJob.class, "clazz")
                             .registerSubtype(InsertJob.class, InsertJob.class.getSimpleName())
-                            .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName());
+                            .registerSubtype(MTMVJob.class, MTMVJob.class.getSimpleName())
+            .registerSubtype(CdcDatabaseJob.class, CdcDatabaseJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<MTMVSnapshotIf> mtmvSnapshotTypeAdapterFactory =
             RuntimeTypeAdapterFactory.of(MTMVSnapshotIf.class, "clazz")
@@ -636,10 +639,10 @@ public class GsonUtils {
                         }
                     });
 
-    private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
-
     // this instance is thread-safe.
     public static final Gson GSON = GSON_BUILDER.create();
+
+    private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
 
     public static final Gson GSON_PRETTY_PRINTING = GSON_BUILDER_PRETTY_PRINTING.create();
 

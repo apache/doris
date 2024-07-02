@@ -355,16 +355,41 @@ public abstract class JdbcClient {
 
     public List<Column> getColumnsFromJdbc(String localDbName, String localTableName) {
         List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(localDbName, localTableName);
+        List<String> primaryKeys = getPrimaryKeys(localDbName, localTableName);
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
+            boolean isKey = primaryKeys.contains(field.getColumnName());
             dorisTableSchema.add(new Column(field.getColumnName(),
-                    jdbcTypeToDoris(field), true, null,
+                    jdbcTypeToDoris(field), isKey, null,
                     field.isAllowNull(), field.getRemarks(),
                     true, -1));
         }
         String remoteDbName = getRemoteDatabaseName(localDbName);
         String remoteTableName = getRemoteTableName(localDbName, localTableName);
         return filterColumnName(remoteDbName, remoteTableName, dorisTableSchema);
+    }
+
+    private List<String> getPrimaryKeys(String localDbName, String localTableName) {
+        Connection conn = getConnection();
+        ResultSet rs = null;
+        List<String> primaryKeys = Lists.newArrayList();
+        String remoteDbName = getRemoteDatabaseName(localDbName);
+        String remoteTableName = getRemoteTableName(localDbName, localTableName);
+        try {
+            DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = getCatalogName(conn);
+            rs = getPrimaryColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
+            while (rs.next()) {
+                String fieldName = rs.getString("COLUMN_NAME");
+                primaryKeys.add(fieldName);
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get jdbc primary key info for remote table `%s.%s`: %s",
+                remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
+        } finally {
+            close(rs, conn);
+        }
+        return primaryKeys;
     }
 
     public String getRemoteDatabaseName(String localDbname) {
@@ -414,6 +439,11 @@ public abstract class JdbcClient {
 
     protected ResultSet getRemoteColumns(DatabaseMetaData databaseMetaData, String catalogName, String remoteDbName,
             String remoteTableName) throws SQLException {
+        return databaseMetaData.getColumns(catalogName, remoteDbName, remoteTableName, null);
+    }
+
+    protected ResultSet getPrimaryColumns(DatabaseMetaData databaseMetaData, String catalogName, String remoteDbName,
+                                         String remoteTableName) throws SQLException {
         return databaseMetaData.getColumns(catalogName, remoteDbName, remoteTableName, null);
     }
 

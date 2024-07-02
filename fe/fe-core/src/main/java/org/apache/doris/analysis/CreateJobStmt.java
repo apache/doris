@@ -17,6 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.ImmutableSet;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -33,11 +37,6 @@ import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.collect.ImmutableSet;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashSet;
 
@@ -163,13 +162,13 @@ public class CreateJobStmt extends DdlStmt {
         String executeSql = parseExecuteSql(originStmt, jobName, comment);
         // create job use label name as its job name
         InsertJob job = new InsertJob(jobName,
-                JobStatus.RUNNING,
-                labelName.getDbName(),
-                comment,
-                ConnectContext.get().getCurrentUserIdentity(),
-                jobExecutionConfiguration,
-                System.currentTimeMillis(),
-                executeSql);
+            JobStatus.RUNNING,
+            labelName.getDbName(),
+            comment,
+            ConnectContext.get().getCurrentUserIdentity(),
+            jobExecutionConfiguration,
+            System.currentTimeMillis(),
+            executeSql);
         jobInstance = job;
     }
 

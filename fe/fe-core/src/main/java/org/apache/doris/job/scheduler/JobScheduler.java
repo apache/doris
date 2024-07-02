@@ -87,6 +87,19 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
         latestBatchSchedulerTimerTaskTimeMs = System.currentTimeMillis();
         batchSchedulerTimerJob();
         cycleSystemSchedulerTasks();
+        init();
+    }
+
+    private void init(){
+        Map<Long, AbstractJob> jobMap = Env.getCurrentEnv().getJobManager().getJobMap();
+        for (Map.Entry<Long, AbstractJob> entry : jobMap.entrySet()) {
+            try{
+                AbstractJob job = entry.getValue();
+                job.initialize();
+            }catch (Exception ex){
+                log.warn("job initialize error, job id is {}", entry.getKey(), ex);
+            }
+        }
     }
 
     /**

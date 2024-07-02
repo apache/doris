@@ -27,6 +27,7 @@ import org.apache.doris.job.disruptor.TaskDisruptor;
 import org.apache.doris.job.disruptor.TimerJobEvent;
 import org.apache.doris.job.executor.DefaultTaskExecutorHandler;
 import org.apache.doris.job.executor.DispatchTaskHandler;
+import org.apache.doris.job.extensions.cdc.CdcDatabaseTask;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.task.AbstractTask;
@@ -64,12 +65,17 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private static final int DISPATCH_MTMV_THREAD_NUM = Config.job_mtmv_task_consumer_thread_num > 0
             ? Config.job_mtmv_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
+    private static final int DISPATCH_CDC_THREAD_NUM = Config.job_cdc_task_consumer_thread_num > 0
+            ? Config.job_cdc_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
+
     private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
     private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
+    private static final int DISPATCH_CDC_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
 
 
     public void init() {
         registerInsertDisruptor();
+        registerCdcDisruptor();
         registerMTMVDisruptor();
         //when all task queue is ready, dispatch task to registered task executor
         registerDispatchDisruptor();
@@ -104,6 +110,23 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
         TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DISPATCH_INSERT_TASK_QUEUE_SIZE,
                 insertTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.INSERT, insertDisruptor);
+    }
+
+    private void registerCdcDisruptor() {
+        EventFactory<ExecuteTaskEvent<CdcDatabaseTask>> cdcEventFactory = ExecuteTaskEvent.factory();
+        ThreadFactory cdcTaskThreadFactory = new CustomThreadFactory("cdc-task-execute");
+        WorkHandler[] cdcTaskExecutorHandlers = new WorkHandler[DISPATCH_CDC_THREAD_NUM];
+        for (int i = 0; i < DISPATCH_CDC_THREAD_NUM; i++) {
+            cdcTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<CdcDatabaseTask>();
+        }
+        EventTranslatorVararg<ExecuteTaskEvent<CdcDatabaseTask>> eventTranslator =
+                (event, sequence, args) -> {
+                    event.setTask((CdcDatabaseTask) args[0]);
+                    event.setJobConfig((JobExecutionConfiguration) args[1]);
+                };
+        TaskDisruptor cdcDisruptor = new TaskDisruptor<>(cdcEventFactory, DISPATCH_CDC_TASK_QUEUE_SIZE,
+                cdcTaskThreadFactory, new BlockingWaitStrategy(), cdcTaskExecutorHandlers, eventTranslator);
+        disruptorMap.put(JobType.CDC, cdcDisruptor);
     }
 
     private void registerMTMVDisruptor() {

@@ -53,6 +53,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -105,6 +106,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         writeLock();
         try {
             job.onRegister();
+            job.initialize();
             job.checkJobParams();
             checkJobNameExist(job.getJobName());
             if (jobMap.get(job.getJobId()) != null) {
@@ -123,6 +125,10 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         if (jobMap.values().stream().anyMatch(a -> a.getJobName().equals(jobName))) {
             throw new JobException("job name exist, jobName:" + jobName);
         }
+    }
+
+    public Map<Long, T> getJobMap() {
+        return jobMap;
     }
 
     /**
@@ -171,6 +177,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
         writeLock();
         try {
+            dropJob.onUnRegister();
             // write delete log
             dropJob.logDeleteOperation();
             jobMap.remove(dropJob.getJobId());

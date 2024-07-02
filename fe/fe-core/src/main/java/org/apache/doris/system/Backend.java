@@ -79,6 +79,8 @@ public class Backend implements Writable {
     private volatile int brpcPort = -1;
     @SerializedName("arrowFlightSqlPort")
     private volatile int arrowFlightSqlPort = -1;
+    @SerializedName("cdcScanPort")
+    private volatile int cdcScanPort = -1;
 
     @SerializedName("lastUpdateMs")
     private volatile long lastUpdateMs;
@@ -255,6 +257,10 @@ public class Backend implements Writable {
         return arrowFlightSqlPort;
     }
 
+    public int getCdcScanPort() {
+        return cdcScanPort;
+    }
+
     public String getHeartbeatErrMsg() {
         return heartbeatErrMsg;
     }
@@ -354,6 +360,10 @@ public class Backend implements Writable {
 
     public void setArrowFlightSqlPort(int arrowFlightSqlPort) {
         this.arrowFlightSqlPort = arrowFlightSqlPort;
+    }
+
+    public void setCdcScanPort(int cdcScanPort) {
+        this.cdcScanPort = cdcScanPort;
     }
 
     public void setCpuCores(int cpuCores) {

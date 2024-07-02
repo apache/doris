@@ -127,4 +127,11 @@ public class TableValuedFunctionRef extends TableRef {
         return tableFunction;
     }
 
+    public String getFuncName() {
+        return funcName;
+    }
+
+    public Map<String, String> getParams() {
+        return params;
+    }
 }
