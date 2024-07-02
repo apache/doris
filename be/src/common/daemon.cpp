@@ -225,6 +225,11 @@ void Daemon::memory_maintenance_thread() {
             // Refresh allocator memory metrics.
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
             doris::MemInfo::refresh_allocator_mem();
+#ifdef USE_JEMALLOC
+            if (doris::MemInfo::je_dirty_pages_mem() > doris::MemInfo::je_dirty_pages_mem_limit()) {
+                doris::MemInfo::notify_je_purge_dirty_pages();
+            }
+#endif
             if (config::enable_system_metrics) {
                 DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
             }
