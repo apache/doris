@@ -232,7 +232,6 @@ public class ExecutionProfile {
 
                 profileNode.update(pipelineProfile.profile);
                 profileNode.setIsDone(isDone);
-                pipelineIdx++;
                 fragmentProfiles.get(fragmentId).addChild(profileNode);
             }
             multiBeProfile.get(fragmentId).put(backendHBAddress, taskProfile);
