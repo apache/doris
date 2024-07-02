@@ -57,6 +57,8 @@ class Dependency;
 
 class PipelineXFragmentContext : public PipelineFragmentContext {
 public:
+    ENABLE_FACTORY_CREATOR(PipelineXFragmentContext);
+
     // Callback to report execution status of plan fragment.
     // 'profile' is the cumulative profile, 'done' indicates whether the execution
     // is done or still continuing.
@@ -93,7 +95,7 @@ public:
 
     void add_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) override {
-        _merge_controller_handlers.emplace_back(handler);
+        _query_ctx->add_merge_controller_handler(handler);
     }
 
     //    bool is_canceled() const { return _runtime_state->is_cancelled(); }
@@ -178,9 +180,6 @@ private:
     std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
 
     bool _need_local_merge = false;
-
-    // It is used to manage the lifecycle of RuntimeFilterMergeController
-    std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context

@@ -270,6 +270,11 @@ public:
         weighted_consumption = _weighted_consumption;
     }
 
+    void add_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+        _merge_controller_handlers.emplace_back(handler);
+    }
+
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -352,6 +357,9 @@ private:
     std::mutex _weighted_mem_lock;
     int64_t _weighted_consumption = 0;
     int64_t _weighted_limit = 0;
+
+    // It is used to manage the lifecycle of RuntimeFilterMergeController
+    std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
 };
 
 } // namespace doris
