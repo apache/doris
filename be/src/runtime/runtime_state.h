@@ -518,6 +518,11 @@ public:
         return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
     }
 
+    bool is_read_csv_empty_line_as_null() const {
+        return _query_options.__isset.read_csv_empty_line_as_null &&
+               _query_options.read_csv_empty_line_as_null;
+    }
+
     int parallel_scan_max_scanners_count() const {
         return _query_options.__isset.parallel_scan_max_scanners_count
                        ? _query_options.parallel_scan_max_scanners_count

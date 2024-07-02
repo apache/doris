@@ -194,6 +194,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
 
+    public static final String READ_CSV_EMPTY_LINE_AS_NULL = "read_csv_empty_line_as_null";
+
     public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
 
     // max ms to wait transaction publish finish when exec insert stmt.
@@ -1033,6 +1035,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true)
     private boolean enableSyncRuntimeFilterSize = true;
+
+    @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
+            description = {"在读取csv文件时是否读取csv的空行为null",
+                    "Determine whether to read empty rows in CSV files as NULL when reading CSV files."})
+    public boolean readCsvEmptyLineAsNull = false;
 
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
@@ -3327,6 +3334,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMinRevocableMem(minRevocableMem);
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 
+        tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         return tResult;
     }
 
