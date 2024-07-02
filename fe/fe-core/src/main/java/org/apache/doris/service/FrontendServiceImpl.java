@@ -1267,11 +1267,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             TBeginTxnResult tmpRes = beginTxnImpl(request, clientAddr);
             result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
-            if (request.isSetSubTxnNum() && request.getSubTxnNum() > 0) {
-                result.addToSubTxnIds(result.getTxnId());
-                for (int i = 0; i < request.getSubTxnNum() - 1; i++) {
-                    result.addToSubTxnIds(Env.getCurrentGlobalTransactionMgr().getNextTransactionId());
-                }
+            if (tmpRes.isSetSubTxnIds()) {
+                result.setSubTxnIds(tmpRes.getSubTxnIds());
             }
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
@@ -1357,6 +1354,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // step 7: return result
         TBeginTxnResult result = new TBeginTxnResult();
         result.setTxnId(txnId).setDbId(db.getId());
+        if (request.isSetSubTxnNum() && request.getSubTxnNum() > 0) {
+            result.addToSubTxnIds(txnId);
+            for (int i = 0; i < request.getSubTxnNum() - 1; i++) {
+                result.addToSubTxnIds(Env.getCurrentGlobalTransactionMgr().getNextTransactionId());
+            }
+        }
         return result;
     }
 

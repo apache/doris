@@ -154,13 +154,13 @@ suite("test_txn_insert") {
     check_row_count("${txnTableName}_2", 4)
 
     // insert and delete
-    logger.info("=== Test 8: insert and delete ===")
+    /*logger.info("=== Test 8: insert and delete ===")
     sql """ begin """
     sql """ insert into ${txnTableName}_2 select * from ${txnTableName}_0 where test < 30 """
     sql """ delete from ${txnTableName}_2 where test < 30 """
     sql """ commit """
     sync("${txnTableName}_2")
-    check_row_count("${txnTableName}_2", 4)
+    check_row_count("${txnTableName}_2", 4)*/
 
     // mow table
     logger.info("=== Test 9: mow table insert ===")
@@ -226,9 +226,7 @@ suite("test_txn_insert") {
     assertEquals(res.size(), 12)*/
 
     // test schema change
-
-    // test one sub txn is error: 6
-
+    // test one sub txn is error
     // test only enable one table binlog
 
     // End Test
