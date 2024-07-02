@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_partition_location", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_hive_partition_location", "p0,external,hive,external_docker,external_docker_hive") {
     def one_partition1 = """select * from partition_location_1 order by id;"""
     def one_partition2 = """select * from partition_location_1 where part='part1';"""
     def one_partition3 = """select * from partition_location_1 where part='part2';"""
@@ -30,16 +30,20 @@ suite("test_hive_partition_location", "p2,external,hive,external_remote,external
     def two_partition5 = """select * from partition_location_2 where part2='part2_2';"""
     def two_partition6 = """select part1, part2 from partition_location_2 order by part1;"""
 
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "hive_partition_location"
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "${hivePrefix}_test_hive_partition_location"
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         sql """drop catalog if exists ${catalog_name};"""
         sql """
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );
         """
         logger.info("catalog " + catalog_name + " created")

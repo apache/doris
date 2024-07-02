@@ -15,13 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_remote_hive") {
-
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "test_external_catalog_hive"
+suite("test_external_catalog_hive", "p0,external,hive,external_docker,external_docker_hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "${hivePrefix}_test_external_catalog_hive"
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         sql """set enable_fallback_to_original_planner=false"""
         sql """drop catalog if exists ${catalog_name};"""
@@ -29,7 +32,7 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
         sql """
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );
         """
 
@@ -60,43 +63,50 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
         }
         sql """ use `default`; """
         q01()
+        
+        // Too big for p0 test, comment it.
         //test for big table(parquet format)
-        def q02 = {
-            qt_q10 """ select c_address from customer where c_custkey = 1 and c_name = 'Customer#000000001'; """
-            qt_q11 """ select l_quantity from lineitem where l_orderkey = 599614241 and l_partkey = 59018738 and l_suppkey = 1518744 limit 2 """
-            qt_q12 """ select count(1) from nation """
-            qt_q13 """ select count(1) from orders """
-            qt_q14 """ select p_name from part where p_partkey = 4438130 order by p_name limit 1; """
-            qt_q15 """ select ps_supplycost from partsupp where ps_partkey = 199588198 and ps_suppkey = 9588199 and ps_availqty = 2949 """
-            qt_q16 """ select * from region order by r_regionkey limit 3 """
-            qt_q17 """ select s_address from supplier where s_suppkey = 2823947 limit 3"""
-        }
-        sql """ use tpch_1000_parquet; """
-        q02()
+        // def q02 = {
+        //     qt_q10 """ select c_address from customer where c_custkey = 1 and c_name = 'Customer#000000001'; """
+        //     qt_q11 """ select l_quantity from lineitem where l_orderkey = 599614241 and l_partkey = 59018738 and l_suppkey = 1518744 limit 2 """
+        //     qt_q12 """ select count(1) from nation """
+        //     qt_q13 """ select count(1) from orders """
+        //     qt_q14 """ select p_name from part where p_partkey = 4438130 order by p_name limit 1; """
+        //     qt_q15 """ select ps_supplycost from partsupp where ps_partkey = 199588198 and ps_suppkey = 9588199 and ps_availqty = 2949 """
+        //     qt_q16 """ select * from region order by r_regionkey limit 3 """
+        //     qt_q17 """ select s_address from supplier where s_suppkey = 2823947 limit 3"""
+        // }
+        // sql """ use tpch_1000_parquet; """
+        // q02()
+
+        // Too big for p0 test, comment it.
         //test for big table(orc format)
-        def q03 = {
-            qt_q18 """ select c_address from customer where c_custkey = 1 and c_name = 'Customer#000000001'; """
-            qt_q19 """ select l_quantity from lineitem where l_orderkey = 599614241 and l_partkey = 59018738 and l_suppkey = 1518744 limit 2 """
-            qt_q20 """ select count(1) from nation """
-            qt_q21 """ select count(1) from orders """
-            qt_q22 """ select p_name from part where p_partkey = 4438130 order by p_name limit 1; """
-            qt_q23 """ select ps_supplycost from partsupp where ps_partkey = 199588198 and ps_suppkey = 9588199 and ps_availqty = 2949 """
-            qt_q24 """ select * from region order by r_regionkey limit 3 """
-            qt_q25 """ select s_address from supplier where s_suppkey = 2823947 limit 3"""
-        }
-        sql """ use tpch_1000_orc; """
-        q03()
+        // def q03 = {
+        //     qt_q18 """ select c_address from customer where c_custkey = 1 and c_name = 'Customer#000000001'; """
+        //     qt_q19 """ select l_quantity from lineitem where l_orderkey = 599614241 and l_partkey = 59018738 and l_suppkey = 1518744 limit 2 """
+        //     qt_q20 """ select count(1) from nation """
+        //     qt_q21 """ select count(1) from orders """
+        //     qt_q22 """ select p_name from part where p_partkey = 4438130 order by p_name limit 1; """
+        //     qt_q23 """ select ps_supplycost from partsupp where ps_partkey = 199588198 and ps_suppkey = 9588199 and ps_availqty = 2949 """
+        //     qt_q24 """ select * from region order by r_regionkey limit 3 """
+        //     qt_q25 """ select s_address from supplier where s_suppkey = 2823947 limit 3"""
+        // }
+        // sql """ use tpch_1000_orc; """
+        // q03()
 
+        // Too big for p0 test, comment it.
         // test #21598
-        qt_pr21598 """select count(*) from( (SELECT r_regionkey AS key1, r_name AS name, pday AS pday FROM (SELECT r_regionkey, r_name, replace(r_comment, ' ', 'aaaa') AS pday FROM ${catalog_name}.tpch_1000_parquet.region) t2))x;"""
+        //qt_pr21598 """select count(*) from( (SELECT r_regionkey AS key1, r_name AS name, pday AS pday FROM (SELECT r_regionkey, r_name, replace(r_comment, ' ', 'aaaa') AS pday FROM ${catalog_name}.tpch_1000_parquet.region) t2))x;"""
 
+        // TODO(kaka11chen): Need to upload table to oss, comment it temporarily.
         // test not_single_slot_filter_conjuncts with dict filter issue
-        qt_not_single_slot_filter_conjuncts_orc """ select * from multi_catalog.lineitem_string_date_orc where l_commitdate < l_receiptdate and l_receiptdate = '1995-01-01'  order by l_orderkey, l_partkey, l_suppkey, l_linenumber limit 10; """
-        qt_not_single_slot_filter_conjuncts_parquet """ select * from multi_catalog.lineitem_string_date_orc where l_commitdate < l_receiptdate and l_receiptdate = '1995-01-01'  order by l_orderkey, l_partkey, l_suppkey, l_linenumber limit 10; """
+        // qt_not_single_slot_filter_conjuncts_orc """ select * from multi_catalog.lineitem_string_date_orc where l_commitdate < l_receiptdate and l_receiptdate = '1995-01-01'  order by l_orderkey, l_partkey, l_suppkey, l_linenumber limit 10; """
+        // qt_not_single_slot_filter_conjuncts_parquet """ select * from multi_catalog.lineitem_string_date_orc where l_commitdate < l_receiptdate and l_receiptdate = '1995-01-01'  order by l_orderkey, l_partkey, l_suppkey, l_linenumber limit 10; """
 
+        // TODO(kaka11chen): Need to upload table to oss, comment it temporarily.
         // test null expr with dict filter issue
-        qt_null_expr_dict_filter_orc """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_orc WHERE `partitions` in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
-        qt_null_expr_dict_filter_parquet """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_parquet WHERE `partitions` in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
+        //qt_null_expr_dict_filter_orc """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_orc WHERE `partitions` in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
+        //qt_null_expr_dict_filter_parquet """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_parquet WHERE `partitions` in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
 
         // test par fields in file
         qt_par_fields_in_file_orc1 """ select * from multi_catalog.par_fields_in_file_orc where year = 2023 and month = 8 order by id; """
@@ -113,12 +123,13 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
         // timestamp with isAdjustedToUTC=true
         qt_parquet_adjusted_utc """select * from multi_catalog.timestamp_with_time_zone order by date_col;"""
 
+        // TODO(kaka11chen): hive docker env throws "Cannot find class 'com.hadoop.mapred.DeprecatedLzoTextInputFormat'",  comment it temporarily.
         // test unsupported input format query
-        try {
-            sql """ select * from multi_catalog.unsupported_input_format_empty; """
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("Unsupported hive input format: com.hadoop.mapred.DeprecatedLzoTextInputFormat"))
-        }
+        //try {
+        //    sql """ select * from multi_catalog.unsupported_input_format_empty; """
+        //} catch (Exception e) {
+        //    assertTrue(e.getMessage().contains("Unsupported hive input format: com.hadoop.mapred.DeprecatedLzoTextInputFormat"))
+        //}
 
         // test remember last used database after switch / rename catalog
         sql """switch ${catalog_name};"""
@@ -147,7 +158,7 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
             sql """
                 create catalog if not exists ${tmp_name} properties (
                     'type'='hms',
-                    'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
+                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                     'access_controller.properties.ranger.service.name' = 'hive_wrong',
                     'access_controller.class' = 'org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory'
                 );
