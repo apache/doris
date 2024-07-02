@@ -52,6 +52,9 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
+import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
@@ -70,6 +73,7 @@ import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.ResultSetMetaData;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -102,6 +106,7 @@ public class NereidsPlanner extends Planner {
     private Plan rewrittenPlan;
     private Plan optimizedPlan;
     private PhysicalPlan physicalPlan;
+    private FragmentIdMapping<DistributedPlan> distributedPlans;
     // The cost of optimized plan
     private double cost = 0;
     private LogicalPlanAdapter logicalPlanAdapter;
@@ -130,17 +135,22 @@ public class NereidsPlanner extends Planner {
         LogicalPlan parsedPlan = logicalPlanAdapter.getLogicalPlan();
         NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);
+
         PhysicalProperties requireProperties = buildInitRequireProperties();
         statementContext.getStopwatch().start();
-        boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
-        Plan resultPlan = plan(parsedPlan, requireProperties, explainLevel, showPlanProcess);
-        statementContext.getStopwatch().stop();
-        setOptimizedPlan(resultPlan);
-        if (explainLevel.isPlanLevel) {
-            return;
+        Plan resultPlan = null;
+        try {
+            boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
+            resultPlan = plan(parsedPlan, requireProperties, explainLevel, showPlanProcess);
+        } finally {
+            statementContext.getStopwatch().stop();
         }
-        physicalPlan = (PhysicalPlan) resultPlan;
-        translate(physicalPlan);
+        setOptimizedPlan(resultPlan);
+
+        if (resultPlan instanceof PhysicalPlan) {
+            physicalPlan = (PhysicalPlan) resultPlan;
+            distribute(physicalPlan, explainLevel);
+        }
     }
 
     @VisibleForTesting
@@ -315,7 +325,7 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    private void translate(PhysicalPlan resultPlan) throws UserException {
+    private void splitFragments(PhysicalPlan resultPlan) throws UserException {
         if (resultPlan instanceof PhysicalSqlCache) {
             return;
         }
@@ -358,6 +368,27 @@ public class NereidsPlanner extends Planner {
 
         // update scan nodes visible version at the end of plan phase.
         ScanNode.setVisibleVersionForOlapScanNodes(getScanNodes());
+    }
+
+    private void distribute(PhysicalPlan physicalPlan, ExplainLevel explainLevel) throws UserException {
+        boolean canUseNereidsDistributePlanner = SessionVariable.canUseNereidsDistributePlanner();
+        if ((!canUseNereidsDistributePlanner && explainLevel.isPlanLevel)) {
+            return;
+        } else if ((canUseNereidsDistributePlanner && explainLevel.isPlanLevel
+                && (explainLevel != ExplainLevel.ALL_PLAN && explainLevel != ExplainLevel.DISTRIBUTED_PLAN))) {
+            return;
+        }
+
+        splitFragments(physicalPlan);
+
+        if (!canUseNereidsDistributePlanner) {
+            return;
+        }
+
+        distributedPlans = new DistributePlanner(fragments).plan();
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsDistributeTime();
+        }
     }
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
@@ -498,6 +529,17 @@ public class NereidsPlanner extends Planner {
                         + "\n\n========== MATERIALIZATIONS ==========\n"
                         + materializationStringBuilder;
                 break;
+            case DISTRIBUTED_PLAN:
+                StringBuilder distributedPlanStringBuilder = new StringBuilder();
+
+                distributedPlanStringBuilder.append("========== DISTRIBUTED PLAN ==========\n");
+                if (distributedPlans == null || distributedPlans.isEmpty()) {
+                    plan = "Distributed plan not generated, please set enable_nereids_distribute_planner "
+                            + "and enable_pipeline_x_engine to true";
+                } else {
+                    plan += DistributedPlan.toString(Lists.newArrayList(distributedPlans.values())) + "\n\n";
+                }
+                break;
             case ALL_PLAN:
                 plan = "========== PARSED PLAN "
                         + getTimeMetricString(SummaryProfile::getPrettyParseSqlTime) + " ==========\n"
@@ -510,7 +552,13 @@ public class NereidsPlanner extends Planner {
                         + rewrittenPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN "
                         + getTimeMetricString(SummaryProfile::getPrettyNereidsOptimizeTime) + " ==========\n"
-                        + optimizedPlan.treeString();
+                        + optimizedPlan.treeString() + "\n\n";
+
+                if (distributedPlans != null && !distributedPlans.isEmpty()) {
+                    plan += "========== DISTRIBUTED PLAN "
+                            + getTimeMetricString(SummaryProfile::getPrettyNereidsDistributeTime) + " ==========\n";
+                    plan += DistributedPlan.toString(Lists.newArrayList(distributedPlans.values())) + "\n\n";
+                }
                 break;
             default:
                 plan = super.getExplainString(explainOptions)
@@ -679,6 +727,10 @@ public class NereidsPlanner extends Planner {
 
     public PhysicalPlan getPhysicalPlan() {
         return physicalPlan;
+    }
+
+    public FragmentIdMapping<DistributedPlan> getDistributedPlans() {
+        return distributedPlans;
     }
 
     public LogicalPlanAdapter getLogicalPlanAdapter() {

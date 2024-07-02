@@ -874,7 +874,6 @@ public class CreateTableInfo {
             slotRef.setType(column.getType().toCatalogDataType());
             translateMap.put(slot, new SlotRefAndIdx(slotRef, i, column.getGeneratedColumnDesc().isPresent()));
         }
-        ExpressionToExpr.initializeslotRefMap(translateMap);
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         List<Slot> slots = Lists.newArrayList(columnToSlotReference.values());
         List<GeneratedColumnUtil.ExprAndname> exprAndnames = Lists.newArrayList();
@@ -898,7 +897,7 @@ public class CreateTableInfo {
             }
             checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
             TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
-            ExpressionToExpr translator = new ExpressionToExpr(i);
+            ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
             Expr e = expr.accept(translator, planTranslatorContext);
             info.get().setExpr(e);
             exprAndnames.add(new GeneratedColumnUtil.ExprAndname(e.clone(), column.getName()));
@@ -998,15 +997,12 @@ public class CreateTableInfo {
     }
 
     private static class ExpressionToExpr extends ExpressionTranslator {
-        private static Map<Slot, SlotRefAndIdx> slotRefMap;
+        private final Map<Slot, SlotRefAndIdx> slotRefMap;
         private final int index;
 
-        public ExpressionToExpr(int index) {
+        public ExpressionToExpr(int index, Map<Slot, SlotRefAndIdx> slotRefMap) {
             this.index = index;
-        }
-
-        public static void initializeslotRefMap(Map<Slot, SlotRefAndIdx> map) {
-            slotRefMap = map;
+            this.slotRefMap = slotRefMap;
         }
 
         @Override
@@ -1047,6 +1043,14 @@ public class CreateTableInfo {
         public boolean isGeneratedColumn() {
             return isGeneratedColumn;
         }
+    }
+
+    public PartitionTableInfo getPartitionTableInfo() {
+        return partitionTableInfo;
+    }
+
+    public DistributionDescriptor getDistribution() {
+        return distribution;
     }
 }
 
