@@ -39,6 +39,8 @@
 
 using boost::algorithm::to_lower_copy;
 
+namespace fs = std::filesystem;
+
 namespace doris {
 
 namespace vectorized {
@@ -57,7 +59,7 @@ void TimezoneUtils::clear_timezone_caches() {
     lower_zone_cache_->clear();
 }
 
-static bool parse_save_name_tz(std::string tz_name) {
+static bool parse_save_name_tz(const std::string& tz_name) {
     cctz::time_zone tz;
     PROPAGATE_FALSE(cctz::load_time_zone(tz_name, &tz));
     lower_zone_cache_->emplace(to_lower_copy(tz_name), tz);
@@ -72,21 +74,22 @@ void TimezoneUtils::load_timezones_to_cache() {
         tzdir = tzdir_env;
     }
 
-    base_str += tzdir;
+    base_str = tzdir;
     base_str += '/';
 
-    const auto root_path = std::filesystem::path {base_str};
-    if (!std::filesystem::exists(root_path)) {
-        LOG_WARNING("Cannot find system tzfile. Abandon to preload timezone cache.");
-        return;
+    const auto root_path = fs::path {base_str};
+    if (!exists(root_path)) {
+        LOG(FATAL) << "Cannot find system tzfile. Doris exiting!";
+        __builtin_unreachable();
     }
 
     std::set<std::string> ignore_paths = {"posix", "right"}; // duplications. ignore them.
 
-    for (std::filesystem::recursive_directory_iterator it {base_str}; it != end(it); it++) {
+    for (fs::recursive_directory_iterator it {base_str}; it != end(it); it++) {
         const auto& dir_entry = *it;
-        if (dir_entry.is_regular_file()) {
-            auto tz_name = relative(dir_entry, base_str).string();
+        if (dir_entry.is_regular_file() ||
+            (dir_entry.is_symlink() && is_regular_file(read_symlink(dir_entry)))) {
+            auto tz_name = dir_entry.path().string().substr(base_str.length());
             if (!parse_save_name_tz(tz_name)) {
                 LOG(WARNING) << "Meet illegal tzdata file: " << tz_name << ". skipped";
             }
