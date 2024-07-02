@@ -105,20 +105,16 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status SortSinkOperatorX::prepare(RuntimeState* state) {
-    const auto& row_desc = _child_x->row_desc();
-
     // If `limit` is smaller than HEAP_SORT_THRESHOLD, we consider using heap sort in priority.
     // To do heap sorting, each income block will be filtered by heap-top row. There will be some
     // `memcpy` operations. To ensure heap sort will not incur performance fallback, we should
     // exclude cases which incoming blocks has string column which is sensitive to operations like
     // `filter` and `memcpy`
     if (_limit > 0 && _limit + _offset < vectorized::HeapSorter::HEAP_SORT_THRESHOLD &&
-        (_use_two_phase_read || state->get_query_ctx()->has_runtime_predicate(_node_id) ||
-         !row_desc.has_varlen_slots())) {
+        (_use_two_phase_read || state->get_query_ctx()->has_runtime_predicate(_node_id))) {
         _algorithm = SortAlgorithm::HEAP_SORT;
         _reuse_mem = false;
-    } else if (_limit > 0 && row_desc.has_varlen_slots() &&
-               _limit + _offset < vectorized::TopNSorter::TOPN_SORT_THRESHOLD) {
+    } else if (_limit > 0 && _limit + _offset < vectorized::TopNSorter::TOPN_SORT_THRESHOLD) {
         _algorithm = SortAlgorithm::TOPN_SORT;
     } else {
         _algorithm = SortAlgorithm::FULL_SORT;
