@@ -77,17 +77,20 @@ public class BrokerUtil {
 
     /**
      * Parse file status in path with broker, except directory
+     *
      * @param path
      * @param brokerDesc
-     * @param fileStatuses: file path, size, isDir, isSplittable
+     * @param fileStatuses : file path, size, isDir, isSplittable
+     * @param configSitePath hdfs site path
      * @throws UserException if broker op failed
      */
-    public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
+    public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses,
+                                 String configSitePath)
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
         try {
             RemoteFileSystem fileSystem = FileSystemFactory.get(
-                    brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
+                    brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties(), configSitePath);
             Status st = fileSystem.globList(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(st.getErrMsg());

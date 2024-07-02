@@ -42,7 +42,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
@@ -826,7 +825,7 @@ public class HiveMetaStoreClientHelper {
 
     public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
         String hudiBasePath = table.getRemoteTable().getSd().getLocation();
-        Configuration conf = getConfiguration(table);
+        Configuration conf = table.getCatalog().getConfiguration();
         if (LOG.isDebugEnabled()) {
             LOG.debug("try setting 'fs.xxx.impl.disable.cache' to true for hudi's base path: {}", hudiBasePath);
         }
@@ -838,13 +837,5 @@ public class HiveMetaStoreClientHelper {
         }
         return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf),
                 () -> HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build());
-    }
-
-    public static Configuration getConfiguration(HMSExternalTable table) {
-        Configuration conf = DFSFileSystem.getHdfsConf(table.getCatalog().ifNotSetFallbackToSimpleAuth());
-        for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
     }
 }

@@ -75,6 +75,7 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
             // 4. parse file
             parseFile();
         }
+        configSitePath = properties.getOrDefault(HdfsResource.HADOOP_SITE_PATH, null);
     }
 
     // =========== implement abstract methods of ExternalFileTableValuedFunction =================

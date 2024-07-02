@@ -212,7 +212,7 @@ public class SparkRepository {
     private void getLibraries(String remoteArchivePath, List<SparkLibrary> libraries) throws LoadException {
         List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
         try {
-            BrokerUtil.parseFile(remoteArchivePath + "/*", brokerDesc, fileStatuses);
+            BrokerUtil.parseFile(remoteArchivePath + "/*", brokerDesc, fileStatuses, null);
         } catch (UserException e) {
             throw new LoadException(e.getMessage());
         }

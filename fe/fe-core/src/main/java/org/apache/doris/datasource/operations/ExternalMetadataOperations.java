@@ -23,13 +23,13 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 
-import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.catalog.Catalog;
 
 
 public class ExternalMetadataOperations {
 
-    public static HiveMetadataOps newHiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig,
+    public static HiveMetadataOps newHiveMetadataOps(Configuration hiveConf, JdbcClientConfig jdbcClientConfig,
                                                      HMSExternalCatalog catalog) {
         return new HiveMetadataOps(hiveConf, jdbcClientConfig, catalog);
     }

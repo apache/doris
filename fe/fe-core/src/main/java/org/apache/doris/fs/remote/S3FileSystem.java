@@ -19,6 +19,7 @@ package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.obj.S3ObjStorage;
@@ -36,6 +37,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.FileNotFoundException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class S3FileSystem extends ObjFileSystem {
 
@@ -61,7 +63,9 @@ public class S3FileSystem extends ObjFileSystem {
         if (dfsFileSystem == null) {
             synchronized (this) {
                 if (dfsFileSystem == null) {
-                    Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
+                    String configSitePath = properties.getOrDefault(HdfsResource.HADOOP_SITE_PATH, null);
+                    Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth(),
+                            Optional.ofNullable(configSitePath));
                     System.setProperty("com.amazonaws.services.s3.enableV4", "true");
                     // the entry value in properties may be null, and
                     PropertyConverter.convertToHadoopFSProperties(properties).entrySet().stream()

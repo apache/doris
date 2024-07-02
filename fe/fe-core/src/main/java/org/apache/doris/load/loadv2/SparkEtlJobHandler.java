@@ -337,7 +337,7 @@ public class SparkEtlJobHandler {
         List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
         String etlFilePaths = outputPath + "/*";
         try {
-            BrokerUtil.parseFile(etlFilePaths, brokerDesc, fileStatuses);
+            BrokerUtil.parseFile(etlFilePaths, brokerDesc, fileStatuses, null);
         } catch (UserException e) {
             throw new Exception(e);
         }

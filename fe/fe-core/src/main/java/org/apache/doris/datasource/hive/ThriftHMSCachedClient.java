@@ -30,11 +30,11 @@ import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
@@ -91,9 +91,9 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private Queue<ThriftHMSClient> clientPool = new LinkedList<>();
     private boolean isClosed = false;
     private final int poolSize;
-    private final HiveConf hiveConf;
+    private final Configuration hiveConf;
 
-    public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize) {
+    public ThriftHMSCachedClient(Configuration hiveConf, int poolSize) {
         Preconditions.checkArgument(poolSize > 0, poolSize);
         if (hiveConf != null) {
             hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
@@ -616,7 +616,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         private final IMetaStoreClient client;
         private volatile Throwable throwable;
 
-        private ThriftHMSClient(HiveConf hiveConf) throws MetaException {
+        private ThriftHMSClient(Configuration hiveConf) throws MetaException {
             String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
             if (HMSProperties.DLF_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,

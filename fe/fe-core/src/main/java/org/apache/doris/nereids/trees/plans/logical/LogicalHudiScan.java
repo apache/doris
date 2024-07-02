@@ -208,10 +208,10 @@ public class LogicalHudiScan extends LogicalFileScan {
                 }
                 if (isCowOrRoTable) {
                     newIncrementalRelation = Optional.of(new COWIncrementalRelation(
-                            optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
+                            optParams, table.getCatalog().getConfiguration(), hudiClient));
                 } else {
                     newIncrementalRelation = Optional.of(new MORIncrementalRelation(
-                            optParams, HiveMetaStoreClientHelper.getConfiguration(table), hudiClient));
+                            optParams, table.getCatalog().getConfiguration(), hudiClient));
                 }
             } catch (Exception e) {
                 throw new AnalysisException(

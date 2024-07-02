@@ -91,7 +91,7 @@ public class ImportAction extends RestBaseController {
         List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
         try {
             // get file status
-            BrokerUtil.parseFile(fileInfo.getFileUrl(), brokerDesc, fileStatuses);
+            BrokerUtil.parseFile(fileInfo.getFileUrl(), brokerDesc, fileStatuses, null);
             // create response
             FileReviewResponseVo reviewResponseVo = createFileReviewResponse(brokerDesc, fileInfo, fileStatuses);
             return ResponseEntityBuilder.ok(reviewResponseVo);

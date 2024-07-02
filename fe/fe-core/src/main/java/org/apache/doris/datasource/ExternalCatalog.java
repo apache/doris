@@ -26,6 +26,7 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.Resource;
@@ -150,7 +151,9 @@ public abstract class ExternalCatalog
     }
 
     public Configuration getConfiguration() {
-        Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
+        String configSitePath = catalogProperty.getProperties().getOrDefault(HdfsResource.HADOOP_SITE_PATH, null);
+        Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth(),
+                Optional.ofNullable(configSitePath));
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
