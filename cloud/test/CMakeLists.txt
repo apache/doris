@@ -17,7 +17,7 @@ add_executable(doris_txn_test doris_txn_test.cpp)
 add_executable(txn_kv_test txn_kv_test.cpp)
 set_target_properties(txn_kv_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
 
-add_executable(recycler_test recycler_test.cpp)
+add_executable(recycler_test recycler_test.cpp mock_accessor.cpp)
 
 add_executable(mem_txn_kv_test mem_txn_kv_test.cpp)
 

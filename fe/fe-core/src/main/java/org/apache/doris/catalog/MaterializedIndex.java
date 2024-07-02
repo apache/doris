@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -27,7 +26,6 @@ import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -37,7 +35,7 @@ import java.util.Map;
 /**
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
  */
-public class MaterializedIndex extends MetaObject implements Writable, GsonPostProcessable {
+public class MaterializedIndex extends MetaObject implements GsonPostProcessable {
     public enum IndexState {
         NORMAL,
         @Deprecated
@@ -208,11 +206,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
         return -1;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -232,6 +226,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
         rollupFinishedVersion = in.readLong();
     }
 
+    @Deprecated
     public static MaterializedIndex read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
             MaterializedIndex mi = new MaterializedIndex();

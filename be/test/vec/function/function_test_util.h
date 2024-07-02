@@ -104,6 +104,9 @@ using STRING = std::string;
 using DOUBLE = double;
 using FLOAT = float;
 
+using IPV4 = uint32_t;
+using IPV6 = uint128_t;
+
 inline auto DECIMAL = Decimal128V2::double_to_decimal;
 inline auto DECIMALFIELD = [](double v) {
     return DecimalField<Decimal128V2>(Decimal128V2::double_to_decimal(v), 9);

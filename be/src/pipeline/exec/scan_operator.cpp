@@ -54,11 +54,6 @@ namespace doris::pipeline {
     }
 
 template <typename Derived>
-bool ScanLocalState<Derived>::ready_to_read() {
-    return !_scanner_ctx->empty_in_queue(0);
-}
-
-template <typename Derived>
 bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
