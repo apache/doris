@@ -248,21 +248,24 @@ suite('test_mix_partial_update') {
                     "store_row_column" = "${use_row_store}"); """
             
             sql "insert into ${tableInsertName2} (k1,c2,c3,c4) values(1,1,1,{'a':100,'b':100})"
-            qt_select_A "select k1,c1,c2,c3,c4 from ${tableInsertName2}"
-            qt_select_AA "select count(*) from ${tableInsertName2} where c5 = c6"
+            qt_select_A "select k1,c2,c3,c4 from ${tableInsertName2}"
+            qt_select_AA "select count(distinct c1) from ${tableInsertName2}"
+            qt_select_AAA"select count(*) from ${tableInsertName2} where c5 = c6"
 
 
             sql "set enable_unique_key_partial_update=true;"
             sql "set enable_insert_strict=false;"
             sql "insert into ${tableInsertName2} (k1,c2,c3,c4) values(2,2,2,{'a':200,'b':200})"
-            qt_select_B "select k1,c1,c2,c3,c4 from ${tableInsertName2}"
-            qt_select_BB "select count(*) from ${tableInsertName2} where c5 = c6"
+            qt_select_B "select k1,c2,c3,c4 from ${tableInsertName2}"
+            qt_select_BB "select count(distinct c1) from ${tableInsertName2}"
+            qt_select_BBB "select count(*) from ${tableInsertName2} where c5 = c6"
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict=true;"
 
             sql "update ${tableInsertName2} set c1 = 100"
-            qt_select_C "select k1,c1,c2,c3,c4 from ${tableInsertName2}"
-            qt_select_CC "select count(*) from ${tableInsertName2} where c5 = c6"
+            qt_select_C "select k1,c2,c3,c4 from ${tableInsertName2}"
+            qt_select_CC "select count(distinct c1) from ${tableInsertName2}"
+            qt_select_CCC "select count(*) from ${tableInsertName2} where c5 = c6"
 
             // do light weight schema change
             sql """ ALTER TABLE ${tableInsertName2} add column `c7` datetimev2(3) DEFAULT CURRENT_TIMESTAMP after c6; """
@@ -272,8 +275,9 @@ suite('test_mix_partial_update') {
             }
 
             sql "insert into ${tableInsertName2} (k1,c2,c3,c4) values(3,3,3,{'a':300,'b':300})"
-            qt_select_D "select k1,c1,c2,c3,c4 from ${tableInsertName2}"
-            qt_select_DD "select count(*) from ${tableInsertName2} where c5 = c7"
+            qt_select_D "select k1,c2,c3,c4 from ${tableInsertName2}"
+            qt_select_DD "select count(distinct c1) from ${tableInsertName2}"
+            qt_select_DDD "select count(*) from ${tableInsertName2} where c5 = c7"
 
             // do heavy weight schema change
             sql """ ALTER TABLE ${tableInsertName2} add column `k2` int after k1; """
@@ -283,8 +287,9 @@ suite('test_mix_partial_update') {
             }
 
             sql "insert into ${tableInsertName2} (k1,k2,c2,c3,c4) values(4,4,4,4,{'a':400,'b':400})"
-            qt_select_E "select k1,c1,c2,c3,c4 from ${tableInsertName2}"
-            qt_select_EE "select count(*) from ${tableInsertName2} where c5 = c7"
+            qt_select_E "select k1,c2,c3,c4 from ${tableInsertName2}"
+            qt_select_EE "select count(distinct c1) from ${tableInsertName2}"
+            qt_select_EEE "select count(*) from ${tableInsertName2} where c5 = c7"
 
             def tableStreamName2 = "test_mix_partial_update2"
             sql "DROP TABLE IF EXISTS ${tableStreamName2};"
@@ -311,8 +316,9 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load_A.csv"
                 time 10000 // limit inflight 10s
             }
-            qt_select_A "select k1,c1,c2,c3,c4 from ${tableStreamName2}"
-            qt_select_AA "select count(*) from ${tableStreamName2} where c5 = c6"
+            qt_select_A "select k1,c2,c3,c4 from ${tableStreamName2}"
+            qt_select_AA "select count(distinct c1) from ${tableStreamName2}"
+            qt_select_AAA "select count(*) from ${tableStreamName2} where c5 = c6"
 
 
             // sql "insert into ${tableStreamName2} (k1,c2,c3,c4) values(2,2,2,{'a':200,'b':200})"
@@ -324,12 +330,14 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load_B.csv"
                 time 10000 // limit inflight 10s
             }
-            qt_select_B "select k1,c1,c2,c3,c4 from ${tableStreamName2}"
-            qt_select_BB "select count(*) from ${tableStreamName2} where c5 = c6"
+            qt_select_B "select k1,c2,c3,c4 from ${tableStreamName2}"
+            qt_select_BB "select count(distinct c1) from ${tableStreamName2}"
+            qt_select_BBB "select count(*) from ${tableStreamName2} where c5 = c6"
 
             sql "update ${tableStreamName2} set c1 = 100"
-            qt_select_C "select k1,c1,c2,c3,c4 from ${tableStreamName2}"
-            qt_select_CC "select count(*) from ${tableStreamName2} where c5 = c6"
+            qt_select_C "select k1,c2,c3,c4 from ${tableStreamName2}"
+            qt_select_CC "select count(distinct c1) from ${tableStreamName2}"
+            qt_select_CCC "select count(*) from ${tableStreamName2} where c5 = c6"
 
             // do light weight schema change
             sql """ ALTER TABLE ${tableStreamName2} add column `c7` datetimev2(3) DEFAULT CURRENT_TIMESTAMP after c6; """
@@ -346,8 +354,9 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load_C.csv"
                 time 10000 // limit inflight 10s
             }
-            qt_select_D "select k1,c1,c2,c3,c4 from ${tableStreamName2}"
-            qt_select_DD "select count(*) from ${tableStreamName2} where c5 = c7"
+            qt_select_D "select k1,c2,c3,c4 from ${tableStreamName2}"
+            qt_select_DD "select count(distinct c1) from ${tableStreamName2}"
+            qt_select_DDD "select count(*) from ${tableStreamName2} where c5 = c7"
 
             // do heavy weight schema change
             sql """ ALTER TABLE ${tableStreamName2} add column `k2` int after k1; """
@@ -364,8 +373,9 @@ suite('test_mix_partial_update') {
                 file "test_mix_partial_update_load_D.csv"
                 time 10000 // limit inflight 10s
             }
-            qt_select_E "select k1,c1,c2,c3,c4 from ${tableStreamName2}"
-            qt_select_EE "select count(*) from ${tableStreamName2} where c5 = c7"
+            qt_select_E "select k1,c2,c3,c4 from ${tableStreamName2}"
+            qt_select_EE "select count(distinct c1) from ${tableStreamName2}"
+            qt_select_EEE "select count(*) from ${tableStreamName2} where c5 = c7"
         }
     }
 }
