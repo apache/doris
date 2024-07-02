@@ -240,19 +240,11 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public Analyzer newAnalyzer() {
-        return newAnalyzer(false);
-    }
-
-    public Analyzer newAnalyzer(boolean analyzeView) {
-        return new Analyzer(this, analyzeView);
-    }
-
-    public Analyzer newAnalyzer(boolean analyzeView, Optional<CustomTableResolver> customTableResolver) {
-        return new Analyzer(this, analyzeView, customTableResolver);
+        return newAnalyzer(Optional.empty());
     }
 
     public Analyzer newAnalyzer(Optional<CustomTableResolver> customTableResolver) {
-        return newAnalyzer(false, customTableResolver);
+        return new Analyzer(this, customTableResolver);
     }
 
     @Override
