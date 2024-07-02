@@ -19,11 +19,14 @@
 
 suite("topn-filter") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
-    sql "use ${db}"
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set disable_join_reorder=true;'
-    sql 'set topn_opt_limit_threshold=1024'
+    multi_sql """
+        use ${db};
+        set enable_nereids_planner=true;
+        set enable_fallback_to_original_planner=false;
+        set disable_join_reorder=true;
+        set topn_opt_limit_threshold=1024;
+        set push_topn_to_agg=false;
+        """
     def String simpleTopn = """
         select *
         from orders
