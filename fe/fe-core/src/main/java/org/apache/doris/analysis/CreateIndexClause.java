@@ -82,6 +82,11 @@ public class CreateIndexClause extends AlterTableClause {
     }
 
     @Override
+    public boolean needChangeMTMVState() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         if (alter) {
             return indexDef.toSql();
