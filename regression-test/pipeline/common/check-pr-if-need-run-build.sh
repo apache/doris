@@ -46,7 +46,7 @@ _get_pr_changed_files() {
     per_page=100
     file_name='pr_change_files'
     while [[ ${try_times} -gt 0 ]]; do
-        if [[ -n "${GITHUB_TOKEN}" ]];then
+        if [[ -n "${GITHUB_TOKEN}" ]]; then
             if curl \
                 -H "Accept: application/vnd.github+json" \
                 -H "Authorization: Bearer ${GITHUB_TOKEN:-}" \
