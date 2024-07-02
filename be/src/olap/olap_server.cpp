@@ -866,7 +866,10 @@ int get_concurrent_per_disk(int max_score, int thread_per_disk) {
         return thread_per_disk;
     }
 
-    double load_average = DorisMetrics::instance()->system_metrics()->get_load_average_1_min();
+    double load_average = 0;
+    if (DorisMetrics::instance()->system_metrics() != nullptr) {
+        load_average = DorisMetrics::instance()->system_metrics()->get_load_average_1_min();
+    }
     int num_cores = doris::CpuInfo::num_cores();
     bool cpu_usage_high = load_average > num_cores * 0.8;
 
