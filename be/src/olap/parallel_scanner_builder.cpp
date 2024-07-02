@@ -197,9 +197,8 @@ template <typename ParentType>
 std::shared_ptr<NewOlapScanner> ParallelScannerBuilder<ParentType>::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
         TabletReader::ReadSource&& read_source) {
-    NewOlapScanner::Params params {
-            _state,  _scanner_profile.get(), key_ranges,         std::move(tablet),
-            version, std::move(read_source), _limit_per_scanner, _is_preaggregation};
+    NewOlapScanner::Params params {_state,  _scanner_profile.get(), key_ranges, std::move(tablet),
+                                   version, std::move(read_source), _limit,     _is_preaggregation};
     return NewOlapScanner::create_shared(_parent, std::move(params));
 }
 

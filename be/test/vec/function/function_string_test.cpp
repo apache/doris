@@ -1155,6 +1155,24 @@ TEST(function_string_test, function_replace) {
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
+TEST(function_string_test, function_replace_empty) {
+    std::string func_name = "replace_empty";
+    InputTypeSet input_types = {
+            TypeIndex::String,
+            TypeIndex::String,
+            TypeIndex::String,
+    };
+    DataSet data_set = {
+            {{Null(), VARCHAR("9090"), VARCHAR("")}, {Null()}},
+            {{VARCHAR("http://www.baidu.com:9090"), VARCHAR("9090"), VARCHAR("")},
+             {VARCHAR("http://www.baidu.com:")}},
+            {{VARCHAR("aaaaa"), VARCHAR("a"), VARCHAR("")}, {VARCHAR("")}},
+            {{VARCHAR("abc"), VARCHAR(""), VARCHAR("xyz")}, {VARCHAR("xyzaxyzbxyzcxyz")}},
+            {{VARCHAR("aaaaa"), VARCHAR("aa"), VARCHAR("")}, {VARCHAR("a")}},
+            {{VARCHAR("aaaaa"), VARCHAR("aa"), VARCHAR("a")}, {VARCHAR("aaa")}}};
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
 TEST(function_string_test, function_bit_length_test) {
     std::string func_name = "bit_length";
     InputTypeSet input_types = {TypeIndex::String};

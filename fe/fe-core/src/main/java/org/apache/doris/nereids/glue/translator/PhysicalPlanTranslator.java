@@ -94,7 +94,6 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -1244,8 +1243,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode
                 // this means we have filter->limit->project, need a SelectNode
-                || (child instanceof PhysicalProject
-                && !((PhysicalProject<?>) child).hasPushedDownToProjectionFunctions())) {
+                || child instanceof PhysicalProject) {
             // the three nodes don't support conjuncts, need create a SelectNode to filter data
             SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), planNode);
             selectNode.setNereidsId(filter.getId());
@@ -1827,35 +1825,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputFragment;
     }
 
-    // collect all valid PushDownToProjectionFunction from expression
-    private List<Expression> getPushDownToProjectionFunctionForRewritten(NamedExpression expression) {
-        List<Expression> targetExprList = expression.collectToList(PushDownToProjectionFunction.class::isInstance);
-        return targetExprList.stream()
-                .filter(PushDownToProjectionFunction::validToPushDown)
-                .collect(Collectors.toList());
-    }
-
-    // register rewritten slots from original PushDownToProjectionFunction
-    private void registerRewrittenSlot(PhysicalProject<? extends Plan> project, OlapScanNode olapScanNode) {
-        // register slots that are rewritten from element_at/etc..
-        List<Expression> allPushDownProjectionFunctions = project.getProjects().stream()
-                .map(this::getPushDownToProjectionFunctionForRewritten)
-                .flatMap(List::stream)
-                .collect(Collectors.toList());
-        for (Expression expr : allPushDownProjectionFunctions) {
-            PushDownToProjectionFunction function = (PushDownToProjectionFunction) expr;
-            if (context != null
-                    && context.getConnectContext() != null
-                    && context.getConnectContext().getStatementContext() != null) {
-                Slot argumentSlot = function.getInputSlots().stream().findFirst().get();
-                Expression rewrittenSlot = PushDownToProjectionFunction.rewriteToSlot(
-                        function, (SlotReference) argumentSlot);
-                TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
-                context.createSlotDesc(tupleDescriptor, (SlotReference) rewrittenSlot);
-            }
-        }
-    }
-
     // TODO: generate expression mapping when be project could do in ExecNode.
     @Override
     public PlanFragment visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanTranslatorContext context) {
@@ -1869,12 +1838,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         PlanFragment inputFragment = project.child(0).accept(this, context);
-
-        if (inputFragment.getPlanRoot() instanceof OlapScanNode) {
-            // function already pushed down in projection
-            // e.g. select count(distinct cast(element_at(v, 'a') as int)) from tbl;
-            registerRewrittenSlot(project, (OlapScanNode) inputFragment.getPlanRoot());
-        }
 
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
         List<Expr> projectionExprs = null;

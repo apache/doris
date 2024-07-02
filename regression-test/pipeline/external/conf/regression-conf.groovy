@@ -110,6 +110,7 @@ hive3ServerPort=13000
 hive3PgPort=5732
 
 enableEsTest=true
+es_5_port=59200
 es_6_port="19200/"
 es_7_port=29200
 es_8_port=39200

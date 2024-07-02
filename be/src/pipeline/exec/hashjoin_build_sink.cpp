@@ -486,8 +486,14 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         const auto vexpr = _build_expr_ctxs.back()->root();
 
         /// null safe equal means null = null is true, the operator in SQL should be: <=>.
-        const bool is_null_safe_equal = eq_join_conjunct.__isset.opcode &&
-                                        eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+        const bool is_null_safe_equal =
+                eq_join_conjunct.__isset.opcode &&
+                (eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL) &&
+                // For a null safe equal join, FE may generate a plan that
+                // both sides of the conjuct are not nullable, we just treat it
+                // as a normal equal join conjunct.
+                (eq_join_conjunct.right.nodes[0].is_nullable ||
+                 eq_join_conjunct.left.nodes[0].is_nullable);
 
         const bool should_convert_to_nullable = is_null_safe_equal &&
                                                 !eq_join_conjunct.right.nodes[0].is_nullable &&

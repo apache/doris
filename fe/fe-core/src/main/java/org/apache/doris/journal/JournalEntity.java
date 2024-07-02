@@ -861,6 +861,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DELETE_ANALYSIS_TASK: {
                 data = AnalyzeDeletionLog.read(in);
+                isRead = true;
                 break;
             }
             case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {

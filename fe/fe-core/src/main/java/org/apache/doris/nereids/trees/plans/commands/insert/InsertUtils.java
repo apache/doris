@@ -58,6 +58,7 @@ import org.apache.doris.qe.InsertStreamTxnExecutor;
 import org.apache.doris.qe.MasterTxnExecutor;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -190,9 +191,10 @@ public class InsertUtils {
             String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
             if (Config.isCloudMode() || Env.getCurrentEnv().isMaster()) {
                 txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                        txnConf.getDbId(), Lists.newArrayList(tblObj.getId()),
-                        label, new TransactionState.TxnCoordinator(
-                                TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        txnConf.getDbId(), Lists.newArrayList(tblObj.getId()), label,
+                        new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         sourceType, timeoutSecond);
             } else {
                 MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(ctx);
