@@ -70,6 +70,19 @@ struct FunctionExplodeMap {
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
 
+// explode json-object: expands json-object to struct with a pair of key and value in column string
+struct FunctionExplodeJsonObject {
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DCHECK(WhichDataType(arguments[0]).is_json())
+                << " explode json object " << arguments[0]->get_name() << " not supported";
+        DataTypes fieldTypes(2);
+        fieldTypes[0] = make_nullable(std::make_shared<DataTypeString>());
+        fieldTypes[1] = make_nullable(std::make_shared<DataTypeJsonb>());
+        return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
+    }
+    static std::string get_error_msg() { return "Fake function do not support execute"; }
+};
+
 struct FunctionEsquery {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return FunctionFakeBaseImpl<DataTypeUInt8>::get_return_type_impl(arguments);
@@ -113,6 +126,7 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_expand_outer<FunctionExplode>(factory, "explode");
     register_table_function_expand_outer<FunctionExplodeMap>(factory, "explode_map");
 
+    register_table_function_expand_outer<FunctionExplodeJsonObject>(factory, "explode_json_object");
     register_table_function_expand_outer_default<DataTypeString>(factory, "explode_split");
     register_table_function_expand_outer_default<DataTypeInt32>(factory, "explode_numbers");
     register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_json_array_int");
