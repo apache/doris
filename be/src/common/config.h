@@ -619,6 +619,8 @@ DECLARE_String(pprof_profile_dir);
 DECLARE_mString(jeprofile_dir);
 // Purge all unused dirty pages for all arenas.
 DECLARE_mBool(enable_je_purge_dirty_pages);
+// Purge all unused Jemalloc dirty pages for all arenas when exceed je_dirty_pages_mem_limit and process exceed soft limit.
+DECLARE_mString(je_dirty_pages_mem_limit_percent);
 
 // to forward compatibility, will be removed later
 DECLARE_mBool(enable_token_check);
