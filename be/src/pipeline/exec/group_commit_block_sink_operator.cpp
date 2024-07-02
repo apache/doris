@@ -63,10 +63,14 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
 Status GroupCommitBlockSinkLocalState::_initialize_load_queue() {
     auto& p = _parent->cast<GroupCommitBlockSinkOperatorX>();
     if (_state->exec_env()->wal_mgr()->is_running()) {
+        std::string label;
+        int64_t txn_id;
         RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
                 p._db_id, p._table_id, p._base_schema_version, p._load_id, _load_block_queue,
                 _state->be_exec_version(), _state->query_mem_tracker(), _create_plan_dependency,
-                _put_block_dependency));
+                _put_block_dependency, label, txn_id));
+        _state->set_import_label(label);
+        _state->set_wal_id(txn_id); // wal_id is txn_id
         return Status::OK();
     } else {
         return Status::InternalError("be is stopping");

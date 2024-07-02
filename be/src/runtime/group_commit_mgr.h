@@ -159,7 +159,8 @@ public:
                                       int be_exe_version,
                                       std::shared_ptr<MemTrackerLimiter> mem_tracker,
                                       std::shared_ptr<pipeline::Dependency> create_plan_dep,
-                                      std::shared_ptr<pipeline::Dependency> put_block_dep);
+                                      std::shared_ptr<pipeline::Dependency> put_block_dep,
+                                      std::string& label, int64_t& txn_id);
     Status get_load_block_queue(const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                 std::shared_ptr<pipeline::Dependency> get_block_dep);
@@ -205,7 +206,8 @@ public:
                                       int be_exe_version,
                                       std::shared_ptr<MemTrackerLimiter> mem_tracker,
                                       std::shared_ptr<pipeline::Dependency> create_plan_dep,
-                                      std::shared_ptr<pipeline::Dependency> put_block_dep);
+                                      std::shared_ptr<pipeline::Dependency> put_block_dep,
+                                      std::string& label, int64_t& txn_id);
     std::promise<Status> debug_promise;
     std::future<Status> debug_future = debug_promise.get_future();
 
