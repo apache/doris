@@ -30,7 +30,6 @@ import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -92,7 +91,6 @@ public class DFSFileSystem extends RemoteFileSystem {
                 }
             }
         }
-        Preconditions.checkNotNull(dfsFileSystem);
         operations = new HDFSFileOperations(dfsFileSystem);
         return dfsFileSystem;
     }
