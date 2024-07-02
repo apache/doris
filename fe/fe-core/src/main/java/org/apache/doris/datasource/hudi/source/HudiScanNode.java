@@ -497,7 +497,7 @@ public class HudiScanNode extends HiveScanNode {
             return super.getNodeExplainString(prefix, detailLevel);
         } else {
             return super.getNodeExplainString(prefix, detailLevel)
-                    + String.format("%shudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum.get(), inputSplitsNum);
+                    + String.format("%shudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum.get(), selectedSplitNum);
         }
     }
 }

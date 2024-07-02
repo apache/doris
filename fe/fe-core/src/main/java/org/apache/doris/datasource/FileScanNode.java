@@ -66,7 +66,6 @@ public abstract class FileScanNode extends ExternalScanNode {
     public static final long DEFAULT_SPLIT_SIZE = 8 * 1024 * 1024; // 8MB
 
     // For explain
-    protected long inputSplitsNum = 0;
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
     protected long fileSplitSize;
@@ -113,7 +112,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         if (isBatchMode()) {
             output.append("(approximate)");
         }
-        output.append("inputSplitNum=").append(inputSplitsNum).append(", totalFileSize=")
+        output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
             .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
         output.append(prefix).append("partition=").append(selectedPartitionNum).append("/").append(totalPartitionNum)
             .append("\n");
