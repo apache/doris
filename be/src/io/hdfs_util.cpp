@@ -128,6 +128,9 @@ Status HdfsHandlerCache::get_connection(const THdfsParams& hdfs_params, const st
             LOG(INFO) << "erase the hdfs handle, fs name: " << fs_name;
         }
 
+        LOG(INFO) << "[test] fs name: " << fs_name;
+        LOG(INFO) << "[test] hdfs_params: " << hdfs_params;
+
         // not find in cache, or fs handle is invalid
         // create a new one and try to put it into cache
         hdfsFS hdfs_fs = nullptr;

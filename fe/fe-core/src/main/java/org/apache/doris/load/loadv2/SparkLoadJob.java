@@ -116,6 +116,7 @@ import java.util.Set;
  * Step3: LoadLoadingChecker will check loading status periodically and commit transaction when push tasks are finished.
  * Step4: PublishVersionDaemon will send publish version tasks to be and finish transaction.
  */
+@Deprecated
 public class SparkLoadJob extends BulkLoadJob {
     private static final Logger LOG = LogManager.getLogger(SparkLoadJob.class);
 
@@ -511,6 +512,7 @@ public class SparkLoadJob extends BulkLoadJob {
                                                 params.tBrokerScanRange);
                                         // update filePath fileSize
                                         TBrokerRangeDesc tBrokerRangeDesc = tBrokerScanRange.getRanges().get(0);
+                                        tBrokerRangeDesc.setFileType(TFileType.FILE_HDFS);
                                         tBrokerRangeDesc.setPath("");
                                         tBrokerRangeDesc.setFileSize(-1);
                                         if (tabletMetaToFileInfo.containsKey(tabletMetaStr)) {
