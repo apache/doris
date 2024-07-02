@@ -73,6 +73,16 @@ public class HadoopUGI {
                 hadoopUserName = "hadoop";
                 LOG.debug(AuthenticationConfig.HADOOP_USER_NAME + " is unset, use default user: hadoop");
             }
+
+            try {
+                ugi = UserGroupInformation.getLoginUser();
+                if (ugi.getUserName().equals(hadoopUserName)) {
+                    return ugi;
+                }
+            } catch (IOException e) {
+                LOG.warn("A SecurityException occurs with simple, do login immediately.", e);
+            }
+
             ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
             UserGroupInformation.setLoginUser(ugi);
             LOG.debug("Login by proxy user, hadoop.username: {}", hadoopUserName);
