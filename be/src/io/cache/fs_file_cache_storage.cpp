@@ -118,7 +118,7 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
             writer = iter->second.get();
         } else {
             std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
-            auto st = fs->create_directory(dir, true);
+            auto st = fs->create_directory(dir, false);
             if (!st.ok() && !st.is<ErrorCode::ALREADY_EXIST>()) {
                 return st;
             }
@@ -144,7 +144,9 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key) {
         file_writer = std::move(iter->second);
         _key_to_writer.erase(iter);
     }
-    RETURN_IF_ERROR(file_writer->close());
+    if (file_writer->state() != FileWriter::State::CLOSED) {
+        RETURN_IF_ERROR(file_writer->close());
+    }
     std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
     std::string true_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
     return fs->rename(file_writer->path(), true_file);
@@ -461,7 +463,12 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
             if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
                 LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
                              << ", try to remove it";
-                std::filesystem::remove(key_prefix_it->path());
+                std::error_code ec;
+                std::filesystem::remove(key_prefix_it->path(), ec);
+                if (ec) {
+                    LOG(WARNING) << "failed to remove=" << key_prefix_it->path()
+                                 << " msg=" << ec.message();
+                }
                 continue;
             }
             std::filesystem::directory_iterator key_it {key_prefix_it->path(), ec};

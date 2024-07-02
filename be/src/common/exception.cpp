@@ -25,7 +25,9 @@ Exception::Exception(int code, const std::string_view& msg) {
     _code = code;
     _err_msg = std::make_unique<ErrMsg>();
     _err_msg->_msg = msg;
-    _err_msg->_stack = get_stack_trace();
+    if (ErrorCode::error_states[abs(code)].stacktrace) {
+        _err_msg->_stack = get_stack_trace();
+    }
     if (config::exit_on_exception) {
         LOG(FATAL) << "[ExitOnException] error code: " << code << ", message: " << msg;
     }
@@ -35,7 +37,9 @@ Exception::Exception(const Exception& nested, int code, const std::string_view& 
     _code = code;
     _err_msg = std::make_unique<ErrMsg>();
     _err_msg->_msg = msg;
-    _err_msg->_stack = get_stack_trace();
+    if (ErrorCode::error_states[abs(code)].stacktrace) {
+        _err_msg->_stack = get_stack_trace();
+    }
     _nested_excption = std::make_unique<Exception>();
     _nested_excption->_code = nested._code;
     _nested_excption->_err_msg = std::make_unique<ErrMsg>();

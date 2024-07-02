@@ -27,6 +27,8 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
 import com.google.common.collect.TreeRangeMap;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
@@ -34,7 +36,6 @@ import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.Collections;
@@ -136,29 +137,6 @@ public class RangeUtils {
         }
     }
 
-    public static void writeRange(DataOutput out, Range<PartitionKey> range) throws IOException {
-        boolean hasLowerBound = false;
-        boolean hasUpperBound = false;
-
-        // write lower bound if lower bound exists
-        hasLowerBound = range.hasLowerBound();
-        out.writeBoolean(hasLowerBound);
-        if (hasLowerBound) {
-            PartitionKey lowerBound = range.lowerEndpoint();
-            out.writeBoolean(range.lowerBoundType() == BoundType.CLOSED);
-            lowerBound.write(out);
-        }
-
-        // write upper bound if upper bound exists
-        hasUpperBound = range.hasUpperBound();
-        out.writeBoolean(hasUpperBound);
-        if (hasUpperBound) {
-            PartitionKey upperBound = range.upperEndpoint();
-            out.writeBoolean(range.upperBoundType() == BoundType.CLOSED);
-            upperBound.write(out);
-        }
-    }
-
     public static Range<PartitionKey> readRange(DataInput in) throws IOException {
         boolean hasLowerBound = false;
         boolean hasUpperBound = false;
@@ -225,7 +203,8 @@ public class RangeUtils {
         }
     }
 
-    public static class RangeSerializer implements JsonSerializer<Range<PartitionKey>> {
+    public static class RangeSerializer implements
+                JsonSerializer<Range<PartitionKey>>, JsonDeserializer<Range<PartitionKey>> {
         @Override
         public JsonElement serialize(Range<PartitionKey> range, Type type, JsonSerializationContext context) {
             JsonArray result = new JsonArray();
@@ -253,6 +232,38 @@ public class RangeUtils {
             }
 
             return result;
+        }
+
+        @Override
+        public Range<PartitionKey> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) {
+            JsonArray jsonArray = json.getAsJsonArray();
+            PartitionKey lowerBound = null;
+            BoundType lowerBoundType = BoundType.CLOSED;
+            PartitionKey upperBound = null;
+            BoundType upperBoundType = BoundType.CLOSED;
+
+            if (!jsonArray.get(0).isJsonNull()) {
+                JsonObject lowerBoundObject = jsonArray.get(0).getAsJsonObject();
+                lowerBoundType = BoundType.valueOf(lowerBoundObject.get("type").getAsString());
+                lowerBound = context.deserialize(lowerBoundObject.get("value"), PartitionKey.class);
+            }
+
+            if (!jsonArray.get(1).isJsonNull()) {
+                JsonObject upperBoundObject = jsonArray.get(1).getAsJsonObject();
+                upperBoundType = BoundType.valueOf(upperBoundObject.get("type").getAsString());
+                upperBound = context.deserialize(upperBoundObject.get("value"), PartitionKey.class);
+            }
+
+            if (lowerBound == null && upperBound == null) {
+                return null;
+            }
+            if (lowerBound == null) {
+                return Range.upTo(upperBound, upperBoundType);
+            }
+            if (upperBound == null) {
+                return Range.downTo(lowerBound, lowerBoundType);
+            }
+            return Range.range(lowerBound, lowerBoundType, upperBound, upperBoundType);
         }
     }
 }

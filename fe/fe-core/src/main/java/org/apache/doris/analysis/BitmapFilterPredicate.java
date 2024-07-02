@@ -93,4 +93,9 @@ public class BitmapFilterPredicate extends Predicate {
     public Expr clone() {
         return new BitmapFilterPredicate(this);
     }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
+    }
 }

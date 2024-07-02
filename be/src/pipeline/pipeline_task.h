@@ -30,7 +30,6 @@
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
-#include "vec/sink/vresult_sink.h"
 
 namespace doris {
 class QueryContext;
@@ -64,16 +63,6 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status);
 
-    Status close_sink(Status exec_status);
-    bool source_can_read() {
-        if (_dry_run) {
-            return true;
-        }
-        return _read_blocked_dependency() == nullptr;
-    }
-
-    bool sink_can_write() { return _write_blocked_dependency() == nullptr; }
-
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
     QueryContext* query_context();
@@ -94,11 +83,18 @@ public:
 
     void finalize();
 
-    bool is_finished() const { return _finished.load(); }
-
     std::string debug_string();
 
-    bool is_pending_finish() { return _finish_blocked_dependency() != nullptr; }
+    bool is_pending_finish() {
+        for (auto* fin_dep : _finish_dependencies) {
+            _blocked_dep = fin_dep->is_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_watcher();
+                return true;
+            }
+        }
+        return false;
+    }
 
     std::shared_ptr<BasicSharedState> get_source_shared_state() {
         return _op_shared_states.contains(_source->operator_id())
@@ -139,17 +135,20 @@ public:
     OperatorXPtr source() const { return _source; }
 
     int task_id() const { return _index; };
+    bool is_finalized() const { return _finalized; }
 
     void clear_blocking_state() {
         // We use a lock to assure all dependencies are not deconstructed here.
-        std::unique_lock<std::mutex> lc(_release_lock);
-        if (!_finished) {
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        if (!_finalized) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
                 dep->set_always_ready();
             }
-            for (auto* dep : _read_dependencies) {
-                dep->set_always_ready();
+            for (auto& deps : _read_dependencies) {
+                for (auto* dep : deps) {
+                    dep->set_always_ready();
+                }
             }
             for (auto* dep : _write_dependencies) {
                 dep->set_always_ready();
@@ -178,15 +177,6 @@ public:
     // 1.3 priority queue's core id
     void set_core_id(int core_id) { this->_core_id = core_id; }
     int get_core_id() const { return this->_core_id; }
-
-    bool has_dependency() {
-        _blocked_dep = _execution_dep->is_blocked_by(this);
-        if (_blocked_dep != nullptr) {
-            static_cast<Dependency*>(_blocked_dep)->start_watcher();
-            return true;
-        }
-        return false;
-    }
 
     static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
 
@@ -230,51 +220,16 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
+    void stop_if_finished() {
+        if (_sink->is_finished(_state)) {
+            clear_blocking_state();
+        }
+    }
+
 private:
     friend class RuntimeFilterDependency;
-    Dependency* _write_blocked_dependency() {
-        for (auto* op_dep : _write_dependencies) {
-            _blocked_dep = op_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return _blocked_dep;
-            }
-        }
-        return nullptr;
-    }
-
-    Dependency* _finish_blocked_dependency() {
-        for (auto* fin_dep : _finish_dependencies) {
-            _blocked_dep = fin_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return _blocked_dep;
-            }
-        }
-        return nullptr;
-    }
-
-    Dependency* _read_blocked_dependency() {
-        for (auto* op_dep : _read_dependencies) {
-            _blocked_dep = op_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return _blocked_dep;
-            }
-        }
-        return nullptr;
-    }
-
-    Dependency* _runtime_filter_blocked_dependency() {
-        for (auto* op_dep : _filter_dependencies) {
-            _blocked_dep = op_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return _blocked_dep;
-            }
-        }
-        return nullptr;
-    }
+    bool _is_blocked();
+    bool _wait_to_start();
 
     Status _extract_dependencies();
     void _init_profile();
@@ -284,7 +239,6 @@ private:
     uint32_t _index;
     PipelinePtr _pipeline;
     bool _has_exceed_timeout = false;
-    bool _prepared;
     bool _opened;
     RuntimeState* _state = nullptr;
     int _previous_schedule_id = -1;
@@ -303,7 +257,6 @@ private:
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
     int _core_id = 0;
-    Status _open_status = Status::OK();
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;
@@ -315,7 +268,6 @@ private:
     RuntimeProfile::Counter* _get_block_counter = nullptr;
     RuntimeProfile::Counter* _sink_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
-    RuntimeProfile::Counter* _block_counts = nullptr;
     RuntimeProfile::Counter* _schedule_counts = nullptr;
     MonotonicStopWatch _wait_worker_watcher;
     RuntimeProfile::Counter* _wait_worker_timer = nullptr;
@@ -330,7 +282,8 @@ private:
     OperatorXPtr _root;
     DataSinkOperatorXPtr _sink;
 
-    std::vector<Dependency*> _read_dependencies;
+    // `_read_dependencies` is stored as same order as `_operators`
+    std::vector<std::vector<Dependency*>> _read_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
     std::vector<Dependency*> _filter_dependencies;
@@ -348,8 +301,8 @@ private:
 
     Dependency* _execution_dep = nullptr;
 
-    std::atomic<bool> _finished {false};
-    std::mutex _release_lock;
+    std::atomic<bool> _finalized {false};
+    std::mutex _dependency_lock;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};

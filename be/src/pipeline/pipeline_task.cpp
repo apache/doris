@@ -54,7 +54,6 @@ PipelineTask::PipelineTask(
         int task_idx)
         : _index(task_id),
           _pipeline(pipeline),
-          _prepared(false),
           _opened(false),
           _state(state),
           _fragment_context(fragment_context),
@@ -82,7 +81,10 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_prepare_timer);
-
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::prepare", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task prepare failed");
+        return status;
+    });
     {
         // set sink local state
         LocalSinkStateInfo info {_task_idx,
@@ -110,38 +112,56 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
                 _state->get_local_state(op->operator_id())->get_query_statistics_ptr());
     }
     {
+        std::vector<Dependency*> filter_dependencies;
         const auto& deps = _state->get_local_state(_source->operator_id())->filter_dependencies();
         std::copy(deps.begin(), deps.end(),
-                  std::inserter(_filter_dependencies, _filter_dependencies.end()));
+                  std::inserter(filter_dependencies, filter_dependencies.end()));
+
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        filter_dependencies.swap(_filter_dependencies);
     }
-    _prepared = true;
     return Status::OK();
 }
 
 Status PipelineTask::_extract_dependencies() {
+    std::vector<std::vector<Dependency*>> read_dependencies;
+    std::vector<Dependency*> write_dependencies;
+    std::vector<Dependency*> finish_dependencies;
+    read_dependencies.resize(_operators.size());
+    size_t i = 0;
     for (auto& op : _operators) {
         auto result = _state->get_local_state_result(op->operator_id());
         if (!result) {
             return result.error();
         }
         auto* local_state = result.value();
-        const auto& deps = local_state->dependencies();
-        std::copy(deps.begin(), deps.end(),
-                  std::inserter(_read_dependencies, _read_dependencies.end()));
+        read_dependencies[i] = local_state->dependencies();
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
-            _finish_dependencies.push_back(fin_dep);
+            finish_dependencies.push_back(fin_dep);
         }
+        i++;
     }
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::_extract_dependencies", {
+        Status status = Status::Error<INTERNAL_ERROR>(
+                "fault_inject pipeline_task _extract_dependencies failed");
+        return status;
+    });
     {
         auto* local_state = _state->get_sink_local_state();
-        _write_dependencies = local_state->dependencies();
-        DCHECK(std::all_of(_write_dependencies.begin(), _write_dependencies.end(),
+        write_dependencies = local_state->dependencies();
+        DCHECK(std::all_of(write_dependencies.begin(), write_dependencies.end(),
                            [](auto* dep) { return dep->is_write_dependency(); }));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
-            _finish_dependencies.push_back(fin_dep);
+            finish_dependencies.push_back(fin_dep);
         }
+    }
+    {
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        read_dependencies.swap(_read_dependencies);
+        write_dependencies.swap(_write_dependencies);
+        finish_dependencies.swap(_finish_dependencies);
     }
     return Status::OK();
 }
@@ -163,7 +183,6 @@ void PipelineTask::_init_profile() {
 
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
 
-    _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
@@ -189,6 +208,10 @@ Status PipelineTask::_open() {
     RETURN_IF_ERROR(_state->get_sink_local_state()->open(_state));
     RETURN_IF_ERROR(_extract_dependencies());
     _block = doris::vectorized::Block::create_unique();
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::open", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task open failed");
+        return status;
+    });
     _opened = true;
     return Status::OK();
 }
@@ -197,17 +220,70 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
     _task_queue = task_queue;
 }
 
+bool PipelineTask::_wait_to_start() {
+    // Before task starting, we should make sure
+    // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
+    // 2. Runtime filter dependencies are ready
+    _blocked_dep = _execution_dep->is_blocked_by(this);
+    if (_blocked_dep != nullptr) {
+        static_cast<Dependency*>(_blocked_dep)->start_watcher();
+        return true;
+    }
+
+    for (auto* op_dep : _filter_dependencies) {
+        _blocked_dep = op_dep->is_blocked_by(this);
+        if (_blocked_dep != nullptr) {
+            _blocked_dep->start_watcher();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool PipelineTask::_is_blocked() {
+    // `_dry_run = true` means we do not need data from source operator.
+    if (!_dry_run) {
+        for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
+            // `_read_dependencies` is organized according to operators. For each operator, running condition is met iff all dependencies are ready.
+            for (auto* dep : _read_dependencies[i]) {
+                _blocked_dep = dep->is_blocked_by(this);
+                if (_blocked_dep != nullptr) {
+                    _blocked_dep->start_watcher();
+                    return true;
+                }
+            }
+            // If all dependencies are ready for this operator, we can execute this task if no datum is needed from upstream operators.
+            if (!_operators[i]->need_more_input_data(_state)) {
+                break;
+            }
+        }
+    }
+
+    for (auto* op_dep : _write_dependencies) {
+        _blocked_dep = op_dep->is_blocked_by(this);
+        if (_blocked_dep != nullptr) {
+            _blocked_dep->start_watcher();
+            return true;
+        }
+    }
+    return false;
+}
+
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
+    _eos = _sink->is_finished(_state) || _eos;
     *eos = _eos;
     if (_eos) {
         // If task is waken up by finish dependency, `_eos` is set to true by last execution, and we should return here.
         return Status::OK();
     }
     int64_t time_spent = 0;
-
+    DBUG_EXECUTE_IF("fault_inject::PipelineXTask::execute", {
+        Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
+        return status;
+    });
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
     Defer defer {[&]() {
@@ -221,21 +297,16 @@ Status PipelineTask::execute(bool* eos) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
-    if (has_dependency() || _runtime_filter_blocked_dependency() != nullptr) {
+    if (_wait_to_start()) {
         return Status::OK();
     }
     // The status must be runnable
-    if (!_opened) {
-        {
-            RETURN_IF_ERROR(_open());
-        }
-        if (!source_can_read() || !sink_can_write()) {
-            return Status::OK();
-        }
+    if (!_opened && !_fragment_context->is_canceled()) {
+        RETURN_IF_ERROR(_open());
     }
 
     while (!_fragment_context->is_canceled()) {
-        if ((_root->need_data_from_children(_state) && !source_can_read()) || !sink_can_write()) {
+        if (_is_blocked()) {
             return Status::OK();
         }
 
@@ -258,27 +329,34 @@ Status PipelineTask::execute(bool* eos) {
             RETURN_IF_ERROR(_sink->revoke_memory(_state));
             continue;
         }
-
         *eos = _eos;
-        // Pull block from operator chain
-        if (!_dry_run) {
-            SCOPED_TIMER(_get_block_timer);
-            _get_block_counter->update(1);
-            try {
-                RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
-            } catch (const Exception& e) {
-                return Status::InternalError(e.to_string() +
-                                             " task debug string: " + debug_string());
-            }
-        } else {
+        DBUG_EXECUTE_IF("fault_inject::PipelineXTask::executing", {
+            Status status =
+                    Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task executing failed");
+            return status;
+        });
+        // `_dry_run` means sink operator need no more data
+        // `_sink->is_finished(_state)` means sink operator should be finished
+        if (_dry_run || _sink->is_finished(_state)) {
             *eos = true;
             _eos = true;
+        } else {
+            SCOPED_TIMER(_get_block_timer);
+            _get_block_counter->update(1);
+            RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
         }
 
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             Status status = Status::OK();
-            status = _sink->sink(_state, block, *eos);
+            // Define a lambda function to catch sink exception, because sink will check
+            // return error status with EOF, it is special, could not return directly.
+            auto sink_function = [&]() -> Status {
+                Status internal_st;
+                internal_st = _sink->sink(_state, block, *eos);
+                return internal_st;
+            };
+            status = sink_function();
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -315,7 +393,8 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
     wg->check_mem_used(&is_wg_mem_low_water_mark, &is_wg_mem_high_water_mark);
     if (is_wg_mem_high_water_mark) {
         if (revocable_mem_bytes > min_revocable_mem_bytes) {
-            LOG_EVERY_N(INFO, 10) << "revoke memory, hight water mark";
+            VLOG_DEBUG << "query " << print_id(state->query_id())
+                       << " revoke memory, hight water mark";
             return true;
         }
         return false;
@@ -335,12 +414,12 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
             mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
         }
 
-        LOG_EVERY_N(INFO, 10) << "revoke memory, low water mark, revocable_mem_bytes: "
-                              << PrettyPrinter::print_bytes(revocable_mem_bytes)
-                              << ", mem_limit_of_op: "
-                              << PrettyPrinter::print_bytes(mem_limit_of_op)
-                              << ", min_revocable_mem_bytes: "
-                              << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
+        LOG_EVERY_T(INFO, 1) << "query " << print_id(state->query_id())
+                             << " revoke memory, low water mark, revocable_mem_bytes: "
+                             << PrettyPrinter::print_bytes(revocable_mem_bytes)
+                             << ", mem_limit_of_op: " << PrettyPrinter::print_bytes(mem_limit_of_op)
+                             << ", min_revocable_mem_bytes: "
+                             << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
         return (revocable_mem_bytes > mem_limit_of_op ||
                 revocable_mem_bytes > min_revocable_mem_bytes);
     } else {
@@ -349,8 +428,8 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
 }
 
 void PipelineTask::finalize() {
-    std::unique_lock<std::mutex> lc(_release_lock);
-    _finished = true;
+    std::unique_lock<std::mutex> lc(_dependency_lock);
+    _finalized = true;
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _le_state_map.clear();
@@ -382,12 +461,8 @@ Status PipelineTask::close(Status exec_status) {
     return s;
 }
 
-Status PipelineTask::close_sink(Status exec_status) {
-    return _sink->close(_state, exec_status);
-}
-
 std::string PipelineTask::debug_string() {
-    std::unique_lock<std::mutex> lc(_release_lock);
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
@@ -396,28 +471,31 @@ std::string PipelineTask::debug_string() {
 
     auto* cur_blocked_dep = _blocked_dep;
     auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
-    fmt::format_to(debug_string_buffer,
-                   "PipelineTask[this = {}, dry run = {}, elapse time "
-                   "= {}s], block dependency = {}, is running = {}\noperators: ",
-                   (void*)this, _dry_run, elapsed,
-                   cur_blocked_dep && !_finished ? cur_blocked_dep->debug_string() : "NULL",
-                   is_running());
+    fmt::format_to(
+            debug_string_buffer,
+            "PipelineTask[this = {}, open = {}, eos = {}, finish = {}, dry run = {}, elapse time "
+            "= {}s], block dependency = {}, is running = {}\noperators: ",
+            (void*)this, _opened, _eos, _finalized, _dry_run, elapsed,
+            cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
+            is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
-                       _opened && !_finished ? _operators[i]->debug_string(_state, i)
-                                             : _operators[i]->debug_string(i));
+                       _opened && !_finalized ? _operators[i]->debug_string(_state, i)
+                                              : _operators[i]->debug_string(i));
     }
-    fmt::format_to(debug_string_buffer, "\n{}",
-                   _opened && !_finished ? _sink->debug_string(_state, _operators.size())
-                                         : _sink->debug_string(_operators.size()));
-    if (_finished) {
+    fmt::format_to(debug_string_buffer, "\n{}\n",
+                   _opened && !_finalized ? _sink->debug_string(_state, _operators.size())
+                                          : _sink->debug_string(_operators.size()));
+    if (_finalized) {
         return fmt::to_string(debug_string_buffer);
     }
 
     size_t i = 0;
     for (; i < _read_dependencies.size(); i++) {
-        fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _read_dependencies[i]->debug_string(i + 1));
+        for (size_t j = 0; j < _read_dependencies[i].size(); j++) {
+            fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                           _read_dependencies[i][j]->debug_string(i + 1));
+        }
     }
 
     fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");

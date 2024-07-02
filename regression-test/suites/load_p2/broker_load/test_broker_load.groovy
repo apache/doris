@@ -241,10 +241,10 @@ suite("test_broker_load_p2", "p2") {
                     "",
                     "",
                     "",
-                    "[INTERNAL_ERROR]failed to find default value expr for slot: x1",
+                    "failed to find default value expr for slot: x1",
                     "",
                     "",
-                    "[INTERNAL_ERROR]failed to find default value expr for slot: x1",
+                    "failed to find default value expr for slot: x1",
                     "",
                     "",
                     "",
@@ -292,7 +292,8 @@ suite("test_broker_load_p2", "p2") {
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_REGION" = "ap-beijing",
+                "provider" = "${getS3Provider()}"
             )
             properties(
                 "use_new_load_scan_node" = "true"
@@ -323,7 +324,15 @@ suite("test_broker_load_p2", "p2") {
             for (String label in uuids) {
                 def max_try_milli_secs = 600000
                 while (max_try_milli_secs > 0) {
-                    String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
+                    def String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
+                    def logStr = "";
+                    result.each { row ->
+                        row.each {
+                            element -> logStr += element + ", "
+                        }
+                        logStr += "\n"
+                    }
+                    logger.info("Load status: " + logStr + ", label: $label")
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
                         assertTrue(result[0][6].contains(task_info[i]))
@@ -347,7 +356,7 @@ suite("test_broker_load_p2", "p2") {
             def orc_expect_result = """[[20, 15901, 6025915247311731176, 1373910657, 8863282788606566657], [38, 15901, -9154375582268094750, 1373853561, 4923892366467329038], [38, 15901, -9154375582268094750, 1373853561, 8447995939656287502], [38, 15901, -9154375582268094750, 1373853565, 7451966001310881759], [38, 15901, -9154375582268094750, 1373853565, 7746521994248163870], [38, 15901, -9154375582268094750, 1373853577, 6795654975682437824], [38, 15901, -9154375582268094750, 1373853577, 9009208035649338594], [38, 15901, -9154375582268094750, 1373853608, 6374361939566017108], [38, 15901, -9154375582268094750, 1373853608, 7387298457456465364], [38, 15901, -9154375582268094750, 1373853616, 7463736180224933002]]"""
             for (String table in tables) {
                 if (table.matches("orc_s3_case[23456789]")) {
-                    String[][] orc_actual_result = sql """select CounterID, EventDate, UserID, EventTime, WatchID from $table order by CounterID, EventDate, UserID, EventTime, WatchID limit 10;"""
+                    def String[][] orc_actual_result = sql """select CounterID, EventDate, UserID, EventTime, WatchID from $table order by CounterID, EventDate, UserID, EventTime, WatchID limit 10;"""
                     assertTrue("$orc_actual_result" == "$orc_expect_result")
                 }
             }
@@ -396,13 +405,15 @@ suite("test_broker_load_p2", "p2") {
                     "AWS_ACCESS_KEY" = "$ak",
                     "AWS_SECRET_KEY" = "$sk",
                     "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                    "AWS_REGION" = "ap-beijing"
+                    "AWS_REGION" = "ap-beijing",
+                    "provider" = "${getS3Provider()}"
                 );
             """
 
             def max_try_milli_secs = 600000
             while (max_try_milli_secs > 0) {
-                String[][] result = sql """ show load where label="$label_22666" order by createtime desc limit 1; """
+                def String[][] result = sql """ show load where label="$label_22666" order by createtime desc limit 1; """
+                logger.info("Load status: " + result[0][2] + ", label: $label_22666")
                 if (result[0][2].equals("FINISHED")) {
                     logger.info("Load FINISHED " + label_22666)
                     break;

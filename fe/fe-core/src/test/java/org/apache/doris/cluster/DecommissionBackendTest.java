@@ -49,7 +49,6 @@ public class DecommissionBackendTest extends TestWithFeService {
     @Override
     protected void beforeCluster() {
         FeConstants.runningUnitTest = true;
-        needCleanDir = false;
     }
 
     @BeforeAll
@@ -263,8 +262,8 @@ public class DecommissionBackendTest extends TestWithFeService {
                 + " `c1` varchar(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` int(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `k4` bitmap BITMAP_UNION,\n"
+                + " `k5` bitmap BITMAP_UNION\n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
                 + "COMMENT 'OLAP'\n"
@@ -275,8 +274,8 @@ public class DecommissionBackendTest extends TestWithFeService {
                 + " `c1` bigint(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` bigint(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `k4` bitmap BITMAP_UNION,\n"
+                + " `k5` bitmap BITMAP_UNION\n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
                 + "COMMENT 'OLAP'\n"

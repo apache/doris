@@ -178,6 +178,16 @@ Status CGroupUtil::find_cgroup_mem_usage(int64_t* bytes) {
     return read_cgroup_value(usage_file_path, bytes);
 }
 
+Status CGroupUtil::find_cgroup_mem_info(std::string* file_path) {
+    if (!enable()) {
+        return Status::InvalidArgument("cgroup is not enabled!");
+    }
+    string cgroup_path;
+    RETURN_IF_ERROR(find_abs_cgroup_path("memory", &cgroup_path));
+    *file_path = cgroup_path + "/memory.stat";
+    return Status::OK();
+}
+
 Status CGroupUtil::find_cgroup_cpu_limit(float* cpu_count) {
     if (!enable()) {
         return Status::InvalidArgument("cgroup is not enabled!");

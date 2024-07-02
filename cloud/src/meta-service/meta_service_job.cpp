@@ -811,7 +811,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     if (err != TxnErrorCode::TXN_OK) {
         SS << "failed to get tmp rowset key"
            << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
-           << ", tablet_id=" << tablet_id << " tmp_rowset_key=" << hex(tmp_rowset_key);
+           << ", tablet_id=" << tablet_id << " tmp_rowset_key=" << hex(tmp_rowset_key)
+           << ", err=" << err;
         msg = ss.str();
         code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::UNDEFINED_ERR
                                                       : cast_as<ErrCategory::READ>(err);
@@ -1101,7 +1102,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         if (err != TxnErrorCode::TXN_OK) {
             SS << "failed to get tmp rowset key"
                << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
-               << ", tablet_id=" << new_tablet_id << " tmp_rowset_key=" << hex(tmp_rowset_key);
+               << ", tablet_id=" << new_tablet_id << " tmp_rowset_key=" << hex(tmp_rowset_key)
+               << ", err=" << err;
             msg = ss.str();
             code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::UNDEFINED_ERR
                                                           : cast_as<ErrCategory::READ>(err);
@@ -1186,7 +1188,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
     if (err != TxnErrorCode::TXN_OK) {
         SS << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "job not found," : "internal error,")
            << " instance_id=" << instance_id << " tablet_id=" << tablet_id
-           << " job=" << proto_to_json(request->job());
+           << " job=" << proto_to_json(request->job()) << " err=" << err;
         msg = ss.str();
         code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::INVALID_ARGUMENT
                                                       : cast_as<ErrCategory::READ>(err);

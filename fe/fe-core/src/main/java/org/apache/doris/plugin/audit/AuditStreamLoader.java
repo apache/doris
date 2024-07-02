@@ -20,6 +20,7 @@ package org.apache.doris.plugin.audit;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.GlobalVariable;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -57,14 +58,16 @@ public class AuditStreamLoader {
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod("PUT");
         conn.setRequestProperty("token", clusterToken);
-        conn.setRequestProperty("Authorization", "Basic ");
+        conn.setRequestProperty("Authorization", "Basic YWRtaW46"); // admin
         conn.addRequestProperty("Expect", "100-continue");
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
         conn.addRequestProperty("label", label);
+        conn.setRequestProperty("timeout", String.valueOf(GlobalVariable.auditPluginLoadTimeoutS));
         conn.addRequestProperty("max_filter_ratio", "1.0");
         conn.addRequestProperty("columns",
                 InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
                         Collectors.joining(",")));
+        conn.addRequestProperty("redirect-policy", "random-be");
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;
@@ -73,13 +76,14 @@ public class AuditStreamLoader {
     private String toCurl(HttpURLConnection conn) {
         StringBuilder sb = new StringBuilder("curl -v ");
         sb.append("-X ").append(conn.getRequestMethod()).append(" \\\n  ");
-        sb.append("-H \"").append("Authorization\":").append("\"Basic ").append("\" \\\n  ");
+        sb.append("-H \"").append("Authorization\":").append("\"Basic YWRtaW46").append("\" \\\n  ");
         sb.append("-H \"").append("Expect\":").append("\"100-continue\" \\\n  ");
         sb.append("-H \"").append("Content-Type\":").append("\"text/plain; charset=UTF-8\" \\\n  ");
         sb.append("-H \"").append("max_filter_ratio\":").append("\"1.0\" \\\n  ");
         sb.append("-H \"").append("columns\":")
                 .append("\"" + InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
                         Collectors.joining(",")) + "\" \\\n  ");
+        sb.append("-H \"").append("redirect-policy\":").append("\"random-be").append("\" \\\n  ");
         sb.append("\"").append(conn.getURL()).append("\"");
         return sb.toString();
     }
@@ -105,11 +109,7 @@ public class AuditStreamLoader {
     }
 
     public LoadResponse loadBatch(StringBuilder sb, String clusterToken) {
-        Calendar calendar = Calendar.getInstance();
-        String label = String.format("_log_%s%02d%02d_%02d%02d%02d_%s",
-                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
-                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
-                feIdentity);
+        String label = genLabel();
 
         HttpURLConnection feConn = null;
         HttpURLConnection beConn = null;
@@ -157,6 +157,15 @@ public class AuditStreamLoader {
                 beConn.disconnect();
             }
         }
+    }
+
+    private String genLabel() {
+        Calendar calendar = Calendar.getInstance();
+        return String.format("_log_%s%02d%02d_%02d%02d%02d_%s_%s",
+                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
+                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
+                calendar.get(Calendar.MILLISECOND),
+                feIdentity);
     }
 
     public static class LoadResponse {

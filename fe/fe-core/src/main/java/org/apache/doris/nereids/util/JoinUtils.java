@@ -20,11 +20,12 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -86,7 +87,8 @@ public class JoinUtils {
         double memLimit = sessionVariable.getMaxExecMemByte();
         double rowsLimit = sessionVariable.getBroadcastRowCountLimit();
         double brMemlimit = sessionVariable.getBroadcastHashtableMemLimitPercentage();
-        double datasize = join.getGroupExpression().get().child(1).getStatistics().computeSize();
+        double datasize = join.getGroupExpression().get().child(1)
+                .getStatistics().computeSize(join.right().getOutput());
         double rowCount = join.getGroupExpression().get().child(1).getStatistics().getRowCount();
         return rowCount <= rowsLimit && datasize <= memLimit * brMemlimit;
     }
@@ -223,12 +225,25 @@ public class JoinUtils {
      * return true if we should do bucket shuffle join when translate plan.
      */
     public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
-        DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
-        if (!(rightDistributionSpec instanceof DistributionSpecHash)) {
+        if (isStorageBucketed(join.right().getPhysicalProperties())) {
+            return true;
+        } else if (SessionVariable.canUseNereidsDistributePlanner()
+                && isStorageBucketed(join.left().getPhysicalProperties())) {
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean isStorageBucketed(PhysicalProperties physicalProperties) {
+        DistributionSpec distributionSpec = physicalProperties.getDistributionSpec();
+        if (!(distributionSpec instanceof DistributionSpecHash)) {
             return false;
         }
-        DistributionSpecHash rightHash = (DistributionSpecHash) rightDistributionSpec;
-        return rightHash.getShuffleType() == ShuffleType.STORAGE_BUCKETED;
+        DistributionSpecHash rightHash = (DistributionSpecHash) distributionSpec;
+        if (rightHash.getShuffleType() == ShuffleType.STORAGE_BUCKETED) {
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -347,7 +362,7 @@ public class JoinUtils {
     /**
      * can this join be eliminated by its left child
      */
-    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, FunctionalDependencies rightFuncDeps) {
+    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, DataTrait rightFuncDeps) {
         if (join.getJoinType().isLeftOuterJoin()) {
             Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
             if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {

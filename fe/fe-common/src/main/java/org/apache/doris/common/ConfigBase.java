@@ -224,7 +224,12 @@ public class ConfigBase {
                 continue;
             }
 
-            setConfigField(f, confVal);
+            try {
+                setConfigField(f, confVal);
+            } catch (Exception e) {
+                String msg = String.format("Failed to set config, name: %s, value: %s", f.getName(), confVal);
+                throw new IllegalArgumentException(msg, e);
+            }
         }
     }
 
@@ -376,7 +381,13 @@ public class ConfigBase {
             if (matcher == null || matcher.match(confKey)) {
                 List<String> config = Lists.newArrayList();
                 config.add(confKey);
-                config.add(getConfValue(f));
+                String value = getConfValue(f);
+                // For compatibility, this PR #32933 change the log dir's config logic,
+                // and deprecate the `sys_log_dir` config.
+                if (confKey.equals("sys_log_dir") && Strings.isNullOrEmpty(value)) {
+                    value = System.getenv("DORIS_HOME") + "/log";
+                }
+                config.add(value);
                 config.add(f.getType().getSimpleName());
                 config.add(String.valueOf(confField.mutable()));
                 config.add(String.valueOf(confField.masterOnly()));

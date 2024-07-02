@@ -43,4 +43,15 @@ suite("test_string_pad_function") {
     qt_select_rpad """
         select CASE WHEN table_pad.a = 1 THEN CONCAT(RPAD(b, 2, 0), ':00') END result from table_pad order by result;
     """
+
+    qt_rpad1 """ SELECT rpad("", 5, ""); """
+    qt_rpad2 """ SELECT rpad("123", 5, ""); """
+    qt_rpad3 """ SELECT rpad("123", -1, ""); """
+    qt_rpad4 """ SELECT rpad(NULL, 1, ""); """
+    qt_rpad5 """ SELECT rpad("123", 0, NULL); """
+    qt_lpad1 """ SELECT lpad("", 5, ""); """
+    qt_lpad2 """ SELECT lpad("123", 5, ""); """
+    qt_lpad3 """ SELECT lpad("123", -1, ""); """
+    qt_lpad4 """ SELECT lpad(NULL, 0, ""); """
+    qt_lpad5 """ SELECT lpad("123", 2, NULL); """
 }

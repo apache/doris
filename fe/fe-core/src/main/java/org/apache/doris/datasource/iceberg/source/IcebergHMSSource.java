@@ -26,11 +26,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
-
-import org.apache.iceberg.TableProperties;
 
 import java.util.Map;
 
@@ -42,7 +41,7 @@ public class IcebergHMSSource implements IcebergSource {
     private final org.apache.iceberg.Table icebergTable;
 
     public IcebergHMSSource(HMSExternalTable hmsTable, TupleDescriptor desc,
-                            Map<String, ColumnRange> columnNameToRange) {
+            Map<String, ColumnRange> columnNameToRange) {
         this.hmsTable = hmsTable;
         this.desc = desc;
         this.columnNameToRange = columnNameToRange;
@@ -59,14 +58,7 @@ public class IcebergHMSSource implements IcebergSource {
 
     @Override
     public String getFileFormat() throws DdlException, MetaNotFoundException {
-        Map<String, String> properties = hmsTable.getRemoteTable().getParameters();
-        if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
-            return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
-        }
-        if (properties.containsKey(FLINK_WRITE_FORMAT)) {
-            return properties.get(FLINK_WRITE_FORMAT);
-        }
-        return TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
+        return IcebergUtils.getFileFormat(icebergTable).name();
     }
 
     public org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {

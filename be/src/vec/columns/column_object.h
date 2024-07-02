@@ -230,10 +230,6 @@ private:
     // this structure and fill with Subcolumns sub items
     mutable std::shared_ptr<rapidjson::Document> doc_structure;
 
-    // column with raw json strings
-    // used for quickly row store encoding
-    ColumnPtr rowstore_column;
-
     using SubColumnWithName = std::pair<PathInData, const Subcolumn*>;
     // Cached search results for previous row (keyed as index in JSON object) - used as a hint.
     mutable std::vector<SubColumnWithName> _prev_positions;
@@ -258,10 +254,6 @@ public:
         }
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
     }
-
-    void set_rowstore_column(ColumnPtr col) { rowstore_column = col; }
-
-    ColumnPtr get_rowstore_column() const { return rowstore_column; }
 
     Status serialize_one_row_to_string(int row, std::string* output) const;
 
@@ -474,32 +466,12 @@ public:
 
     ColumnPtr permute(const Permutation&, size_t) const override;
 
-    int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        return 0;
-    }
-
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         Permutation& res) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        __builtin_unreachable();
-    }
-
     bool is_variable_length() const override { return true; }
 
     void replace_column_data(const IColumn&, size_t row, size_t self_row) override;
 
-    void replace_column_data_default(size_t self_row) override;
-
-    void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        __builtin_unreachable();
-    }
-
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
     // Extract path from root column and replace root with new extracted column,
     // root must be jsonb type

@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -104,7 +105,7 @@ public class LoadStmt extends DdlStmt {
 
     // for S3 load check
     public static final List<String> PROVIDERS =
-            new ArrayList<>(Arrays.asList("cos", "oss", "s3", "obs", "bos"));
+            new ArrayList<>(Arrays.asList("cos", "oss", "s3", "obs", "bos", "azure"));
 
     // mini load params
     public static final String KEY_IN_PARAM_COLUMNS = "columns";
@@ -583,7 +584,7 @@ public class LoadStmt extends DdlStmt {
             connection.connect();
         } catch (Exception e) {
             LOG.warn("Failed to connect endpoint={}", endpoint, e);
-            throw new UserException(e.getMessage());
+            throw new UserException("Incorrect object storage info: " + e.getMessage());
         } finally {
             if (connection != null) {
                 try {
@@ -612,6 +613,9 @@ public class LoadStmt extends DdlStmt {
                     + " is not in s3 load endpoint white list: " + String.join(",", whiteList));
             }
             brokerDescProperties.put(S3Properties.Env.ENDPOINT, endpoint);
+            if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
+                return;
+            }
             checkEndpoint(endpoint);
         }
     }

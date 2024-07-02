@@ -33,6 +33,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         createTables(
                 "CREATE TABLE IF NOT EXISTS `log_items_test` (\n"
                         + "            a DATETIME(0) NOT NULL,\n"
@@ -66,7 +67,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                         logicalFilter()
-                                .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a <= '2023-06-16 00:00:00')")))
+                                .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a <= '2023-06-15 23:59:59')")))
                                 .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(b <= 111.11)")))
                 );
 
@@ -82,7 +83,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                         logicalFilter()
-                                .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a > '2023-06-16 00:00:00')")))
+                                .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(a > '2023-06-15 23:59:59')")))
                                 .when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("(b > 111.11)")))
                 );
 

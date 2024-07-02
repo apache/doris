@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableSet;
@@ -28,8 +28,8 @@ import com.google.common.collect.ImmutableSet;
  */
 public interface BlockFuncDepsPropagation extends LogicalPlan {
     @Override
-    default FunctionalDependencies computeFuncDeps() {
-        return FunctionalDependencies.EMPTY_FUNC_DEPS;
+    default DataTrait computeFuncDeps() {
+        return DataTrait.EMPTY_TRAIT;
     }
 
     @Override
@@ -38,22 +38,22 @@ public interface BlockFuncDepsPropagation extends LogicalPlan {
     }
 
     @Override
-    default void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+    default void computeUnique(DataTrait.Builder builder) {
         // don't generate
     }
 
     @Override
-    default void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+    default void computeUniform(DataTrait.Builder builder) {
         // don't generate
     }
 
     @Override
-    default void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+    default void computeEqualSet(DataTrait.Builder builder) {
         // don't generate
     }
 
     @Override
-    default void computeFd(FunctionalDependencies.Builder fdBuilder) {
+    default void computeFd(DataTrait.Builder builder) {
         // don't generate
     }
 }

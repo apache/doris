@@ -32,16 +32,22 @@ public class BaseTableInfo {
     private static final Logger LOG = LogManager.getLogger(BaseTableInfo.class);
 
     @SerializedName("ti")
-    private Long tableId;
+    private long tableId;
     @SerializedName("di")
-    private Long dbId;
+    private long dbId;
     @SerializedName("ci")
-    private Long ctlId;
+    private long ctlId;
 
-    public BaseTableInfo(Long tableId, Long dbId) {
+    public BaseTableInfo(long tableId, long dbId) {
         this.tableId = java.util.Objects.requireNonNull(tableId, "tableId is null");
         this.dbId = java.util.Objects.requireNonNull(dbId, "dbId is null");
         this.ctlId = InternalCatalog.INTERNAL_CATALOG_ID;
+    }
+
+    public BaseTableInfo(long tableId, long dbId, long ctlId) {
+        this.tableId = java.util.Objects.requireNonNull(tableId, "tableId is null");
+        this.dbId = java.util.Objects.requireNonNull(dbId, "dbId is null");
+        this.ctlId = java.util.Objects.requireNonNull(ctlId, "ctlId is null");
     }
 
     public BaseTableInfo(TableIf table) {
@@ -54,15 +60,15 @@ public class BaseTableInfo {
         this.ctlId = catalog.getId();
     }
 
-    public Long getTableId() {
+    public long getTableId() {
         return tableId;
     }
 
-    public Long getDbId() {
+    public long getDbId() {
         return dbId;
     }
 
-    public Long getCtlId() {
+    public long getCtlId() {
         return ctlId;
     }
 

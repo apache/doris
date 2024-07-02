@@ -594,7 +594,7 @@ public class CoordinatorTest extends Coordinator {
         locations.add(tScanRangeLocations);
         locations.add(tScanRangeLocations1);
         Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByScheduler",
-                olapScanNode, locations, assignment, assignedBytesPerHost, replicaNumPerHost);
+                olapScanNode, locations, assignment, assignedBytesPerHost, replicaNumPerHost, false);
         for (Map.Entry entry : assignment.entrySet()) {
             Map<Integer, List<TScanRangeParams>> addr = (HashMap<Integer, List<TScanRangeParams>>) entry.getValue();
             for (Map.Entry item : addr.entrySet()) {
@@ -654,11 +654,11 @@ public class CoordinatorTest extends Coordinator {
         replicaNumPerHost.put(tScanRangeLocation2.server, 1L);
 
         Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq", tScanRangeLocations,
-                planFragmentId, 1, assignedBytesPerHost, replicaNumPerHost);
+                planFragmentId, 1, assignedBytesPerHost, replicaNumPerHost, false);
         Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq", tScanRangeLocations,
-                planFragmentId, 2, assignedBytesPerHost, replicaNumPerHost);
+                planFragmentId, 2, assignedBytesPerHost, replicaNumPerHost, false);
         Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq", tScanRangeLocations,
-                planFragmentId, 3, assignedBytesPerHost, replicaNumPerHost);
+                planFragmentId, 3, assignedBytesPerHost, replicaNumPerHost, false);
         List<String> hosts = new ArrayList<>();
         for (Map.Entry item : assignedBytesPerHost.entrySet()) {
             Assert.assertTrue((Long) item.getValue() == 1);

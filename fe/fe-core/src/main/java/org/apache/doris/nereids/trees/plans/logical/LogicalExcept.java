@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -124,7 +124,7 @@ public class LogicalExcept extends LogicalSetOperation {
 
             // only inherit from left side
             ImmutableSet<FdItem> leftFdItems = child(0).getLogicalProperties()
-                    .getFunctionalDependencies().getFdItems();
+                    .getTrait().getFdItems();
 
             builder.addAll(leftFdItems);
         }
@@ -133,10 +133,10 @@ public class LogicalExcept extends LogicalSetOperation {
     }
 
     @Override
-    public void computeUnique(Builder fdBuilder) {
-        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    public void computeUnique(Builder builder) {
+        builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
         if (qualifier == Qualifier.DISTINCT) {
-            fdBuilder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
+            builder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
         Map<Slot, Slot> replaceMap = new HashMap<>();
         List<Slot> output = getOutput();
@@ -146,12 +146,12 @@ public class LogicalExcept extends LogicalSetOperation {
         for (int i = 0; i < output.size(); i++) {
             replaceMap.put(originalOutputs.get(i), output.get(i));
         }
-        fdBuilder.replace(replaceMap);
+        builder.replace(replaceMap);
     }
 
     @Override
-    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addEqualSet(child(0).getLogicalProperties().getFunctionalDependencies());
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child(0).getLogicalProperties().getTrait());
         Map<Slot, Slot> replaceMap = new HashMap<>();
         List<Slot> output = getOutput();
         List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
@@ -160,12 +160,12 @@ public class LogicalExcept extends LogicalSetOperation {
         for (int i = 0; i < output.size(); i++) {
             replaceMap.put(originalOutputs.get(i), output.get(i));
         }
-        fdBuilder.replace(replaceMap);
+        builder.replace(replaceMap);
     }
 
     @Override
-    public void computeFd(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addFuncDepsDG(child(0).getLogicalProperties().getFunctionalDependencies());
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child(0).getLogicalProperties().getTrait());
         Map<Slot, Slot> replaceMap = new HashMap<>();
         List<Slot> output = getOutput();
         List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
@@ -174,12 +174,12 @@ public class LogicalExcept extends LogicalSetOperation {
         for (int i = 0; i < output.size(); i++) {
             replaceMap.put(originalOutputs.get(i), output.get(i));
         }
-        fdBuilder.replace(replaceMap);
+        builder.replace(replaceMap);
     }
 
     @Override
-    public void computeUniform(Builder fdBuilder) {
-        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    public void computeUniform(Builder builder) {
+        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
         Map<Slot, Slot> replaceMap = new HashMap<>();
         List<Slot> output = getOutput();
         List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
@@ -188,6 +188,6 @@ public class LogicalExcept extends LogicalSetOperation {
         for (int i = 0; i < output.size(); i++) {
             replaceMap.put(originalOutputs.get(i), output.get(i));
         }
-        fdBuilder.replace(replaceMap);
+        builder.replace(replaceMap);
     }
 }

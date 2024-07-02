@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
@@ -39,6 +40,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -77,9 +79,11 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         super(rawSql, jobId, dbId, tableId, tableName, timeoutMs);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            LOG.debug("schema change job add cloud cluster, context not null, cluster: {}",
-                    context.getCloudCluster());
-            setCloudClusterName(context.getCloudCluster());
+            String clusterName = context.getCloudCluster();
+            LOG.debug("rollup job add cloud cluster, context not null, cluster: {}", clusterName);
+            if (!Strings.isNullOrEmpty(clusterName)) {
+                setCloudClusterName(clusterName);
+            }
         }
         LOG.debug("schema change job add cloud cluster, context {}", context);
     }
@@ -103,6 +107,11 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
 
     @Override
     protected void postProcessShadowIndex() {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip drop shadown indexes in checking compatibility mode");
+            return;
+        }
+
         List<Long> shadowIdxList = indexIdMap.keySet().stream().collect(Collectors.toList());
         dropIndex(shadowIdxList);
     }
@@ -121,7 +130,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                     .dropMaterializedIndex(tableId, idxList, false);
                 break;
             } catch (Exception e) {
-                LOG.warn("tryTimes:{}, dropIndex exception:", tryTimes, e);
+                LOG.warn("drop index failed, retry times {}, dbId: {}, tableId: {}, jobId: {}, idxList: {}:",
+                        tryTimes, dbId, tableId, jobId, idxList, e);
             }
             sleepSeveralSeconds();
             tryTimes++;
@@ -210,7 +220,9 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                 tbl.getTimeSeriesCompactionFileCountThreshold(),
                                 tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                                 tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                                tbl.getTimeSeriesCompactionLevelThreshold());
+                                tbl.getTimeSeriesCompactionLevelThreshold(),
+                                tbl.disableAutoCompaction(),
+                                tbl.getRowStoreColumnsUniqueIds(rowStoreColumns));
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

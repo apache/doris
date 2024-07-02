@@ -134,7 +134,7 @@ public class Auth implements Writable {
     }
 
     public enum PrivLevel {
-        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE, WORKLOAD_GROUP, CLUSTER, STAGE,
+        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE, WORKLOAD_GROUP, CLUSTER, STAGE, STORAGE_VAULT
     }
 
     public Auth() {
@@ -377,6 +377,22 @@ public class Auth implements Writable {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
             for (Role role : roles) {
                 if (role.checkResourcePriv(resourceName, wanted)) {
+                    return true;
+                }
+            }
+            return false;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    // ==== Storage Vault ====
+    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
+        readLock();
+        try {
+            Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            for (Role role : roles) {
+                if (role.checkStorageVaultPriv(storageVaultName, wanted)) {
                     return true;
                 }
             }
@@ -1360,6 +1376,20 @@ public class Auth implements Writable {
             userAuthInfo.add(Joiner.on("; ").join(cloudStagePrivs));
         }
 
+        // storage vault
+        List<String> storageVaultPrivs = Lists.newArrayList();
+        for (PrivEntry entry : getUserStorageVaultPrivTable(userIdent).entries) {
+            ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
+            PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
+            storageVaultPrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString());
+        }
+
+        if (storageVaultPrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(storageVaultPrivs));
+        }
+
         // workload group
         List<String> workloadGroupPrivs = Lists.newArrayList();
         for (PrivEntry entry : getUserWorkloadGroupPrivTable(userIdent).entries) {
@@ -1391,6 +1421,15 @@ public class Auth implements Writable {
         Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roles) {
             table.merge(roleManager.getRole(roleName).getCloudStagePrivTable());
+        }
+        return table;
+    }
+
+    private ResourcePrivTable getUserStorageVaultPrivTable(UserIdentity userIdentity) {
+        ResourcePrivTable table = new ResourcePrivTable();
+        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
+        for (String roleName : roles) {
+            table.merge(roleManager.getRole(roleName).getStorageVaultPrivTable());
         }
         return table;
     }

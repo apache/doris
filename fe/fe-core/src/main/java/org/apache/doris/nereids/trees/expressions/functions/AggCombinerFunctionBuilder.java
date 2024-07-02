@@ -63,8 +63,8 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
     }
 
     @Override
-    public boolean canApply(List<? extends Object> arguments) {
-        if (combinatorSuffix.equals(STATE) || combinatorSuffix.equals(FOREACH)) {
+    public boolean canApply(List<?> arguments) {
+        if (combinatorSuffix.equalsIgnoreCase(STATE) || combinatorSuffix.equalsIgnoreCase(FOREACH)) {
             return nestedBuilder.canApply(arguments);
         } else {
             if (arguments.size() != 1) {
@@ -123,18 +123,18 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
     }
 
     @Override
-    public Pair<BoundFunction, AggregateFunction> build(String name, List<? extends Object> arguments) {
+    public Pair<BoundFunction, AggregateFunction> build(String name, List<?> arguments) {
         String nestedName = getNestedName(name);
-        if (combinatorSuffix.equals(STATE)) {
+        if (combinatorSuffix.equalsIgnoreCase(STATE)) {
             AggregateFunction nestedFunction = buildState(nestedName, arguments);
             return Pair.of(new StateCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
-        } else if (combinatorSuffix.equals(MERGE)) {
+        } else if (combinatorSuffix.equalsIgnoreCase(MERGE)) {
             AggregateFunction nestedFunction = buildMergeOrUnion(nestedName, arguments);
             return Pair.of(new MergeCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
-        } else if (combinatorSuffix.equals(UNION)) {
+        } else if (combinatorSuffix.equalsIgnoreCase(UNION)) {
             AggregateFunction nestedFunction = buildMergeOrUnion(nestedName, arguments);
             return Pair.of(new UnionCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
-        } else if (combinatorSuffix.equals(FOREACH)) {
+        } else if (combinatorSuffix.equalsIgnoreCase(FOREACH)) {
             AggregateFunction nestedFunction = buildForEach(nestedName, arguments);
             return Pair.of(new ForEachCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
         }

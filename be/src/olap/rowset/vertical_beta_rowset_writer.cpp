@@ -168,11 +168,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     auto& context = this->_context;
 
     int seg_id = this->_num_segment.fetch_add(1, std::memory_order_relaxed);
-    auto path = BetaRowset::segment_file_path(context.rowset_dir, context.rowset_id, seg_id);
-    auto fs = this->_rowset_meta->fs();
-    if (!fs) {
-        return Status::Error<INIT_FAILED>("get fs failed");
-    }
+
     io::FileWriterPtr file_writer;
     io::FileWriterOptions opts {
             .write_file_cache = this->_context.write_file_cache,
@@ -182,7 +178,10 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
                                              ? this->_context.newest_write_timestamp +
                                                        this->_context.file_cache_ttl_sec
                                              : 0};
-    Status st = fs->create_file(path, &file_writer, &opts);
+
+    auto path = context.segment_path(seg_id);
+    auto& fs = context.fs_ref();
+    Status st = fs.create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
@@ -194,7 +193,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     writer_options.rowset_ctx = &context;
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             file_writer.get(), seg_id, context.tablet_schema, context.tablet, context.data_dir,
-            context.max_rows_per_segment, writer_options, nullptr, fs);
+            context.max_rows_per_segment, writer_options, nullptr);
     RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(file_writer)));
 
     auto s = (*writer)->init(column_ids, is_key);

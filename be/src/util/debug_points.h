@@ -32,12 +32,13 @@
 #include "fmt/format.h"
 
 // more usage can see 'util/debug_points_test.cpp'
+// using {} around code, to avoid duplicate variable name
 #define DBUG_EXECUTE_IF(debug_point_name, code)                               \
     if (UNLIKELY(config::enable_debug_points)) {                              \
         auto dp = DebugPoints::instance()->get_debug_point(debug_point_name); \
         if (dp) {                                                             \
             [[maybe_unused]] auto DP_NAME = debug_point_name;                 \
-            code;                                                             \
+            { code; }                                                         \
         }                                                                     \
     }
 

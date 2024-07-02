@@ -690,6 +690,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     private <E extends Expression> ExpressionPatternMatcher<? extends Expression> matches(
             Class<E> clazz, BiFunction<E, ExpressionRewriteContext, Expression> visitMethod) {
         return matchesType(clazz)
+                .whenCtx(ctx -> !ctx.cascadesContext.getConnectContext().getSessionVariable()
+                        .isDebugSkipFoldConstant())
                 .whenCtx(NOT_UNDER_AGG_DISTINCT.as())
                 .thenApply(ctx -> visitMethod.apply(ctx.expr, ctx.rewriteContext));
     }

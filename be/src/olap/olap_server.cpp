@@ -57,6 +57,7 @@
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/segcompaction.h"
 #include "olap/schema_change.h"
 #include "olap/single_replica_compaction.h"
@@ -71,6 +72,7 @@
 #include "olap/task/index_builder.h"
 #include "runtime/client_cache.h"
 #include "runtime/memory/cache_manager.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "service/brpc.h"
 #include "service/point_query_executor.h"
 #include "util/brpc_client_cache.h"
@@ -624,7 +626,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
         if (!config::disable_auto_compaction &&
-            !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             _adjust_compaction_thread_num();
 
             bool check_score = false;
@@ -843,6 +845,42 @@ void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* 
     response->mutable_status()->set_status_code(0);
 }
 
+bool need_generate_compaction_tasks(int count, int thread_per_disk, CompactionType compaction_type,
+                                    bool all_base) {
+    if (count >= thread_per_disk) {
+        // Return if no available slot
+        return false;
+    } else if (count >= thread_per_disk - 1) {
+        // Only one slot left, check if it can be assigned to base compaction task.
+        if (compaction_type == CompactionType::BASE_COMPACTION) {
+            if (all_base) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+int get_concurrent_per_disk(int max_score, int thread_per_disk) {
+    if (!config::enable_compaction_priority_scheduling) {
+        return thread_per_disk;
+    }
+
+    double load_average = DorisMetrics::instance()->system_metrics()->get_load_average_1_min();
+    int num_cores = doris::CpuInfo::num_cores();
+    bool cpu_usage_high = load_average > num_cores * 0.8;
+
+    auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
+    bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 0.8;
+
+    if (max_score <= config::low_priority_compaction_score_threshold &&
+        (cpu_usage_high || memory_usage_high)) {
+        return config::low_priority_compaction_task_num_per_disk;
+    }
+
+    return thread_per_disk;
+}
+
 std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
     _update_cumulative_compaction_policy();
@@ -872,45 +910,32 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         int count = copied_cumu_map[data_dir].size() + copied_base_map[data_dir].size();
         int thread_per_disk = data_dir->is_ssd_disk() ? config::compaction_task_num_per_fast_disk
                                                       : config::compaction_task_num_per_disk;
-        if (count >= thread_per_disk) {
-            // Return if no available slot
-            need_pick_tablet = false;
-            if (!check_score) {
-                continue;
-            }
-        } else if (count >= thread_per_disk - 1) {
-            // Only one slot left, check if it can be assigned to base compaction task.
-            if (compaction_type == CompactionType::BASE_COMPACTION) {
-                if (copied_cumu_map[data_dir].empty()) {
-                    need_pick_tablet = false;
-                    if (!check_score) {
-                        continue;
-                    }
-                }
-            }
+
+        need_pick_tablet = need_generate_compaction_tasks(count, thread_per_disk, compaction_type,
+                                                          copied_cumu_map[data_dir].empty());
+        if (!need_pick_tablet && !check_score) {
+            continue;
         }
 
         // Even if need_pick_tablet is false, we still need to call find_best_tablet_to_compaction(),
         // So that we can update the max_compaction_score metric.
         if (!data_dir->reach_capacity_limit(0)) {
             uint32_t disk_max_score = 0;
-            TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
+            auto tablets = _tablet_manager->find_best_tablets_to_compaction(
                     compaction_type, data_dir,
                     compaction_type == CompactionType::CUMULATIVE_COMPACTION
                             ? copied_cumu_map[data_dir]
                             : copied_base_map[data_dir],
                     &disk_max_score, _cumulative_compaction_policies);
-            if (tablet != nullptr) {
-                if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+            int concurrent_num = get_concurrent_per_disk(disk_max_score, thread_per_disk);
+            need_pick_tablet = need_generate_compaction_tasks(
+                    count, concurrent_num, compaction_type, copied_cumu_map[data_dir].empty());
+            for (const auto& tablet : tablets) {
+                if (tablet != nullptr) {
                     if (need_pick_tablet) {
                         tablets_compaction.emplace_back(tablet);
                     }
                     max_compaction_score = std::max(max_compaction_score, disk_max_score);
-                } else {
-                    LOG_EVERY_N(INFO, 500)
-                            << "Tablet " << tablet->tablet_id()
-                            << " will be ignored by automatic compaction tasks since it's "
-                            << "set to disabled automatic compaction.";
                 }
             }
         }
@@ -1010,17 +1035,6 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     int64_t permits = 0;
     Status st = Tablet::prepare_compaction_and_calculate_permits(compaction_type, tablet,
                                                                  compaction, permits);
-    bool is_low_priority_task = [&]() {
-        // Can add more strategies to determine whether a task is a low priority task in the future
-        if (!config::enable_compaction_priority_scheduling) {
-            return false;
-        }
-        if (tablet->version_count() >=
-            (config::max_tablet_version_num * config::low_priority_tablet_version_num_ratio)) {
-            return false;
-        }
-        return !force;
-    }();
     if (st.ok() && permits > 0) {
         if (!force) {
             _permit_limiter.request(permits);
@@ -1030,18 +1044,8 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
-                                            compaction_type, permits, force, is_low_priority_task,
-                                            this]() {
-            if (is_low_priority_task && !_increase_low_priority_task_nums(tablet->data_dir())) {
-                VLOG_DEBUG << "skip low priority compaction task for tablet: "
-                           << tablet->tablet_id();
-                // Todo: push task back
-            } else {
-                tablet->execute_compaction(*compaction);
-                if (is_low_priority_task) {
-                    _decrease_low_priority_task_nums(tablet->data_dir());
-                }
-            }
+                                            compaction_type, permits, force, this]() {
+            tablet->execute_compaction(*compaction);
             if (!force) {
                 _permit_limiter.release(permits);
             }
@@ -1204,20 +1208,24 @@ void StorageEngine::do_remove_unused_remote_files() {
     });
     TConfirmUnusedRemoteFilesRequest req;
     req.__isset.confirm_list = true;
-    // tablet_id -> [fs, unused_remote_files]
-    using unused_remote_files_buffer_t = std::unordered_map<
-            int64_t, std::pair<std::shared_ptr<io::RemoteFileSystem>, std::vector<io::FileInfo>>>;
+    // tablet_id -> [storage_resource, unused_remote_files]
+    using unused_remote_files_buffer_t =
+            std::unordered_map<int64_t, std::pair<StorageResource, std::vector<io::FileInfo>>>;
     unused_remote_files_buffer_t buffer;
     int64_t num_files_in_buffer = 0;
     // assume a filename is 0.1KB, buffer size should not larger than 100MB
     constexpr int64_t max_files_in_buffer = 1000000;
 
     auto calc_unused_remote_files = [&req, &buffer, &num_files_in_buffer, this](Tablet* t) {
-        std::shared_ptr<io::RemoteFileSystem> fs;
-        auto st = get_remote_file_system(t->storage_policy_id(), &fs);
-        if (!st.ok()) {
+        auto storage_resource = get_resource_by_storage_policy_id(t->storage_policy_id());
+        if (!storage_resource) {
             LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
-                         << t->tablet_id() << " : " << st;
+                         << t->tablet_id() << " : " << storage_resource.error();
+            return;
+        }
+
+        // TODO(plat1ko): Support path v1
+        if (storage_resource->path_version > 0) {
             return;
         }
 
@@ -1225,7 +1233,8 @@ void StorageEngine::do_remove_unused_remote_files() {
         // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
         //  Maybe we should also list files in previously uploaded resources.
         bool exists = true;
-        st = fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files, &exists);
+        auto st = storage_resource->fs->list(storage_resource->remote_tablet_path(t->tablet_id()),
+                                             true, &files, &exists);
         if (!st.ok()) {
             LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
                          << t->tablet_id() << " : " << st;
@@ -1255,7 +1264,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         }
         // {cooldown_replica_id}.{cooldown_term}.meta
         std::string remote_meta_path =
-                fmt::format("{}.{}.meta", cooldown_replica_id, cooldown_term);
+                cooldown_tablet_meta_filename(cooldown_replica_id, cooldown_term);
         // filter out the paths that should be reserved
         auto filter = [&, this](io::FileInfo& info) {
             std::string_view filename = info.file_name;
@@ -1275,7 +1284,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         }
         files.shrink_to_fit();
         num_files_in_buffer += files.size();
-        buffer.insert({t->tablet_id(), {std::move(fs), std::move(files)}});
+        buffer.insert({t->tablet_id(), {*storage_resource, std::move(files)}});
         auto& info = req.confirm_list.emplace_back();
         info.__set_tablet_id(t->tablet_id());
         info.__set_cooldown_replica_id(cooldown_replica_id);
@@ -1293,20 +1302,20 @@ void StorageEngine::do_remove_unused_remote_files() {
         }
         for (auto id : result.confirmed_tablets) {
             if (auto it = buffer.find(id); LIKELY(it != buffer.end())) {
-                auto& fs = it->second.first;
+                auto& storage_resource = it->second.first;
                 auto& files = it->second.second;
                 std::vector<io::Path> paths;
                 paths.reserve(files.size());
                 // delete unused files
-                LOG(INFO) << "delete unused files. root_path=" << fs->root_path()
+                LOG(INFO) << "delete unused files. root_path=" << storage_resource.fs->root_path()
                           << " tablet_id=" << id;
-                io::Path dir = remote_tablet_path(id);
+                io::Path dir = storage_resource.remote_tablet_path(id);
                 for (auto& file : files) {
                     auto file_path = dir / file.file_name;
                     LOG(INFO) << "delete unused file: " << file_path.native();
                     paths.push_back(std::move(file_path));
                 }
-                st = fs->batch_delete(paths);
+                st = storage_resource.fs->batch_delete(paths);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to delete unused files, tablet_id=" << id << " : "
                                  << st;
@@ -1346,7 +1355,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::cold_data_compaction_interval_sec))) {
         if (config::disable_auto_compaction ||
-            MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             continue;
         }
 

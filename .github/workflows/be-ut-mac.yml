@@ -53,13 +53,14 @@ jobs:
         uses: ./.github/actions/ccache-action
         with:
           key: BE-UT-macOS
-          max-size: "2G"
+          max-size: "5G"
           restore-keys: BE-UT-macOS-
 
       - name: Run UT ${{ github.ref }}
         if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
         run: |
           cellars=(
+            'm4'
             'automake'
             'autoconf'
             'libtool'
@@ -95,4 +96,5 @@ jobs:
           tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
           popd
 
+          export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
           ./run-be-ut.sh --run -j "$(nproc)" --clean

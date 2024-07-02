@@ -66,7 +66,6 @@ import java.util.Map;
 public class JdbcResource extends Resource {
     private static final Logger LOG = LogManager.getLogger(JdbcResource.class);
 
-    public static final String JDBC_NEBULA = "jdbc:nebula";
     public static final String JDBC_MYSQL = "jdbc:mysql";
     public static final String JDBC_MARIADB = "jdbc:mariadb";
     public static final String JDBC_POSTGRESQL = "jdbc:postgresql";
@@ -79,7 +78,6 @@ public class JdbcResource extends Resource {
     public static final String JDBC_OCEANBASE = "jdbc:oceanbase";
     public static final String JDBC_DB2 = "jdbc:db2";
 
-    public static final String NEBULA = "NEBULA";
     public static final String MYSQL = "MYSQL";
     public static final String POSTGRESQL = "POSTGRESQL";
     public static final String ORACLE = "ORACLE";
@@ -142,7 +140,7 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(INCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(EXCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MIN_SIZE, "1");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_SIZE, "10");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_SIZE, "30");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_LIFE_TIME, "1800000");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_WAIT_TIME, "5000");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_KEEP_ALIVE, "false");
@@ -331,8 +329,6 @@ public class JdbcResource extends Resource {
             return PRESTO;
         } else if (url.startsWith(JDBC_OCEANBASE)) {
             return OCEANBASE;
-        } else if (url.startsWith(JDBC_NEBULA)) {
-            return NEBULA;
         } else if (url.startsWith(JDBC_DB2)) {
             return DB2;
         }
@@ -365,6 +361,9 @@ public class JdbcResource extends Resource {
             newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "reWriteBatchedInserts", "false", "true");
         }
         if (dbType.equals(SQLSERVER)) {
+            if (Config.force_sqlserver_jdbc_encrypt_false) {
+                newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "encrypt", "true", "false");
+            }
             newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "useBulkCopyForBatchInsert", "false", "true");
         }
         return newJdbcUrl;

@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_single_replica_compaction", "p2") {
+    if (isCloudMode()) {
+        return;
+    }
     def tableName = "test_single_replica_compaction"
   
     def set_be_config = { key, value ->
@@ -29,6 +32,10 @@ suite("test_single_replica_compaction", "p2") {
             def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
         }
+    }
+
+    def calc_file_crc_on_tablet = { ip, port, tablet ->
+        return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
     }
 
     boolean disableAutoCompaction = true
@@ -57,25 +64,20 @@ suite("test_single_replica_compaction", "p2") {
         has_update_be_config = true
 
         def triggerCompaction = { be_host, be_http_port, compact_type, tablet_id ->
-            StringBuilder sb = new StringBuilder();
-            sb.append("curl -X POST http://${be_host}:${be_http_port}")
-            sb.append("/api/compaction/run?tablet_id=")
-            sb.append(tablet_id)
-            sb.append("&compact_type=${compact_type}")
-
-            String command = sb.toString()
-            logger.info(command)
-            process = command.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", disableAutoCompaction " + disableAutoCompaction + ", err=" + err)
-            if (!disableAutoCompaction) {
-                return "Success, " + out
+            if (compact_type == "cumulative") {
+                def (code_1, out_1, err_1) = be_run_cumulative_compaction(be_host, be_http_port, tablet_id)
+                logger.info("Run compaction: code=" + code_1 + ", out=" + out_1 + ", err=" + err_1)
+                assertEquals(code_1, 0)
+                return out_1
+            } else if (compact_type == "full") {
+                def (code_2, out_2, err_2) = be_run_full_compaction(be_host, be_http_port, tablet_id)
+                logger.info("Run compaction: code=" + code_2 + ", out=" + out_2 + ", err=" + err_2)
+                assertEquals(code_2, 0)
+                return out_2
+            } else {
+                assertFalse(True)
             }
-            assertEquals(code, 0)
-            return out
-        } 
+        }
 
         def triggerSingleCompaction = { be_host, be_http_port, tablet_id ->
             StringBuilder sb = new StringBuilder();
@@ -84,18 +86,33 @@ suite("test_single_replica_compaction", "p2") {
             sb.append(tablet_id)
             sb.append("&compact_type=cumulative&remote=true")
 
-            String command = sb.toString()
-            logger.info(command)
-            process = command.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", disableAutoCompaction " + disableAutoCompaction + ", err=" + err)
-            if (!disableAutoCompaction) {
-                return "Success, " + out
+            Integer maxRetries = 10; // Maximum number of retries
+            Integer retryCount = 0; // Current retry count
+            Integer sleepTime = 5000; // Sleep time in milliseconds
+            String cmd = sb.toString()
+            def process
+            int code_3
+            String err_3
+            String out_3
+
+            while (retryCount < maxRetries) {
+                process = cmd.execute()
+                code_3 = process.waitFor()
+                err_3 = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+                out_3 = process.getText()
+
+                // If the command was successful, break the loop
+                if (code_3 == 0) {
+                    break
+                }
+
+                // If the command was not successful, increment the retry count, sleep for a while and try again
+                retryCount++
+                sleep(sleepTime)
             }
-            assertEquals(code, 0)
-            return out
+            assertEquals(code_3, 0)
+            logger.info("Get compaction status: code=" + code_3 + ", out=" + out_3)
+            return out_3
         }
         def waitForCompaction = { be_host, be_http_port, tablet_id ->
             boolean running = true
@@ -197,6 +214,21 @@ suite("test_single_replica_compaction", "p2") {
             }
         }
 
+        def checkTabletFileCrc = {
+            def (master_code, master_out, master_err) = calc_file_crc_on_tablet(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
+            logger.info("Run calc_file_crc_on_tablet: ip=" + backendId_to_backendIP[master_backend_id] + " code=" + master_code + ", out=" + master_out + ", err=" + master_err)
+
+            for (String backend: follower_backend_id) {
+                def (follower_code, follower_out, follower_err) = calc_file_crc_on_tablet(backendId_to_backendIP[backend], backendId_to_backendHttpPort[backend], tablet_id)
+                logger.info("Run calc_file_crc_on_tablet: ip=" + backendId_to_backendIP[backend] + " code=" + follower_code + ", out=" + follower_out + ", err=" + follower_err)
+                assertTrue(parseJson(follower_out.trim()).crc_value == parseJson(master_out.trim()).crc_value)
+                assertTrue(parseJson(follower_out.trim()).start_version == parseJson(master_out.trim()).start_version)
+                assertTrue(parseJson(follower_out.trim()).end_version == parseJson(master_out.trim()).end_version)
+                assertTrue(parseJson(follower_out.trim()).file_count == parseJson(master_out.trim()).file_count)
+                assertTrue(parseJson(follower_out.trim()).rowset_count == parseJson(master_out.trim()).rowset_count)
+            }
+        }
+
         sql """ INSERT INTO ${tableName} VALUES (1, "a", 100); """
         sql """ INSERT INTO ${tableName} VALUES (1, "b", 100); """
         sql """ INSERT INTO ${tableName} VALUES (2, "a", 100); """
@@ -239,9 +271,9 @@ suite("test_single_replica_compaction", "p2") {
         // check rowsets
         checkCompactionResult.call()
 
-        // trigger master be to do base compaction
+        // trigger master be to do full compaction
         assertTrue(triggerCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id],
-                    "base", tablet_id).contains("Success")); 
+                    "full", tablet_id).contains("Success")); 
         waitForCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id], tablet_id)
 
         // trigger follower be to fetch compaction result
@@ -252,6 +284,7 @@ suite("test_single_replica_compaction", "p2") {
 
         // check rowsets
         checkCompactionResult.call()
+        checkTabletFileCrc.call()
 
         qt_sql """
         select * from  ${tableName} order by id

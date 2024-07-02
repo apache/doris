@@ -21,7 +21,6 @@ suite("self_conn_list_str_increment_create") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=false"
-    sql "SET enable_nereids_timeout = false"
 
     sql """
     drop table if exists orders_self_conn_1
@@ -246,6 +245,27 @@ suite("self_conn_list_str_increment_create") {
         on t1.l_orderkey = t2.l_orderkey 
         group by t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey"""
 
+    def mv_sql_13 = """select t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey, 
+        count(t1.l_shipdate) over (partition by t1.L_SHIPDATE order by t1.L_ORDERKEY) as window_count 
+        from lineitem_selt_conn_1 t1 
+        join (select l_shipdate, l_orderkey, l_partkey, l_suppkey, count(l_shipdate) over (partition by l_shipdate order by l_orderkey) from lineitem_selt_conn_1 group by l_shipdate, l_orderkey, l_partkey, l_suppkey) as t2
+        on t1.l_orderkey = t2.l_orderkey 
+        group by t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey"""
+
+    def mv_sql_14 = """select t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey, 
+        count(t1.l_shipdate) over (partition by t1.l_orderkey order by t1.l_orderkey) as window_count
+        from lineitem_selt_conn_1 t1 
+        join (select l_shipdate, l_orderkey, l_partkey, l_suppkey, count(l_shipdate) over (partition by l_shipdate order by l_orderkey) from lineitem_selt_conn_1 group by l_shipdate, l_orderkey, l_partkey, l_suppkey) as t2 
+        on t1.l_orderkey = t2.l_orderkey 
+        group by t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey"""
+
+    def mv_sql_15 = """select t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey, 
+        count(t1.l_shipdate) over (order by t1.l_orderkey) as window_count 
+        from lineitem_selt_conn_1 t1 
+        join (select l_shipdate, l_orderkey, l_partkey, l_suppkey, count(l_shipdate) over (partition by l_shipdate order by l_orderkey) from lineitem_selt_conn_1 group by l_shipdate, l_orderkey, l_partkey, l_suppkey) as t2 
+        on t1.l_orderkey = t2.l_orderkey 
+        group by t1.l_shipdate, t1.l_orderkey, t1.l_partkey, t1.l_suppkey"""
+
     // window func + right col
     def mv_sql_10 = """select t2.l_shipdate, t2.l_orderkey, t2.l_partkey, t2.l_suppkey,
         count(t2.l_shipdate) over (partition by t2.l_shipdate order by t2.L_ORDERKEY) as window_count 
@@ -265,6 +285,27 @@ suite("self_conn_list_str_increment_create") {
         count(t2.l_shipdate) over (order by t2.l_orderkey) as window_count
         from lineitem_selt_conn_1 t1 
         join lineitem_selt_conn_1 t2 
+        on t1.l_orderkey = t2.l_orderkey  
+        group by t2.l_shipdate, t2.l_orderkey, t2.l_partkey, t2.l_suppkey"""
+
+    def mv_sql_16 = """select t2.l_shipdate, t2.l_orderkey, t2.l_partkey, t2.l_suppkey,
+        count(t2.l_shipdate) over (partition by t2.l_shipdate order by t2.L_ORDERKEY) as window_count 
+        from lineitem_selt_conn_1 t1 
+        join (select l_shipdate, l_orderkey, l_partkey, l_suppkey, count(l_shipdate) over (partition by l_shipdate order by l_orderkey) from lineitem_selt_conn_1 group by l_shipdate, l_orderkey, l_partkey, l_suppkey) as t2 
+        on t1.l_orderkey = t2.l_orderkey 
+        group by t2.l_shipdate, t2.l_orderkey, t2.l_partkey, t2.l_suppkey"""
+
+    def mv_sql_17 = """select t2.l_shipdate, t2.l_orderkey, t2.l_partkey, t2.l_suppkey,
+        count(t2.l_shipdate) over (partition by t2.l_orderkey order by t2.l_orderkey) as window_count
+        from lineitem_selt_conn_1 t1 
+        join (select l_shipdate, l_orderkey, l_partkey, l_suppkey, count(l_shipdate) over (partition by l_shipdate order by l_orderkey) from lineitem_selt_conn_1 group by l_shipdate, l_orderkey, l_partkey, l_suppkey) as t2 
+        on t1.l_orderkey = t2.l_orderkey  
+        group by t2.l_shipdate, t2.l_orderkey, t2.l_partkey, t2.l_suppkey"""
+
+    def mv_sql_18 = """select t2.l_shipdate, t2.l_orderkey, t2.l_partkey, t2.l_suppkey,
+        count(t2.l_shipdate) over (order by t2.l_orderkey) as window_count
+        from lineitem_selt_conn_1 t1 
+        join (select l_shipdate, l_orderkey, l_partkey, l_suppkey, count(l_shipdate) over (partition by l_shipdate order by l_orderkey) from lineitem_selt_conn_1 group by l_shipdate, l_orderkey, l_partkey, l_suppkey) as t2 
         on t1.l_orderkey = t2.l_orderkey  
         group by t2.l_shipdate, t2.l_orderkey, t2.l_partkey, t2.l_suppkey"""
 
@@ -318,13 +359,15 @@ suite("self_conn_list_str_increment_create") {
         }
     }
 
-    def sql_all_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12]
+    def sql_all_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12,
+                        mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     def sql_increment_list = []
     def sql_complete_list = []
 
     // change left table data
     // create mv base on left table with partition col
-    def sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12]
+    def sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12,
+                          mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_part_col, primary_tb_change, is_complete_change)
 

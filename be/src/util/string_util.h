@@ -32,6 +32,9 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/exception.h"
+#include "common/status.h"
+
 namespace doris {
 
 inline std::string to_lower(const std::string& input) {
@@ -135,8 +138,12 @@ using StringCaseUnorderedMap =
 
 template <typename T>
 auto get_json_token(T& path_string) {
-    return boost::tokenizer<boost::escaped_list_separator<char>>(
-            path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+    try {
+        return boost::tokenizer<boost::escaped_list_separator<char>>(
+                path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+    } catch (const boost::escaped_list_error& err) {
+        throw doris::Exception(ErrorCode::INVALID_JSON_PATH, "meet error {}", err.what());
+    }
 }
 
 #ifdef USE_LIBCPP

@@ -30,10 +30,11 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}"
-export TP_DIR="${ROOT}/thirdparty"
-export TP_INSTALL_DIR="${TP_DIR:-.}/installed"
-export TP_INCLUDE_DIR="${TP_INSTALL_DIR}/include"
-export TP_LIB_DIR="${TP_INSTALL_DIR}/lib"
+if [[ -z "${DORIS_THIRDPARTY}" ]]; then
+    export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
+fi
+export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
+export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 
 . "${DORIS_HOME}/env.sh"
 
@@ -358,37 +359,25 @@ if [[ -z "${USE_MEM_TRACKER}" ]]; then
         USE_MEM_TRACKER='OFF'
     fi
 fi
-if [[ -z "${USE_JEMALLOC}" ]]; then
+BUILD_TYPE_LOWWER=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
+if [[ "${BUILD_TYPE_LOWWER}" == "asan" ]]; then
+    USE_JEMALLOC='OFF'
+elif [[ -z "${USE_JEMALLOC}" ]]; then
     USE_JEMALLOC='ON'
 fi
-if [[ ! -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
+if [[ -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
     # compatible with old thirdparty
-    if [[ -z "${USE_JEMALLOC_HOOK}" ]]; then
-        USE_JEMALLOC_HOOK='ON'
-    fi
-else
-    if [[ -z "${USE_JEMALLOC_HOOK}" ]]; then
-        USE_JEMALLOC_HOOK='OFF'
-    fi
-    # update jemalloc prefix
     rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
     rm -rf "${TP_LIB_DIR}/libjemalloc_doris.a"
     rm -rf "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
     rm -rf "${TP_INCLUDE_DIR}/rocksdb"
     rm -rf "${TP_LIB_DIR}/librocksdb.a"
-    if [[ "${USE_JEMALLOC_HOOK}" == "ON" ]]; then
-        cp "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
-        cp "${TP_LIB_DIR}/libjemalloc_doris_with_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
-        cp "${TP_LIB_DIR}/libjemalloc_doris_with_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
-        cp "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
-        cp -r "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix" "${TP_INCLUDE_DIR}/rocksdb"
-    else
-        cp "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_no_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
-        cp "${TP_LIB_DIR}/libjemalloc_doris_no_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
-        cp "${TP_LIB_DIR}/libjemalloc_doris_no_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
-        cp "${TP_LIB_DIR}/librocksdb_jemalloc_no_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
-        cp -r "${TP_INCLUDE_DIR}/rocksdb_jemalloc_no_prefix" "${TP_INCLUDE_DIR}/rocksdb"
-    fi
+
+    mv "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
+    mv "${TP_LIB_DIR}/libjemalloc_doris_with_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
+    mv "${TP_LIB_DIR}/libjemalloc_doris_with_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
+    mv "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
+    mv -f "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix" "${TP_INCLUDE_DIR}/rocksdb"
 fi
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
@@ -495,7 +484,6 @@ echo "Get params:
     STRIP_DEBUG_INFO            -- ${STRIP_DEBUG_INFO}
     USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
     USE_JEMALLOC                -- ${USE_JEMALLOC}
-    USE_JEMALLOC_HOOK           -- ${USE_JEMALLOC_HOOK}
     USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
     ENABLE_STACKTRACE           -- ${ENABLE_STACKTRACE}
     ENABLE_INJECTION_POINT      -- ${ENABLE_INJECTION_POINT}
@@ -538,6 +526,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-scanner")
     modules+=("be-java-extensions/avro-scanner")
+    modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
@@ -598,7 +587,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
-        -DUSE_JEMALLOC_HOOK="${USE_JEMALLOC_HOOK}" \
         -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
@@ -642,7 +630,6 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
-        -DUSE_JEMALLOC_HOOK="${USE_JEMALLOC_HOOK}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
         "${DORIS_HOME}/cloud/"
@@ -825,6 +812,7 @@ EOF
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-scanner")
     extensions_modules+=("avro-scanner")
+    extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
@@ -866,7 +854,7 @@ EOF
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
-    mkdir -p "${DORIS_OUTPUT}/be/log/tracing"
+    mkdir -p "${DORIS_OUTPUT}/be/log/pipe_tracing"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
     mkdir -p "${DORIS_OUTPUT}/be/connectors"
 fi

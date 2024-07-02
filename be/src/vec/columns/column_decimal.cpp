@@ -118,15 +118,6 @@ void ColumnDecimal<T>::deserialize_vec_with_null_map(std::vector<StringRef>& key
 }
 
 template <typename T>
-UInt64 ColumnDecimal<T>::get64(size_t n) const {
-    if constexpr (sizeof(T) > sizeof(UInt64)) {
-        LOG(FATAL) << "Method get64 is not supported for " << get_family_name();
-    } else {
-        return static_cast<typename T::NativeType>(data[n]);
-    }
-}
-
-template <typename T>
 void ColumnDecimal<T>::update_hash_with_value(size_t n, SipHash& hash) const {
     hash.update(data[n]);
 }
@@ -491,11 +482,6 @@ Decimal128V3 ColumnDecimal<Decimal128V3>::get_scale_multiplier() const {
 template <>
 Decimal256 ColumnDecimal<Decimal256>::get_scale_multiplier() const {
     return Decimal256(common::exp10_i256(scale));
-}
-
-template <typename T>
-ColumnPtr ColumnDecimal<T>::index(const IColumn& indexes, size_t limit) const {
-    return select_index_impl(*this, indexes, limit);
 }
 
 template <typename T>

@@ -275,17 +275,17 @@ TEST_F(TestTablet, pad_rowset) {
     auto ptr1 = std::make_shared<RowsetMeta>();
     init_rs_meta(ptr1, 1, 2);
     rs_metas.push_back(ptr1);
-    RowsetSharedPtr rowset1 = make_shared<BetaRowset>(nullptr, "", ptr1);
+    RowsetSharedPtr rowset1 = make_shared<BetaRowset>(nullptr, ptr1, "");
 
     auto ptr2 = std::make_shared<RowsetMeta>();
     init_rs_meta(ptr2, 3, 4);
     rs_metas.push_back(ptr2);
-    RowsetSharedPtr rowset2 = make_shared<BetaRowset>(nullptr, "", ptr2);
+    RowsetSharedPtr rowset2 = make_shared<BetaRowset>(nullptr, ptr2, "");
 
     auto ptr3 = std::make_shared<RowsetMeta>();
     init_rs_meta(ptr3, 6, 7);
     rs_metas.push_back(ptr3);
-    RowsetSharedPtr rowset3 = make_shared<BetaRowset>(nullptr, "", ptr3);
+    RowsetSharedPtr rowset3 = make_shared<BetaRowset>(nullptr, ptr3, "");
 
     for (auto& rowset : rs_metas) {
         static_cast<void>(_tablet_meta->add_rs_meta(rowset));
@@ -309,27 +309,27 @@ TEST_F(TestTablet, cooldown_policy) {
     RowsetMetaSharedPtr ptr1(new RowsetMeta());
     init_rs_meta(ptr1, 0, 2, 200);
     rs_metas.push_back(ptr1);
-    RowsetSharedPtr rowset1 = make_shared<BetaRowset>(nullptr, "", ptr1);
+    RowsetSharedPtr rowset1 = make_shared<BetaRowset>(nullptr, ptr1, "");
 
     RowsetMetaSharedPtr ptr2(new RowsetMeta());
     init_rs_meta(ptr2, 3, 4, 600);
     rs_metas.push_back(ptr2);
-    RowsetSharedPtr rowset2 = make_shared<BetaRowset>(nullptr, "", ptr2);
+    RowsetSharedPtr rowset2 = make_shared<BetaRowset>(nullptr, ptr2, "");
 
     RowsetMetaSharedPtr ptr3(new RowsetMeta());
     init_rs_meta(ptr3, 5, 5, 800);
     rs_metas.push_back(ptr3);
-    RowsetSharedPtr rowset3 = make_shared<BetaRowset>(nullptr, "", ptr3);
+    RowsetSharedPtr rowset3 = make_shared<BetaRowset>(nullptr, ptr3, "");
 
     RowsetMetaSharedPtr ptr4(new RowsetMeta());
     init_rs_meta(ptr4, 6, 7, 1400);
     rs_metas.push_back(ptr4);
-    RowsetSharedPtr rowset4 = make_shared<BetaRowset>(nullptr, "", ptr4);
+    RowsetSharedPtr rowset4 = make_shared<BetaRowset>(nullptr, ptr4, "");
 
     RowsetMetaSharedPtr ptr5(new RowsetMeta());
     init_rs_meta(ptr5, 8, 9, 2000);
     rs_metas.push_back(ptr5);
-    RowsetSharedPtr rowset5 = make_shared<BetaRowset>(nullptr, "", ptr5);
+    RowsetSharedPtr rowset5 = make_shared<BetaRowset>(nullptr, ptr5, "");
 
     for (auto& rowset : rs_metas) {
         static_cast<void>(_tablet_meta->add_rs_meta(rowset));

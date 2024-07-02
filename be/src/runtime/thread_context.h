@@ -59,6 +59,9 @@
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
 
+#define DEFER_RELEASE_RESERVED() \
+    Defer VARNAME_LINENUM(defer) {[&]() { doris::thread_context()->release_reserved_memory(); }};
+
 #define ORPHAN_TRACKER_CHECK()                                                  \
     DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check || \
            doris::thread_context()->thread_mem_tracker()->label() != "Orphan")  \
@@ -77,11 +80,12 @@
     auto VARNAME_LINENUM(scoped_tls_stmtl) = doris::ScopedInitThreadContext()
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(scoped_tls_cmt) = doris::ScopedInitThreadContext()
+#define DEFER_RELEASE_RESERVED() (void)0
 #define ORPHAN_TRACKER_CHECK() (void)0
 #define MEMORY_ORPHAN_CHECK() (void)0
 #endif
 
-#if defined(USE_MEM_TRACKER) && !defined(BE_TEST) && defined(USE_JEMALLOC_HOOK)
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
 // Count a code segment memory (memory malloc - memory free) to int64_t
 // Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT_BY_HOOK(&scope_mem); xxx; xxx; }
 #define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \
@@ -155,14 +159,12 @@ public:
 
     void attach_task(const TUniqueId& task_id,
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-#ifndef BE_TEST
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
         DCHECK(mem_tracker);
         // Orphan is thread default tracker.
         DCHECK(thread_mem_tracker()->label() == "Orphan")
                 << ", thread mem tracker label: " << thread_mem_tracker()->label()
                 << ", attach mem tracker label: " << mem_tracker->label();
-#endif
         _task_id = task_id;
         thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
         thread_mem_tracker_mgr->set_query_id(_task_id);
@@ -204,6 +206,24 @@ public:
                 << doris::memory_orphan_check_msg;
 #endif
         thread_mem_tracker_mgr->consume(size, skip_large_memory_check);
+    }
+
+    bool try_reserve_memory(const int64_t size) const {
+#ifdef USE_MEM_TRACKER
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
+               thread_mem_tracker()->label() != "Orphan")
+                << doris::memory_orphan_check_msg;
+#endif
+        return thread_mem_tracker_mgr->try_reserve(size);
+    }
+
+    void release_reserved_memory() const {
+#ifdef USE_MEM_TRACKER
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
+               thread_mem_tracker()->label() != "Orphan")
+                << doris::memory_orphan_check_msg;
+#endif
+        thread_mem_tracker_mgr->release_reserved();
     }
 
     int thread_local_handle_count = 0;
@@ -289,6 +309,7 @@ static ThreadContext* thread_context() {
     __builtin_unreachable();
 }
 
+// belong to one query object member, not be shared by multiple queries.
 class QueryThreadContext {
 public:
     QueryThreadContext() = default;
@@ -296,7 +317,9 @@ public:
                        const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
             : query_id(query_id), query_mem_tracker(mem_tracker) {}
 
-    void init() {
+    // Not thread safe, generally be called in class constructor, shared_ptr use_count may be
+    // wrong when called by multiple threads, cause crash after object be destroyed prematurely.
+    void init_unlocked() {
 #ifndef BE_TEST
         ORPHAN_TRACKER_CHECK();
         query_id = doris::thread_context()->task_id();
@@ -355,9 +378,7 @@ public:
 class SwitchThreadMemTrackerLimiter {
 public:
     explicit SwitchThreadMemTrackerLimiter(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-#ifndef BE_TEST
         DCHECK(mem_tracker);
-#endif
         ThreadLocalHandle::create_thread_local_if_not_exits();
         _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
@@ -366,9 +387,7 @@ public:
     explicit SwitchThreadMemTrackerLimiter(const QueryThreadContext& query_thread_context) {
         ThreadLocalHandle::create_thread_local_if_not_exits();
         DCHECK(thread_context()->task_id() == query_thread_context.query_id);
-#ifndef BE_TEST
         DCHECK(query_thread_context.query_mem_tracker);
-#endif
         _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
                 query_thread_context.query_mem_tracker);

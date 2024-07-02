@@ -178,9 +178,9 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                   `col7` DECIMAL(6,4) COMMENT 'col7',
                   `col8` VARCHAR(11) COMMENT 'col8',
                   `col9` STRING COMMENT 'col9',
+                  `pt3` DATE COMMENT 'pt3',
                   `pt1` VARCHAR COMMENT 'pt1',
-                  `pt2` STRING COMMENT 'pt2',
-                  `pt3` DATE COMMENT 'pt3'
+                  `pt2` STRING COMMENT 'pt2'
                 )  ENGINE=hive 
                 PARTITION BY LIST (pt1, pt2) ()
                 PROPERTIES (
@@ -197,7 +197,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
             } catch (Exception e) {
                 log.info(e.getMessage())
                 // BE err msg need use string contains to check
-                assertTrue(e.getMessage().contains("[E-124]Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
+                assertTrue(e.getMessage().contains("Arithmetic overflow when converting value 123.4567 from type Decimal(7, 4) to type Decimal(6, 4)"))
             }
 
             try {
@@ -208,7 +208,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                 """
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("[E-124]Arithmetic overflow, convert failed from 1234567, expected data is [-999999, 999999]"))
+                assertTrue(e.getMessage().contains("Arithmetic overflow when converting value 123.4567 from type Decimal(7, 4) to type Decimal(6, 4)"))
             }
 
             test {
@@ -241,29 +241,73 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                 exception "errCode = 2, detailMessage = Unknown column 'pt00' in target table."
             }
 
+            // TODO: support partition spec
             test {
-                sql """ INSERT INTO ex_tbl_${file_format} partition(`pt1`,`pt2`) (`col1`, `col9`) 
+                sql """ INSERT INTO ex_tbl_${file_format} partition(`pt1`,`pt2`) (`col3`, `col6`, `col9`) 
                     VALUES 
-                    ('abcdefghij', 'error', true, 123);
+                    (9876543210, 6.28, 'no_error');
                 """
-                exception "errCode = 2, detailMessage = Column count doesn't match value count"
-            }
-
-            sql """ INSERT INTO ex_tbl_${file_format} partition(`pt1`,`pt2`) (`col3`, `col6`, `col9`) 
-                VALUES 
-                (9876543210, 6.28, 'no_error');
-            """
-
-            test {
-                sql """ INSERT INTO ex_tbl_${file_format} partition(`pt0`, `pt1`,`pt3`) (`col3`, `col6`, `col9`) 
-                    VALUES 
-                    ('err', 'err', 'err', 9876543210, 6.28, 'error');
-                """
-                exception "errCode = 2, detailMessage = Column count doesn't match value count"
+                exception "errCode = 2, detailMessage = Not support insert with partition spec in hive catalog"
             }
 
             sql """ DROP TABLE ${catalog_name}.test_hive_ex.ex_tbl_${file_format} """
             sql """ DROP DATABASE ${catalog_name}.test_hive_ex """
+        }
+
+        def test_columns_out_of_order = { String file_format, String catalog_name ->
+            sql """ switch ${catalog_name} """
+            sql """ create database if not exists `test_columns_out_of_order` """;
+            sql """ use `${catalog_name}`.`test_columns_out_of_order` """
+
+            sql """ drop table if exists columns_out_of_order_source_tbl_${file_format} """
+            sql """
+                CREATE TABLE columns_out_of_order_source_tbl_${file_format} (
+                  `col3` bigint,
+                  `col6` int,
+                  `col1` bigint,
+                  `col4` int,
+                  `col2` bigint,
+                  `col5` int
+                ) ENGINE = hive
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+            """;
+            sql """ drop table if exists columns_out_of_order_target_tbl_${file_format} """
+            sql """
+                CREATE TABLE columns_out_of_order_target_tbl_${file_format} (
+                  `col1` bigint,
+                  `col2` bigint,
+                  `col3` bigint,
+                  `col4` int,
+                  `col5` int,
+                  `col6` int
+                ) ENGINE = hive PARTITION BY LIST (
+                  col4, col5, col6
+                )()
+                PROPERTIES (
+                  'file_format'='${file_format}'
+                )
+            """;
+
+            sql """
+            INSERT INTO columns_out_of_order_source_tbl_${file_format} (
+              col1, col2, col3, col4, col5, col6
+            ) VALUES (1, 2, 3, 4, 5, 6);
+            """
+            order_qt_columns_out_of_order01 """ SELECT * FROM columns_out_of_order_source_tbl_${file_format} """
+
+            sql """
+            INSERT INTO columns_out_of_order_target_tbl_${file_format} (
+              col1, col2, col3, col4, col5, col6
+            ) VALUES (1, 2, 3, 4, 5, 6);
+            """
+
+            order_qt_columns_out_of_order02 """ SELECT * FROM columns_out_of_order_target_tbl_${file_format} """
+
+            sql """ drop table columns_out_of_order_source_tbl_${file_format} """
+            sql """ drop table columns_out_of_order_target_tbl_${file_format} """
+            sql """ drop database if exists `test_columns_out_of_order` """;
         }
 
         try {
@@ -276,7 +320,8 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
             sql """create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'use_meta_cache' = 'true'
             );"""
             sql """switch ${catalog_name}"""
 
@@ -285,6 +330,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                 logger.info("Process file format" + file_format)
                 test_complex_type_tbl(file_format, catalog_name)
                 test_insert_exception(file_format, catalog_name)
+                test_columns_out_of_order(file_format, catalog_name)
             }
             sql """drop catalog if exists ${catalog_name}"""
         } finally {

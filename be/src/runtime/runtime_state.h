@@ -35,14 +35,18 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "io/fs/file_system.h"
+#include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/columns_number.h"
 
 namespace doris {
 class IRuntimeFilter;
@@ -189,7 +193,11 @@ public:
         return _query_options.__isset.mysql_row_binary_format &&
                _query_options.mysql_row_binary_format;
     }
-    Status query_status();
+
+    bool enable_short_circuit_query_access_column_store() const {
+        return _query_options.__isset.enable_short_circuit_query_access_column_store &&
+               _query_options.enable_short_circuit_query_access_column_store;
+    }
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
@@ -205,21 +213,19 @@ public:
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
     [[nodiscard]] bool is_cancelled() const;
-    std::string cancel_reason() const;
-    int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(std::string msg) {
-        if (!_is_cancelled.exchange(true)) {
-            _cancel_reason = msg;
+    Status cancel_reason() const;
+    void cancel(const Status& reason) {
+        if (_exec_status.update(reason)) {
             // Create a error status, so that we could print error stack, and
             // we could know which path call cancel.
             LOG(WARNING) << "Task is cancelled, instance: "
                          << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                         << ", st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+                         << ", st = " << reason;
         } else {
             LOG(WARNING) << "Task is already cancelled, instance: "
                          << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                         << ", original cancel msg: " << _cancel_reason
-                         << ", new cancel msg: " << Status::Error<ErrorCode::CANCELLED>(msg);
+                         << ", original cancel msg: " << _exec_status.status()
+                         << ", new cancel msg: " << reason;
         }
     }
 
@@ -228,18 +234,6 @@ public:
 
     void set_be_number(int be_number) { _be_number = be_number; }
     int be_number(void) const { return _be_number; }
-
-    // Sets _process_status with err_msg if no error has been set yet.
-    void set_process_status(const Status& status) {
-        if (status.ok()) {
-            return;
-        }
-        std::lock_guard<std::mutex> l(_process_status_lock);
-        if (!_process_status.ok()) {
-            return;
-        }
-        _process_status = status;
-    }
 
     std::vector<std::string>& output_files() { return _output_files; }
 
@@ -269,7 +263,7 @@ public:
 
     int64_t load_job_id() const { return _load_job_id; }
 
-    const std::string get_error_log_file_path() const { return _error_log_file_path; }
+    std::string get_error_log_file_path() const;
 
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
@@ -364,16 +358,9 @@ public:
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
     int be_exec_version() const {
-        if (!_query_options.__isset.be_exec_version) {
-            return 0;
-        }
+        DCHECK(_query_options.__isset.be_exec_version &&
+               BeExecVersionManager::check_be_exec_version(_query_options.be_exec_version));
         return _query_options.be_exec_version;
-    }
-    bool enable_pipeline_x_exec() const {
-        return (_query_options.__isset.enable_pipeline_x_engine &&
-                _query_options.enable_pipeline_x_engine) ||
-               (_query_options.__isset.enable_pipeline_engine &&
-                _query_options.enable_pipeline_engine);
     }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
@@ -385,10 +372,6 @@ public:
 
     bool return_object_data_as_binary() const {
         return _query_options.return_object_data_as_binary;
-    }
-
-    bool enable_exchange_node_parallel_merge() const {
-        return _query_options.enable_enable_exchange_node_parallel_merge;
     }
 
     segment_v2::CompressionTypePB fragement_transmission_compression_type() const {
@@ -450,6 +433,8 @@ public:
 
     std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
 
+    std::vector<TIcebergCommitData>& iceberg_commit_datas() { return _iceberg_commit_datas; }
+
     const std::vector<TErrorTabletInfo>& error_tablet_infos() const { return _error_tablet_infos; }
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
@@ -504,6 +489,11 @@ public:
 
     bool enable_parallel_scan() const {
         return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
+    }
+
+    bool is_read_csv_empty_line_as_null() const {
+        return _query_options.__isset.read_csv_empty_line_as_null &&
+               _query_options.read_csv_empty_line_as_null;
     }
 
     int parallel_scan_max_scanners_count() const {
@@ -609,6 +599,11 @@ public:
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
 
+    bool enable_local_merge_sort() const {
+        return _query_options.__isset.enable_local_merge_sort &&
+               _query_options.enable_local_merge_sort;
+    }
+
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
             return _query_options.min_revocable_mem;
@@ -627,6 +622,10 @@ public:
     void set_task_num(int task_num) { _task_num = task_num; }
 
     int task_num() const { return _task_num; }
+
+    vectorized::ColumnInt64* partial_update_auto_inc_column() {
+        return _partial_update_auto_inc_column;
+    };
 
 private:
     Status create_error_log_file();
@@ -656,13 +655,6 @@ private:
     // owned by PipelineFragmentContext
     RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
 
-    // Data stream receivers created by a plan fragment are gathered here to make sure
-    // they are destroyed before _obj_pool (class members are destroyed in reverse order).
-    // Receivers depend on the descriptor table and we need to guarantee that their control
-    // blocks are removed from the data stream manager before the objects in the
-    // descriptor table are destroyed.
-    std::unique_ptr<ObjectPool> _data_stream_recvrs_pool;
-
     // Lock protecting _error_log and _unreported_error_idx
     std::mutex _error_log_lock;
 
@@ -688,9 +680,7 @@ private:
     TQueryOptions _query_options;
     ExecEnv* _exec_env = nullptr;
 
-    // if true, execution should stop with a CANCELLED status
-    std::atomic<bool> _is_cancelled;
-    std::string _cancel_reason;
+    AtomicStatus _exec_status;
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
@@ -703,12 +693,6 @@ private:
 
     // used as send id
     int _be_number;
-
-    // Non-OK if an error has occurred and query execution should abort. Used only for
-    // asynchronously reporting such errors (e.g., when a UDF reports an error), so this
-    // will not necessarily be set in all error cases.
-    std::mutex _process_status_lock;
-    Status _process_status;
 
     // put here to collect files??
     std::vector<std::string> _output_files;
@@ -742,6 +726,8 @@ private:
 
     std::vector<THivePartitionUpdate> _hive_partition_updates;
 
+    std::vector<TIcebergCommitData> _iceberg_commit_datas;
+
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
 
     std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> _sink_local_state;
@@ -757,6 +743,13 @@ private:
 
     // prohibit copies
     RuntimeState(const RuntimeState&);
+
+    vectorized::ColumnInt64* _partial_update_auto_inc_column;
+
+    // save error log to s3
+    std::shared_ptr<io::S3FileSystem> _s3_error_fs;
+    // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
+    std::string _s3_error_log_file_path;
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

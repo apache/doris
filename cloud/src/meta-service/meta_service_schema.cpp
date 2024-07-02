@@ -112,7 +112,7 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
              << "\n to_save: " << schema.ShortDebugString();
         return;
     } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        msg = "failed to check that key exists";
+        msg = fmt::format("failed to check that key exists, err={}", err);
         code = cast_as<ErrCategory::READ>(err);
         return;
     }
@@ -319,7 +319,7 @@ void read_schema_from_dict(MetaServiceCode& code, std::string& msg, const std::s
     auto err = cloud::get(txn, column_dict_key, &dict_val);
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
-        ss << "internal error, failed to get dict ret=" << err;
+        ss << "internal error, failed to get dict, err=" << err;
         msg = ss.str();
         return;
     }

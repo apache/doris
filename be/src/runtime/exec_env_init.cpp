@@ -57,7 +57,6 @@
 #include "pipeline/pipeline_tracing.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
-#include "runtime/block_spill_manager.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/client_cache.h"
@@ -68,6 +67,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
+#include "runtime/load_stream_mgr.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -111,6 +111,23 @@
 #include "runtime/memory/tcmalloc_hook.h"
 #endif
 
+// Used for unit test
+namespace {
+std::once_flag flag;
+std::unique_ptr<doris::ThreadPool> non_block_close_thread_pool;
+void init_threadpool_for_test() {
+    static_cast<void>(doris::ThreadPoolBuilder("NonBlockCloseThreadPool")
+                              .set_min_threads(12)
+                              .set_max_threads(48)
+                              .build(&non_block_close_thread_pool));
+}
+
+[[maybe_unused]] doris::ThreadPool* get_non_block_close_thread_pool() {
+    std::call_once(flag, init_threadpool_for_test);
+    return non_block_close_thread_pool.get();
+}
+} // namespace
+
 namespace doris {
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -151,6 +168,14 @@ static pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
     min_num = std::min(num_cores * factor, min_num);
     max_num = std::min(min_num * factor, max_num);
     return {min_num, max_num};
+}
+
+ThreadPool* ExecEnv::non_block_close_thread_pool() {
+#ifdef BE_TEST
+    return get_non_block_close_thread_pool();
+#else
+    return _non_block_close_thread_pool.get();
+#endif
 }
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
@@ -235,10 +260,14 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(1)
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
+    static_cast<void>(ThreadPoolBuilder("NonBlockCloseThreadPool")
+                              .set_min_threads(config::min_nonblock_close_thread_num)
+                              .set_max_threads(config::max_nonblock_close_thread_num)
+                              .build(&_non_block_close_thread_pool));
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
-    _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
+    _runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
     _file_cache_factory = new io::FileCacheFactory();
     init_file_cache_factory();
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
@@ -253,6 +282,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
+    auto num_flush_threads = std::min(
+            _store_paths.size() * config::flush_thread_num_per_store,
+            static_cast<size_t>(CpuInfo::num_cores()) * config::max_flush_thread_num_per_cpu);
+    _load_stream_mgr = std::make_unique<LoadStreamMgr>(num_flush_threads);
     _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
@@ -264,7 +297,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     RETURN_IF_ERROR(_routine_load_task_executor->init());
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
-    _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
@@ -483,8 +515,8 @@ Status ExecEnv::_init_mem_env() {
     // SegmentLoader caches segments in rowset granularity. So the size of
     // opened files will greater than segment_cache_capacity.
     int64_t segment_cache_capacity = config::segment_cache_capacity;
-    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 2 / 5) {
-        segment_cache_capacity = fd_number * 2 / 5;
+    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 1 / 5) {
+        segment_cache_capacity = fd_number * 1 / 5;
     }
 
     int64_t segment_cache_mem_limit =
@@ -494,8 +526,8 @@ Status ExecEnv::_init_mem_env() {
             min(segment_cache_mem_limit, segment_cache_capacity *
                                                  config::estimated_num_columns_per_segment *
                                                  config::estimated_mem_per_column_reader);
-    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit);
-    LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
+    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit, segment_cache_capacity);
+    LOG(INFO) << "segment_cache_capacity <= fd_number * 1 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity
               << " min_segment_cache_mem_limit " << min_segment_cache_mem_limit;
 
@@ -541,8 +573,6 @@ Status ExecEnv::_init_mem_env() {
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
-
-    RETURN_IF_ERROR(_block_spill_mgr->init());
 
     return Status::OK();
 }
@@ -639,6 +669,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
+    SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
 
@@ -646,7 +677,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_load_channel_mgr);
 
     SAFE_DELETE(_spill_stream_mgr);
-    SAFE_DELETE(_block_spill_mgr);
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
     SAFE_DELETE(_lookup_connection_cache);
@@ -684,6 +714,7 @@ void ExecEnv::destroy() {
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _join_node_thread_pool.reset(nullptr);
     _lazy_release_obj_pool.reset(nullptr);
+    _non_block_close_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);

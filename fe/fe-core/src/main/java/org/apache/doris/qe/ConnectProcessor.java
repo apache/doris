@@ -17,8 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
+import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.InsertStmt;
@@ -39,6 +42,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
@@ -75,6 +79,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionEntry;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -218,18 +223,24 @@ public abstract class ConnectProcessor {
     }
 
     // only throw an exception when there is a problem interacting with the requesting client
-    protected void handleQuery(MysqlCommand mysqlCommand, String originStmt) {
+    protected void handleQuery(MysqlCommand mysqlCommand, String originStmt) throws ConnectionException {
         if (Config.isCloudMode()) {
             if (!ctx.getCurrentUserIdentity().isRootUser()
                     && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
                         == Cloud.InstanceInfoPB.Status.OVERDUE) {
                 Exception exception = new Exception("warehouse is overdue!");
-                handleQueryException(exception, originStmt, null, null);
+                try {
+                    handleQueryException(exception, originStmt, null, null);
+                } catch (ConnectionException ignore) {
+                    // ignore, should not happen
+                }
                 return;
             }
         }
         try {
             executeQuery(mysqlCommand, originStmt);
+        } catch (ConnectionException exception) {
+            throw exception;
         } catch (Exception ignored) {
             // saved use handleQueryException
         }
@@ -253,8 +264,11 @@ public abstract class ConnectProcessor {
         Exception nereidsSyntaxException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
-        // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
-        if (mysqlCommand == MysqlCommand.COM_QUERY && sessionVariable.isEnableNereidsPlanner()) {
+        // Currently we add a config to decide whether using PREPARED/EXECUTE command for nereids
+        // TODO: after implemented full prepared, we could remove this flag
+        boolean nereidsUseServerPrep = sessionVariable.enableServeSidePreparedStatement
+                        || mysqlCommand == MysqlCommand.COM_QUERY;
+        if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
                 if (cachedStmts != null) {
@@ -315,7 +329,10 @@ public abstract class ConnectProcessor {
                 || s instanceof UpdateStmt
                 || s instanceof DeleteStmt
                 || s instanceof CreateTableAsSelectStmt
-                || s instanceof CreateTableStmt)) {
+                || s instanceof CreateTableStmt
+                || s instanceof CreateTableLikeStmt
+                || s instanceof CreateViewStmt
+                || s instanceof AlterViewStmt)) {
             String errMsg;
             Throwable exception = null;
             if (nereidsParseException != null) {
@@ -370,7 +387,13 @@ public abstract class ConnectProcessor {
                         if (i != stmts.size() - 1) {
                             ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
                             if (ctx.getState().getStateType() != MysqlStateType.ERR) {
-                                finalizeCommand();
+                                // here, doris do different with mysql.
+                                // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
+                                // single statement. Doris treat it with multi statement, but only return
+                                // the last statement result.
+                                if (getConnectContext().getCapability().isClientMultiStatements()) {
+                                    finalizeCommand();
+                                }
                             }
                         }
                     } else if (connectType.equals(ConnectType.ARROW_FLIGHT_SQL)) {
@@ -389,6 +412,7 @@ public abstract class ConnectProcessor {
                     }
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
+                    LOG.debug("Write audit logs for query {}", DebugUtil.printId(ctx.queryId));
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                         break;
@@ -472,14 +496,18 @@ public abstract class ConnectProcessor {
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
     protected void handleQueryException(Throwable throwable, String origStmt,
-            StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+            StatementBase parsedStmt, Data.PQueryStatistics statistics) throws ConnectionException {
         if (ctx.getMinidump() != null) {
             MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
         }
-        if (throwable instanceof IOException) {
+        if (throwable instanceof ConnectionException) {
+            // Throw this exception to close the connection outside.
+            LOG.warn("Process one query failed because ConnectionException: ", throwable);
+            throw (ConnectionException) throwable;
+        } else if (throwable instanceof IOException) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", throwable);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + throwable.getMessage());
         } else if (throwable instanceof UserException) {
             LOG.warn("Process one query failed because.", throwable);
             ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
@@ -537,7 +565,7 @@ public abstract class ConnectProcessor {
 
     // Get the column definitions of a table
     @SuppressWarnings("rawtypes")
-    protected void handleFieldList(String tableName) {
+    protected void handleFieldList(String tableName) throws ConnectionException {
         // Already get command code.
         if (Strings.isNullOrEmpty(tableName)) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
@@ -600,6 +628,7 @@ public abstract class ConnectProcessor {
     // This method is used to send a response packet to the client
     // only Mysql protocol
     public void finalizeCommand() throws IOException {
+        LOG.debug("Finalize command for query {}", DebugUtil.printId(ctx.queryId));
         Preconditions.checkState(connectType.equals(ConnectType.MYSQL));
         ByteBuffer packet;
         if (executor != null && executor.isForwardToMaster()
@@ -626,6 +655,7 @@ public abstract class ConnectProcessor {
             return;
         }
 
+        LOG.debug("Send to mysql channel for query {}", DebugUtil.printId(ctx.queryId));
         MysqlChannel channel = ctx.getMysqlChannel();
         channel.sendAndFlush(packet);
         // note(wb) we should write profile after return result to mysql client
@@ -641,6 +671,7 @@ public abstract class ConnectProcessor {
                 statsErrorEstimator.updateProfile(ConnectContext.get().queryId());
             }
         }
+        LOG.debug("End finalizing command for query {}", DebugUtil.printId(ctx.queryId));
     }
 
     public TMasterOpResult proxyExecute(TMasterOpRequest request) throws TException {
@@ -702,6 +733,9 @@ public abstract class ConnectProcessor {
             ctx.setUserVars(userVariableFromThrift(request.getUserVariables()));
         }
 
+        // set resource tag
+        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser));
+
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
         try {
@@ -722,6 +756,13 @@ public abstract class ConnectProcessor {
                         }
                     }
                 }
+            }
+
+            // set transaction entry for transaction load
+            if (request.isSetTxnLoadInfo()) {
+                TransactionEntry transactionEntry = new TransactionEntry();
+                transactionEntry.setTxnInfoInMaster(request.getTxnLoadInfo());
+                ctx.setTxnEntry(transactionEntry);
             }
 
             TUniqueId queryId; // This query id will be set in ctx
@@ -758,6 +799,13 @@ public abstract class ConnectProcessor {
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);
+            if (request.isSetTxnLoadInfo()) {
+                TransactionEntry transactionEntry = ConnectContext.get().getTxnEntry();
+                // null if this is a commit or rollback command
+                if (transactionEntry != null) {
+                    result.setTxnLoadInfo(transactionEntry.getTxnInfoInMaster());
+                }
+            }
         } else {
             result.setStatusCode(ctx.getState().getErrorCode().getCode());
             result.setErrMessage(ctx.getState().getErrorMessage());

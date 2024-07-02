@@ -93,17 +93,24 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
                 "producerToConsumerOutputMap should not null");
     }
 
+    /**
+     * generate a consumer slot mapping from producer slot.
+     */
+    public static SlotReference generateConsumerSlot(String cteName, Slot producerOutputSlot) {
+        SlotReference slotRef =
+                producerOutputSlot instanceof SlotReference ? (SlotReference) producerOutputSlot : null;
+        return new SlotReference(StatementScopeIdGenerator.newExprId(),
+                producerOutputSlot.getName(), producerOutputSlot.getDataType(),
+                producerOutputSlot.nullable(), ImmutableList.of(cteName),
+                slotRef != null ? (slotRef.getTable().isPresent() ? slotRef.getTable().get() : null) : null,
+                slotRef != null ? (slotRef.getColumn().isPresent() ? slotRef.getColumn().get() : null) : null,
+                slotRef != null ? Optional.of(slotRef.getInternalName()) : Optional.empty());
+    }
+
     private void initOutputMaps(LogicalPlan childPlan) {
         List<Slot> producerOutput = childPlan.getOutput();
         for (Slot producerOutputSlot : producerOutput) {
-            SlotReference slotRef =
-                    producerOutputSlot instanceof SlotReference ? (SlotReference) producerOutputSlot : null;
-            Slot consumerSlot = new SlotReference(StatementScopeIdGenerator.newExprId(),
-                    producerOutputSlot.getName(), producerOutputSlot.getDataType(),
-                    producerOutputSlot.nullable(), ImmutableList.of(name),
-                    slotRef != null ? (slotRef.getTable().isPresent() ? slotRef.getTable().get() : null) : null,
-                    slotRef != null ? (slotRef.getColumn().isPresent() ? slotRef.getColumn().get() : null) : null,
-                    slotRef != null ? Optional.of(slotRef.getInternalName()) : Optional.empty());
+            Slot consumerSlot = generateConsumerSlot(this.name, producerOutputSlot);
             producerToConsumerOutputMap.put(producerOutputSlot, consumerSlot);
             consumerToProducerOutputMap.put(consumerSlot, producerOutputSlot);
         }
@@ -140,6 +147,11 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
         return new LogicalCTEConsumer(relationId, cteId, name,
                 consumerToProducerOutputMap, producerToConsumerOutputMap,
                 groupExpression, logicalProperties);
+    }
+
+    @Override
+    public LogicalCTEConsumer withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call LogicalCTEConsumer's withRelationId method");
     }
 
     @Override

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
+import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
@@ -39,7 +40,6 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -53,6 +53,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,6 +75,10 @@ public class Memo {
     private static long stateId = 0;
     private final ConnectContext connectContext;
     private final AtomicLong refreshVersion = new AtomicLong(1);
+    private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckSuccessMap =
+            new LinkedHashMap<>();
+    private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckFailMap =
+            new LinkedHashMap<>();
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
@@ -127,32 +132,44 @@ public class Memo {
         return refreshVersion.get();
     }
 
-    private Plan skipProject(Plan plan, Group targetGroup) {
-        // Some top project can't be eliminated
-        if (plan instanceof LogicalProject) {
-            LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
-            if (targetGroup != root) {
-                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
-                    return skipProject(logicalProject.child(), targetGroup);
-                }
-            } else {
-                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
-                    return skipProject(logicalProject.child(), targetGroup);
-                }
+    /**
+     * Record materialization check result for performance
+     */
+    public void recordMaterializationCheckResult(Class<? extends AbstractMaterializedViewRule> target,
+            Long checkedMaterializationId, boolean isSuccess) {
+        if (isSuccess) {
+            Set<Long> checkedSet = materializationCheckSuccessMap.get(target);
+            if (checkedSet == null) {
+                checkedSet = new HashSet<>();
+                materializationCheckSuccessMap.put(target, checkedSet);
             }
+            checkedSet.add(checkedMaterializationId);
+        } else {
+            Set<Long> checkResultSet = materializationCheckFailMap.get(target);
+            if (checkResultSet == null) {
+                checkResultSet = new HashSet<>();
+                materializationCheckFailMap.put(target, checkResultSet);
+            }
+            checkResultSet.add(checkedMaterializationId);
         }
-        return plan;
     }
 
-    private Plan skipProjectGetChild(Plan plan) {
-        if (plan instanceof LogicalProject) {
-            LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
-            Plan child = logicalProject.child();
-            if (logicalProject.getOutputSet().equals(child.getOutputSet())) {
-                return skipProjectGetChild(child);
-            }
+    /**
+     * Get the info for materialization context is checked
+     *
+     * @return if true, check successfully, if false check fail, if null not checked
+     */
+    public Boolean materializationHasChecked(Class<? extends AbstractMaterializedViewRule> target,
+            long materializationId) {
+        Set<Long> checkSuccessSet = materializationCheckSuccessMap.get(target);
+        if (checkSuccessSet != null && checkSuccessSet.contains(materializationId)) {
+            return true;
         }
-        return plan;
+        Set<Long> checkFailSet = materializationCheckFailMap.get(target);
+        if (checkFailSet != null && checkFailSet.contains(materializationId)) {
+            return false;
+        }
+        return null;
     }
 
     public int countMaxContinuousJoin() {
@@ -198,7 +215,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(skipProject(plan, target), target, planTable);
+            result = doCopyIn(plan, target, planTable);
         }
         maybeAddStateId(result);
         return result;
@@ -219,7 +236,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(skipProject(plan, target), target, null);
+            result = doCopyIn(plan, target, null);
         }
         maybeAddStateId(result);
         return result;
@@ -431,7 +448,7 @@ public class Memo {
         List<Group> childrenGroups = Lists.newArrayList();
         for (int i = 0; i < plan.children().size(); i++) {
             // skip useless project.
-            Plan child = skipProjectGetChild(plan.child(i));
+            Plan child = plan.child(i);
             if (child instanceof GroupPlan) {
                 childrenGroups.add(((GroupPlan) child).getGroup());
             } else if (child.getGroupExpression().isPresent()) {
@@ -523,17 +540,23 @@ public class Memo {
             return;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        for (GroupExpression parent : source.getParentGroupExpressions()) {
-            if (parent.getOwnerGroup().equals(destination)) {
+        for (GroupExpression dstParent : destination.getParentGroupExpressions()) {
+            if (dstParent.getOwnerGroup().equals(source)) {
                 // cycle, we should not merge
                 return;
             }
-            Group parentOwnerGroup = parent.getOwnerGroup();
+        }
+        for (GroupExpression srcParent : source.getParentGroupExpressions()) {
+            if (srcParent.getOwnerGroup().equals(destination)) {
+                // cycle, we should not merge
+                return;
+            }
+            Group parentOwnerGroup = srcParent.getOwnerGroup();
             HashSet<GroupExpression> enforcers = new HashSet<>(parentOwnerGroup.getEnforcers());
-            if (enforcers.contains(parent)) {
+            if (enforcers.contains(srcParent)) {
                 continue;
             }
-            needReplaceChild.add(parent);
+            needReplaceChild.add(srcParent);
         }
         GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
 

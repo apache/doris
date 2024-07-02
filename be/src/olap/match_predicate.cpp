@@ -45,7 +45,7 @@ PredicateType MatchPredicate::type() const {
     return PredicateType::MATCH;
 }
 
-Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_type,
+Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                                 InvertedIndexIterator* iterator, uint32_t num_rows,
                                 roaring::Roaring* bitmap) const {
     if (iterator == nullptr) {
@@ -115,21 +115,6 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
         break;
     case MatchType::MATCH_PHRASE_EDGE:
         ret = InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_EQ:
-        ret = InvertedIndexQueryType::EQUAL_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_LT:
-        ret = InvertedIndexQueryType::LESS_THAN_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_GT:
-        ret = InvertedIndexQueryType::GREATER_THAN_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_LE:
-        ret = InvertedIndexQueryType::LESS_EQUAL_QUERY;
-        break;
-    case MatchType::MATCH_ELEMENT_GE:
-        ret = InvertedIndexQueryType::GREATER_EQUAL_QUERY;
         break;
     default:
         DCHECK(false);

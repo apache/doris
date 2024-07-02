@@ -28,6 +28,7 @@
 #include <string>
 #include <utility>
 
+#include "bvar/bvar.h"
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -70,15 +71,21 @@
 namespace doris {
 using namespace ErrorCode;
 
+bvar::Adder<int64_t> g_load_stream_writer_cnt("load_stream_writer_count");
+bvar::Adder<int64_t> g_load_stream_file_writer_cnt("load_stream_file_writer_count");
+
 LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profile)
         : _req(*context), _rowset_writer(nullptr) {
+    g_load_stream_writer_cnt << 1;
     // TODO(plat1ko): CloudStorageEngine
     _rowset_builder = std::make_unique<RowsetBuilder>(
             ExecEnv::GetInstance()->storage_engine().to_local(), *context, profile);
-    _query_thread_context.init(); // from load stream
+    _query_thread_context.init_unlocked(); // from load stream
 }
 
-LoadStreamWriter::~LoadStreamWriter() = default;
+LoadStreamWriter::~LoadStreamWriter() {
+    g_load_stream_writer_cnt << -1;
+}
 
 Status LoadStreamWriter::init() {
     RETURN_IF_ERROR(_rowset_builder->init());
@@ -103,6 +110,7 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
                     return st;
                 }
                 _segment_file_writers.push_back(std::move(file_writer));
+                g_load_stream_file_writer_cnt << 1;
             }
         }
 
@@ -147,6 +155,7 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
         _is_canceled = true;
         return st;
     }
+    g_load_stream_file_writer_cnt << -1;
     LOG(INFO) << "segment " << segid << " path " << file_writer->path().native()
               << "closed, written " << file_writer->bytes_appended() << " bytes";
     if (file_writer->bytes_appended() == 0) {
@@ -176,7 +185,7 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
     if (file_writer == nullptr) {
         return Status::Corruption("add_segment failed, file writer {} is destoryed", segid);
     }
-    if (!file_writer->closed()) {
+    if (file_writer->state() != io::FileWriter::State::CLOSED) {
         return Status::Corruption("add_segment failed, segment {} is not closed",
                                   file_writer->path().native());
     }
@@ -209,7 +218,7 @@ Status LoadStreamWriter::close() {
     }
 
     for (const auto& writer : _segment_file_writers) {
-        if (!writer->closed()) {
+        if (writer->state() != io::FileWriter::State::CLOSED) {
             return Status::Corruption("LoadStreamWriter close failed, segment {} is not closed",
                                       writer->path().native());
         }

@@ -22,10 +22,11 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.util.S3URI;
-import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
+import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.thrift.TFileType;
@@ -55,6 +56,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
                     "ACCESS_KEY", "SECRET_KEY", "SESSION_TOKEN", "REGION");
 
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
+        final boolean isAzureTvf = AzureProperties.checkAzureProviderPropertyExist(properties);
         // 1. analyze common properties
         Map<String, String> otherProps = super.parseCommonProperties(properties);
 
@@ -73,26 +75,33 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
         S3URI s3uri = getS3Uri(uriStr, Boolean.parseBoolean(usePathStyle.toLowerCase()),
                 Boolean.parseBoolean(forceParsingByStandardUri.toLowerCase()));
-        String endpoint = otherProps.containsKey(S3Properties.ENDPOINT) ? otherProps.get(S3Properties.ENDPOINT) :
-                s3uri.getEndpoint().orElseThrow(() ->
-                        new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT)));
-        if (!otherProps.containsKey(S3Properties.REGION)) {
+
+        // get endpoint first from properties, if not present, get it from s3 uri.
+        // If endpoint is missing, exception will be thrown.
+        String endpoint = constructEndpoint(otherProps, s3uri);
+        // Azure could run without region
+        if (!otherProps.containsKey(S3Properties.REGION) && !isAzureTvf) {
             String region = s3uri.getRegion().orElseThrow(() ->
                     new AnalysisException(String.format("Properties '%s' is required.", S3Properties.REGION)));
             otherProps.put(S3Properties.REGION, region);
         }
         checkNecessaryS3Properties(otherProps);
         CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(endpoint,
-                otherProps.get(S3Properties.REGION),
-                otherProps.get(S3Properties.ACCESS_KEY),
-                otherProps.get(S3Properties.SECRET_KEY));
+                getOrDefaultAndRemove(otherProps, S3Properties.REGION, ""),
+                getOrDefaultAndRemove(otherProps, S3Properties.ACCESS_KEY, ""),
+                getOrDefaultAndRemove(otherProps, S3Properties.SECRET_KEY, ""));
         if (otherProps.containsKey(S3Properties.SESSION_TOKEN)) {
-            credential.setSessionToken(otherProps.get(S3Properties.SESSION_TOKEN));
+            credential.setSessionToken(getOrDefaultAndRemove(otherProps, S3Properties.SESSION_TOKEN, ""));
         }
 
         locationProperties = S3Properties.credentialToMap(credential);
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
+        if (isAzureTvf) {
+            // For Azure's compatibility, we need bucket to connect to the blob storage's container
+            locationProperties.put(S3Properties.BUCKET, s3uri.getBucket());
+        }
         locationProperties.putAll(S3ClientBEProperties.getBeFSProperties(locationProperties));
+        locationProperties.putAll(otherProps);
 
         filePath = NAME + S3URI.SCHEME_DELIM + s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
 
@@ -102,6 +111,26 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         } else {
             parseFile();
         }
+    }
+
+    private String constructEndpoint(Map<String, String> properties, S3URI s3uri) throws AnalysisException {
+        String endpoint;
+        if (!AzureProperties.checkAzureProviderPropertyExist(properties)) {
+            // get endpoint first from properties, if not present, get it from s3 uri.
+            // If endpoint is missing, exception will be thrown.
+            endpoint = getOrDefaultAndRemove(properties, S3Properties.ENDPOINT, s3uri.getEndpoint().orElse(""));
+            if (Strings.isNullOrEmpty(endpoint)) {
+                throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT));
+            }
+        } else {
+            String bucket = s3uri.getBucket();
+            String accountName = properties.getOrDefault(S3Properties.ACCESS_KEY, "");
+            if (accountName.isEmpty()) {
+                throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ACCESS_KEY));
+            }
+            endpoint = String.format(AzureProperties.AZURE_ENDPOINT_TEMPLATE, accountName, bucket);
+        }
+        return endpoint;
     }
 
     private void forwardCompatibleDeprecatedKeys(Map<String, String> props) {
@@ -151,3 +180,4 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         return "S3TableValuedFunction";
     }
 }
+

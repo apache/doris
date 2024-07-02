@@ -60,6 +60,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class JdbcScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(JdbcScanNode.class);
@@ -98,7 +99,6 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        getGraphQueryString();
     }
 
     /**
@@ -110,25 +110,6 @@ public class JdbcScanNode extends ExternalScanNode {
         numNodes = numNodes <= 0 ? 1 : numNodes;
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
         cardinality = (long) statsDeriveResult.getRowCount();
-    }
-
-    private boolean isNebula() {
-        return jdbcType == TOdbcTableType.NEBULA;
-    }
-
-    private void getGraphQueryString() {
-        if (!isNebula()) {
-            return;
-        }
-        for (Expr expr : conjuncts) {
-            FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
-            if ("g".equals(functionCallExpr.getFnName().getFunction())) {
-                graphQueryString = functionCallExpr.getChild(0).getStringValue();
-                break;
-            }
-        }
-        // clean conjusts cause graph sannnode no need conjuncts
-        conjuncts = Lists.newArrayList();
     }
 
     private void createJdbcFilters() {
@@ -194,9 +175,6 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private String getJdbcQueryStr() {
-        if (isNebula()) {
-            return graphQueryString;
-        }
         StringBuilder sql = new StringBuilder("SELECT ");
 
         // Oracle use the where clause to do top n
@@ -257,6 +235,12 @@ public class JdbcScanNode extends ExternalScanNode {
                 output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
             }
         }
+        if (useTopnFilter()) {
+            String topnFilterSources = String.join(",",
+                    topnFilterSortNodes.stream()
+                            .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
+            output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
+        }
         return output.toString();
     }
 
@@ -308,6 +292,7 @@ public class JdbcScanNode extends ExternalScanNode {
             msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
         }
         msg.jdbc_scan_node.setTableType(jdbcType);
+        super.toThrift(msg);
     }
 
     @Override
@@ -318,8 +303,7 @@ public class JdbcScanNode extends ExternalScanNode {
 
     @Override
     public int getNumInstances() {
-        return ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
-                ? ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() : 1;
+        return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
     }
 
     @Override

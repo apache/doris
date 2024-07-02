@@ -38,6 +38,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_filter").add("array_exists").add("array_sortby")
             .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
+            .add("array_split").add("array_reverse_split")
             .build();
     // The functions in this set are all normal array functions when implemented initially.
     // and then wants add lambda expr as the input param, so we rewrite it to contains an array_map lambda function
@@ -45,10 +46,14 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby")
             .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
-            .add("element_at")
+            .add("element_at").add("array_split").add("array_reverse_split")
             .build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
+
+    private LambdaFunctionCallExpr() {
+        // use for serde only
+    }
 
     public LambdaFunctionCallExpr(String functionName, List<Expr> params) {
         super(functionName, params);
@@ -183,6 +188,34 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
              * array_sortby((x,y)->(x+y), [1,-2,3], [10,11,12]) --->
              * array_sortby([1,-2,3],[10,11,12], (x,y)->(x+y))
              * ---> array_sortby([1,-2,3], array_map((x,y)->(x+y), [1,-2,3], [10,11,12]))
+             */
+            if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
+                List<Expr> params = new ArrayList<>();
+                for (int i = 0; i <= childSize - 1; ++i) {
+                    params.add(getChild(i));
+                }
+                LambdaFunctionCallExpr arrayMapFunc = new LambdaFunctionCallExpr("array_map",
+                        params);
+                arrayMapFunc.analyzeImpl(analyzer);
+                Expr firstExpr = getChild(0);
+                this.clearChildren();
+                this.addChild(firstExpr);
+                this.addChild(arrayMapFunc);
+                argTypes = new Type[2];
+                argTypes[0] = getChild(0).getType();
+                argTypes[1] = getChild(1).getType();
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("array_split")
+                || fnName.getFunction().equalsIgnoreCase("array_reverse_split")) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 2) {
+                throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
+            }
+            /*
+             * array_split((x,y)->y, [1,-2,3], [0,1,1])
+             * ---> array_split([1,-2,3],[0,1,1], (x,y)->y)
+             * ---> array_split([1,-2,3], array_map((x,y)->y, [1,-2,3], [0,1,1]))
              */
             if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
                 List<Expr> params = new ArrayList<>();

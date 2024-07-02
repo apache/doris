@@ -92,35 +92,16 @@ public class LogicalCompatibilityContext {
         return queryToViewNodeIDMapping;
     }
 
-    /**
-     * Get all expression mapping in query to view
-     */
-    @Deprecated
-    public BiMap<Expression, Expression> getQueryToViewAllExpressionMapping() {
-        if (queryToViewAllExpressionMapping != null) {
-            return queryToViewAllExpressionMapping;
-        }
-        queryToViewAllExpressionMapping = HashBiMap.create();
-        queryToViewAllExpressionMapping.putAll(getQueryToViewJoinEdgeExpressionMapping());
-        queryToViewAllExpressionMapping.putAll(getQueryToViewNodeExpressionMapping());
-        queryToViewAllExpressionMapping.putAll(getQueryToViewFilterEdgeExpressionMapping());
-        return queryToViewAllExpressionMapping;
+    public Expression getViewJoinExprFromQuery(Expression queryJoinExpr) {
+        return queryToViewJoinEdgeExpressionMappingSupplier.get().get(queryJoinExpr);
     }
 
-    public BiMap<Expression, Expression> getQueryToViewJoinEdgeExpressionMapping() {
-        return queryToViewJoinEdgeExpressionMappingSupplier.get();
+    public Expression getViewFilterExprFromQuery(Expression queryJoinExpr) {
+        return queryToViewFilterEdgeExpressionMappingSupplier.get().get(queryJoinExpr);
     }
 
-    public BiMap<Expression, Expression> getQueryToViewNodeExpressionMapping() {
-        return queryToViewNodeExpressionMappingSupplier.get();
-    }
-
-    public BiMap<Expression, Expression> getQueryToViewFilterEdgeExpressionMapping() {
-        return queryToViewFilterEdgeExpressionMappingSupplier.get();
-    }
-
-    public ObjectId getPlanNodeId() {
-        return planNodeId;
+    public Expression getViewNodeExprFromQuery(Expression queryJoinExpr) {
+        return queryToViewNodeExpressionMappingSupplier.get().get(queryJoinExpr);
     }
 
     /**
@@ -128,7 +109,7 @@ public class LogicalCompatibilityContext {
      * this make expression mapping between query and view by relation and the slot in relation mapping
      */
     public static LogicalCompatibilityContext from(RelationMapping relationMapping,
-            SlotMapping queryToViewSlotMapping,
+            SlotMapping viewToQuerySlotMapping,
             StructInfo queryStructInfo,
             StructInfo viewStructInfo) {
         // init node mapping
@@ -147,11 +128,8 @@ public class LogicalCompatibilityContext {
                 queryToViewNodeMapping.put(queryStructInfoNode, viewStructInfoNode);
             }
         }
-        // init expression mapping
-        Map<SlotReference, SlotReference> viewToQuerySlotMapping = queryToViewSlotMapping.inverse()
-                .toSlotReferenceMap();
         return new LogicalCompatibilityContext(queryToViewNodeMapping,
-                viewToQuerySlotMapping,
+                viewToQuerySlotMapping.toSlotReferenceMap(),
                 queryStructInfo,
                 viewStructInfo);
     }

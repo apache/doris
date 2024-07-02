@@ -27,9 +27,6 @@ import org.apache.doris.thrift.TFileAttributes;
 
 public interface IcebergSource {
 
-    // compatible with flink, which is "write.format.default" in spark
-    String FLINK_WRITE_FORMAT = "write-format";
-
     TupleDescriptor getDesc();
 
     org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException;

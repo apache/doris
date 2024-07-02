@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_lowercase_fault_injection") {
+suite("test_index_lowercase_fault_injection", "nonConcurrent") {
     // define a sql table
     def testTable = "httplogs_lowercase"
 

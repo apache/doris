@@ -30,6 +30,8 @@ suite("query64") {
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     def ds = """with cs_ui as
  (select cs_item_sk
         ,sum(cs_ext_list_price) as sale,sum(cr_refunded_cash+cr_reversed_charge+cr_store_credit) as refund

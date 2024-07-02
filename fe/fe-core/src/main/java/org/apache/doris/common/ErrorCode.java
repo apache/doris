@@ -61,7 +61,8 @@ public enum ErrorCode {
     ERR_NOT_ALLOWED_COMMAND(1148, new byte[]{'4', '2', '0', '0', '0'}, "The used command is not allowed"
             + " with this MySQL version"),
     ERR_WRONG_COLUMN_NAME(1166, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect column name '%s'. Column regex is '%s'"),
-    ERR_UNKNOWN_SYSTEM_VARIABLE(1193, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown system variable '%s'"),
+    ERR_UNKNOWN_SYSTEM_VARIABLE(1193, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown system variable '%s',"
+                    + "the similar variables are %s"),
     ERR_BAD_SLAVE(1200, new byte[]{'H', 'Y', '0', '0', '0'}, "The server is not configured as slave; fix in config "
             + "file or with CHANGE MASTER TO"),
     ERR_MASTER_INF(1201, new byte[]{'H', 'Y', '0', '0', '0'}, "Could not initialize master info structure; more error"
@@ -1122,9 +1123,9 @@ public enum ErrorCode {
     ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_ALLOCATION(5063, new byte[]{'4', '2', '0', '0', '0'},
             "Colocate tables must have same replication allocation: { %s } should be { %s }"),
     ERR_COLOCATE_TABLE_MUST_HAS_SAME_BUCKET_NUM(5063, new byte[]{'4', '2', '0', '0', '0'},
-            "Colocate tables must have same bucket num: %s"),
+            "Colocate tables must have same bucket num: %s should be %s"),
     ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_SIZE(5063, new byte[]{'4', '2', '0', '0', '0'},
-            "Colocate tables distribution columns size must be same : %s"),
+            "Colocate tables distribution columns size must be same: %s should be %s"),
     ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_TYPE(5063, new byte[]{'4', '2', '0', '0', '0'},
             "Colocate tables distribution columns must have the same data type: %s should be %s"),
     ERR_COLOCATE_NOT_COLOCATE_TABLE(5064, new byte[]{'4', '2', '0', '0', '0'},

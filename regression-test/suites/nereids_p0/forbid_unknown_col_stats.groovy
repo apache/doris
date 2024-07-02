@@ -21,6 +21,8 @@ suite("forbid_unknown_col_stats") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set forbid_unknown_col_stats=true;"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     sql "drop table if exists region"
     sql '''
     CREATE TABLE region  (

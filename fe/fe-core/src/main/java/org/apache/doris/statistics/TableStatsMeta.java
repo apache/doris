@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -42,7 +43,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
-public class TableStatsMeta implements Writable {
+public class TableStatsMeta implements Writable, GsonPostProcessable {
 
     @SerializedName("tblId")
     public final long tblId;
@@ -74,10 +75,13 @@ public class TableStatsMeta implements Writable {
     public JobType jobType;
 
     @SerializedName("newPartitionLoaded")
-    public AtomicBoolean newPartitionLoaded = new AtomicBoolean(false);
+    public AtomicBoolean partitionChanged = new AtomicBoolean(false);
 
     @SerializedName("userInjected")
     public boolean userInjected;
+
+    @SerializedName("pur")
+    public ConcurrentMap<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
 
     @VisibleForTesting
     public TableStatsMeta() {
@@ -131,16 +135,20 @@ public class TableStatsMeta implements Writable {
         for (Pair<String, String> colPair : analyzedJob.jobColumns) {
             ColStatsMeta colStatsMeta = colToColStatsMeta.get(colPair);
             if (colStatsMeta == null) {
-                colToColStatsMeta.put(colPair, new ColStatsMeta(updatedTime, analyzedJob.analysisMethod,
+                colToColStatsMeta.put(colPair, new ColStatsMeta(analyzedJob.createTime, analyzedJob.analysisMethod,
                         analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.rowCount,
-                        analyzedJob.updateRows));
+                        analyzedJob.updateRows, analyzedJob.partitionUpdateRows));
             } else {
-                colStatsMeta.updatedTime = updatedTime;
+                colStatsMeta.updatedTime = analyzedJob.tblUpdateTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
                 colStatsMeta.jobType = analyzedJob.jobType;
                 colStatsMeta.updatedRows = analyzedJob.updateRows;
                 colStatsMeta.rowCount = analyzedJob.rowCount;
+                if (colStatsMeta.partitionUpdateRows == null) {
+                    colStatsMeta.partitionUpdateRows = new ConcurrentHashMap<>();
+                }
+                colStatsMeta.partitionUpdateRows.putAll(analyzedJob.partitionUpdateRows);
             }
         }
         jobType = analyzedJob.jobType;
@@ -154,14 +162,14 @@ public class TableStatsMeta implements Writable {
                     tableIf.getSchemaAllIndexes(false).stream()
                             .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                             .map(Column::getName).collect(Collectors.toSet())))) {
-                newPartitionLoaded.set(false);
+                partitionChanged.set(false);
                 userInjected = false;
             } else if (tableIf instanceof OlapTable) {
                 PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
                 if (partitionInfo != null && analyzedJob.jobColumns
                         .containsAll(tableIf.getColumnIndexPairs(partitionInfo.getPartitionColumns().stream()
                             .map(Column::getName).collect(Collectors.toSet())))) {
-                    newPartitionLoaded.set(false);
+                    partitionChanged.set(false);
                 }
             }
         }
@@ -169,5 +177,12 @@ public class TableStatsMeta implements Writable {
 
     public void convertDeprecatedColStatsToNewVersion() {
         deprecatedColNameToColStatsMeta = null;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (partitionUpdateRows == null) {
+            partitionUpdateRows = new ConcurrentHashMap<>();
+        }
     }
 }

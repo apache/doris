@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
@@ -27,22 +28,27 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -56,9 +62,13 @@ import java.util.zip.CRC32;
 
 public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionKey.class);
+    @SerializedName("ks")
     private List<LiteralExpr> keys;
+    @SerializedName("hk")
     private List<String> originHiveKeys;
+    @SerializedName("ts")
     private List<PrimitiveType> types;
+    @SerializedName("isD")
     private boolean isDefaultListPartitionKey = false;
 
     // constructor for partition prune
@@ -84,6 +94,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             partitionKey.keys.add(LiteralExpr.createInfinity(column.getType(), isMax));
             partitionKey.types.add(column.getDataType());
         }
+        return partitionKey;
+    }
+
+    public static PartitionKey createMaxPartitionKey() {
+        PartitionKey partitionKey = new PartitionKey();
+        partitionKey.keys.add(MaxLiteral.MAX_VALUE);
+        // type not set
         return partitionKey;
     }
 
@@ -358,32 +375,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return builder.toString();
     }
 
+    // only used by ut
     @Override
     public void write(DataOutput out) throws IOException {
-        int count = keys.size();
-        if (count != types.size()) {
-            throw new IOException("Size of keys and types are not equal");
-        }
-
-        out.writeInt(count);
-        for (int i = 0; i < count; i++) {
-            PrimitiveType type = types.get(i);
-            if (keys.get(i).isNullLiteral()) {
-                Text.writeString(out, Type.NULL.toString());
-            } else {
-                Text.writeString(out, type.toString());
-            }
-
-            if (keys.get(i) == MaxLiteral.MAX_VALUE) {
-                out.writeBoolean(true);
-            } else if (keys.get(i).isNullLiteral()) {
-                out.writeBoolean(false);
-                Text.writeString(out, type.toString());
-            } else {
-                out.writeBoolean(false);
-                keys.get(i).write(out);
-            }
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -403,32 +398,36 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             if (isMax) {
                 literal = MaxLiteral.MAX_VALUE;
             } else {
-                switch (type) {
-                    case TINYINT:
-                    case SMALLINT:
-                    case INT:
-                    case BIGINT:
-                        literal = IntLiteral.read(in);
-                        break;
-                    case LARGEINT:
-                        literal = LargeIntLiteral.read(in);
-                        break;
-                    case DATE:
-                    case DATETIME:
-                    case DATEV2:
-                    case DATETIMEV2:
-                        literal = DateLiteral.read(in);
-                        break;
-                    case CHAR:
-                    case VARCHAR:
-                    case STRING:
-                        literal = StringLiteral.read(in);
-                        break;
-                    case BOOLEAN:
-                        literal = BoolLiteral.read(in);
-                        break;
-                    default:
-                        throw new IOException("type[" + type.name() + "] not supported: ");
+                if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_133) {
+                    literal = (LiteralExpr) GsonUtils.GSON.fromJson(Text.readString(in), Expr.class);
+                } else {
+                    switch (type) {
+                        case TINYINT:
+                        case SMALLINT:
+                        case INT:
+                        case BIGINT:
+                            literal = IntLiteral.read(in);
+                            break;
+                        case LARGEINT:
+                            literal = LargeIntLiteral.read(in);
+                            break;
+                        case DATE:
+                        case DATETIME:
+                        case DATEV2:
+                        case DATETIMEV2:
+                            literal = DateLiteral.read(in);
+                            break;
+                        case CHAR:
+                        case VARCHAR:
+                        case STRING:
+                            literal = StringLiteral.read(in);
+                            break;
+                        case BOOLEAN:
+                            literal = BoolLiteral.read(in);
+                            break;
+                        default:
+                            throw new IOException("type[" + type.name() + "] not supported: ");
+                    }
                 }
             }
             if (type != PrimitiveType.DATETIMEV2) {
@@ -449,9 +448,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     }
 
     public static PartitionKey read(DataInput in) throws IOException {
-        PartitionKey key = new PartitionKey();
-        key.readFields(in);
-        return key;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            PartitionKey key = new PartitionKey();
+            key.readFields(in);
+            return key;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), PartitionKey.class);
+        }
     }
 
     @Override
@@ -505,7 +508,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return hashCode + ret;
     }
 
-    public static class PartitionKeySerializer implements JsonSerializer<PartitionKey> {
+    // added by ccr, and we have to follow.
+    public static class PartitionKeySerializer
+                implements JsonSerializer<PartitionKey>, JsonDeserializer<PartitionKey> {
         @Override
         public JsonElement serialize(PartitionKey partitionKey, java.lang.reflect.Type reflectType,
                                      JsonSerializationContext context) {
@@ -576,6 +581,82 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             }
 
             return result;
+        }
+
+        @Override
+        public PartitionKey deserialize(JsonElement json, java.lang.reflect.Type typeOfT,
+                                        JsonDeserializationContext context) throws JsonParseException {
+            PartitionKey partitionKey = new PartitionKey();
+            JsonArray jsonArray = json.getAsJsonArray();
+            for (int i = 0; i < jsonArray.size(); i++) {
+                JsonArray typeAndKey = jsonArray.get(i).getAsJsonArray();
+                PrimitiveType type = PrimitiveType.valueOf(typeAndKey.get(0).getAsString());
+                if (type == PrimitiveType.NULL_TYPE) {
+                    String realType = typeAndKey.get(1).getAsString();
+                    type = PrimitiveType.valueOf(realType);
+                    partitionKey.types.add(type);
+                    partitionKey.keys.add(NullLiteral.create(Type.fromPrimitiveType(type)));
+                    continue;
+                }
+                LiteralExpr literal = null;
+                partitionKey.types.add(type);
+                if (typeAndKey.get(1).getAsString().equals("MAX_VALUE")) {
+                    literal = MaxLiteral.MAX_VALUE;
+                } else {
+                    switch (type) {
+                        case TINYINT:
+                        case SMALLINT:
+                        case INT:
+                        case BIGINT: {
+                            long value = typeAndKey.get(1).getAsLong();
+                            literal = new IntLiteral(value);
+                        }
+                            break;
+                        case LARGEINT: {
+                            String value = typeAndKey.get(1).getAsString();
+                            try {
+                                literal = new LargeIntLiteral(value);
+                            } catch (AnalysisException e) {
+                                throw new JsonParseException("LargeIntLiteral deserialize failed: " + e.getMessage());
+                            }
+                        }
+                            break;
+                        case DATE:
+                        case DATETIME:
+                        case DATEV2:
+                        case DATETIMEV2: {
+                            String value = typeAndKey.get(1).getAsString();
+                            try {
+                                literal = new DateLiteral(value);
+                            } catch (AnalysisException e) {
+                                throw new JsonParseException("DateLiteral deserialize failed: " + e.getMessage());
+                            }
+                        }
+                            break;
+                        case CHAR:
+                        case VARCHAR:
+                        case STRING: {
+                            String value = typeAndKey.get(1).getAsString();
+                            literal = new StringLiteral(value);
+                        }
+                            break;
+                        case BOOLEAN: {
+                            boolean value = typeAndKey.get(1).getAsBoolean();
+                            literal = new BoolLiteral(value);
+                        }
+                            break;
+                        default:
+                            throw new JsonParseException(
+                                    "type[" + type.name() + "] not supported: ");
+                    }
+                }
+                if (type != PrimitiveType.DATETIMEV2) {
+                    literal.setType(Type.fromPrimitiveType(type));
+                }
+
+                partitionKey.keys.add(literal);
+            }
+            return partitionKey;
         }
     }
 

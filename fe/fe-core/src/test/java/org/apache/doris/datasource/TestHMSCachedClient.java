@@ -53,6 +53,10 @@ public class TestHMSCachedClient implements HMSCachedClient {
     public List<Database> dbs = new ArrayList<>();
 
     @Override
+    public void close() {
+    }
+
+    @Override
     public Database getDatabase(String dbName) {
         for (Database db : this.dbs) {
             if (db.getName().equals(dbName)) {
@@ -230,6 +234,9 @@ public class TestHMSCachedClient implements HMSCachedClient {
         this.tables.get(dbName).remove(table);
         this.partitions.remove(new HMSTransaction.DatabaseTableName(dbName, tableName));
     }
+
+    @Override
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {}
 
     @Override
     public void createTable(TableMetadata tbl, boolean ignoreIfExists) {

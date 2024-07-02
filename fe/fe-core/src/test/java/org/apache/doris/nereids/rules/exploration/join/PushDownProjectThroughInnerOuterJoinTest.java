@@ -64,10 +64,10 @@ class PushDownProjectThroughInnerOuterJoinTest implements MemoPatternMatchSuppor
                 .printlnExploration()
                 .matchesExploration(
                         logicalJoin(
-                                logicalJoin(
+                                logicalProject(logicalJoin(
                                         logicalProject().when(project -> project.getProjects().size() == 2),
                                         logicalProject().when(project -> project.getProjects().size() == 2)
-                                ),
+                                )),
                                 logicalOlapScan()
                         )
                 );

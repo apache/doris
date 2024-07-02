@@ -60,11 +60,7 @@ void JeHeapAction::handle(HttpRequest* req) {
                          << "." << rand() << ".heap";
     const std::string& tmp_file_name_str = tmp_jeprof_file_name.str();
     const char* file_name_ptr = tmp_file_name_str.c_str();
-#ifdef USE_JEMALLOC_HOOK
     int result = jemallctl("prof.dump", nullptr, nullptr, &file_name_ptr, sizeof(const char*));
-#else
-    int result = mallctl("prof.dump", nullptr, nullptr, &file_name_ptr, sizeof(const char*));
-#endif
     std::stringstream response;
     if (result == 0) {
         response << "Jemalloc heap dump success, dump file path: " << tmp_jeprof_file_name.str()

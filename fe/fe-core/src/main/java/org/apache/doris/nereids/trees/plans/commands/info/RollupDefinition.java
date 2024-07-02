@@ -18,12 +18,15 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AddRollupClause;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * rollup definition
@@ -41,7 +44,16 @@ public class RollupDefinition {
         this.properties = Maps.newHashMap(properties);
     }
 
-    public void validate() {
+    /**
+     * check rollup validity
+     */
+    public void validate() throws AnalysisException {
+        Set<String> colSet = Sets.newHashSet();
+        for (String col : cols) {
+            if (!colSet.add(col)) {
+                throw new AnalysisException("rollup has duplicate column name " + col);
+            }
+        }
     }
 
     public AddRollupClause translateToCatalogStyle() {

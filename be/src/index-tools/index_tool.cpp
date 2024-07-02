@@ -76,7 +76,7 @@ DEFINE_string(pred_type, "", "inverted index term query predicate, eq/lt/gt/le/g
 DEFINE_bool(print_row_id, false, "print row id when query terms");
 DEFINE_bool(print_doc_id, false, "print doc id when check terms stats");
 // only for debug index compaction
-DEFINE_int32(idx_id, -1, "inverted index id");
+DEFINE_int64(idx_id, -1, "inverted index id");
 DEFINE_string(src_idx_dirs_file, "", "source segment index files");
 DEFINE_string(dest_idx_dirs_file, "", "destination segment index files");
 DEFINE_string(dest_seg_num_rows_file, "", "destination segment number of rows");
@@ -101,6 +101,9 @@ std::string get_usage(const std::string& progname) {
           "--trans_vec_file=path/to/file\n";
     ss << "./index_tool --operation=write_index_v2 --idx_file_path=path/to/index "
           "--data_file_path=data/to/index\n";
+    ss << "./index_tool --operation=show_nested_files_v2 --idx_file_path=path/to/file\n";
+    ss << "./index_tool --operation=check_terms_stats_v2 --idx_file_path=path/to/file "
+          "--idx_id=index_id\n";
     return ss.str();
 }
 
@@ -205,7 +208,10 @@ void check_terms_stats(lucene::store::Directory* dir) {
         /* empty */
         std::string token =
                 lucene_wcstoutf8string(te->term(false)->text(), te->term(false)->textLength());
+        std::string field = lucene_wcstoutf8string(te->term(false)->field(),
+                                                   lenOfString(te->term(false)->field()));
 
+        printf("Field: %s ", field.c_str());
         printf("Term: %s ", token.c_str());
         printf("Freq: %d\n", te->docFreq());
         if (FLAGS_print_doc_id) {
@@ -307,7 +313,7 @@ int main(int argc, char** argv) {
         try {
             if (FLAGS_idx_file_name == "") {
                 //try to search from directory's all files
-                std::vector<FileInfo> files;
+                std::vector<doris::io::FileInfo> files;
                 bool exists = false;
                 std::filesystem::path root_dir(FLAGS_directory);
                 doris::Status status = fs->list(root_dir, true, &files, &exists);
@@ -406,7 +412,7 @@ int main(int argc, char** argv) {
             return true;
         };
 
-        int32_t index_id = FLAGS_idx_id;
+        int64_t index_id = FLAGS_idx_id;
         std::string tablet_path = FLAGS_tablet_path;
         std::string src_index_dirs_string;
         std::string dest_index_dirs_string;
@@ -494,18 +500,17 @@ int main(int argc, char** argv) {
             std::cout << "no data file flag for check " << std::endl;
             return -1;
         }
+
+        const std::string rowset_id = "test_rowset";
+        constexpr int seg_id = 0;
         std::string name = "test";
-        std::string file_dir = FLAGS_idx_file_path;
-        std::string file_name = "test_index_0.dat";
-        int64_t index_id = 1;
-        std::string index_suffix = "";
+        const std::string& file_dir = FLAGS_idx_file_path;
+        constexpr int64_t index_id = 1;
         doris::TabletIndexPB index_pb;
         index_pb.set_index_id(index_id);
-        index_pb.set_index_suffix_name(index_suffix);
         TabletIndex index_meta;
         index_meta.init_from_pb(index_pb);
-        auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
-                file_dir + "/" + file_name, index_id, index_suffix);
+
         std::vector<std::string> datas;
         {
             if (std::filesystem::exists(FLAGS_data_file_path) &&
@@ -533,7 +538,10 @@ int main(int argc, char** argv) {
 
         auto fs = doris::io::global_local_filesystem();
         auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, file_dir, file_name, doris::InvertedIndexStorageFormatPB::V2);
+                fs,
+                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
+                        doris::local_segment_path(file_dir, rowset_id, seg_id))},
+                rowset_id, seg_id, doris::InvertedIndexStorageFormatPB::V2);
         auto st = index_file_writer->open(&index_meta);
         if (!st.has_value()) {
             std::cerr << "InvertedIndexFileWriter init error:" << st.error() << std::endl;
@@ -555,7 +563,7 @@ int main(int argc, char** argv) {
         auto field_config = (int32_t)(lucene::document::Field::STORE_NO);
         field_config |= (int32_t)(lucene::document::Field::INDEX_NONORMS);
         field_config |= lucene::document::Field::INDEX_TOKENIZED;
-        auto field_name = std::wstring(name.begin(), name.end());
+        auto field_name = StringUtil::string_to_wstring(name);
         auto field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
         field->setOmitTermFreqAndPositions(false);
         doc->add(*field);
@@ -588,19 +596,17 @@ int main(int argc, char** argv) {
             std::cout << "no file flag for show " << std::endl;
             return -1;
         }
-        std::filesystem::path p(FLAGS_idx_file_path);
-        auto dir_path = p.parent_path();
-        std::string file_str = StripSuffixString(p.filename().string(), ".idx");
+        std::string index_path_prefix = StripSuffixString(FLAGS_idx_file_path, ".idx");
         auto fs = doris::io::global_local_filesystem();
         try {
             auto index_file_reader = std::make_unique<InvertedIndexFileReader>(
-                    fs, dir_path, file_str, doris::InvertedIndexStorageFormatPB::V2);
+                    fs, index_path_prefix, doris::InvertedIndexStorageFormatPB::V2);
             auto st = index_file_reader->init(4096);
             if (!st.ok()) {
                 std::cerr << "InvertedIndexFileReader init error:" << st.msg() << std::endl;
                 return -1;
             }
-            std::cout << "Nested files for " << file_str << std::endl;
+            std::cout << "Nested files for " << index_path_prefix << std::endl;
             std::cout << "==================================" << std::endl;
             auto dirs = index_file_reader->get_all_directories();
             for (auto& dir : *dirs) {
@@ -632,24 +638,22 @@ int main(int argc, char** argv) {
             std::cerr << "error occurred when show files: " << err.what() << std::endl;
         }
     } else if (FLAGS_operation == "check_terms_stats_v2") {
-        if (FLAGS_idx_file_path == "") {
+        if (FLAGS_idx_file_path == "" || FLAGS_idx_id <= 0) {
             std::cout << "no file flag for check " << std::endl;
             return -1;
         }
-        std::filesystem::path p(FLAGS_idx_file_path);
-        std::string dir_path = p.parent_path();
-        std::string file_str = StripSuffixString(p.filename().string(), ".idx");
+        std::string index_path_prefix = StripSuffixString(FLAGS_idx_file_path, ".idx");
         auto fs = doris::io::global_local_filesystem();
         try {
             auto index_file_reader = std::make_unique<InvertedIndexFileReader>(
-                    fs, dir_path, file_str, doris::InvertedIndexStorageFormatPB::V2);
+                    fs, index_path_prefix, doris::InvertedIndexStorageFormatPB::V2);
             auto st = index_file_reader->init(4096);
             if (!st.ok()) {
                 std::cerr << "InvertedIndexFileReader init error:" << st.msg() << std::endl;
                 return -1;
             }
             std::vector<std::string> files;
-            int64_t index_id = 1;
+            int64_t index_id = FLAGS_idx_id;
             std::string index_suffix = "";
             doris::TabletIndexPB index_pb;
             index_pb.set_index_id(index_id);
@@ -664,7 +668,7 @@ int main(int argc, char** argv) {
             using T = std::decay_t<decltype(ret)>;
             auto reader = std::forward<T>(ret).value();
             index_file_reader->debug_file_entries();
-            std::cout << "Term statistics for " << file_str << std::endl;
+            std::cout << "Term statistics for " << index_path_prefix << std::endl;
             std::cout << "==================================" << std::endl;
             check_terms_stats(reader.get());
             reader->close();

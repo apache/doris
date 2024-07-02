@@ -23,6 +23,8 @@ suite("limit_push_down") {
     sql """ SET inline_cte_referenced_threshold=0 """
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET disable_join_reorder=true"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     sql 'set be_number_for_test=3'
     //`limit 1, project`:

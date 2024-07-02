@@ -61,7 +61,7 @@ suite("test_plsql_show_procedure_fail") {
          log.info("{}", t.toString())
          if (t instanceof java.sql.SQLException) {
              String result = t.toString()
-             String expected = "java.sql.SQLException: errCode = 2, detailMessage = Only support equalTo  and Like filters.";
+             String expected = "java.sql.SQLException: errCode = 2, detailMessage = only support AND conjunction, does not support OR.";
              boolean check = result.equals(expected);
              assertTrue(check)
          } else {

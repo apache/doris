@@ -18,7 +18,7 @@
 FROM centos:7 AS builder
 
 # install epel repo for ccache
-RUN yum install epel-release -y && yum clean all && yum makecache
+RUN yum install epel-release -y && yum install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm -y && yum clean all && yum makecache
 
 # install dependencies
 RUN yum install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \

@@ -30,7 +30,6 @@ import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -140,15 +139,6 @@ public class StructLiteral extends LiteralExpr {
         container.setTypes(new ArrayList<TTypeNode>());
         type.toThrift(container);
         msg.setType(container);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(children.size());
-        for (Expr e : children) {
-            Expr.writeTo(e, out);
-        }
     }
 
     @Override

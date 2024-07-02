@@ -51,8 +51,10 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/memory/memory_reclamation.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/cpu_info.h"
@@ -209,7 +211,7 @@ void Daemon::memory_maintenance_thread() {
         // Refresh process memory metrics.
         doris::PerfCounters::refresh_proc_status();
         doris::MemInfo::refresh_proc_meminfo();
-        doris::MemInfo::refresh_proc_mem_no_allocator_cache();
+        doris::GlobalMemoryArbitrator::reset_refresh_interval_memory_growth();
 
         // Update and print memory stat when the memory changes by 256M.
         if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
@@ -230,7 +232,7 @@ void Daemon::memory_maintenance_thread() {
 
             ExecEnv::GetInstance()->brpc_iobuf_block_memory_tracker()->set_consumption(
                     butil::IOBuf::block_memory());
-            LOG(INFO) << MemTrackerLimiter::
+            LOG(INFO) << doris::GlobalMemoryArbitrator::
                             process_mem_log_str(); // print mem log when memory state by 256M
         }
     }
@@ -246,36 +248,38 @@ void Daemon::memory_gc_thread() {
         if (config::disable_memory_gc) {
             continue;
         }
-        auto sys_mem_available = doris::MemInfo::sys_mem_available();
-        auto proc_mem_no_allocator_cache = doris::MemInfo::proc_mem_no_allocator_cache();
+        auto sys_mem_available = doris::GlobalMemoryArbitrator::sys_mem_available();
+        auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
 
         // GC excess memory for resource groups that not enable overcommit
-        auto tg_free_mem = doris::MemInfo::tg_not_enable_overcommit_group_gc();
+        auto tg_free_mem = doris::MemoryReclamation::tg_disable_overcommit_group_gc();
         sys_mem_available += tg_free_mem;
-        proc_mem_no_allocator_cache -= tg_free_mem;
+        process_memory_usage -= tg_free_mem;
 
         if (memory_full_gc_sleep_time_ms <= 0 &&
             (sys_mem_available < doris::MemInfo::sys_mem_available_low_water_mark() ||
-             proc_mem_no_allocator_cache >= doris::MemInfo::mem_limit())) {
+             process_memory_usage >= doris::MemInfo::mem_limit())) {
             // No longer full gc and minor gc during sleep.
+            std::string mem_info =
+                    doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str();
             memory_full_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
-            LOG(INFO) << fmt::format("[MemoryGC] start full GC, {}.",
-                                     MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+            LOG(INFO) << fmt::format("[MemoryGC] start full GC, {}.", mem_info);
             doris::MemTrackerLimiter::print_log_process_usage();
-            if (doris::MemInfo::process_full_gc()) {
+            if (doris::MemoryReclamation::process_full_gc(std::move(mem_info))) {
                 // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
                 doris::MemTrackerLimiter::enable_print_log_process_usage();
             }
         } else if (memory_minor_gc_sleep_time_ms <= 0 &&
                    (sys_mem_available < doris::MemInfo::sys_mem_available_warning_water_mark() ||
-                    proc_mem_no_allocator_cache >= doris::MemInfo::soft_mem_limit())) {
+                    process_memory_usage >= doris::MemInfo::soft_mem_limit())) {
             // No minor gc during sleep, but full gc is possible.
+            std::string mem_info =
+                    doris::GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str();
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
-            LOG(INFO) << fmt::format("[MemoryGC] start minor GC, {}.",
-                                     MemTrackerLimiter::process_soft_limit_exceeded_errmsg_str());
+            LOG(INFO) << fmt::format("[MemoryGC] start minor GC, {}.", mem_info);
             doris::MemTrackerLimiter::print_log_process_usage();
-            if (doris::MemInfo::process_minor_gc()) {
+            if (doris::MemoryReclamation::process_minor_gc(std::move(mem_info))) {
                 doris::MemTrackerLimiter::enable_print_log_process_usage();
             }
         } else {
@@ -289,7 +293,7 @@ void Daemon::memory_gc_thread() {
     }
 }
 
-void Daemon::memtable_memory_limiter_tracker_refresh_thread() {
+void Daemon::memtable_memory_refresh_thread() {
     // Refresh the memory statistics of the load channel tracker more frequently,
     // which helps to accurately control the memory of LoadChannelMgr.
     while (!_stop_background_threads_latch.wait_for(
@@ -407,9 +411,8 @@ void Daemon::start() {
             &_threads.emplace_back());
     CHECK(st.ok()) << st;
     st = Thread::create(
-            "Daemon", "memtable_memory_limiter_tracker_refresh_thread",
-            [this]() { this->memtable_memory_limiter_tracker_refresh_thread(); },
-            &_threads.emplace_back());
+            "Daemon", "memtable_memory_refresh_thread",
+            [this]() { this->memtable_memory_refresh_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
 
     if (config::enable_metric_calculator) {

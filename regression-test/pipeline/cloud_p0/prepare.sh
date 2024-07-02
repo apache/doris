@@ -35,7 +35,7 @@ if ${DEBUG:-false}; then
 fi
 
 # shellcheck source=/dev/null
-# stop_doris, clean_fdb, install_fdb, install_java
+# stop_doris, clean_fdb, install_fdb, install_java, clear_coredump
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 # shellcheck source=/dev/null
 # check_oss_file_exist, download_oss_file
@@ -100,6 +100,7 @@ echo "#### 3. try to kill old doris process"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 stop_doris
+clear_coredump
 
 echo "#### 4. prepare fundationdb"
 install_fdb

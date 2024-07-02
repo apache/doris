@@ -19,6 +19,7 @@ package org.apache.doris.datasource.jdbc.client;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -26,15 +27,15 @@ import java.sql.SQLException;
 import java.sql.Statement;
 
 public class JdbcOceanBaseClient extends JdbcClient {
-    private JdbcClient currentClient;
 
     public JdbcOceanBaseClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
+    }
 
+    public JdbcClient createClient(JdbcClientConfig jdbcClientConfig) throws JdbcClientException {
         Connection conn = null;
         Statement stmt = null;
         ResultSet rs = null;
-
         try {
             conn = super.getConnection();
             stmt = conn.createStatement();
@@ -42,16 +43,17 @@ public class JdbcOceanBaseClient extends JdbcClient {
             if (rs.next()) {
                 String compatibilityMode = rs.getString(2);
                 if ("MYSQL".equalsIgnoreCase(compatibilityMode)) {
-                    currentClient = new JdbcMySQLClient(jdbcClientConfig);
+                    return new JdbcMySQLClient(jdbcClientConfig, JdbcResource.OCEANBASE);
                 } else if ("ORACLE".equalsIgnoreCase(compatibilityMode)) {
-                    currentClient = new JdbcOracleClient(jdbcClientConfig);
                     setOracleMode();
+                    return new JdbcOracleClient(jdbcClientConfig, JdbcResource.OCEANBASE_ORACLE);
                 } else {
                     throw new JdbcClientException("Unsupported OceanBase compatibility mode: " + compatibilityMode);
                 }
+            } else {
+                throw new JdbcClientException("Failed to determine OceanBase compatibility mode");
             }
-        } catch (SQLException | JdbcClientException e) {
-            closeClient();
+        } catch (SQLException e) {
             throw new JdbcClientException("Failed to initialize JdbcOceanBaseClient", e.getMessage());
         } finally {
             close(rs, stmt, conn);
@@ -60,10 +62,11 @@ public class JdbcOceanBaseClient extends JdbcClient {
 
     @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
-        return currentClient.jdbcTypeToDoris(fieldSchema);
+        throw new UnsupportedOperationException("JdbcOceanBaseClient does not support jdbcTypeToDoris");
     }
 
-    public void setOracleMode() {
+    private void setOracleMode() {
         this.dbType = JdbcResource.OCEANBASE_ORACLE;
     }
 }
+

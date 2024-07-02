@@ -17,12 +17,10 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <map>
-#include <memory>
-#include <string>
+#include <shared_mutex>
 #include <utility>
 
 #include "common/status.h"
@@ -31,12 +29,10 @@
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 struct IOContext;
 struct FileCacheStatistics;
 
@@ -83,5 +79,4 @@ private:
     void _update_state(const ReadStatistics& stats, FileCacheStatistics* state) const;
 };
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

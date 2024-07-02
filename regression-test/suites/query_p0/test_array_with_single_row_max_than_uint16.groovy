@@ -17,7 +17,6 @@
 
 suite("test_array_with_single_row_max_than_uint16", "query") {
     // define a sql table
-    sql """set enable_nereids_planner=false"""
     List<List<Object>> backends =  sql """ select * from backends(); """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]

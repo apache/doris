@@ -34,6 +34,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -64,7 +65,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
+public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPostProcessable {
 
     public static final String DEFAULT_GROUP_NAME = "normal";
 
@@ -90,22 +91,13 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     private final ResourceProcNode procNode = new ResourceProcNode();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
-    private Thread updatePropThread;
-
-    public void startUpdateThread() {
-        WorkloadGroupMgr wgMgr = this;
-        updatePropThread = new Thread(() -> {
-            Thread.currentThread().setName("reset-query-queue-prop");
-            while (true) {
-                try {
-                    wgMgr.resetQueryQueueProp();
-                    Thread.sleep(Config.query_queue_update_interval_ms);
-                } catch (Throwable e) {
-                    LOG.warn("reset query queue failed ", e);
-                }
-            }
-        });
-        updatePropThread.start();
+    @Override
+    protected void runAfterCatalogReady() {
+        try {
+            resetQueryQueueProp();
+        } catch (Throwable e) {
+            LOG.warn("reset query queue failed ", e);
+        }
     }
 
     public void resetQueryQueueProp() {
@@ -142,6 +134,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public WorkloadGroupMgr() {
+        super("workload-group-thread", Config.query_queue_update_interval_ms);
         // if no fe image exist, we should append internal group here.
         appendInternalWorkloadGroup();
     }

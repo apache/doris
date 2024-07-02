@@ -88,7 +88,6 @@ suite("test_export_with_parallelism", "p2") {
     }
 
     def outFilePath = """${bucket}/export/exp_"""
-    // def outFilePath = """${bucket}/mac/test_job_scheduel/stu/exp_"""
 
     def test_export = {format, file_suffix, isDelete, parallelism ->
         def uuid = UUID.randomUUID().toString()
@@ -98,15 +97,16 @@ suite("test_export_with_parallelism", "p2") {
             PROPERTIES(
                 "label" = "${uuid}",
                 "format" = "${format}",
-                "column_separator" = ",",
                 "parallelism" = "${parallelism}",
+                "data_consistency" = "none",
                 "delete_existing_files"="${isDelete}"
             )
             WITH s3 (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
                 "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                "s3.access_key" = "${ak}",
+                "provider" = "${getS3Provider()}"
             );
         """
 
@@ -129,11 +129,13 @@ suite("test_export_with_parallelism", "p2") {
             // check data correctness
             sql """ insert into ${table_load_name}
                         select * from s3(
-                        "uri" = "http://${s3_endpoint}${outfile_url_list.get(j).substring(4)}0.${file_suffix}",
+                        "uri" = "http://${bucket}.${s3_endpoint}${outfile_url_list.substring(5 + bucket.length())}.${file_suffix}",
                         "s3.access_key"= "${ak}",
                         "s3.secret_key" = "${sk}",
                         "format" = "${format}",
-                        "region" = "${region}"
+                        "region" = "${region}",
+                        "provider" = "${getS3Provider()}",
+                        "use_path_style" = "false" -- aliyun does not support path_style
                 );
                 """
         }

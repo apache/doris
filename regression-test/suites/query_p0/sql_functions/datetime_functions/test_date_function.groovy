@@ -239,6 +239,51 @@ suite("test_date_function") {
         contains "2025-01-16"
     }
 
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_sub('2024-01-16',INTERVAL 1 day);"""
+        contains "2024-01-15"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_sub('2024-02-16',1);"""
+        contains "2024-01-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_sub('2024-01-16',1);"""
+        contains "2023-01-16"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_add(cast('2024-01-16' as DATE),INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= adddate(cast('2024-01-16' as DATE),INTERVAL 1 day);"""
+        contains "2024-01-17"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_add(cast('2024-01-16' as DATE),1);"""
+        contains "2024-02-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_add(cast('2024-01-16' as DATE),1);"""
+        contains "2025-01-16"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= date_sub(cast('2024-01-16' as DATE),INTERVAL 1 day);"""
+        contains "2024-01-15"
+    }
+
+    explain {
+        sql """select * from ${tableName} where test_datetime >= months_sub(cast('2024-02-16' as DATE),1);"""
+        contains "2024-01-16"
+    }
+    explain {
+        sql """select * from ${tableName} where test_datetime >= years_sub(cast('2024-01-16' as DATE),1);"""
+        contains "2023-01-16"
+    }
+
     // DATE_FORMAT
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2009-10-04 22:23:00") """
@@ -396,6 +441,7 @@ suite("test_date_function") {
     // UNIX_TIMESTAMP
     def unin_timestamp_str = """ select unix_timestamp() """
     assertTrue(unin_timestamp_str[0].size() == 1)
+    sql """set DEBUG_SKIP_FOLD_CONSTANT = true;"""
     qt_sql_ustamp1 """ select unix_timestamp('2007-11-30 10:30:19') """
     qt_sql_ustamp2 """ select unix_timestamp('2007-11-30 10:30-19', '%Y-%m-%d %H:%i-%s') """
     qt_sql_ustamp3 """ select unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s') """
@@ -403,7 +449,8 @@ suite("test_date_function") {
     qt_sql_ustamp5 """ select unix_timestamp('2007-11-30 10:30:19.123456') """
     qt_sql_ustamp6 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(3))) """
     qt_sql_ustamp7 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(4))) """
-
+    qt_sql_ustamp8 """ select cast(unix_timestamp("2024-01-01",'yyyy-MM-dd') as bigint) """
+    sql """set DEBUG_SKIP_FOLD_CONSTANT = false;"""
     // UTC_TIMESTAMP
     def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """
     assertTrue(utc_timestamp_str[0].size() == 2)
@@ -766,7 +813,7 @@ suite("test_date_function") {
     ("0000-00-00", "%Y-%m-%d"),("0000-01-01", "%Y-%m-%d"),("9999-12-31 23:59:59", "%Y-%m-%d %H:%i:%s"),
     ("9999-12-31 23:59:59.999999", "%Y-%m-%d %H:%i:%s.%f"), ("9999-12-31 23:59:59.9999999", "%Y-%m-%d %H:%i:%s.%f"),
     ("1999-12-31 23:59:59.9999999", "%Y-%m-%d %H:%i:%s.%f"); """
-    qt_sql_varchar1 """ select dt, fmt, unix_timestamp(dt, fmt) as k1 from date_varchar order by k1; """
-    qt_sql_varchar1 """ select dt, unix_timestamp(dt, "%Y-%m-%d") as k1 from date_varchar order by k1; """
-    qt_sql_varchar1 """ select fmt, unix_timestamp("1990-12-12", fmt) as k1 from date_varchar order by k1; """
+    qt_sql_varchar1 """ select dt, fmt, unix_timestamp(dt, fmt) as k1 from date_varchar order by k1,dt,fmt; """
+    qt_sql_varchar1 """ select dt, unix_timestamp(dt, "%Y-%m-%d") as k1 from date_varchar order by k1,dt,fmt; """
+    qt_sql_varchar1 """ select fmt, unix_timestamp("1990-12-12", fmt) as k1 from date_varchar order by k1,dt,fmt; """
 }

@@ -35,6 +35,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
 
 namespace doris {
 
@@ -172,7 +173,6 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
                                                       int row_num) const {
     StringRef data_ref = column.get_data_at(row_num);
     result.writeKey(col_id);
-    // TODO: decimal256
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         Decimal128V2::NativeType val =
                 *reinterpret_cast<const Decimal128V2::NativeType*>(data_ref.data);
@@ -187,6 +187,11 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
         Decimal64::NativeType val = *reinterpret_cast<const Decimal64::NativeType*>(data_ref.data);
         result.writeInt64(val);
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
+        // use binary type, since jsonb does not support int256
+        result.writeStartBinary();
+        result.writeBinary(data_ref.data, data_ref.size);
+        result.writeEndBinary();
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_one_cell_to_jsonb with type " + column.get_name());
@@ -197,7 +202,6 @@ template <typename T>
 void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                        const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
-    // TODO: decimal256
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal128V3>) {
@@ -206,6 +210,11 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
         col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
         col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
+        // use binary type, since jsonb does not support int256
+        const wide::Int256 val = *reinterpret_cast<const wide::Int256*>(
+                static_cast<const JsonbBlobVal*>(arg)->getBlob());
+        col.insert_value(Decimal256(val));
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "read_one_cell_from_jsonb with type " + column.get_name());

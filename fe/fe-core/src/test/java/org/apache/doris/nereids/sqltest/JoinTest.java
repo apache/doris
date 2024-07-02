@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 public class JoinTest extends SqlTestBase {
     @Test
     void testJoinUsing() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "SELECT * FROM T1 JOIN T2 using (id)";
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -42,6 +43,7 @@ public class JoinTest extends SqlTestBase {
 
     @Test
     void testColocatedJoin() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select * from T2 join T2 b on T2.id = b.id and T2.id = b.id;";
         PhysicalPlan plan = PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -65,6 +67,7 @@ public class JoinTest extends SqlTestBase {
 
     @Test
     void testDedupConjuncts() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select * from T1 join T2 on T1.id = T2.id and T1.id = T2.id;";
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -84,6 +87,7 @@ public class JoinTest extends SqlTestBase {
 
     @Test
     void testBucketJoinWithAgg() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select * from "
                 + "(select distinct id as cnt from T2) T1 inner join"
                 + "(select distinct id as cnt from T2) T2 "

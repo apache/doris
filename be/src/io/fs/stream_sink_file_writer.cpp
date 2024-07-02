@@ -111,7 +111,29 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
     return Status::OK();
 }
 
-Status StreamSinkFileWriter::finalize() {
+Status StreamSinkFileWriter::close(bool non_block) {
+    if (_state == State::CLOSED) {
+        return Status::InternalError("StreamSinkFileWriter already closed, load id {}",
+                                     print_id(_load_id));
+    }
+    if (_state == State::ASYNC_CLOSING) {
+        if (non_block) {
+            return Status::InternalError("Don't submit async close multi times");
+        }
+        // Actucally the first time call to close(true) would return the value of _finalize, if it returned one
+        // error status then the code would never call the second close(true)
+        _state = State::CLOSED;
+        return Status::OK();
+    }
+    if (non_block) {
+        _state = State::ASYNC_CLOSING;
+    } else {
+        _state = State::CLOSED;
+    }
+    return _finalize();
+}
+
+Status StreamSinkFileWriter::_finalize() {
     VLOG_DEBUG << "writer finalize, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
                << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id;
     // TODO(zhengyu): update get_inverted_index_file_size into stat
@@ -141,11 +163,6 @@ Status StreamSinkFileWriter::finalize() {
                 "failed to send segment eos to any replicas, tablet_id={}, segment_id={}",
                 _tablet_id, _segment_id);
     }
-    return Status::OK();
-}
-
-Status StreamSinkFileWriter::close() {
-    _closed = true;
     return Status::OK();
 }
 

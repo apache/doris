@@ -92,6 +92,7 @@ public class ExpressionUtilsTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     @Test

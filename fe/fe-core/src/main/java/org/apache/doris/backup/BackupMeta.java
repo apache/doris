@@ -17,10 +17,14 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
@@ -37,13 +41,12 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-public class BackupMeta implements Writable {
+public class BackupMeta implements Writable, GsonPostProcessable {
 
     // tbl name -> tbl
     @SerializedName(value = "tblNameMap")
     private Map<String, Table> tblNameMap = Maps.newHashMap();
     // tbl id -> tbl
-    @SerializedName(value = "tblIdMap")
     private Map<Long, Table> tblIdMap = Maps.newHashMap();
     // resource name -> resource
     @SerializedName(value = "resourceNameMap")
@@ -88,7 +91,7 @@ public class BackupMeta implements Writable {
         metaContext.setMetaVersion(metaVersion);
         metaContext.setThreadLocalInfo();
         try (DataInputStream dis = new DataInputStream(new FileInputStream(file))) {
-            BackupMeta backupMeta = BackupMeta.read(dis);
+            BackupMeta backupMeta = BackupMeta.read(dis, metaVersion);
             return backupMeta;
         } finally {
             MetaContext.remove();
@@ -110,24 +113,34 @@ public class BackupMeta implements Writable {
         return false;
     }
 
+    public static BackupMeta read(DataInput in, int metaVersion) throws IOException {
+        if (metaVersion < FeMetaVersion.VERSION_136) {
+            BackupMeta backupMeta = new BackupMeta();
+            backupMeta.readFields(in);
+            return backupMeta;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, BackupMeta.class);
+        }
+    }
+
     public static BackupMeta read(DataInput in) throws IOException {
-        BackupMeta backupMeta = new BackupMeta();
-        backupMeta.readFields(in);
-        return backupMeta;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            BackupMeta backupMeta = new BackupMeta();
+            backupMeta.readFields(in);
+            return backupMeta;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, BackupMeta.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(tblNameMap.size());
-        for (Table table : tblNameMap.values()) {
-            table.write(out);
-        }
-        out.writeInt(resourceNameMap.size());
-        for (Resource resource : resourceNameMap.values()) {
-            resource.write(out);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
@@ -139,6 +152,13 @@ public class BackupMeta implements Writable {
         for (int i = 0; i < size; i++) {
             Resource resource = Resource.read(in);
             resourceNameMap.put(resource.getName(), resource);
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        for (Table table : tblNameMap.values()) {
+            tblIdMap.put(table.getId(), table);
         }
     }
 

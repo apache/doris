@@ -191,8 +191,7 @@ function stop_doris() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh; fi
     if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh; fi
-    if "${DORIS_HOME}"/fe/bin/stop_fe.sh &&
-        "${DORIS_HOME}"/be/bin/stop_be.sh; then
+    if "${DORIS_HOME}"/be/bin/stop_be.sh && "${DORIS_HOME}"/fe/bin/stop_fe.sh; then
         echo "INFO: normally stoped doris"
     else
         pgrep -fi doris | xargs kill -9 &>/dev/null
@@ -531,6 +530,11 @@ wait_coredump_file_ready() {
     done
 }
 
+clear_coredump() {
+    echo -e "INFO: clear coredump files \n$(ls /var/lib/apport/coredump/)"
+    rm -rf /var/lib/apport/coredump/*
+}
+
 archive_doris_coredump() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"
@@ -728,4 +732,14 @@ function check_if_need_gcore() {
     else
         echo "ERROR: unknown exit_flag ${exit_flag}" && return 1
     fi
+}
+
+function print_running_pipeline_tasks() {
+    webserver_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf webserver_port)
+    mkdir -p "${DORIS_HOME}"/be/log/
+    echo "------------------------${FUNCNAME[0]}--------------------------"
+    echo "curl -m 10 http://127.0.0.1:${webserver_port}/api/running_pipeline_tasks/30"
+    echo ""
+    curl -m 10 "http://127.0.0.1:${webserver_port}/api/running_pipeline_tasks/30" 2>&1 | tee "${DORIS_HOME}"/be/log/running_pipeline_tasks_30
+    echo "------------------------${FUNCNAME[0]}--------------------------"
 }

@@ -103,7 +103,7 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
                     .stream().forEach(rf -> builder.append(" RF").append(rf.getId().asInt()));
         }
         return Utils.toSqlString("PhysicalCTEConsumer[" + id.asInt() + "]",
-                "stats", getStats(), "cteId", cteId, "RFs", builder);
+                "stats", getStats(), "cteId", cteId, "RFs", builder, "map", consumerToProducerSlotMap);
     }
 
     @Override

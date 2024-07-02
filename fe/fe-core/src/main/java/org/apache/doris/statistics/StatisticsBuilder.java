@@ -21,11 +21,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 public class StatisticsBuilder {
 
     private double rowCount;
-    private int widthInJoinCluster;
+    private int widthInJoinCluster = 1;
     private final Map<Expression, ColumnStatistic> expressionToColumnStats;
 
     public StatisticsBuilder() {
@@ -58,6 +59,10 @@ public class StatisticsBuilder {
     public StatisticsBuilder putColumnStatistics(Expression expression, ColumnStatistic columnStatistic) {
         expressionToColumnStats.put(expression, columnStatistic);
         return this;
+    }
+
+    public Set<Map.Entry<Expression, ColumnStatistic>> getExpressionColumnStatsEntries() {
+        return expressionToColumnStats.entrySet();
     }
 
     public Statistics build() {

@@ -323,26 +323,6 @@ static std::string next_available_vault_id(const InstanceInfoPB& instance) {
 
 namespace detail {
 
-// Removes any trailing `c` in `str`
-void strip_trailing(std::string& str, char c) {
-    size_t end = str.find_last_not_of(c);
-    if (end == std::string::npos) {
-        str = "";
-    } else {
-        str.resize(end + 1);
-    }
-}
-
-// Removes any leading `c` in `str`
-void strip_leading(std::string& str, char c) {
-    size_t start = str.find_first_not_of(c);
-    if (start == std::string::npos) {
-        str = "";
-    } else if (start > 0) {
-        str = str.substr(start);
-    }
-}
-
 // Validate and normalize hdfs prefix. Return true if prefix is valid.
 bool normalize_hdfs_prefix(std::string& prefix) {
     if (prefix.empty()) {
@@ -354,9 +334,7 @@ bool normalize_hdfs_prefix(std::string& prefix) {
         return false;
     }
 
-    strip_trailing(prefix, ' ');
-    strip_leading(prefix, ' ');
-    strip_trailing(prefix, '/');
+    trim(prefix);
     return true;
 }
 
@@ -367,10 +345,7 @@ bool normalize_hdfs_fs_name(std::string& fs_name) {
     }
 
     // Should check scheme existence?
-
-    strip_trailing(fs_name, ' ');
-    strip_leading(fs_name, ' ');
-    strip_trailing(fs_name, '/');
+    trim(fs_name);
     return !fs_name.empty();
 }
 
@@ -390,14 +365,14 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     auto* prefix = hdfs_param.mutable_hdfs_info()->mutable_prefix();
     if (!normalize_hdfs_prefix(*prefix)) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("invalid prefix: ", *prefix);
+        msg = fmt::format("invalid prefix: {}", *prefix);
         return -1;
     }
     if (config::enable_distinguish_hdfs_path) {
         auto uuid_suffix = butil::GenerateGUID();
         if (uuid_suffix.empty()) [[unlikely]] {
             code = MetaServiceCode::UNDEFINED_ERR;
-            msg = fmt::format("failed to generate one suffix for hdfs prefix");
+            msg = fmt::format("failed to generate one suffix for hdfs prefix: {}", *prefix);
             return -1;
         }
         *prefix = fmt::format("{}_{}", *prefix, uuid_suffix);
@@ -406,7 +381,7 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     auto* fs_name = hdfs_param.mutable_hdfs_info()->mutable_build_conf()->mutable_fs_name();
     if (!normalize_hdfs_fs_name(*fs_name)) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("invalid fs_name: ", *fs_name);
+        msg = fmt::format("invalid fs_name: {}", *fs_name);
         return -1;
     }
 
@@ -431,7 +406,7 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string bucket = obj->has_bucket() ? obj->bucket() : "";
     std::string prefix = obj->has_prefix() ? obj->prefix() : "";
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
-    prefix = trim(prefix);
+    trim(prefix);
     std::string endpoint = obj->has_endpoint() ? obj->endpoint() : "";
     std::string external_endpoint = obj->has_external_endpoint() ? obj->external_endpoint() : "";
     std::string region = obj->has_region() ? obj->region() : "";
@@ -763,7 +738,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.mutable_encryption_info()->CopyFrom(encryption_info);
         last_item.set_bucket(bucket);
         // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
-        prefix = trim(prefix);
+        trim(prefix);
         last_item.set_prefix(prefix);
         last_item.set_endpoint(endpoint);
         last_item.set_external_endpoint(external_endpoint);
@@ -864,7 +839,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         break;
     }
     case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT: {
-        LOG_INFO("unset instance's default vault, instance id {}, previoud default vault {}, id {}",
+        LOG_INFO("unset instance's default vault, instance id {}, previous default vault {}, id {}",
                  instance.instance_id(), instance.default_storage_vault_name(),
                  instance.default_storage_vault_id());
         instance.clear_default_storage_vault_id();
@@ -1189,7 +1164,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         std::stringstream ss;
         ss << (err == TxnErrorCode::TXN_OK ? "instance already existed"
                                            : "internal error failed to check instance")
-           << ", instance_id=" << request->instance_id();
+           << ", instance_id=" << request->instance_id() << ", err=" << err;
         code = err == TxnErrorCode::TXN_OK ? MetaServiceCode::ALREADY_EXISTED
                                            : cast_as<ErrCategory::READ>(err);
         msg = ss.str();
@@ -1498,7 +1473,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
         std::stringstream ss;
         ss << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "instance not existed"
                                                       : "internal error failed to check instance")
-           << ", instance_id=" << request->instance_id();
+           << ", instance_id=" << request->instance_id() << ", err=" << err;
         // TODO(dx): fix CLUSTER_NOT_FOUND，VERSION_NOT_FOUND，TXN_LABEL_NOT_FOUND，etc to NOT_FOUND
         code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::CLUSTER_NOT_FOUND
                                                       : cast_as<ErrCategory::READ>(err);

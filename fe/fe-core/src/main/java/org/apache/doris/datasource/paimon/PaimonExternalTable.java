@@ -80,7 +80,7 @@ public class PaimonExternalTable extends ExternalTable {
         List<DataField> columns = schema.fields();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
         for (DataField field : columns) {
-            tmpSchema.add(new Column(field.name(),
+            tmpSchema.add(new Column(field.name().toLowerCase(),
                     paimonTypeToDorisType(field.type()), true, null, true, field.description(), true,
                     field.id()));
         }

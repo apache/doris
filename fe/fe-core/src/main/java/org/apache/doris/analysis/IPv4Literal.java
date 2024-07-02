@@ -23,6 +23,8 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TIPv4Literal;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.util.regex.Pattern;
 
 public class IPv4Literal extends LiteralExpr {
@@ -32,6 +34,7 @@ public class IPv4Literal extends LiteralExpr {
     private static final Pattern IPV4_STD_REGEX =
             Pattern.compile("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
 
+    @SerializedName("v")
     private long value;
 
     /**

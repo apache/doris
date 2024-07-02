@@ -24,14 +24,13 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
+#include "pipeline/exec/spill_utils.h"
 #include "vec/runtime/partitioner.h"
 
 namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
-using PartitionerType = vectorized::Crc32HashPartitioner<vectorized::SpillPartitionChannelIds>;
 
 class PartitionedHashJoinSinkOperatorX;
 
@@ -70,7 +69,7 @@ protected:
     Status _spill_status;
     std::mutex _spill_status_lock;
 
-    std::unique_ptr<PartitionerType> _partitioner;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
@@ -127,6 +126,10 @@ public:
         _inner_probe_operator = probe_operator;
     }
 
+    bool require_data_distribution() const override {
+        return _inner_probe_operator->require_data_distribution();
+    }
+
 private:
     friend class PartitionedHashJoinSinkLocalState;
 
@@ -143,6 +146,7 @@ private:
     const TPlanNode _tnode;
     const DescriptorTbl _descriptor_tbl;
     const uint32_t _partition_count;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
 };
 
 } // namespace pipeline

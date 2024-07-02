@@ -71,13 +71,16 @@ Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
             }
         }
         int non_share_len = entry_len - share_len;
+        // This may need a large memory, should return error if could not allocated
+        // successfully, to avoid BE OOM.
+        RETURN_IF_CATCH_EXCEPTION({
+            put_varint32(&_buffer, share_len);
+            put_varint32(&_buffer, non_share_len);
+            _buffer.append(entry + share_len, non_share_len);
 
-        put_varint32(&_buffer, share_len);
-        put_varint32(&_buffer, non_share_len);
-        _buffer.append(entry + share_len, non_share_len);
-
-        _last_entry.clear();
-        _last_entry.append(entry, entry_len);
+            _last_entry.clear();
+            _last_entry.append(entry, entry_len);
+        });
 
         ++_count;
     }

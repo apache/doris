@@ -73,6 +73,7 @@ public class HadoopUGI {
             String hadoopUserName = ((SimpleAuthenticationConfig) config).getUsername();
             if (hadoopUserName == null) {
                 hadoopUserName = "hadoop";
+                ((SimpleAuthenticationConfig) config).setUsername(hadoopUserName);
                 LOG.debug(AuthenticationConfig.HADOOP_USER_NAME + " is unset, use default user: hadoop");
             }
             ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
@@ -111,7 +112,9 @@ public class HadoopUGI {
         UserGroupInformation ugi = HadoopUGI.loginWithUGI(authConf);
         try {
             if (ugi != null) {
-                ugi.checkTGTAndReloginFromKeytab();
+                if (authConf instanceof KerberosAuthenticationConfig) {
+                    ugi.checkTGTAndReloginFromKeytab();
+                }
                 return ugi.doAs(action);
             } else {
                 return action.run();

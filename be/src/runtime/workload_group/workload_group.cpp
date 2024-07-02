@@ -27,9 +27,11 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "olap/storage_engine.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
@@ -171,18 +173,20 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
                     MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
         }
     }
-    std::string process_mem_usage_str = MemTrackerLimiter::process_mem_log_str();
-    auto cancel_top_overcommit_str = [cancel_str, process_mem_usage_str](int64_t mem_consumption,
-                                                                         const std::string& label) {
+    auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
+                                                  const std::string& label) {
         return fmt::format(
-                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption), process_mem_usage_str);
+                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}, Execute "
+                "again after enough memory, details see be.INFO.",
+                cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
     };
-    auto cancel_top_usage_str = [cancel_str, process_mem_usage_str](int64_t mem_consumption,
-                                                                    const std::string& label) {
-        return fmt::format("{} cancel top memory used tracker <{}> consumption {}. details:{}",
-                           cancel_str, label, MemTracker::print_bytes(mem_consumption),
-                           process_mem_usage_str);
+    auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
+        return fmt::format(
+                "{} cancel top memory used tracker <{}> consumption {}. details:{}, Execute again "
+                "after enough memory, details see be.INFO.",
+                cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str());
     };
 
     LOG(INFO) << fmt::format(
@@ -427,19 +431,35 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
                                                   min_remote_scan_thread_num);
     }
 
-    if (_non_pipe_thread_pool == nullptr) {
-        std::unique_ptr<ThreadPool> thread_pool = nullptr;
-        auto ret = ThreadPoolBuilder("nonPip_" + tg_name)
-                           .set_min_threads(1)
-                           .set_max_threads(config::fragment_pool_thread_num_max)
-                           .set_max_queue_size(config::fragment_pool_queue_size)
-                           .set_cgroup_cpu_ctl(cg_cpu_ctl_ptr)
-                           .build(&thread_pool);
-        if (!ret.ok()) {
-            LOG(INFO) << "[upsert wg thread pool] create non-pipline thread pool failed, gid="
-                      << tg_id;
-        } else {
-            _non_pipe_thread_pool = std::move(thread_pool);
+    if (_memtable_flush_pool == nullptr) {
+        int num_disk = ExecEnv::GetInstance()->storage_engine().get_disk_num();
+        // -1 means disk num may not be inited, so not create flush pool
+        if (num_disk != -1) {
+            std::unique_ptr<ThreadPool> thread_pool = nullptr;
+            num_disk = std::max(1, num_disk);
+            int num_cpus = std::thread::hardware_concurrency();
+
+            int min_threads = std::max(1, config::wg_flush_thread_num_per_store);
+            int max_threads = num_cpus == 0
+                                      ? num_disk * min_threads
+                                      : std::min(num_disk * min_threads,
+                                                 num_cpus * config::wg_flush_thread_num_per_cpu);
+
+            std::string pool_name = "wg_flush_" + tg_name;
+            auto ret = ThreadPoolBuilder(pool_name)
+                               .set_min_threads(min_threads)
+                               .set_max_threads(max_threads)
+                               .set_cgroup_cpu_ctl(cg_cpu_ctl_ptr)
+                               .build(&thread_pool);
+            if (!ret.ok()) {
+                LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " failed, gid="
+                          << tg_id;
+            } else {
+                _memtable_flush_pool = std::move(thread_pool);
+                LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " succ, gid=" << tg_id
+                          << ", max thread num=" << max_threads
+                          << ", min thread num=" << min_threads;
+            }
         }
     }
 
@@ -467,13 +487,13 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
 
 void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                                         vectorized::SimplifiedScanScheduler** scan_sched,
-                                        ThreadPool** non_pipe_thread_pool,
+                                        ThreadPool** memtable_flush_pool,
                                         vectorized::SimplifiedScanScheduler** remote_scan_sched) {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
     *exec_sched = _task_sched.get();
     *scan_sched = _scan_task_sched.get();
     *remote_scan_sched = _remote_scan_task_sched.get();
-    *non_pipe_thread_pool = _non_pipe_thread_pool.get();
+    *memtable_flush_pool = _memtable_flush_pool.get();
 }
 
 void WorkloadGroup::try_stop_schedulers() {
@@ -487,9 +507,9 @@ void WorkloadGroup::try_stop_schedulers() {
     if (_remote_scan_task_sched) {
         _remote_scan_task_sched->stop();
     }
-    if (_non_pipe_thread_pool) {
-        _non_pipe_thread_pool->shutdown();
-        _non_pipe_thread_pool->wait();
+    if (_memtable_flush_pool) {
+        _memtable_flush_pool->shutdown();
+        _memtable_flush_pool->wait();
     }
 }
 

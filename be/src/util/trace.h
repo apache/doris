@@ -19,7 +19,6 @@
 #include <butil/macros.h>
 
 #include "gutil/ref_counted.h"
-#include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
 #include "gutil/threading/thread_collision_warner.h"
 #include "util/scoped_cleanup.h"

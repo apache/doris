@@ -131,8 +131,8 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         Expression expression = new GreaterThan(left, right);
         Expression rewrittenExpression = executor.rewrite(typeCoercion(expression), context);
 
-        // right should round to be 2021-01-02 00:00:00.00
-        Assertions.assertEquals(new DateTimeLiteral("2021-01-02 00:00:00"), rewrittenExpression.child(1));
+        // right should round to be 2021-01-01 23:59:59
+        Assertions.assertEquals(new DateTimeLiteral("2021-01-01 23:59:59"), rewrittenExpression.child(1));
     }
 
     @Test

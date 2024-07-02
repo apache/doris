@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -162,22 +162,22 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     }
 
     @Override
-    public void computeUnique(Builder fdBuilder) {
+    public void computeUnique(Builder builder) {
         // don't generate and propagate unique
     }
 
     @Override
-    public void computeUniform(Builder fdBuilder) {
-        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    public void computeUniform(Builder builder) {
+        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
     }
 
     @Override
-    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
     }
 
     @Override
-    public void computeFd(Builder fdBuilder) {
-        fdBuilder.addFuncDepsDG(child().getLogicalProperties().getFunctionalDependencies());
+    public void computeFd(Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
 }

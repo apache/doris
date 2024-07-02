@@ -111,12 +111,6 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                         IColumn::Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not supported in ColumnDictionary";
-        __builtin_unreachable();
-    }
-
     void reserve(size_t n) override { _codes.reserve(n); }
 
     const char* get_family_name() const override { return "ColumnDictionary"; }
@@ -151,19 +145,7 @@ public:
         __builtin_unreachable();
     }
 
-    [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
-                                int nan_direction_hint) const override {
-        LOG(FATAL) << "compare_at not supported in ColumnDictionary";
-        __builtin_unreachable();
-    }
-
     bool is_fixed_and_contiguous() const override { return true; }
-
-    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
-                                         size_t limit) const override {
-        LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
-        __builtin_unreachable();
-    }
 
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
@@ -210,11 +192,6 @@ public:
         __builtin_unreachable();
     }
 
-    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
-        LOG(FATAL) << "index not implemented";
-        __builtin_unreachable();
-    }
-
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         auto* res_col = assert_cast<vectorized::ColumnString*>(col_ptr);
         _strings.resize(sel_size);
@@ -233,11 +210,6 @@ public:
 
     void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call replace_column_data in ColumnDictionary";
-        __builtin_unreachable();
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "should not call replace_column_data_default in ColumnDictionary";
         __builtin_unreachable();
     }
 

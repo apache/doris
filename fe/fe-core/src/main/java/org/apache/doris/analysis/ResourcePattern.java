@@ -47,22 +47,22 @@ public class ResourcePattern implements Writable, GsonPostProcessable {
     public static ResourcePattern ALL_GENERAL;
     public static ResourcePattern ALL_CLUSTER;
     public static ResourcePattern ALL_STAGE;
+    public static ResourcePattern ALL_STORAGE_VAULT;
 
     static {
         ALL_GENERAL = new ResourcePattern("%", ResourceTypeEnum.GENERAL);
         ALL_CLUSTER = new ResourcePattern("%", ResourceTypeEnum.CLUSTER);
         ALL_STAGE = new ResourcePattern("%", ResourceTypeEnum.STAGE);
+        ALL_STORAGE_VAULT = new ResourcePattern("%", ResourceTypeEnum.STORAGE_VAULT);
 
         try {
             ALL_GENERAL.analyze();
             ALL_CLUSTER.analyze();
             ALL_STAGE.analyze();
+            ALL_STORAGE_VAULT.analyze();
         } catch (AnalysisException e) {
             // will not happen
         }
-    }
-
-    private ResourcePattern() {
     }
 
     public ResourcePattern(String resourceName, ResourceTypeEnum type) {
@@ -78,16 +78,8 @@ public class ResourcePattern implements Writable, GsonPostProcessable {
         resourceType = type;
     }
 
-    public boolean isGeneralResource() {
-        return resourceType == ResourceTypeEnum.GENERAL;
-    }
-
-    public boolean isClusterResource() {
-        return resourceType == ResourceTypeEnum.CLUSTER;
-    }
-
-    public boolean isStageResource() {
-        return resourceType == ResourceTypeEnum.STAGE;
+    public ResourceTypeEnum getResourceType() {
+        return resourceType;
     }
 
     public String getResourceName() {

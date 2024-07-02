@@ -109,6 +109,22 @@ suite("test_plsql_show_procedure") {
     sql """SHOW PROCEDURE STATUS where Db="${dbName}" and name = "test_plsql_show_proc1";"""
     sql """SHOW PROCEDURE STATUS where Db="${dbName}" and Name LIKE "test_plsql_show_proc1";"""
     sql """SHOW PROCEDURE STATUS where procedureName="test_plsql_show_proc1";"""
+  
+    test {
+        sql """SHOW PROCEDURE STATUS where procedureName="not_exist_procedure";"""
+        check { result, ex, startTime, endTime -> 
+             assertTrue(result.isEmpty());
+        }
+    }
+
+    test {
+        sql """SHOW CREATE PROCEDURE not_exist_procedure;"""
+        check { result, ex, startTime, endTime ->
+             assertTrue(result.isEmpty());
+        }
+    }
+
+
 
     sql """DROP PROC test_plsql_show_proc1"""
     sql """DROP PROC test_plsql_show_proc2"""

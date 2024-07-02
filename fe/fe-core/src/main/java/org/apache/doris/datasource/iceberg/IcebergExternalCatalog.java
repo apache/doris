@@ -22,6 +22,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.s3a.Constants;
@@ -51,7 +52,9 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         initCatalog();
-        metadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
+        IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
+        transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
+        metadataOps = ops;
     }
 
     public Catalog getCatalog() {

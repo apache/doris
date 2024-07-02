@@ -44,6 +44,7 @@ import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
+import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
@@ -80,6 +81,7 @@ class Suite implements GroovyInterceptable {
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
+    static final Logger staticLogger = LoggerFactory.getLogger(Suite.class)
 
     // set this in suite to determine which hive docker to use
     String hivePrefix = "hive2"
@@ -89,6 +91,7 @@ class Suite implements GroovyInterceptable {
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
+    static Boolean isTrinoConnectorDownloaded = false
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -298,7 +301,7 @@ class Suite implements GroovyInterceptable {
             // wait be report
             Thread.sleep(5000)
             def url = String.format(
-                    "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
+                    "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
             def conn = DriverManager.getConnection(url, user, password)
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
@@ -611,7 +614,7 @@ class Suite implements GroovyInterceptable {
         }
         if (cleanOperator==true){
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
-            quickTest("", """ SELECT * FROM ${tbName}  """)
+            quickTest("", """ SELECT * FROM ${tbName}  """, true)
             sql """ DROP TABLE  ${tbName} """
         }
     }
@@ -620,16 +623,22 @@ class Suite implements GroovyInterceptable {
     void expectException(Closure userFunction, String errorMessage = null) {
         try {
             userFunction()
-        } catch (Exception e) {
+        } catch (Exception | Error e) {
             if (e.getMessage()!= errorMessage) {
                 throw e
             }
         }
     }
 
-    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null) {
-        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${fieldName}"
-        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${fieldName}"
+    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null, String orderByFieldName = null) {
+        String orderByName = ""
+        if (ObjectUtils.isEmpty(orderByFieldName)){
+            orderByName = fieldName;
+        }else {
+            orderByName = orderByFieldName;
+        }
+        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${orderByName}"
+        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${orderByName}"
         List<Object> tbData1 = new ArrayList<Object>();
         for (List<Object> items:tb1Result){
             tbData1.add(items.get(0))
@@ -643,6 +652,12 @@ class Suite implements GroovyInterceptable {
                 throw new RuntimeException("tbData should be same")
             }
         }
+    }
+
+    String getRandomBoolean() {
+        Random random = new Random()
+        boolean randomBoolean = random.nextBoolean()
+        return randomBoolean ? "true" : "false"
     }
 
     void expectExceptionLike(Closure userFunction, String errorMessage = null) {
@@ -663,6 +678,12 @@ class Suite implements GroovyInterceptable {
     String getHdfsFs() {
         String hdfsFs = context.config.otherConfigs.get("hdfsFs")
         return hdfsFs
+    }
+
+    String getHmsHdfsFs() {
+        String host = context.config.otherConfigs.get("extHiveHmsHost")
+        String port = context.config.otherConfigs.get("extHdfsPort")
+        return "hdfs://" + host + ":" + port;
     }
 
     String getHdfsUser() {
@@ -750,20 +771,92 @@ class Suite implements GroovyInterceptable {
 
     String getS3Url() {
         String s3BucketName = context.config.otherConfigs.get("s3BucketName");
+        if (context.config.otherConfigs.get("s3Provider") == "AZURE") {
+            String accountName = context.config.otherConfigs.get("ak");
+            String s3Url = "http://${accountName}.blob.core.windows.net/${s3BucketName}"
+            return s3Url
+        }
         String s3Endpoint = context.config.otherConfigs.get("s3Endpoint");
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
     }
 
-    void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
+    static void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
         String cmd = "scp -o StrictHostKeyChecking=no -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
             cmd = "scp -o StrictHostKeyChecking=no -r ${files} ${username}@${host}:${filePath}"
         }
-        logger.info("Execute: ${cmd}".toString())
-        Process process = cmd.execute()
+        staticLogger.info("Execute: ${cmd}".toString())
+        Process process = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
         def code = process.waitFor()
+        staticLogger.info("execute output ${process.text}")
         Assert.assertEquals(0, code)
+    }
+
+    void dispatchTrinoConnectors(ArrayList host_ips)
+    {
+        def dir_download = context.config.otherConfigs.get("trinoPluginsPath")
+        def s3_url = getS3Url()
+        def url = "${s3_url}/regression/trino-connectors.tar.gz"
+        dispatchTrinoConnectors_impl(host_ips, dir_download, url)
+    }
+
+    /*
+     * download trino connectors, and sends to every fe and be.
+     * There are 3 configures to support this: trino_connectors in regression-conf.groovy, and trino_connector_plugin_dir in be and fe.
+     * fe and be's config must satisfy regression-conf.groovy's config.
+     * e.g. in regression-conf.groovy, trino_connectors = "/tmp/trino_connector", then in be.conf and fe.conf, must set trino_connector_plugin_dir="/tmp/trino_connector/connectors"
+     *
+     * this function must be not reentrant.
+     *
+     * If failed, will call assertTrue(false).
+     */
+    static synchronized void dispatchTrinoConnectors_impl(ArrayList host_ips, String dir_download, String url) {
+        if (isTrinoConnectorDownloaded == true) {
+            staticLogger.info("trino connector downloaded")
+            return
+        }
+
+        Assert.assertTrue(!dir_download.isEmpty())
+        def path_tar = "${dir_download}/trino-connectors.tar.gz"
+        // extract to a tmp direcotry, and then scp to every host_ips, including self.
+        def dir_connector_tmp = "${dir_download}/connectors_tmp"
+        def path_connector_tmp = "${dir_connector_tmp}/connectors"
+        def path_connector = "${dir_download}/connectors"
+
+        def executeCommand = { String cmd, Boolean mustSuc ->
+            try {
+                staticLogger.info("execute ${cmd}")
+                def proc = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
+                int exitcode = proc.waitFor()
+                if (exitcode != 0) {
+                    staticLogger.info("exit code: ${exitcode}, output\n: ${proc.text}")
+                    if (mustSuc == true) {
+                       Assert.assertEquals(0, exitCode)
+                    }
+                }
+            } catch (IOException e) {
+                Assert.assertTrue(false, "execute timeout")
+            }
+        }
+
+        executeCommand("mkdir -p ${dir_download}", false)
+        executeCommand("rm -rf ${path_tar}", false)
+        executeCommand("rm -rf ${dir_connector_tmp}", false)
+        executeCommand("mkdir -p ${dir_connector_tmp}", false)
+        executeCommand("/usr/bin/curl --max-time 600 ${url} --output ${path_tar}", true)
+        executeCommand("tar -zxvf ${path_tar} -C ${dir_connector_tmp}", true)
+
+        host_ips = host_ips.unique()
+        for (def ip in host_ips) {
+            staticLogger.info("scp to ${ip}")
+            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${dir_download}\"", false)
+            executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"rm -rf ${path_connector}\"", false)
+            scpFiles("root", ip, path_connector_tmp, path_connector, false) // if failed, assertTrue(false) is executed.
+        }
+
+        isTrinoConnectorDownloaded = true
+        staticLogger.info("dispatch trino connector to ${dir_download} succeed")
     }
 
     void mkdirRemote(String username, String host, String path) {
@@ -774,7 +867,7 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
-    void sshExec(String username, String host, String cmd) {
+    void sshExec(String username, String host, String cmd, boolean alert=true) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
         logger.info("Execute: ${cmds}".toString())
@@ -782,8 +875,10 @@ class Suite implements GroovyInterceptable {
         def errMsg = new StringBuilder()
         def msg = new StringBuilder()
         p.waitForProcessOutput(msg, errMsg)
-        assert errMsg.length() == 0: "error occurred!" + errMsg
-        assert p.exitValue() == 0
+        if (alert) {
+            assert errMsg.length() == 0: "error occurred!\n" + errMsg
+            assert p.exitValue() == 0
+        }
     }
 
     List<String> getFrontendIpHttpPort() {
@@ -824,6 +919,33 @@ class Suite implements GroovyInterceptable {
         String hdfsUser = context.config.otherConfigs.get("hdfsUser")
         Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
         return hdfs.downLoad(label)
+    }
+
+    void runStreamLoadExample(String tableName, String coordidateBeHostPort = "") {
+        def backends = sql_return_maparray "show backends"
+        sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    id int,
+                    name varchar(255)
+                )
+                DISTRIBUTED BY HASH(id) BUCKETS 1
+                PROPERTIES (
+                  "replication_num" = "${backends.size()}"
+                )
+            """
+
+        streamLoad {
+            table tableName
+            set 'column_separator', ','
+            file context.config.dataPath + "/demo_p0/streamload_input.csv"
+            time 10000
+            if (!coordidateBeHostPort.equals("")) {
+                def pos = coordidateBeHostPort.indexOf(':')
+                def host = coordidateBeHostPort.substring(0, pos)
+                def httpPort = coordidateBeHostPort.substring(pos + 1).toInteger()
+                directToBe host, httpPort
+            }
+        }
     }
 
     void streamLoad(Closure actionSupplier) {
@@ -1074,6 +1196,54 @@ class Suite implements GroovyInterceptable {
         return debugPoint
     }
 
+    void waitingMTMVTaskFinishedByMvName(String mvName) {
+        Thread.sleep(2000);
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvName = '${mvName}' order by CreateTime ASC"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(4)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+        }
+        Assert.assertEquals("SUCCESS", status)
+    }
+
+    void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
+        Thread.sleep(2000);
+        String showPartitions = "show partitions from ${tableName}"
+        Boolean status = null;
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 1 * 60 * 1000 // 1 min
+        do {
+            result = sql(showPartitions)
+            if (!result.isEmpty()) {
+                for (List<Object> row : result) {
+                    def existPartitionName = row.get(1).toString()
+                    if (Objects.equals(existPartitionName, partitionName)) {
+                        def statusStr = row.get(row.size() - 2).toString()
+                        status = Boolean.valueOf(statusStr)
+                    }
+                }
+            }
+            Thread.sleep(500);
+        } while (timeoutTimestamp > System.currentTimeMillis() && !Objects.equals(status, expectedStatus))
+        if (!Objects.equals(status, expectedStatus)) {
+            logger.info("partition status is not expected")
+        }
+        Assert.assertEquals(expectedStatus, status)
+    }
+
     void waitingMTMVTaskFinished(String jobName) {
         Thread.sleep(2000);
         String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
@@ -1155,10 +1325,9 @@ class Suite implements GroovyInterceptable {
                     return;
                 }
                 def json = parseJson(body)
-                if (json.result.containsKey("enableStorageVault") && json.result.enableStorageVault == "true") {
+                if (json.result.containsKey("enable_storage_vault") && json.result.enable_storage_vault) {
                     enableStorageVault = true;
                 }
-                
         }
         return enableStorageVault;
     }
@@ -1565,6 +1734,58 @@ class Suite implements GroovyInterceptable {
             logger.info("set be_id ${id} ${paramName} to ${paramValue}".toString())
             def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
             assertTrue(out.contains("OK"))
+        }
+    }
+
+    def check_table_version_continuous = { db_name, table_name ->
+        def tablets = sql_return_maparray """ show tablets from ${db_name}.${table_name} """
+        for (def tablet_info : tablets) {
+            logger.info("tablet: $tablet_info")
+            def compact_url = tablet_info.get("CompactionStatus")
+            String command = "curl ${compact_url}"
+            Process process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+            def out = process.getText()
+            logger.info("code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+
+            def compactJson = parseJson(out.trim())
+            def rowsets = compactJson.get("rowsets")
+
+            def last_start_version = 0
+            def last_end_version = -1
+            for(def rowset : rowsets) {
+                def version_str = rowset.substring(1, rowset.indexOf("]"))
+                logger.info("version_str: $version_str")
+                def versions = version_str.split("-")
+                def start_version = versions[0].toLong()
+                def end_version = versions[1].toLong()
+                logger.info("cur_version:[$start_version - $end_version], last_version:[$last_start_version - $last_end_version]")
+                assertEquals(last_end_version + 1, start_version)
+                last_start_version = start_version
+                last_end_version = end_version
+            }
+        }
+    }
+
+    def scp_udf_file_to_all_be = { udf_file_path ->
+        if (!new File(udf_file_path).isAbsolute()) {
+            udf_file_path = new File(udf_file_path).getAbsolutePath()
+        }
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+        if(backendId_to_backendIP.size() == 1) {
+            logger.info("Only one backend, skip scp udf file")
+            return
+        }
+
+        def udf_file_dir = new File(udf_file_path).parent
+        backendId_to_backendIP.values().each { be_ip ->
+            sshExec("root", be_ip, "ssh-keygen -f '/root/.ssh/known_hosts' -R \"${be_ip}\"", false)
+            sshExec("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"", false)
+            scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }
 }

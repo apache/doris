@@ -4,23 +4,19 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
---------hashAgg[LOCAL]
-----------filter((a.event_id = 'ad_click'))
-------------PhysicalOlapScan[com_dd_library]
---------hashAgg[LOCAL]
-----------filter((cast(experiment_id as DOUBLE) = 37.0))
-------------PhysicalOlapScan[shunt_log_com_dd_library]
+--------filter((a.event_id = 'ad_click'))
+----------PhysicalOlapScan[com_dd_library]
+--------filter((cast(experiment_id as DOUBLE) = 37.0))
+----------PhysicalOlapScan[shunt_log_com_dd_library]
 
 -- !2 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
---------hashAgg[LOCAL]
-----------PhysicalOlapScan[com_dd_library]
---------hashAgg[LOCAL]
-----------filter((cast(experiment_id as DOUBLE) = 73.0))
-------------PhysicalOlapScan[shunt_log_com_dd_library]
+--------PhysicalOlapScan[com_dd_library]
+--------filter((cast(experiment_id as DOUBLE) = 73.0))
+----------PhysicalOlapScan[shunt_log_com_dd_library]
 
 -- !3 --
 PhysicalResultSink
@@ -36,8 +32,62 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
---------hashAgg[LOCAL]
+--------PhysicalOlapScan[shunt_log_com_dd_library]
+--------PhysicalOlapScan[com_dd_library]
+
+-- !with_hint_1 --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
+--------filter((a.event_id = 'ad_click'))
 ----------PhysicalOlapScan[com_dd_library]
---------hashAgg[LOCAL]
+--------filter((cast(experiment_id as DOUBLE) = 37.0))
 ----------PhysicalOlapScan[shunt_log_com_dd_library]
+
+Hint log:
+Used:
+UnUsed: use_push_down_agg_through_join use_push_down_agg_through_join_one_side
+SyntaxError:
+
+-- !with_hint_2 --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
+--------PhysicalOlapScan[com_dd_library]
+--------filter((cast(experiment_id as DOUBLE) = 73.0))
+----------PhysicalOlapScan[shunt_log_com_dd_library]
+
+Hint log:
+Used:
+UnUsed: use_push_down_agg_through_join use_push_down_agg_through_join_one_side
+SyntaxError:
+
+-- !with_hint_3 --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
+--------PhysicalOlapScan[com_dd_library]
+--------filter((cast(experiment_id as DOUBLE) = 73.0))
+----------PhysicalOlapScan[shunt_log_com_dd_library]
+
+Hint log:
+Used:
+UnUsed: use_push_down_agg_through_join use_push_down_agg_through_join_one_side
+SyntaxError:
+
+-- !with_hint_4 --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
+--------PhysicalOlapScan[shunt_log_com_dd_library]
+--------PhysicalOlapScan[com_dd_library]
+
+Hint log:
+Used:
+UnUsed: use_push_down_agg_through_join use_push_down_agg_through_join_one_side
+SyntaxError:
 

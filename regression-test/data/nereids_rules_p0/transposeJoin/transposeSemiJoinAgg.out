@@ -19,14 +19,14 @@ PhysicalResultSink
 
 -- !grouping_positive_case --
 PhysicalResultSink
---hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=()
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=()
 --------PhysicalRepeat
 ----------filter((T1.__DORIS_DELETE_SIGN__ = 0))
 ------------PhysicalOlapScan[T1]
-----filter((T2.__DORIS_DELETE_SIGN__ = 0))
-------PhysicalOlapScan[T2]
+--------filter((T2.__DORIS_DELETE_SIGN__ = 0))
+----------PhysicalOlapScan[T2]
 
 -- !grouping_negative_case --
 PhysicalResultSink
@@ -59,14 +59,14 @@ PhysicalResultSink
 
 -- !grouping_positive_case2 --
 PhysicalResultSink
---hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=()
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((T3.a = T2.a)) otherCondition=()
 --------PhysicalRepeat
 ----------filter((T1.__DORIS_DELETE_SIGN__ = 0))
 ------------PhysicalOlapScan[T1]
-----filter((T2.__DORIS_DELETE_SIGN__ = 0))
-------PhysicalOlapScan[T2]
+--------filter((T2.__DORIS_DELETE_SIGN__ = 0))
+----------PhysicalOlapScan[T2]
 
 -- !grouping_negative_case2 --
 PhysicalResultSink

@@ -26,10 +26,16 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 public class EncryptKeyRef extends Expr {
+    @SerializedName("ekn")
     private EncryptKeyName encryptKeyName;
     private EncryptKey encryptKey;
+
+    private EncryptKeyRef() {
+        // only for serde
+    }
 
     public EncryptKeyRef(EncryptKeyName encryptKeyName) {
         super();
@@ -41,6 +47,7 @@ public class EncryptKeyRef extends Expr {
         super(other);
         this.encryptKeyName = other.encryptKeyName;
         this.encryptKey = other.encryptKey;
+        this.type = Type.VARCHAR;
     }
 
     public EncryptKey getEncryptKey() {

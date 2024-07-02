@@ -145,4 +145,22 @@ suite('test_cast', "arrow_flight_sql") {
         sql "select * from ${tbl} where case when k0 = 101 then 'true' else 1 end"
         result([[101]])
     }
+
+    sql "DROP TABLE IF EXISTS test_json"
+    sql """
+        CREATE TABLE IF NOT EXISTS test_json (
+          id INT not null,
+          j JSON not null
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+    """
+
+    sql """
+        INSERT INTO test_json VALUES(26, '{"k1":"v1", "k2": 200}');
+    """
+    sql "sync"
+    sql "Select cast(j as int) from test_json"
+    sql "DROP TABLE IF EXISTS test_json"
 }

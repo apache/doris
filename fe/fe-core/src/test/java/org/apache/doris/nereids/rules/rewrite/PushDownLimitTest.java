@@ -72,6 +72,7 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         createDatabase("test");
 
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         createTable("CREATE TABLE `t1` (\n"
                 + "  `k1` int(11) NULL,\n"
@@ -267,6 +268,7 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
     void testLimitPushWindow() {
         ConnectContext context = MemoTestUtils.createConnectContext();
         context.getSessionVariable().setEnablePartitionTopN(true);
+        context.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         NamedExpression grade = scanScore.getOutput().get(2).toSlot();
 
         List<Expression> partitionKeyList = ImmutableList.of();
@@ -309,6 +311,7 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
     void testTopNPushWindow() {
         ConnectContext context = MemoTestUtils.createConnectContext();
         context.getSessionVariable().setEnablePartitionTopN(true);
+        context.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         NamedExpression grade = scanScore.getOutput().get(2).toSlot();
 
         List<Expression> partitionKeyList = ImmutableList.of();

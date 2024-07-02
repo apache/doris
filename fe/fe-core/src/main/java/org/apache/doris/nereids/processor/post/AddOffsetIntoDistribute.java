@@ -31,11 +31,12 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 public class AddOffsetIntoDistribute extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, CascadesContext context) {
+        limit = (PhysicalLimit<? extends Plan>) super.visit(limit, context);
         if (limit.getPhase().isLocal() || limit.getOffset() == 0) {
             return limit;
         }
 
         return new PhysicalDistribute<>(DistributionSpecGather.INSTANCE,
-                limit.withLimit(limit.getLimit() + limit.getOffset()));
+                limit.withLimit(limit.getLimit() + limit.getOffset())).copyStatsAndGroupIdFrom(limit);
     }
 }

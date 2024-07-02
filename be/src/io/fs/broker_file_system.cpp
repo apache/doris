@@ -419,7 +419,7 @@ Status BrokerFileSystem::download_impl(const Path& remote_file, const Path& loca
         RETURN_IF_ERROR(local_writer->append({read_buf.get(), read_len}));
     } // file_handler should be closed before calculating checksum
 
-    return Status::OK();
+    return local_writer->close();
 }
 
 std::string BrokerFileSystem::error_msg(const std::string& err) const {

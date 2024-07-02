@@ -40,9 +40,17 @@ suite("iceberg_equality_delete", "p2,external,iceberg,external_remote,external_r
         // one delete column
         qt_one_delete_column """select * from customer_flink_one order by c_custkey"""
         qt_one_delete_column_orc """select * from customer_flink_one_orc order by c_custkey"""
+        qt_count1 """select count(*) from  customer_flink_one"""
+        qt_count1_orc """select count(*) from  customer_flink_one_orc"""
+        qt_max1 """select max(c_comment) from customer_flink_one"""
+        qt_max1_orc """select max(c_comment) from customer_flink_one_orc"""
         // three delete columns
         qt_one_delete_column """select * from customer_flink_three order by c_custkey"""
         qt_one_delete_column_orc """select * from customer_flink_three_orc order by c_custkey"""
+        qt_count3 """select count(*) from  customer_flink_three"""
+        qt_count3_orc """select count(*) from  customer_flink_three_orc"""
+        qt_max3 """select max(c_comment) from customer_flink_three"""
+        qt_max3_orc """select max(c_comment) from customer_flink_three_orc"""
 
         sql """drop catalog ${catalog_name}"""
     }

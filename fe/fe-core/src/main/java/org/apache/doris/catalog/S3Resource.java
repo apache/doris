@@ -20,10 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.remote.S3FileSystem;
 
@@ -121,15 +120,6 @@ public class S3Resource extends Resource {
     private static void pingS3(CloudCredentialWithEndpoint credential, String bucketName, String rootPath,
             Map<String, String> properties) throws DdlException {
         String bucket = "s3://" + bucketName + "/";
-        Map<String, String> propertiesPing = new HashMap<>();
-        propertiesPing.put(S3Properties.Env.ACCESS_KEY, credential.getAccessKey());
-        propertiesPing.put(S3Properties.Env.SECRET_KEY, credential.getSecretKey());
-        propertiesPing.put(S3Properties.Env.TOKEN, credential.getSessionToken());
-        propertiesPing.put(S3Properties.Env.ENDPOINT, credential.getEndpoint());
-        propertiesPing.put(S3Properties.Env.REGION, credential.getRegion());
-        propertiesPing.put(PropertyConverter.USE_PATH_STYLE,
-                properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false"));
-        properties.putAll(propertiesPing);
         S3FileSystem fileSystem = new S3FileSystem(properties);
         String testFile = bucket + rootPath + "/test-object-valid.txt";
         String content = "doris will be better";
@@ -142,14 +132,14 @@ public class S3Resource extends Resource {
             if (status != Status.OK) {
                 throw new DdlException(
                         "ping s3 failed(upload), status: " + status + ", properties: " + new PrintableMap<>(
-                                propertiesPing, "=", true, false, true, false));
+                                properties, "=", true, false, true, false));
             }
         } finally {
             if (status.ok()) {
                 Status delete = fileSystem.delete(testFile);
                 if (delete != Status.OK) {
                     LOG.warn("delete test file failed, status: {}, properties: {}", delete, new PrintableMap<>(
-                            propertiesPing, "=", true, false, true, false));
+                            properties, "=", true, false, true, false));
                 }
             }
         }
@@ -250,3 +240,4 @@ public class S3Resource extends Resource {
         readUnlock();
     }
 }
+

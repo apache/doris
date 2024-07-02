@@ -59,6 +59,7 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
@@ -406,7 +407,9 @@ public class NativeInsertStmt extends InsertStmt {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                         Lists.newArrayList(targetTable.getId()), label.getLabelName(),
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        new TxnCoordinator(TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         sourceType, timeoutSecond);
             }
             isTransactionBegin = true;
@@ -590,7 +593,8 @@ public class NativeInsertStmt extends InsertStmt {
             }
             // hll column must in mentionedColumns
             for (Column col : targetTable.getBaseSchema()) {
-                if (col.getType().isObjectStored() && !mentionedColumns.contains(col.getName())) {
+                if (col.getType().isObjectStored() && !col.hasDefaultValue()
+                        && !mentionedColumns.contains(col.getName())) {
                     throw new AnalysisException(
                             "object-stored column " + col.getName() + " must in insert into columns");
                 }

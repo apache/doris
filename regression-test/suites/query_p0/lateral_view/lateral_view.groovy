@@ -21,7 +21,7 @@ suite("lateral_view", "arrow_flight_sql") {
 		CREATE TABLE `test_explode_bitmap` (
 		  `dt` int(11) NULL COMMENT "",
 		  `page` varchar(10) NULL COMMENT "",
-		  `user_id` bitmap BITMAP_UNION NULL COMMENT ""
+		  `user_id` bitmap BITMAP_UNION  COMMENT ""
 		) ENGINE=OLAP
 		AGGREGATE KEY(`dt`, `page`)
 		DISTRIBUTED BY HASH(`dt`) BUCKETS 2 

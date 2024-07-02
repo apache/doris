@@ -40,7 +40,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
-#include "util/bitmap_value.h"
 #include "util/jsonb_utils.h"
 #include "util/quantile_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -103,7 +102,7 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
 }
 
 template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::write(Block& input_block) {
+Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& input_block) {
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();
     if (UNLIKELY(input_block.rows() == 0)) {
@@ -195,7 +194,7 @@ Status VMysqlResultWriter<is_binary_format>::write(Block& input_block) {
         // If this is a dry run task, no need to send data block
         if (!_is_dry_run) {
             if (_sinker) {
-                status = _sinker->add_batch(result);
+                status = _sinker->add_batch(state, result);
             } else {
                 _results.push_back(std::move(result));
             }
@@ -210,11 +209,6 @@ Status VMysqlResultWriter<is_binary_format>::write(Block& input_block) {
         }
     }
     return status;
-}
-
-template <bool is_binary_format>
-bool VMysqlResultWriter<is_binary_format>::can_sink() {
-    return _sinker->can_sink();
 }
 
 template <bool is_binary_format>

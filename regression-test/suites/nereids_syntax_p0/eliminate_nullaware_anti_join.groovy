@@ -16,8 +16,11 @@
 // under the License.
 
 suite("eliminate_nullaware_anti_join") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
+    multi_sql """
+    SET enable_nereids_planner=true;
+    SET enable_fallback_to_original_planner=false;
+    set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+    """
 
     sql """drop table if exists eliminate_nullaware_anti_join_A;"""
     sql """drop table if exists eliminate_nullaware_anti_join_B;"""

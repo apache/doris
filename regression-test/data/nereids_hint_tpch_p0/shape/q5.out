@@ -8,37 +8,32 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey) and (customer.c_nationkey = supplier.s_nationkey)) otherCondition=()
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_suppkey = supplier.s_suppkey)) otherCondition=()
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[lineitem]
-----------------------------PhysicalProject
-------------------------------filter((orders.o_orderdate < '1995-01-01') and (orders.o_orderdate >= '1994-01-01'))
---------------------------------PhysicalOlapScan[orders]
-------------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey) and (customer.c_nationkey = supplier.s_nationkey)) otherCondition=()
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineitem.l_suppkey = supplier.s_suppkey)) otherCondition=()
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
+----------------------------PhysicalOlapScan[lineitem]
+--------------------------PhysicalProject
+----------------------------filter((orders.o_orderdate < '1995-01-01') and (orders.o_orderdate >= '1994-01-01'))
+------------------------------PhysicalOlapScan[orders]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[supplier]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=()
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[supplier]
-------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=()
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[nation]
-------------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------------PhysicalProject
-----------------------------------------filter((region.r_name = 'ASIA'))
-------------------------------------------PhysicalOlapScan[region]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer]
+--------------------------------PhysicalOlapScan[nation]
+------------------------------PhysicalProject
+--------------------------------filter((region.r_name = 'ASIA'))
+----------------------------------PhysicalOlapScan[region]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[customer]
 
 Hint log:
-Used:   leading(lineitem orders broadcast { supplier broadcast { nation broadcast region } } shuffle customer )
-UnUsed:
+Used: leading(lineitem orders broadcast { supplier broadcast { nation broadcast region } } shuffle customer )  
+UnUsed: 
 SyntaxError:
 

@@ -31,24 +31,26 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TStringLiteral;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
+    @SerializedName("v")
     private String value;
     // Means the converted session variable need to be cast to int, such as "cast 'STRICT_TRANS_TABLES' to Integer".
     private String beConverted = "";
 
-    public StringLiteral() {
+    private StringLiteral() {
         super();
         type = Type.VARCHAR;
     }
@@ -76,6 +78,9 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
         if (expr instanceof NullLiteral) {
             return 1;
         }
@@ -316,12 +321,6 @@ public class StringLiteral extends LiteralExpr {
         return super.uncheckedCastTo(targetType);
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, value);
-    }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = Text.readString(in);
@@ -339,14 +338,16 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
-    public void setupParamFromBinary(ByteBuffer data) {
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
         int strLen = getParmLen(data);
         if (strLen > data.remaining()) {
             strLen = data.remaining();
         }
         byte[] bytes = new byte[strLen];
         data.get(bytes);
-        value = new String(bytes);
+        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
+        // different environment
+        value = new String(bytes, StandardCharsets.UTF_8);
         if (LOG.isDebugEnabled()) {
             LOG.debug("parsed value '{}'", value);
         }

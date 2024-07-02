@@ -25,6 +25,8 @@ suite("transposeSemiJoinAgg") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "set partition_pruning_expand_threshold=10;"
     sql "set ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION,TRANSPOSE_LOGICAL_AGG_SEMI_JOIN,TRANSPOSE_LOGICAL_AGG_SEMI_JOIN_PROJECT'"
+
     sql "drop table if exists T1;"
     sql """
         CREATE TABLE T1 (

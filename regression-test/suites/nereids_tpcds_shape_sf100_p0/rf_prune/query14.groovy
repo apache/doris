@@ -30,6 +30,8 @@ suite("query14") {
     sql 'set enable_nereids_timeout = false'
     sql 'set runtime_filter_type=8'
     sql 'set enable_runtime_filter_prune=true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     def ds = """with  cross_items as
  (select i_item_sk ss_item_sk

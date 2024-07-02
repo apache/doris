@@ -522,11 +522,11 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             throws AnalysisException, TimeoutException {
         long dbId = request.getDbId();
         int commitTimeoutSec = Config.commit_timeout_second;
+        TransactionStatus txnStatus = null;
         for (int i = 0; i < commitTimeoutSec; ++i) {
             Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
             TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
             statusResult.status = new TStatus();
-            TransactionStatus txnStatus = null;
             if (request.isSetTxnId()) {
                 long txnId = request.getTxnId();
                 TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
@@ -551,7 +551,13 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("commit sleep exception.", e);
             }
         }
-        throw new TimeoutException("Operation is timeout");
+        if (txnStatus == TransactionStatus.COMMITTED) {
+            TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
+            statusResult.status = new TStatus();
+            statusResult.setTxnStatusId(txnStatus.value());
+            return statusResult;
+        }
+        throw new TimeoutException("Operation is timeout, txn status is " + txnStatus);
     }
 
     @Override
@@ -560,20 +566,35 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         dbTransactionMgr.updateDatabaseUsedQuotaData(usedQuotaDataBytes);
     }
 
+    @Override
+    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime) {
+        List<Pair<Long, Long>> transactionIdByCoordinateBe
+                = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, Integer.MAX_VALUE);
+        for (Pair<Long, Long> txnInfo : transactionIdByCoordinateBe) {
+            try {
+                DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(txnInfo.first);
+                TransactionState transactionState = dbTransactionMgr.getTransactionState(txnInfo.second);
+                long coordStartTime = transactionState.getCoordinator().startTime;
+                if (coordStartTime > 0 && coordStartTime < beStartTime) {
+                    dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE restart", null);
+                }
+            } catch (UserException e) {
+                LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+            }
+        }
+    }
+
     /**
      * If a Coordinate BE is down when running txn, the txn will remain in FE until killed by timeout
      * So when FE identify the Coordinate BE is down, FE should cancel it initiative
      */
     @Override
-    public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit) {
-        List<Pair<Long, Long>> transactionIdByCoordinateBe = getTransactionIdByCoordinateBe(coordinateHost, limit);
+    public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit) {
+        List<Pair<Long, Long>> transactionIdByCoordinateBe
+                = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, limit);
         for (Pair<Long, Long> txnInfo : transactionIdByCoordinateBe) {
             try {
                 DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(txnInfo.first);
-                TransactionState transactionState = dbTransactionMgr.getTransactionState(txnInfo.second);
-                if (transactionState.getTransactionStatus() == TransactionStatus.PRECOMMITTED) {
-                    continue;
-                }
                 dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE is down", null);
             } catch (UserException e) {
                 LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
@@ -757,11 +778,12 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    @Deprecated
-    protected List<Pair<Long, Long>> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {
+    protected List<Pair<Long, Long>> getPrepareTransactionIdByCoordinateBe(long coordinateBeId,
+            String coordinateHost, int limit) {
         ArrayList<Pair<Long, Long>> txnInfos = new ArrayList<>();
         for (DatabaseTransactionMgr databaseTransactionMgr : dbIdToDatabaseTransactionMgrs.values()) {
-            txnInfos.addAll(databaseTransactionMgr.getTransactionIdByCoordinateBe(coordinateHost, limit));
+            txnInfos.addAll(databaseTransactionMgr.getPrepareTransactionIdByCoordinateBe(
+                        coordinateBeId, coordinateHost, limit));
             if (txnInfos.size() > limit) {
                 break;
             }

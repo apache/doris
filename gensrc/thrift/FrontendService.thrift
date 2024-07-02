@@ -395,6 +395,7 @@ struct TDetailedReportParams {
   1: optional Types.TUniqueId fragment_instance_id
   2: optional RuntimeProfile.TRuntimeProfileTree profile
   3: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+  4: optional bool is_fragment_level
 }
 
 
@@ -515,6 +516,28 @@ struct TFeResult {
     1000: optional string cloud_cluster
     1001: optional bool noAuth
 }
+
+enum TSubTxnType {
+    INSERT = 0,
+    DELETE = 1
+}
+
+struct TSubTxnInfo {
+    1: optional i64 sub_txn_id
+    2: optional i64 table_id
+    3: optional list<Types.TTabletCommitInfo> tablet_commit_infos
+    4: optional TSubTxnType sub_txn_type
+}
+
+struct TTxnLoadInfo {
+    1: optional string label
+    2: optional i64 dbId
+    3: optional i64 txnId
+    4: optional i64 timeoutTimestamp
+    5: optional i64 allSubTxnNum
+    6: optional list<TSubTxnInfo> subTxnInfos
+}
+
 struct TMasterOpRequest {
     1: required string user
     2: required string db
@@ -546,6 +569,8 @@ struct TMasterOpRequest {
     26: optional string defaultDatabase
     27: optional bool cancel_qeury // if set to true, this request means to cancel one forwarded query, and query_id needs to be set
     28: optional map<string, Exprs.TExprNode> user_variables
+    // transaction load
+    29: optional TTxnLoadInfo txnLoadInfo
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -577,6 +602,8 @@ struct TMasterOpResult {
     6: optional i32 statusCode;
     7: optional string errMessage;
     8: optional list<binary> queryResultBufList;
+    // transaction load
+    9: optional TTxnLoadInfo txnLoadInfo;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -601,6 +628,7 @@ struct TLoadTxnBeginRequest {
     12: optional string token
     13: optional string auth_code_uuid
     14: optional i64 table_id
+    15: optional i64 backend_id
 }
 
 struct TLoadTxnBeginResult {
@@ -623,6 +651,7 @@ struct TBeginTxnRequest {
     9: optional i64 timeout
     10: optional Types.TUniqueId request_id
     11: optional string token
+    12: optional i64 backend_id
 }
 
 struct TBeginTxnResult {
@@ -948,6 +977,7 @@ enum TSchemaTableName {
   WORKLOAD_GROUPS = 3, // db information_schema's table
   ROUTINES_INFO = 4, // db information_schema's table
   WORKLOAD_SCHEDULE_POLICY = 5,
+  TABLE_OPTIONS = 6,
 }
 
 struct TMetadataTableRequestParams {
@@ -961,6 +991,7 @@ struct TMetadataTableRequestParams {
   8: optional PlanNodes.TMaterializedViewsMetadataParams materialized_views_metadata_params
   9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
+  11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
 }
 
 struct TSchemaTableRequestParams {
@@ -1276,6 +1307,10 @@ struct TInvalidateFollowerStatsCacheRequest {
     1: optional string key;
 }
 
+struct TUpdateFollowerPartitionStatsCacheRequest {
+    1: optional string key;
+}
+
 struct TAutoIncrementRangeRequest {
     1: optional i64 db_id;
     2: optional i64 table_id;
@@ -1288,6 +1323,7 @@ struct TAutoIncrementRangeResult {
     1: optional Status.TStatus status
     2: optional i64 start
     3: optional i64 length
+    4: optional Types.TNetworkAddress master_address
 }
 
 struct TCreatePartitionRequest {
@@ -1482,6 +1518,15 @@ struct TSyncQueryColumns {
     2: optional list<TQueryColumn> midPriorityColumns;
 }
 
+struct TFetchSplitBatchRequest {
+    1: optional i64 split_source_id
+    2: optional i32 max_num_splits
+}
+
+struct TFetchSplitBatchResult {
+    1: optional list<Planner.TScanRangeLocations> splits
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1573,4 +1618,7 @@ service FrontendService {
     Status.TStatus reportCommitTxnResult(1: TReportCommitTxnResultRequest request)
     TShowUserResult showUser(1: TShowUserRequest request)
     Status.TStatus syncQueryColumns(1: TSyncQueryColumns request)
+
+    TFetchSplitBatchResult fetchSplitBatch(1: TFetchSplitBatchRequest request)
+    Status.TStatus updatePartitionStatsCache(1: TUpdateFollowerPartitionStatsCacheRequest request)
 }

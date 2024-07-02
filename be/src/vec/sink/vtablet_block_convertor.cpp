@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService.h>
+#include <glog/logging.h>
 #include <google/protobuf/stubs/common.h>
 
 #include <algorithm>
@@ -46,6 +47,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
@@ -66,8 +68,21 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
                 output_vexpr_ctxs, *input_block, block.get()));
     }
 
-    // fill the valus for auto-increment columns
-    if (_auto_inc_col_idx.has_value()) {
+    if (_is_partial_update_and_auto_inc) {
+        // If this load is partial update and this table has a auto inc column,
+        // e.g. table schema: k1, v1, v2(auto inc)
+        // 1. insert columns include auto inc column
+        // e.g. insert into table (k1, v2) value(a, 1);
+        // we do nothing.
+        // 2. insert columns do not include auto inc column
+        // e.g. insert into table (k1, v1) value(a, a);
+        // we need to fill auto_inc_cols by creating a new column.
+        if (!_auto_inc_col_idx.has_value()) {
+            RETURN_IF_ERROR(_partial_update_fill_auto_inc_cols(block.get(), rows));
+        }
+    } else if (_auto_inc_col_idx.has_value()) {
+        // fill the valus for auto-increment columns
+        DCHECK_EQ(_is_partial_update_and_auto_inc, false);
         RETURN_IF_ERROR(_fill_auto_inc_cols(block.get(), rows));
     }
 
@@ -91,8 +106,16 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
     return Status::OK();
 }
 
-void OlapTableBlockConvertor::init_autoinc_info(int64_t db_id, int64_t table_id, int batch_size) {
+void OlapTableBlockConvertor::init_autoinc_info(int64_t db_id, int64_t table_id, int batch_size,
+                                                bool is_partial_update_and_auto_inc,
+                                                int32_t auto_increment_column_unique_id) {
     _batch_size = batch_size;
+    if (is_partial_update_and_auto_inc) {
+        _is_partial_update_and_auto_inc = is_partial_update_and_auto_inc;
+        _auto_inc_id_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
+                db_id, table_id, auto_increment_column_unique_id);
+        return;
+    }
     for (size_t idx = 0; idx < _output_tuple_desc->slots().size(); idx++) {
         if (_output_tuple_desc->slots()[idx]->is_auto_increment()) {
             _auto_inc_col_idx = idx;
@@ -186,13 +209,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         return !_filter_map[row] && (null_map == nullptr || null_map[j] == 0);
     };
 
-    switch (type.type) {
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        const auto column_string =
-                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
-
+    auto string_column_checker = [&](const ColumnString* column_string) {
         size_t limit = config::string_type_length_soft_limit_bytes;
         // when type.len is negative, std::min will return overflow value, so we need to check it
         if (type.len > 0) {
@@ -234,6 +251,16 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
                 }
             }
         }
+        return Status::OK();
+    };
+
+    switch (type.type) {
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
+        const auto column_string =
+                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
+        RETURN_IF_ERROR(string_column_checker(column_string));
         break;
     }
     case TYPE_JSONB: {
@@ -395,6 +422,13 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         }
         break;
     }
+    case TYPE_AGG_STATE: {
+        auto* column_string = vectorized::check_and_get_column<ColumnString>(*real_column_ptr);
+        if (column_string) {
+            RETURN_IF_ERROR(string_column_checker(column_string));
+        }
+        break;
+    }
     default:
         break;
     }
@@ -471,8 +505,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
 
     vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    if (const vectorized::ColumnConst* const_column =
-                check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
+    if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
         // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
         // will be `ColumnConst`
@@ -495,7 +528,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
             int64_t value = const_column->get_int(0);
             dst_values.resize_fill(rows, value);
         }
-    } else if (const vectorized::ColumnNullable* src_nullable_column =
+    } else if (const auto* src_nullable_column =
                        check_and_get_column<vectorized::ColumnNullable>(src_column_ptr)) {
         auto src_nested_column_ptr = src_nullable_column->get_nested_column_ptr();
         const auto& null_map_data = src_nullable_column->get_null_map_data();
@@ -519,6 +552,26 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     block->get_by_position(idx).column = std::move(dst_column);
     block->get_by_position(idx).type =
             vectorized::DataTypeFactory::instance().create_data_type(slot->type(), false);
+    return Status::OK();
+}
+
+Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::Block* block,
+                                                                   size_t rows) {
+    auto dst_column = vectorized::ColumnInt64::create();
+    vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
+    size_t null_value_count = rows;
+    std::vector<std::pair<int64_t, size_t>> res;
+    RETURN_IF_ERROR(_auto_inc_id_buffer->sync_request_ids(null_value_count, &res));
+    for (auto [start, length] : res) {
+        _auto_inc_id_allocator.insert_ids(start, length);
+    }
+
+    for (size_t i = 0; i < rows; i++) {
+        dst_values.emplace_back(_auto_inc_id_allocator.next_id());
+    }
+    block->insert(vectorized::ColumnWithTypeAndName(std::move(dst_column),
+                                                    std::make_shared<DataTypeNumber<Int64>>(),
+                                                    "__PARTIAL_UPDATE_AUTO_INC_COLUMN__"));
     return Status::OK();
 }
 
