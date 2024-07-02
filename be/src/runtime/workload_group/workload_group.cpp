@@ -367,9 +367,9 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
         Status ret = cgroup_cpu_ctl->init();
         if (ret.ok()) {
             _cgroup_cpu_ctl = std::move(cgroup_cpu_ctl);
-            LOG(INFO) << "[upsert wg thread pool] cgroup init success";
+            LOG(INFO) << "[upsert wg thread pool] cgroup init success, wg_id=" << tg_id;
         } else {
-            LOG(INFO) << "[upsert wg thread pool] cgroup init failed, gid= " << tg_id
+            LOG(INFO) << "[upsert wg thread pool] cgroup init failed, wg_id= " << tg_id
                       << ", reason=" << ret.to_string();
         }
     }
@@ -474,11 +474,9 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
                           << cpu_hard_limit << ", gid=" << tg_id;
             }
         } else {
-            if (config::enable_cgroup_cpu_soft_limit) {
-                _cgroup_cpu_ctl->update_cpu_soft_limit(cpu_shares);
-                _cgroup_cpu_ctl->update_cpu_hard_limit(
-                        CPU_HARD_LIMIT_DEFAULT_VALUE); // disable cpu hard limit
-            }
+            _cgroup_cpu_ctl->update_cpu_soft_limit(cpu_shares);
+            _cgroup_cpu_ctl->update_cpu_hard_limit(
+                    CPU_HARD_LIMIT_DEFAULT_VALUE); // disable cpu hard limit
         }
         _cgroup_cpu_ctl->get_cgroup_cpu_info(&(tg_info->cgroup_cpu_shares),
                                              &(tg_info->cgroup_cpu_hard_limit));
@@ -494,6 +492,22 @@ void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sc
     *scan_sched = _scan_task_sched.get();
     *remote_scan_sched = _remote_scan_task_sched.get();
     *memtable_flush_pool = _memtable_flush_pool.get();
+}
+
+std::string WorkloadGroup::thread_debug_info() {
+    std::vector<int> exec_t_info = _task_sched->thread_debug_info();
+    std::string str = fmt::format("[exec num:{}, real_num:{}, min_num:{}, max_num:{}],",
+                                  exec_t_info[0], exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+
+    str += fmt::format("[l_scan num:{}, real_num:{}, min_num:{}, max_num{}],", exec_t_info[0],
+                       exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+
+    str += fmt::format("[r_scan num:{}, real_num:{}, min_num:{}, max_num:{}],", exec_t_info[0],
+                       exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+
+    str += fmt::format("[mem_tab_flush num:{}, real_num:{}, min_num:{}, max_num:{}]",
+                       exec_t_info[0], exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    return str;
 }
 
 void WorkloadGroup::try_stop_schedulers() {

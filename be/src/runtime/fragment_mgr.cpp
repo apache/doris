@@ -636,9 +636,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << ", use workload group: " << workload_group_ptr->debug_string()
-                          << ", is pipeline: " << ((int)is_pipeline)
-                          << ", enable cgroup soft limit: "
-                          << ((int)config::enable_cgroup_cpu_soft_limit);
+                          << ", is pipeline: " << ((int)is_pipeline);
             } else {
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << " carried group info but can not find group in be";
