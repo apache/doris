@@ -104,7 +104,7 @@ public class RebalancerTestUtil {
             replica.setPathHash(beIds.get(i));
             if (replicaSizes != null) {
                 // for disk rebalancer, every beId corresponding to a replicaSize
-                replica.updateStat(replicaSizes.get(i), 0);
+                replica.setDataSize(replicaSizes.get(i));
             }
             // isRestore set true, to avoid modifying Catalog.getCurrentInvertedIndex
             tablet.addReplica(replica, true);
@@ -165,7 +165,8 @@ public class RebalancerTestUtil {
                             for (Tablet tablet : idx.getTablets()) {
                                 long tabletSize = tableBaseSize * (1 + random.nextInt(tabletSkew));
                                 for (Replica replica : tablet.getReplicas()) {
-                                    replica.updateStat(tabletSize, 1000L);
+                                    replica.setDataSize(tabletSize);
+                                    replica.setRowCount(1000L);
                                 }
                             }
                         }

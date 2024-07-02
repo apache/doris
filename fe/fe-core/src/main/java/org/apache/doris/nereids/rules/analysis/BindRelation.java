@@ -188,12 +188,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation);
         List<Long> tabletIds = unboundRelation.getTabletIds();
-        if (!CollectionUtils.isEmpty(partIds)) {
+        if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, tableQualifier, partIds,
                     tabletIds, unboundRelation.getHints(), unboundRelation.getTableSample());
         } else {
             Optional<String> indexName = unboundRelation.getIndexName();
+            // For direct mv scan.
             if (indexName.isPresent()) {
                 OlapTable olapTable = (OlapTable) table;
                 Long indexId = olapTable.getIndexIdByName(indexName.get());
@@ -207,8 +208,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         : PreAggStatus.off("For direct index scan.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, tableQualifier, tabletIds, indexId,
-                    preAggStatus, unboundRelation.getHints(), unboundRelation.getTableSample());
+                    (OlapTable) table, tableQualifier, tabletIds,
+                    CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() : partIds, indexId,
+                    preAggStatus, CollectionUtils.isEmpty(partIds) ? ImmutableList.of() : partIds,
+                    unboundRelation.getHints(), unboundRelation.getTableSample());
             } else {
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, tableQualifier, tabletIds, unboundRelation.getHints(),

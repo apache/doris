@@ -19,7 +19,7 @@ import groovy.io.FileType
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resource fully
+suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resource fully```
     // get doris-db from s3
     def dirPath = context.file.parent
     def fatherPath = context.file.parentFile.parentFile.getPath()

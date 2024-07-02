@@ -79,4 +79,35 @@ suite("test_need_read_data", "p0"){
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
+
+    def indexTbName2 = "test_need_read_data_2"
+
+    sql "DROP TABLE IF EXISTS ${indexTbName2}"
+
+    sql """
+      create table ${indexTbName2} (
+          a datetime not null,
+          b varchar not null,
+          INDEX idx_inverted_b (`b`) USING INVERTED PROPERTIES("parser" = "unicode", "support_phrase" = "true") COMMENT ''
+      ) ENGINE=OLAP
+        DUPLICATE KEY(`a`)
+        COMMENT ''
+        DISTRIBUTED BY HASH(`a`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """insert into ${indexTbName2} values
+            ('2024-06-03 15:16:49.266678','shanghai'),
+            ('2024-06-02 15:16:49.266678','shenzhen'),
+            ('2024-06-01 15:16:49.266678','beijing'),
+            ('2024-06-13 15:16:49.266678','beijing'),
+            ('2024-06-14 15:16:49.266678','beijing'),
+            ('2024-06-15 15:16:49.266678','shanghai'),
+            ('2024-06-16 15:16:49.266678','tengxun'),
+            ('2024-06-17 15:16:49.266678','tengxun2')
+    """
+
+    qt_sql1 """ select  COUNT(1)  from  ${indexTbName2}  WHERE  a  >=  '2024-06-15  00:00:00'  AND  b  =  'tengxun2'  and    `b`  match  'tengxun2'  ; """
+    qt_sql2 """ select  *  from  ${indexTbName2}  WHERE  a  >=  '2024-06-15  00:00:00'  AND  b  =  'tengxun2'  and    `b`  match  'tengxun2'  ; """
 }

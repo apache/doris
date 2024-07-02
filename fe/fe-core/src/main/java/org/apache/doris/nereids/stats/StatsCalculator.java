@@ -760,6 +760,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
     private Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
+        if (catalogRelation instanceof LogicalOlapScan) {
+            LogicalOlapScan olap = (LogicalOlapScan) catalogRelation;
+            if (olap.getSelectedIndexId() != olap.getTable().getBaseIndexId()) {
+                // mv is selected, return its estimated stats
+                Optional<Statistics> optStats = cascadesContext.getStatementContext()
+                        .getStatistics(olap.getRelationId());
+                if (optStats.isPresent()) {
+                    double actualRowCount = catalogRelation.getTable().getRowCountForNereids();
+                    if (actualRowCount > optStats.get().getRowCount()) {
+                        return optStats.get();
+                    }
+                }
+            }
+        }
+
         List<Slot> output = catalogRelation.getOutput();
         ImmutableSet.Builder<SlotReference> slotSetBuilder = ImmutableSet.builderWithExpectedSize(output.size());
         for (Slot slot : output) {

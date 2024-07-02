@@ -18,6 +18,7 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
@@ -81,7 +82,7 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
         ctx.setStartTime();
     }
 
-    public void handleQuery(String query) {
+    public void handleQuery(String query) throws ConnectionException {
         MysqlCommand command = MysqlCommand.COM_QUERY;
         prepare(command);
 

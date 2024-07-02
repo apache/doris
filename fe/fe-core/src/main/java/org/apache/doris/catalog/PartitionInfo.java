@@ -249,8 +249,9 @@ public class PartitionInfo implements Writable {
         return isAutoCreatePartitions;
     }
 
+    // forbid change metadata.
     public ArrayList<Expr> getPartitionExprs() {
-        return this.partitionExprs;
+        return Expr.cloneList(this.partitionExprs);
     }
 
     public void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {

@@ -21,7 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -106,7 +106,7 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
     }
 
     protected Expression typeCoercion(Expression expression) {
-        return FunctionBinder.INSTANCE.rewrite(expression, null);
+        return ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(expression, null);
     }
 
     protected DataType getType(char t) {

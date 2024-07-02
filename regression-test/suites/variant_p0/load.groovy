@@ -93,7 +93,7 @@ suite("regression_test_variant", "nonConcurrent"){
             sql """insert into ${table_name} values (8,  '8.11111'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
             sql """insert into ${table_name} values (9,  '"9999"'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
             sql """insert into ${table_name} values (10,  '1000000'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-            sql """insert into ${table_name} values (11,  '[123.0]'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
+            sql """insert into ${table_name} values (11,  '[123.1]'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
             sql """insert into ${table_name} values (12,  '[123.2]'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
             qt_sql1 "select k, cast(v['a'] as array<int>) from  ${table_name} where  size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
             qt_sql2 "select k, cast(v as int), cast(v['b'] as string) from  ${table_name} where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
@@ -110,11 +110,11 @@ suite("regression_test_variant", "nonConcurrent"){
         create_table table_name
         sql """insert into ${table_name} values (1, '{"c" : "123"}');"""
         sql """insert into ${table_name} values (2, '{"c" : 123}');"""
-        sql """insert into ${table_name} values (3, '{"cc" : [123.0]}');"""
+        sql """insert into ${table_name} values (3, '{"cc" : [123.2]}');"""
         sql """insert into ${table_name} values (4, '{"cc" : [123.1]}');"""
         sql """insert into ${table_name} values (5, '{"ccc" : 123}');"""
         sql """insert into ${table_name} values (6, '{"ccc" : 123321}');"""
-        sql """insert into ${table_name} values (7, '{"cccc" : 123.0}');"""
+        sql """insert into ${table_name} values (7, '{"cccc" : 123.22}');"""
         sql """insert into ${table_name} values (8, '{"cccc" : 123.11}');"""
         sql """insert into ${table_name} values (9, '{"ccccc" : [123]}');"""
         sql """insert into ${table_name} values (10, '{"ccccc" : [123456789]}');"""
@@ -139,7 +139,7 @@ suite("regression_test_variant", "nonConcurrent"){
         qt_sql_4 "select cast(v['A'] as string), v['AA'], v from ${table_name} order by k"
         qt_sql_5 "select v['A'], v['AA'], v, v from ${table_name} where cast(v['A'] as bigint) > 123 order by k"
 
-        sql """insert into ${table_name} values (16,  '{"a" : 123.0, "A" : 191191, "c": 123}');"""
+        sql """insert into ${table_name} values (16,  '{"a" : 123.22, "A" : 191191, "c": 123}');"""
         sql """insert into ${table_name} values (18,  '{"a" : "123", "c" : 123456}');"""
         sql """insert into ${table_name} values (20,  '{"a" : 1.10111, "A" : 1800, "c" : [12345]}');"""
         // sql """insert into ${table_name} values (12,  '{"a" : [123]}, "c": "123456"');"""
@@ -254,23 +254,6 @@ suite("regression_test_variant", "nonConcurrent"){
         qt_sql_29 "select cast(v['a'] as string) from ${table_name} order by k"
         // b? 7.111  [123,{"xx":1}]  {"b":{"c":456,"e":7.111}}       456
         qt_sql_30 "select v['b']['e'], v['a'], v['b'], v['b']['c'] from jsonb_values where cast(v['b']['e'] as double) > 1;"
-
-        test {
-            sql "select v['a'] from ${table_name} group by v['a']"
-            exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by")
-        }
-
-        test {
-            sql """
-            create table var(
-                `content` variant
-            )distributed by hash(`content`) buckets 8
-            properties(
-              "replication_allocation" = "tag.location.default: 1"
-            );
-            """
-            exception("errCode = 2, detailMessage = Hash distribution info should not contain variant columns")
-        }
 
         // 13. sparse columns
         table_name = "sparse_columns"
@@ -440,6 +423,43 @@ suite("regression_test_variant", "nonConcurrent"){
         qt_sql_records3 """SELECT value FROM records WHERE   value['text99'] MATCH_ALL '来 广州 但是嗯嗯 还 不能 在'  OR (  value['text47'] MATCH_ALL '你 觉得 超 好看 的 动' ) OR (  value['text43'] MATCH_ALL ' 楼主 拒绝 了 一个 女生 我 傻逼 吗手' )  LIMIT 0, 100"""
         qt_sql_records4 """SELECT value FROM records WHERE  value['id16'] = '39960' AND (  value['text59'] = '非 明显 是 一 付 很 嫌') AND (  value['text99'] = '来 广州 但是嗯嗯 还 不能 在 ')  """
         qt_sql_records5 """SELECT value FROM records WHERE  value['text3'] MATCH_ALL '伊心 是 来 搞笑 的'  LIMIT 0, 100"""
+
+        test {
+            sql "select v['a'] from ${table_name} group by v['a']"
+            exception("errCode = 2, detailMessage = Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by")
+        }
+
+        test {
+            sql """
+            create table var(
+                `key` int,
+                `content` variant
+            )
+            DUPLICATE KEY(`key`)
+            distributed by hash(`content`) buckets 8
+            properties(
+              "replication_allocation" = "tag.location.default: 1"
+            );
+            """
+            exception("errCode = 2, detailMessage = Hash distribution info should not contain variant columns")
+        }
+
+         test {
+            sql """
+            CREATE TABLE `var_as_key` (
+              `key` int NULL,
+              `var` variant NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`key`, `var`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+            """ 
+            exception("errCode = 2, detailMessage = Variant type should not be used in key")
+        }
+
     } finally {
         // reset flags
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")

@@ -319,7 +319,11 @@ public class IcebergUtils {
                 case DATE:
                     return dateLiteral.getStringValue();
                 case TIMESTAMP:
-                    return dateLiteral.getUnixTimestampWithMicroseconds(TimeUtils.getTimeZone());
+                    if (((Types.TimestampType) icebergType).shouldAdjustToUTC()) {
+                        return dateLiteral.getUnixTimestampWithMicroseconds(TimeUtils.getTimeZone());
+                    } else {
+                        return dateLiteral.getUnixTimestampWithMicroseconds(TimeUtils.getUTCTimeZone());
+                    }
                 default:
                     return null;
             }

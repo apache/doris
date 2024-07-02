@@ -44,7 +44,6 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AnalysisTaskExecutorTest extends TestWithFeService {
@@ -104,14 +103,12 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisJobInfo);
 
         AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
-        BlockingQueue<AnalysisTaskWrapper> b = Deencapsulation.getField(analysisTaskExecutor, "taskQueue");
         AnalysisTaskWrapper analysisTaskWrapper = new AnalysisTaskWrapper(analysisTaskExecutor, analysisJob);
         Deencapsulation.setField(analysisTaskWrapper, "startTime", 5);
-        b.put(analysisTaskWrapper);
+        analysisTaskExecutor.putJob(analysisTaskWrapper);
         analysisTaskExecutor.tryToCancel();
         Assertions.assertTrue(cancelled.get());
-        Assertions.assertTrue(b.isEmpty());
-
+        Assertions.assertEquals(0, analysisTaskExecutor.getTaskQueue().size());
     }
 
     @Test

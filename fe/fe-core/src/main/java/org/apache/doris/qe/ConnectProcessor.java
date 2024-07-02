@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
@@ -198,9 +199,11 @@ public abstract class ConnectProcessor {
     }
 
     // only throw an exception when there is a problem interacting with the requesting client
-    protected void handleQuery(MysqlCommand mysqlCommand, String originStmt) {
+    protected void handleQuery(MysqlCommand mysqlCommand, String originStmt) throws ConnectionException {
         try {
             executeQuery(mysqlCommand, originStmt);
+        } catch (ConnectionException exception) {
+            throw exception;
         } catch (Exception ignored) {
             // saved use handleQueryException
         }
@@ -224,7 +227,8 @@ public abstract class ConnectProcessor {
         List<StatementBase> cachedStmts = null;
         // Currently we add a config to decide whether using PREPARED/EXECUTE command for nereids
         // TODO: after implemented full prepared, we could remove this flag
-        boolean nereidsUseServerPrep = sessionVariable.enableServeSidePreparedStatement
+        boolean nereidsUseServerPrep = (sessionVariable.enableServeSidePreparedStatement
+                    && !sessionVariable.isEnableInsertGroupCommit())
                         || mysqlCommand == MysqlCommand.COM_QUERY;
         if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
@@ -312,7 +316,13 @@ public abstract class ConnectProcessor {
                         if (i != stmts.size() - 1) {
                             ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
                             if (ctx.getState().getStateType() != MysqlStateType.ERR) {
-                                finalizeCommand();
+                                // here, doris do different with mysql.
+                                // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
+                                // single statement. Doris treat it with multi statement, but only return
+                                // the last statement result.
+                                if (getConnectContext().getCapability().isClientMultiStatements()) {
+                                    finalizeCommand();
+                                }
                             }
                         }
                     } else if (connectType.equals(ConnectType.ARROW_FLIGHT_SQL)) {
@@ -414,14 +424,18 @@ public abstract class ConnectProcessor {
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
     protected void handleQueryException(Throwable throwable, String origStmt,
-            StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+            StatementBase parsedStmt, Data.PQueryStatistics statistics) throws ConnectionException {
         if (ctx.getMinidump() != null) {
             MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
         }
-        if (throwable instanceof IOException) {
+        if (throwable instanceof ConnectionException) {
+            // Throw this exception to close the connection outside.
+            LOG.warn("Process one query failed because ConnectionException: ", throwable);
+            throw (ConnectionException) throwable;
+        } else if (throwable instanceof IOException) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", throwable);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + throwable.getMessage());
         } else if (throwable instanceof UserException) {
             LOG.warn("Process one query failed because.", throwable);
             ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
@@ -479,7 +493,7 @@ public abstract class ConnectProcessor {
 
     // Get the column definitions of a table
     @SuppressWarnings("rawtypes")
-    protected void handleFieldList(String tableName) {
+    protected void handleFieldList(String tableName) throws ConnectionException {
         // Already get command code.
         if (Strings.isNullOrEmpty(tableName)) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
