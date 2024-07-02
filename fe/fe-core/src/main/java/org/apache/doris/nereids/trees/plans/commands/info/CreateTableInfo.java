@@ -801,5 +801,13 @@ public class CreateTableInfo {
     public void setIsExternal(boolean isExternal) {
         this.isExternal = isExternal;
     }
+
+    public PartitionTableInfo getPartitionTableInfo() {
+        return partitionTableInfo;
+    }
+
+    public DistributionDescriptor getDistribution() {
+        return distribution;
+    }
 }
 

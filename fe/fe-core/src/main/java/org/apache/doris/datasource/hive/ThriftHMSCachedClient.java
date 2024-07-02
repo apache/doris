@@ -206,7 +206,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 throw e;
             }
         } catch (Exception e) {
-            throw new HMSClientException("failed to create database from hms client", e);
+            throw new HMSClientException("failed to create table from hms client", e);
         }
     }
 
