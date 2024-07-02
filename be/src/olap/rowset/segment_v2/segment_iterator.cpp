@@ -90,6 +90,7 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/functions/array/function_array_index.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -1333,6 +1334,12 @@ Status SegmentIterator::_apply_inverted_index() {
             // _inverted_index_iterators has all column ids which has inverted index
             // _common_expr_columns has all column ids from _common_expr_ctxs_push_down
             // if current bitmap is already empty just return
+            if (!(expr_ctx->root()->node_type() == TExprNodeType::FUNCTION_CALL &&
+                  expr_ctx->root()->fn().name.function_name ==
+                          vectorized::ArrayContainsAction::name)) {
+                // now we only support ArrayContains function to evaluate inverted index
+                continue;
+            }
             if (_row_bitmap.isEmpty()) {
                 break;
             }
