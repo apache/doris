@@ -597,7 +597,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
-    public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "optimize_push_down_count";
+    public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
 
