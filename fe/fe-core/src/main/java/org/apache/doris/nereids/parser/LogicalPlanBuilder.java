@@ -925,9 +925,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
-        if (ctx.USING() == null && ctx.cte() == null && ctx.explain() == null) {
+
+        Command deleteCommand;
+        if (ctx.USING() == null && ctx.cte() == null) {
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
-            return new DeleteFromCommand(tableName, tableAlias, partitionSpec.first, partitionSpec.second, query);
+            deleteCommand = new DeleteFromCommand(tableName, tableAlias, partitionSpec.first,
+                    partitionSpec.second, query);
         } else {
             // convert to insert into select
             query = withRelations(query, ctx.relations().relation());
@@ -936,8 +939,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (ctx.cte() != null) {
                 cte = Optional.ofNullable(withCte(query, ctx.cte()));
             }
-            return withExplain(new DeleteFromUsingCommand(tableName, tableAlias,
-                    partitionSpec.first, partitionSpec.second, query, cte), ctx.explain());
+            deleteCommand = new DeleteFromUsingCommand(tableName, tableAlias,
+                    partitionSpec.first, partitionSpec.second, query, cte);
+        }
+        if (ctx.explain() != null) {
+            return withExplain(deleteCommand, ctx.explain());
+        } else {
+            return deleteCommand;
         }
     }
 
