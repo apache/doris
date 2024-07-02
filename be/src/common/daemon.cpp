@@ -212,31 +212,29 @@ void Daemon::memory_maintenance_thread() {
         doris::PerfCounters::refresh_proc_status();
         doris::MemInfo::refresh_proc_meminfo();
         doris::GlobalMemoryArbitrator::reset_refresh_interval_memory_growth();
+        ExecEnv::GetInstance()->brpc_iobuf_block_memory_tracker()->set_consumption(
+                butil::IOBuf::block_memory());
+        // Refresh allocator memory metrics.
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+        doris::MemInfo::refresh_allocator_mem();
+#ifdef USE_JEMALLOC
+        if (doris::MemInfo::je_dirty_pages_mem() > doris::MemInfo::je_dirty_pages_mem_limit() &&
+            GlobalMemoryArbitrator::is_exceed_soft_mem_limit()) {
+            doris::MemInfo::notify_je_purge_dirty_pages();
+        }
+#endif
+        if (config::enable_system_metrics) {
+            DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
+        }
+#endif
 
         // Update and print memory stat when the memory changes by 256M.
         if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
             last_print_proc_mem = PerfCounters::get_vm_rss();
             doris::MemTrackerLimiter::clean_tracker_limiter_group();
             doris::MemTrackerLimiter::enable_print_log_process_usage();
-
             // Refresh mem tracker each type counter.
             doris::MemTrackerLimiter::refresh_global_counter();
-
-            // Refresh allocator memory metrics.
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
-            doris::MemInfo::refresh_allocator_mem();
-#ifdef USE_JEMALLOC
-            if (doris::MemInfo::je_dirty_pages_mem() > doris::MemInfo::je_dirty_pages_mem_limit()) {
-                doris::MemInfo::notify_je_purge_dirty_pages();
-            }
-#endif
-            if (config::enable_system_metrics) {
-                DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
-            }
-#endif
-
-            ExecEnv::GetInstance()->brpc_iobuf_block_memory_tracker()->set_consumption(
-                    butil::IOBuf::block_memory());
             LOG(INFO) << doris::GlobalMemoryArbitrator::
                             process_mem_log_str(); // print mem log when memory state by 256M
         }
