@@ -114,9 +114,13 @@ public class NereidsPlanner extends Planner {
         setParsedPlan(parsedPlan);
         PhysicalProperties requireProperties = buildInitRequireProperties();
         statementContext.getStopwatch().reset().start();
-        boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
-        Plan resultPlan = plan(parsedPlan, requireProperties, explainLevel, showPlanProcess);
-        statementContext.getStopwatch().stop();
+        Plan resultPlan = null;
+        try {
+            boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
+            resultPlan = plan(parsedPlan, requireProperties, explainLevel, showPlanProcess);
+        } finally {
+            statementContext.getStopwatch().stop();
+        }
         setOptimizedPlan(resultPlan);
         if (explainLevel.isPlanLevel) {
             return;
