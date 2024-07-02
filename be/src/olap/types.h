@@ -1160,11 +1160,11 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
         CppType tmp = *reinterpret_cast<const CppType*>(src);
         doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value = binary_cast<
                 CppType, doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>(tmp);
-        string format = "%Y-%m-%d";
-        string res;
-        res.resize(12);
-        res.reserve(12);
-        value.to_format_string(format.c_str(), format.size(), res.data());
+        std::string format = "%Y-%m-%d";
+        std::string res;
+        res.resize(12 + vectorized::SAFE_FORMAT_STRING_MARGIN);
+        value.to_format_string_conservative(format.c_str(), format.size(), res.data(),
+                                            12 + vectorized::SAFE_FORMAT_STRING_MARGIN);
         return res;
     }
 
@@ -1201,11 +1201,11 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
                 binary_cast<CppType,
                             doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>(
                         tmp);
-        string format = "%Y-%m-%d %H:%i:%s.%f";
-        string res;
-        res.resize(30);
-        res.reserve(30);
-        value.to_format_string(format.c_str(), format.size(), res.data());
+        std::string format = "%Y-%m-%d %H:%i:%s.%f";
+        std::string res;
+        res.resize(30 + vectorized::SAFE_FORMAT_STRING_MARGIN);
+        value.to_format_string_conservative(format.c_str(), format.size(), res.data(),
+                                            30 + vectorized::SAFE_FORMAT_STRING_MARGIN);
         return res;
     }
 
