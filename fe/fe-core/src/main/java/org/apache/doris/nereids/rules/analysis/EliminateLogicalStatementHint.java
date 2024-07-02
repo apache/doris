@@ -27,15 +27,15 @@ import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.hint.OrderedHint;
 import org.apache.doris.nereids.hint.UseCboRuleHint;
-import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
-import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseCboRule;
+import org.apache.doris.nereids.properties.StatementHint;
+import org.apache.doris.nereids.properties.StatementHintSetVar;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.trees.plans.logical.LogicalStatementHint;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
@@ -50,17 +50,17 @@ import java.util.Optional;
 /**
  * eliminate logical select hint and set them to cascade context
  */
-public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
+public class EliminateLogicalStatementHint extends OneRewriteRuleFactory {
     private Logger logger = LoggerFactory.getLogger(getClass());
 
     @Override
     public Rule build() {
-        return logicalSelectHint().thenApply(ctx -> {
-            LogicalSelectHint<Plan> selectHintPlan = ctx.root;
-            for (Entry<String, SelectHint> hint : selectHintPlan.getHints().entrySet()) {
+        return logicalStatementHint().thenApply(ctx -> {
+            LogicalStatementHint<Plan> statementHintPlan = ctx.root;
+            for (Entry<String, StatementHint> hint : statementHintPlan.getHints().entrySet()) {
                 String hintName = hint.getKey();
                 if (hintName.equalsIgnoreCase("SET_VAR")) {
-                    setVar((SelectHintSetVar) hint.getValue(), ctx.statementContext);
+                    setVar((StatementHintSetVar) hint.getValue(), ctx.statementContext);
                 } else if (hintName.equalsIgnoreCase("ORDERED")) {
                     try {
                         ctx.cascadesContext.getConnectContext().getSessionVariable()
@@ -74,22 +74,22 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                     ctx.statementContext.addHint(ordered);
                 } else if (hintName.equalsIgnoreCase("LEADING")) {
                     extractLeading((SelectHintLeading) hint.getValue(), ctx.cascadesContext,
-                            ctx.statementContext, selectHintPlan.getHints());
+                            ctx.statementContext, statementHintPlan.getHints());
                 } else if (hintName.equalsIgnoreCase("USE_CBO_RULE")) {
                     extractRule((SelectHintUseCboRule) hint.getValue(), ctx.statementContext);
                 } else {
                     logger.warn("Can not process select hint '{}' and skip it", hint.getKey());
                 }
             }
-            return selectHintPlan.child();
-        }).toRule(RuleType.ELIMINATE_LOGICAL_SELECT_HINT);
+            return statementHintPlan.child();
+        }).toRule(RuleType.ELIMINATE_LOGICAL_STATEMENT_HINT);
     }
 
-    private void setVar(SelectHintSetVar selectHint, StatementContext context) {
+    private void setVar(StatementHintSetVar statementHint, StatementContext context) {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         // set temporary session value, and then revert value in the 'finally block' of StmtExecutor#execute
         sessionVariable.setIsSingleSetVar(true);
-        for (Entry<String, Optional<String>> kv : selectHint.getParameters().entrySet()) {
+        for (Entry<String, Optional<String>> kv : statementHint.getParameters().entrySet()) {
             String key = kv.getKey();
             Optional<String> value = kv.getValue();
             if (value.isPresent()) {
@@ -116,7 +116,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
     }
 
     private void extractLeading(SelectHintLeading selectHint, CascadesContext context,
-                                    StatementContext statementContext, Map<String, SelectHint> hints) {
+                                    StatementContext statementContext, Map<String, StatementHint> hints) {
         LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
         if (context.getHintMap().get("Leading") != null) {
             hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);

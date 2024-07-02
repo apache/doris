@@ -20,14 +20,14 @@ package org.apache.doris.nereids.properties;
 import java.util.Objects;
 
 /**
- * select hint.
+ * statement hint.
  * e.g. set_var(query_timeout='1800', exec_mem_limit='2147483648')
  */
-public class SelectHint {
+public class StatementHint {
     // e.g. set_var
     private String hintName;
 
-    public SelectHint(String hintName) {
+    public StatementHint(String hintName) {
         this.hintName = Objects.requireNonNull(hintName, "hintName can not be null");
     }
 

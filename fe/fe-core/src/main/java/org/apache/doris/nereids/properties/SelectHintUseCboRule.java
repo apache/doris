@@ -22,7 +22,7 @@ import java.util.List;
 /**
  * select hint CostBasedRule.
  */
-public class SelectHintUseCboRule extends SelectHint {
+public class SelectHintUseCboRule extends StatementHint {
     private final List<String> parameters;
 
     private final boolean isNotUseCboRule;
