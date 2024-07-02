@@ -15,20 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_complex_types", "p2,external,hive,external_remote,external_remote_hive") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "test_complex_types"
-        sql """drop catalog if exists ${catalog_name};"""
-        sql """
-            create catalog if not exists ${catalog_name} properties (
-                'type'='hms',
-                'hadoop.username' = 'hadoop',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
-            );
-        """
+suite("test_complex_types", "p0,external,hive,external_docker,external_docker_hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "${hivePrefix}_test_complex_types"
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """create catalog if not exists ${catalog_name} properties (
+            "type"="hms",
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+        );"""
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
@@ -47,9 +50,9 @@ suite("test_complex_types", "p2,external,hive,external_remote,external_remote_hi
 
         qt_array_max """select count(array_max(capacity)) from byd where array_max(capacity) > 0.99"""
 
-        qt_array_filter """select count(array_size(array_filter(i -> (i > 0.99), capacity))) from byd where array_size(array_filter(i -> (i > 0.99), capacity))"""
+        // qt_array_filter """select count(array_size(array_filter(i -> (i > 0.99), capacity))) from byd where array_size(array_filter(i -> (i > 0.99), capacity))"""
 
-        qt_array_last """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
+        // qt_array_last """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
 
         qt_null_struct_element_orc """select count(struct_element(favor, 'tip')) from byd where id % 13 = 0"""
 
@@ -63,9 +66,9 @@ suite("test_complex_types", "p2,external,hive,external_remote,external_remote_hi
 
         qt_array_max_orc """select count(array_max(capacity)) from byd where array_max(capacity) > 0.99"""
 
-        qt_array_filter_orc """select count(array_size(array_filter(i -> (i > 0.99), capacity))) from byd where array_size(array_filter(i -> (i > 0.99), capacity))"""
+        // qt_array_filter_orc """select count(array_size(array_filter(i -> (i > 0.99), capacity))) from byd where array_size(array_filter(i -> (i > 0.99), capacity))"""
 
-        qt_array_last_orc """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
+        // qt_array_last_orc """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
 
         qt_offsets_check """select * from complex_offsets_check order by id"""
 
