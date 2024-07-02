@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_text_complex_type", "p2,external,hive,external_remote,external_remote_hive") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
+suite("test_hive_text_complex_type", "p0,external,hive,external_docker,external_docker_hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (!"true".equalsIgnoreCase(enabled)) {
+        return;
+    }
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "test_hive_text_complex_type"
 
         sql """drop catalog if exists ${catalog_name};"""
@@ -27,7 +30,7 @@ suite("test_hive_text_complex_type", "p2,external,hive,external_remote,external_
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hadoop.username' = 'hadoop',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}'
             );
         """
         logger.info("catalog " + catalog_name + " created")
