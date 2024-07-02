@@ -25,9 +25,8 @@
 namespace doris::pipeline {
 SpillSortSinkLocalState::SpillSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
         : Base(parent, state) {
-    _finish_dependency =
-            std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                         parent->get_name() + "_SPILL_DEPENDENCY", true);
+    _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                                      parent->get_name() + "_SPILL_DEPENDENCY");
 }
 
 Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
@@ -40,12 +39,8 @@ Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
 
     RETURN_IF_ERROR(setup_in_memory_sort_op(state));
 
-    auto& parent = Base::_parent->template cast<Parent>();
-    Base::_shared_state->enable_spill = parent._enable_spill;
-    Base::_shared_state->in_mem_shared_state->sorter->set_enable_spill(parent._enable_spill);
-    if (parent._enable_spill) {
-        _finish_dependency->block();
-    }
+    Base::_shared_state->in_mem_shared_state->sorter->set_enable_spill();
+    _finish_dependency->block();
     return Status::OK();
 }
 
@@ -78,10 +73,7 @@ void SpillSortSinkLocalState::update_profile(RuntimeProfile* child_profile) {
 }
 
 Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_status) {
-    auto& parent = Base::_parent->template cast<Parent>();
-    if (parent._enable_spill) {
-        dec_running_big_mem_op_num(state);
-    }
+    dec_running_big_mem_op_num(state);
     return Status::OK();
 }
 Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
@@ -115,10 +107,11 @@ Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
 
 SpillSortSinkOperatorX::SpillSortSinkOperatorX(ObjectPool* pool, int operator_id,
                                                const TPlanNode& tnode, const DescriptorTbl& descs,
-                                               bool require_bucket_distribution)
+                                               bool require_bucket_distribution,
+                                               const SortAlgorithm& algorithm)
         : DataSinkOperatorX(operator_id, tnode.node_id) {
-    _sort_sink_operator = std::make_unique<SortSinkOperatorX>(pool, operator_id, tnode, descs,
-                                                              require_bucket_distribution);
+    _sort_sink_operator = std::make_unique<SortSinkOperatorX>(
+            pool, operator_id, tnode, descs, require_bucket_distribution, algorithm);
 }
 
 Status SpillSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -133,8 +126,6 @@ Status SpillSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
 Status SpillSortSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<LocalStateType>::prepare(state));
     RETURN_IF_ERROR(_sort_sink_operator->prepare(state));
-    _enable_spill = _sort_sink_operator->is_full_sort();
-    LOG(INFO) << "spill sort sink, enable spill: " << _enable_spill;
     return Status::OK();
 }
 Status SpillSortSinkOperatorX::open(RuntimeState* state) {
@@ -142,16 +133,10 @@ Status SpillSortSinkOperatorX::open(RuntimeState* state) {
     return _sort_sink_operator->open(state);
 }
 Status SpillSortSinkOperatorX::revoke_memory(RuntimeState* state) {
-    if (!_enable_spill) {
-        return Status::OK();
-    }
     auto& local_state = get_local_state(state);
     return local_state.revoke_memory(state);
 }
 size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
-    if (!_enable_spill) {
-        return 0;
-    }
     auto& local_state = get_local_state(state);
     if (!local_state.Base::_shared_state->sink_status.ok()) {
         return UINT64_MAX;
@@ -161,9 +146,7 @@ size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
 Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
                                     bool eos) {
     auto& local_state = get_local_state(state);
-    if (_enable_spill) {
-        local_state.inc_running_big_mem_op_num(state);
-    }
+    local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_ERROR(local_state.Base::_shared_state->sink_status);
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -177,17 +160,10 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
     local_state._mem_tracker->set_consumption(
             local_state._shared_state->in_mem_shared_state->sorter->data_size());
     if (eos) {
-        if (_enable_spill) {
-            if (local_state._shared_state->is_spilled) {
-                if (revocable_mem_size(state) > 0) {
-                    RETURN_IF_ERROR(revoke_memory(state));
-                } else {
-                    local_state._dependency->set_ready_to_read();
-                    local_state._finish_dependency->set_ready();
-                }
+        if (local_state._shared_state->is_spilled) {
+            if (revocable_mem_size(state) > 0) {
+                RETURN_IF_ERROR(revoke_memory(state));
             } else {
-                RETURN_IF_ERROR(
-                        local_state._shared_state->in_mem_shared_state->sorter->prepare_for_read());
                 local_state._dependency->set_ready_to_read();
                 local_state._finish_dependency->set_ready();
             }
@@ -195,6 +171,7 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
             RETURN_IF_ERROR(
                     local_state._shared_state->in_mem_shared_state->sorter->prepare_for_read());
             local_state._dependency->set_ready_to_read();
+            local_state._finish_dependency->set_ready();
         }
     }
     return Status::OK();
