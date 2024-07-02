@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Set;
 
@@ -63,7 +65,8 @@ public abstract class AggFunctionRollUpHandler {
     protected static List<Expression> extractArguments(Expression functionWithAny, Function actualFunction) {
         Set<Object> exprSetToRemove = functionWithAny.collectToSet(expr -> !(expr instanceof Any));
         return actualFunction.collectFirst(expr ->
-                exprSetToRemove.stream().noneMatch(exprToRemove -> exprToRemove.equals(expr)));
+                        exprSetToRemove.stream().noneMatch(exprToRemove -> exprToRemove.equals(expr)))
+                .map(expr -> ImmutableList.of((Expression) expr)).orElse(ImmutableList.of());
     }
 
     /**
