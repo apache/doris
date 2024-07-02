@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_default_partition", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_hive_default_partition", "p0,external,hive,external_docker,external_docker_hive") {
     def one_partition1 = """select * from one_partition order by id;"""
     def one_partition2 = """select id, part1 from one_partition where part1 is null order by id;"""
     def one_partition3 = """select id from one_partition where part1 is not null order by id;"""
@@ -52,11 +52,16 @@ suite("test_hive_default_partition", "p2,external,hive,external_remote,external_
     def string_part_prune8 = """select * from test_date_string_partition where cast(day1 as date) in ("2023-08-16", "2023-08-18");"""
     def string_part_prune9 = """select * from test_date_string_partition where cast(day1 as date) in (cast("2023-08-16" as date), "2023-08-18");"""
 
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "hive_default_partition"
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
+        String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = hivePrefix + "_hive_default_partition"
         sql """drop catalog if exists ${catalog_name};"""
         sql """
             create catalog if not exists ${catalog_name} properties (
