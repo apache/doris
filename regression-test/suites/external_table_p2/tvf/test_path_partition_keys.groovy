@@ -137,8 +137,8 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
-        "column_separator"="${column_separator}",
-        "use_path_style" = "true",
+        "column_separator" = ",",
+        "use_path_style" = "false", -- aliyun does not support path_style
         "path_partition_keys"="dt1") 
     """
 
@@ -152,8 +152,8 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
-        "column_separator"="${column_separator}",
-        "use_path_style" = "true",
+        "column_separator" = ",",
+        "use_path_style" = "false", -- aliyun does not support path_style
         "path_partition_keys"="dt1") limit 3;
     """
 
@@ -166,8 +166,8 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
-        "column_separator"="${column_separator}",
-        "use_path_style" = "true",
+        "column_separator" = ",",
+        "use_path_style" = "false", -- aliyun does not support path_style
         "path_partition_keys"="dt1") limit 3;
     """
 
@@ -180,8 +180,8 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
-        "column_separator"="${column_separator}",
-        "use_path_style" = "true",
+        "use_path_style" = "false", -- aliyun does not support path_style
+        "column_separator" = ",",
         "path_partition_keys"="dt2,dt1") limit 3;
     """
 }
