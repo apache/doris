@@ -994,7 +994,9 @@ public class TabletScheduler extends MasterDaemon {
         if (chosenReplica == null) {
             return false;
         }
+
         deleteReplicaInternal(tabletCtx, chosenReplica, "src replica of rebalance", force);
+        rebalancer.invalidateToDeleteReplicaId(tabletCtx);
 
         return true;
     }
@@ -1110,13 +1112,13 @@ public class TabletScheduler extends MasterDaemon {
             if (replica.isAlive() && !replica.tooSlow()) {
                 normalReplicaCount++;
             }
-            if (replica.getVersionCount() > maxVersionCount) {
-                maxVersionCount = replica.getVersionCount();
+            if (replica.getVisibleVersionCount() > maxVersionCount) {
+                maxVersionCount = replica.getVisibleVersionCount();
                 chosenReplica = replica;
             }
         }
         if (chosenReplica != null && chosenReplica.isAlive() && !chosenReplica.tooSlow()
-                && chosenReplica.getVersionCount() > Config.min_version_count_indicate_replica_compaction_too_slow
+                && chosenReplica.tooBigVersionCount()
                 && normalReplicaCount - 1 >= tabletCtx.getReplicas().size() / 2 + 1) {
             chosenReplica.setState(ReplicaState.COMPACTION_TOO_SLOW);
             LOG.info("set replica id :{} tablet id: {}, backend id: {} to COMPACTION_TOO_SLOW",
@@ -1867,10 +1869,13 @@ public class TabletScheduler extends MasterDaemon {
      * If task is timeout, remove the tablet.
      */
     public void handleRunningTablets() {
+        Set<Long> aliveBeIds = Sets.newHashSet(Env.getCurrentSystemInfo().getAllBackendIds(true));
         // 1. remove the tablet ctx if timeout
         List<TabletSchedCtx> cancelTablets = Lists.newArrayList();
         synchronized (this) {
             for (TabletSchedCtx tabletCtx : runningTablets.values()) {
+                long srcBeId = tabletCtx.getSrcBackendId();
+                long destBeId = tabletCtx.getDestBackendId();
                 if (Config.disable_tablet_scheduler) {
                     tabletCtx.setErrMsg("tablet scheduler is disabled");
                     cancelTablets.add(tabletCtx);
@@ -1881,6 +1886,12 @@ public class TabletScheduler extends MasterDaemon {
                     tabletCtx.setErrMsg("timeout");
                     cancelTablets.add(tabletCtx);
                     stat.counterCloneTaskTimeout.incrementAndGet();
+                } else if (destBeId > 0 && !aliveBeIds.contains(destBeId)) {
+                    tabletCtx.setErrMsg("dest be " + destBeId + " is dead");
+                    cancelTablets.add(tabletCtx);
+                } else if (srcBeId > 0 && !aliveBeIds.contains(srcBeId)) {
+                    tabletCtx.setErrMsg("src be " + srcBeId + " is dead");
+                    cancelTablets.add(tabletCtx);
                 }
             }
         }
@@ -1997,6 +2008,8 @@ public class TabletScheduler extends MasterDaemon {
         // path hash -> slot num
         private Map<Long, Slot> pathSlots = Maps.newConcurrentMap();
         private long beId;
+        // only use in takeAnAvailBalanceSlotFrom, make pick RR
+        private Map<TStorageMedium, Long> lastPickPathHashs = Maps.newHashMap();
 
         public PathSlot(Map<Long, TStorageMedium> paths, long beId) {
             this.beId = beId;
@@ -2114,19 +2127,6 @@ public class TabletScheduler extends MasterDaemon {
             return num;
         }
 
-        /**
-         * get path whose balance slot num is larger than 0
-         */
-        public synchronized Set<Long> getAvailPathsForBalance() {
-            Set<Long> pathHashs = Sets.newHashSet();
-            for (Map.Entry<Long, Slot> entry : pathSlots.entrySet()) {
-                if (entry.getValue().getAvailableBalance() > 0) {
-                    pathHashs.add(entry.getKey());
-                }
-            }
-            return pathHashs;
-        }
-
         public synchronized List<List<String>> getSlotInfo(long beId) {
             List<List<String>> results = Lists.newArrayList();
             pathSlots.forEach((key, value) -> {
@@ -2159,15 +2159,31 @@ public class TabletScheduler extends MasterDaemon {
             return -1;
         }
 
-        public synchronized long takeAnAvailBalanceSlotFrom(Set<Long> pathHashs) {
-            for (Long pathHash : pathHashs) {
-                Slot slot = pathSlots.get(pathHash);
-                if (slot == null) {
-                    continue;
+        public long takeAnAvailBalanceSlotFrom(List<Long> pathHashs, TStorageMedium medium) {
+            if (pathHashs.isEmpty()) {
+                return -1;
+            }
+
+            Collections.sort(pathHashs);
+            synchronized (this) {
+                int preferSlotIndex = pathHashs.indexOf(lastPickPathHashs.getOrDefault(medium, -1L)) + 1;
+                if (preferSlotIndex < 0 || preferSlotIndex >= pathHashs.size()) {
+                    preferSlotIndex = 0;
                 }
-                if (slot.balanceUsed < slot.getBalanceTotal()) {
-                    slot.balanceUsed++;
-                    return pathHash;
+
+                for (int i = preferSlotIndex; i < pathHashs.size(); i++) {
+                    long pathHash = pathHashs.get(i);
+                    if (takeBalanceSlot(pathHash) != -1) {
+                        lastPickPathHashs.put(medium, pathHash);
+                        return pathHash;
+                    }
+                }
+                for (int i = 0; i < preferSlotIndex; i++) {
+                    long pathHash = pathHashs.get(i);
+                    if (takeBalanceSlot(pathHash) != -1) {
+                        lastPickPathHashs.put(medium, pathHash);
+                        return pathHash;
+                    }
                 }
             }
             return -1;

@@ -17,13 +17,12 @@
 
 import java.math.BigDecimal;
 
-suite("test_point_query_partition", "nonConcurrent") {
+suite("test_point_query_partition") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def realDb = "regression_test_serving_p0"
     def tableName = realDb + ".tbl_point_query_partition"
     sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
-    sql "set global enable_server_side_prepared_statement = true"
     // Parse url
     String jdbcUrl = context.config.jdbcUrl
     String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
@@ -150,5 +149,4 @@ suite("test_point_query_partition", "nonConcurrent") {
         qe_point_selectmmm stmt 
         qe_point_selecteee stmt 
     }
-    sql "set global enable_server_side_prepared_statement = false"
 } 

@@ -44,7 +44,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
             .add("BackendId").add("Version").add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
             .add("SchemaHash").add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State").add("IsBad")
             .add("IsUserDrop")
-            .add("VersionCount").add("PathHash").add("Path")
+            .add("VisibleVersionCount").add("VersionCount").add("PathHash").add("Path")
             .add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
             .add("CooldownMetaId").add("QueryHits").build();
 
@@ -117,7 +117,8 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                         String.valueOf(replica.getState()),
                                         String.valueOf(replica.isBad()),
                                         String.valueOf(replica.isUserDrop()),
-                                        String.valueOf(replica.getVersionCount()),
+                                        String.valueOf(replica.getVisibleVersionCount()),
+                                        String.valueOf(replica.getTotalVersionCount()),
                                         String.valueOf(replica.getPathHash()),
                                         path,
                                         metaUrl,

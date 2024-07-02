@@ -43,6 +43,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TPartitionType;
@@ -104,7 +105,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             } else {
                 this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                         database.getId(), ImmutableList.of(table.getId()), labelName,
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        new TxnCoordinator(TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
             }
         } catch (Exception e) {

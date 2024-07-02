@@ -24,6 +24,7 @@ import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.MysqlChannel;
@@ -212,7 +213,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     // process COM_EXECUTE, parse binary row data
     // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
     private void handleExecute() {
-        // debugPacket();
+        if (LOG.isDebugEnabled()) {
+            debugPacket();
+        }
         packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
         // parse stmt_id, flags, params
         int stmtId = packetBuf.getInt();
@@ -245,7 +248,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     }
 
     // Process COM_QUERY statement,
-    private void handleQuery(MysqlCommand mysqlCommand) {
+    private void handleQuery(MysqlCommand mysqlCommand) throws ConnectionException {
         // convert statement to Java string
         byte[] bytes = packetBuf.array();
         int ending = packetBuf.limit() - 1;
@@ -307,7 +310,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
     }
 
-    private void handleFieldList() {
+    private void handleFieldList() throws ConnectionException {
         String tableName = new String(MysqlProto.readNulTerminateString(packetBuf), StandardCharsets.UTF_8);
         handleFieldList(tableName);
     }

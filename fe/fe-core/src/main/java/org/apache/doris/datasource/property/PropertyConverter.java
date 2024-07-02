@@ -188,7 +188,7 @@ public class PropertyConverter {
             return OBSFileSystem.class.getName();
         } else if (fsScheme.equalsIgnoreCase("oss")) {
             return AliyunOSSFileSystem.class.getName();
-        } else if (fsScheme.equalsIgnoreCase("cosn")) {
+        } else if (fsScheme.equalsIgnoreCase("cosn") || fsScheme.equalsIgnoreCase("lakefs")) {
             return CosFileSystem.class.getName();
         } else {
             return S3AFileSystem.class.getName();
@@ -354,6 +354,7 @@ public class PropertyConverter {
         cosProperties.put(CosNConfigKeys.COSN_ENDPOINT_SUFFIX_KEY, props.get(CosProperties.ENDPOINT));
         cosProperties.put("fs.cosn.impl.disable.cache", "true");
         cosProperties.put("fs.cosn.impl", getHadoopFSImplByScheme("cosn"));
+        cosProperties.put("fs.lakefs.impl", getHadoopFSImplByScheme("lakefs"));
         if (credential.isWhole()) {
             cosProperties.put(CosNConfigKeys.COSN_USERINFO_SECRET_ID_KEY, credential.getAccessKey());
             cosProperties.put(CosNConfigKeys.COSN_USERINFO_SECRET_KEY_KEY, credential.getSecretKey());

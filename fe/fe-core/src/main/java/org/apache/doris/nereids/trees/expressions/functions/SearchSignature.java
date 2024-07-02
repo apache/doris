@@ -23,6 +23,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -190,6 +192,9 @@ public class SearchSignature {
             if (!IdenticalSignature.isIdentical(sigArgType, realType)) {
                 nonStrictMatched++;
                 if (sigArgType instanceof DateV2Type && realType instanceof DateType) {
+                    dateToDateV2Count++;
+                } else if (sigArgType instanceof DateTimeV2Type && (realType instanceof DateTimeType
+                        || realType instanceof DateV2Type || realType instanceof DateType)) {
                     dateToDateV2Count++;
                 }
             }

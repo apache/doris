@@ -573,10 +573,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             case HIVE:
                 return getHiveColumnStats(colName);
             case ICEBERG:
-                return StatisticsUtil.getIcebergColumnStats(colName,
+                if (GlobalVariable.enableFetchIcebergStats) {
+                    return StatisticsUtil.getIcebergColumnStats(colName,
                         Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
-                                catalog, dbName, name
+                            catalog, dbName, name
                         ));
+                } else {
+                    break;
+                }
             default:
                 LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
         }
