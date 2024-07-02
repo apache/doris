@@ -98,6 +98,16 @@ void register_suites() {
             should_ret = true;
         });
     });
+    suite_map.emplace("test_cancel_node_channel", [] {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("VNodeChannel::try_send_block", [](auto&& args) {
+            LOG(INFO) << "injection VNodeChannel::try_send_block";
+            auto* arg0 = try_any_cast<Status*>(args[0]);
+            *arg0 = Status::InternalError<false>("test_cancel_node_channel injection error");
+        });
+        sp->set_call_back("VOlapTableSink::close",
+                          [](auto&&) { std::this_thread::sleep_for(std::chrono::seconds(5)); });
+    });
 }
 
 void set_sleep(const std::string& point, HttpRequest* req) {

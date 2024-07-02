@@ -98,7 +98,7 @@ public:
 
     const std::unordered_set<int32_t> include_col_uids() const { return _include_col_uids; }
 
-    const RuntimeState& runtime_state() const { return *_runtime_state; }
+    RuntimeState* runtime_state() { return _runtime_state.get(); }
 
 private:
     // caching TupleDescriptor, output_expr, etc...
@@ -121,8 +121,10 @@ private:
 };
 
 // RowCache is a LRU cache for row store
-class RowCache : public LRUCachePolicy {
+class RowCache : public LRUCachePolicyTrackingManual {
 public:
+    using LRUCachePolicyTrackingManual::insert;
+
     // The cache key for row lru cache
     struct RowCacheKey {
         RowCacheKey(int64_t tablet_id, const Slice& key) : tablet_id(tablet_id), key(key) {}
@@ -141,7 +143,6 @@ public:
 
     class RowCacheValue : public LRUCacheValueBase {
     public:
-        RowCacheValue() : LRUCacheValueBase(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE) {}
         ~RowCacheValue() override { free(cache_value); }
         char* cache_value;
     };
@@ -214,7 +215,7 @@ private:
 
 // A cache used for prepare stmt.
 // One connection per stmt perf uuid
-class LookupConnectionCache : public LRUCachePolicy {
+class LookupConnectionCache : public LRUCachePolicyTrackingManual {
 public:
     static LookupConnectionCache* instance() {
         return ExecEnv::GetInstance()->get_lookup_connection_cache();
@@ -225,9 +226,9 @@ public:
 private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
-                             LRUCacheType::NUMBER,
-                             config::tablet_lookup_cache_stale_sweep_time_sec) {}
+            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE,
+                                           capacity, LRUCacheType::NUMBER,
+                                           config::tablet_lookup_cache_stale_sweep_time_sec) {}
 
     static std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;
@@ -259,8 +260,6 @@ private:
 
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE) {}
-
         std::shared_ptr<Reusable> item;
     };
 };

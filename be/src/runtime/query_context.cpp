@@ -326,9 +326,9 @@ doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     return _exec_env->pipeline_task_scheduler();
 }
 
-ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
+ThreadPool* QueryContext::get_memtable_flush_pool() {
     if (_workload_group) {
-        return _non_pipe_thread_pool;
+        return _memtable_flush_pool;
     } else {
         return nullptr;
     }
@@ -340,7 +340,7 @@ Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
     // see task_group_manager::delete_workload_group_by_ids
     _workload_group->add_mem_tracker_limiter(query_mem_tracker);
     _workload_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
-                                         &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
+                                         &_memtable_flush_pool, &_remote_scan_task_scheduler);
     return Status::OK();
 }
 
@@ -438,7 +438,7 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status() const {
         }
     }
 
-    exec_status = RuntimeQueryStatiticsMgr::create_report_exec_status_params(
+    exec_status = RuntimeQueryStatisticsMgr::create_report_exec_status_params(
             this->_query_id, std::move(realtime_query_profile), std::move(load_channel_profiles),
             /*is_done=*/false);
 

@@ -834,6 +834,9 @@ public abstract class Type {
     }
 
     public static boolean canCastTo(Type sourceType, Type targetType) {
+        if (targetType.isJsonbType() && sourceType.isComplexType()) {
+            return true;
+        }
         if (sourceType.isVariantType() && (targetType.isScalarType() || targetType.isArrayType())) {
             // variant could cast to scalar types and array
             return true;

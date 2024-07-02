@@ -243,12 +243,10 @@ public class DatabaseTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
 
-        Database rDb1 = new Database();
-        rDb1.readFields(dis);
+        Database rDb1 = Database.read(dis);
         Assert.assertEquals(rDb1, db1);
 
-        Database rDb2 = new Database();
-        rDb2.readFields(dis);
+        Database rDb2 = Database.read(dis);
         Assert.assertEquals(rDb2, db2);
 
         // 3. delete files

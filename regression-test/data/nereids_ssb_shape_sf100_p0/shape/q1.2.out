@@ -5,12 +5,11 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF0 d_datekey->[lo_orderdate]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF0 d_datekey->[lo_orderdate]
 ------------PhysicalProject
 --------------filter((lineorder.lo_discount <= 6) and (lineorder.lo_discount >= 4) and (lineorder.lo_quantity <= 35) and (lineorder.lo_quantity >= 26))
 ----------------PhysicalOlapScan[lineorder] apply RFs: RF0
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------filter((dates.d_yearmonth = 'Jan1994'))
-------------------PhysicalOlapScan[dates]
+------------PhysicalProject
+--------------filter((dates.d_yearmonth = 'Jan1994'))
+----------------PhysicalOlapScan[dates]
 

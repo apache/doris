@@ -55,8 +55,8 @@ public class ObsRemote extends DefaultRemote {
         String sk = obj.getSk();
 
         ObsClient obsClient = new ObsClient(ak, sk, endPoint);
-        long expireSeconds = 3600L;
-        TemporarySignatureRequest request = new TemporarySignatureRequest(HttpMethodEnum.PUT, expireSeconds);
+        TemporarySignatureRequest request = new TemporarySignatureRequest(
+                HttpMethodEnum.PUT, SESSION_EXPIRE_SECOND);
         request.setBucketName(obj.getBucket());
         request.setObjectKey(normalizePrefix(fileName));
         request.setHeaders(new HashMap<String, String>());

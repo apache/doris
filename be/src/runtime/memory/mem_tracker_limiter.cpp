@@ -251,8 +251,8 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     int64_t all_tracker_mem_sum = 0;
     Snapshot snapshot;
     for (auto it : MemTrackerLimiter::TypeMemSum) {
-        snapshot.type = type_string(it.first);
-        snapshot.label = "";
+        snapshot.type = "overview";
+        snapshot.label = type_string(it.first);
         snapshot.limit = -1;
         snapshot.cur_consumption = it.second->current_value();
         snapshot.peak_consumption = it.second->peak_value();
@@ -260,41 +260,41 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
         all_tracker_mem_sum += it.second->current_value();
     }
 
-    snapshot.type = "tc/jemalloc cache";
-    snapshot.label = "";
+    snapshot.type = "overview";
+    snapshot.label = "tc/jemalloc cache";
     snapshot.limit = -1;
     snapshot.cur_consumption = MemInfo::allocator_cache_mem();
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
     all_tracker_mem_sum += MemInfo::allocator_cache_mem();
 
-    snapshot.type = "sum of all trackers"; // is virtual memory
-    snapshot.label = "";
+    snapshot.type = "overview";
+    snapshot.label = "sum of all trackers"; // is virtual memory
     snapshot.limit = -1;
     snapshot.cur_consumption = all_tracker_mem_sum;
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
 
+    snapshot.type = "overview";
 #ifdef ADDRESS_SANITIZER
-    snapshot.type = "[ASAN]process resident memory"; // from /proc VmRSS VmHWM
+    snapshot.label = "[ASAN]process resident memory"; // from /proc VmRSS VmHWM
 #else
-    snapshot.type = "process resident memory"; // from /proc VmRSS VmHWM
+    snapshot.label = "process resident memory"; // from /proc VmRSS VmHWM
 #endif
-    snapshot.label = "";
     snapshot.limit = -1;
     snapshot.cur_consumption = PerfCounters::get_vm_rss();
     snapshot.peak_consumption = PerfCounters::get_vm_hwm();
     (*snapshots).emplace_back(snapshot);
 
-    snapshot.type = "reserved memory";
-    snapshot.label = "";
+    snapshot.type = "overview";
+    snapshot.label = "reserved memory";
     snapshot.limit = -1;
     snapshot.cur_consumption = GlobalMemoryArbitrator::process_reserved_memory();
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
 
-    snapshot.type = "process virtual memory"; // from /proc VmSize VmPeak
-    snapshot.label = "";
+    snapshot.type = "overview";
+    snapshot.label = "process virtual memory"; // from /proc VmSize VmPeak
     snapshot.limit = -1;
     snapshot.cur_consumption = PerfCounters::get_vm_size();
     snapshot.peak_consumption = PerfCounters::get_vm_peak();
@@ -349,6 +349,25 @@ void MemTrackerLimiter::make_top_consumption_snapshots(std::vector<MemTracker::S
         top_num--;
         max_pq.pop();
     }
+}
+
+void MemTrackerLimiter::make_all_trackers_snapshots(std::vector<MemTracker::Snapshot>* snapshots) {
+    for (auto& i : ExecEnv::GetInstance()->mem_tracker_limiter_pool) {
+        std::lock_guard<std::mutex> l(i.group_lock);
+        for (auto trackerWptr : i.trackers) {
+            auto tracker = trackerWptr.lock();
+            if (tracker != nullptr) {
+                (*snapshots).emplace_back(tracker->make_snapshot());
+            }
+        }
+    }
+}
+
+void MemTrackerLimiter::make_all_memory_state_snapshots(
+        std::vector<MemTracker::Snapshot>* snapshots) {
+    make_process_snapshots(snapshots);
+    make_all_trackers_snapshots(snapshots);
+    MemTracker::make_all_trackers_snapshots(snapshots);
 }
 
 std::string MemTrackerLimiter::log_usage(MemTracker::Snapshot snapshot) {

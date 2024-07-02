@@ -203,6 +203,7 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
          select * from s3("uri" = "${csv_as_json[i]}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
+                "provider" = "${getS3Provider()}",
                 "format" = "csv") order by c1 limit 1;
             """
 
@@ -210,6 +211,7 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
         insert into ${table_names[i]} select * from s3("uri" = "${csv_as_json[i]}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
+                "provider" = "${getS3Provider()}",
                 "format" = "csv");
              """
 

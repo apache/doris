@@ -43,6 +43,9 @@ suite ("unionDis") {
 
     sql """insert into unionDis values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table unionDis with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from unionDis order by empid;")
         contains "(unionDis)"
@@ -56,5 +59,17 @@ suite ("unionDis") {
         notContains "(unionDis)"
     }
     order_qt_select_mv "select * from (select empid, deptno from unionDis where empid >1 union select empid, deptno from unionDis where empid <0) t order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from unionDis order by empid;")
+        contains "(unionDis)"
+    }
+
+    explain {
+        sql("select empid, deptno from unionDis where empid >1 union select empid, deptno from unionDis where empid <0 order by empid;")
+        contains "(unionDis_mv)"
+        notContains "(unionDis)"
+    }
 
 }

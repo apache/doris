@@ -1415,6 +1415,20 @@ TEST(VTimestampFunctionsTest, from_days_test) {
 
         static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
     }
+
+    {
+        std::cout << "test date 0000-02-28" << std::endl;
+        DataSet data_set = {{{59}, str_to_date_time("0000-02-28", false)}, {{0}, Null()}};
+
+        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
+    }
+
+    {
+        std::cout << "test date 0000-03-01" << std::endl;
+        DataSet data_set = {{{60}, str_to_date_time("0000-03-01", false)}, {{0}, Null()}};
+
+        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
+    }
 }
 
 TEST(VTimestampFunctionsTest, weekday_v2_test) {

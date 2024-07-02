@@ -311,7 +311,8 @@ public:
 
     Status reset_hash_table();
 
-    bool do_limit_filter(vectorized::Block* block, size_t num_rows);
+    bool do_limit_filter(vectorized::Block* block, size_t num_rows,
+                         const std::vector<int>* key_locs = nullptr);
     void build_limit_heap(size_t hash_table_size);
 
     // We should call this function only at 1st phase.
@@ -336,9 +337,8 @@ public:
     std::vector<size_t> make_nullable_keys;
 
     struct MemoryRecord {
-        MemoryRecord() : used_in_arena(0), used_in_state(0) {}
-        int64_t used_in_arena;
-        int64_t used_in_state;
+        int64_t used_in_arena {};
+        int64_t used_in_state {};
     };
     MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
@@ -362,11 +362,7 @@ public:
                   _order_directions(order_directions),
                   _null_directions(null_directions) {}
 
-        HeapLimitCursor(const HeapLimitCursor& other) noexcept
-                : _row_id(other._row_id),
-                  _limit_columns(other._limit_columns),
-                  _order_directions(other._order_directions),
-                  _null_directions(other._null_directions) {}
+        HeapLimitCursor(const HeapLimitCursor& other) = default;
 
         HeapLimitCursor(HeapLimitCursor&& other) noexcept
                 : _row_id(other._row_id),
@@ -567,11 +563,10 @@ public:
 };
 
 struct BlockRowPos {
-    BlockRowPos() : block_num(0), row_num(0), pos(0) {}
-    int64_t block_num; //the pos at which block
-    int64_t row_num;   //the pos at which row
-    int64_t pos;       //pos = all blocks size + row_num
-    std::string debug_string() {
+    int64_t block_num {}; //the pos at which block
+    int64_t row_num {};   //the pos at which row
+    int64_t pos {};       //pos = all blocks size + row_num
+    std::string debug_string() const {
         std::string res = "\t block_num: ";
         res += std::to_string(block_num);
         res += "\t row_num: ";
@@ -823,14 +818,9 @@ struct DataDistribution {
     DataDistribution(ExchangeType type) : distribution_type(type) {}
     DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
             : distribution_type(type), partition_exprs(partition_exprs_) {}
-    DataDistribution(const DataDistribution& other)
-            : distribution_type(other.distribution_type), partition_exprs(other.partition_exprs) {}
+    DataDistribution(const DataDistribution& other) = default;
     bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
-    DataDistribution& operator=(const DataDistribution& other) {
-        distribution_type = other.distribution_type;
-        partition_exprs = other.partition_exprs;
-        return *this;
-    }
+    DataDistribution& operator=(const DataDistribution& other) = default;
     ExchangeType distribution_type;
     std::vector<TExpr> partition_exprs;
 };
@@ -843,13 +833,14 @@ public:
     LocalExchangeSharedState(int num_instances);
     std::unique_ptr<ExchangerBase> exchanger {};
     std::vector<MemTracker*> mem_trackers;
-    std::atomic<size_t> mem_usage = 0;
+    std::atomic<int64_t> mem_usage = 0;
+    // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
     void create_source_dependencies(int operator_id, int node_id) {
-        for (size_t i = 0; i < source_deps.size(); i++) {
-            source_deps[i] = std::make_shared<Dependency>(operator_id, node_id,
-                                                          "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
-            source_deps[i]->set_shared_state(this);
+        for (auto& source_dep : source_deps) {
+            source_dep = std::make_shared<Dependency>(operator_id, node_id,
+                                                      "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
+            source_dep->set_shared_state(this);
         }
     };
     void sub_running_sink_operators();

@@ -28,10 +28,14 @@
 #include <memory>
 #include <string>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "io/fs/s3_file_system.h"
+#include "olap/storage_engine.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -253,6 +257,20 @@ RuntimeState::~RuntimeState() {
         _error_log_file->close();
         delete _error_log_file;
         _error_log_file = nullptr;
+        if (_s3_error_fs) {
+            std::string error_log_absolute_path =
+                    _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
+            // upload error log file to s3
+            Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
+            if (st.ok()) {
+                // remove local error log file
+                std::filesystem::remove(error_log_absolute_path);
+            } else {
+                // remove local error log file later by clean_expired_temp_path thread
+                LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
+                             << _error_log_file_path << ", error=" << st;
+            }
+        }
     }
 
     _obj_pool->clear();
@@ -359,6 +377,19 @@ Status RuntimeState::cancel_reason() const {
 const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_error_log_file() {
+    if (config::save_load_error_log_to_s3 && config::is_cloud_mode()) {
+        _s3_error_fs = std::dynamic_pointer_cast<io::S3FileSystem>(
+                ExecEnv::GetInstance()->storage_engine().to_cloud().latest_fs());
+        if (_s3_error_fs) {
+            std::stringstream ss;
+            // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_err_packet.html
+            // shorten the path as much as possible to prevent the length of the presigned URL from
+            // exceeding the MySQL error packet size limit
+            ss << "error_log/" << _import_label << "_" << std::hex << _fragment_instance_id.hi;
+            _s3_error_log_file_path = ss.str();
+        }
+    }
+
     static_cast<void>(_exec_env->load_path_mgr()->get_load_error_file_name(
             _db_name, _import_label, _fragment_instance_id, &_error_log_file_path));
     std::string error_log_absolute_path =
@@ -431,6 +462,17 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
         }
     }
     return Status::OK();
+}
+
+std::string RuntimeState::get_error_log_file_path() const {
+    if (_s3_error_fs) {
+        // expiration must be less than a week (in seconds) for presigned url
+        static const unsigned EXPIRATION_SECONDS = 7 * 24 * 60 * 60 - 1;
+        // We should return a public endpoint to user.
+        return _s3_error_fs->generate_presigned_url(_s3_error_log_file_path, EXPIRATION_SECONDS,
+                                                    true);
+    }
+    return _error_log_file_path;
 }
 
 int64_t RuntimeState::get_load_mem_limit() {

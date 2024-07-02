@@ -41,6 +41,8 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "io/fs/file_system.h"
+#include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
@@ -261,7 +263,7 @@ public:
 
     int64_t load_job_id() const { return _load_job_id; }
 
-    const std::string get_error_log_file_path() const { return _error_log_file_path; }
+    std::string get_error_log_file_path() const;
 
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
@@ -487,6 +489,11 @@ public:
 
     bool enable_parallel_scan() const {
         return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
+    }
+
+    bool is_read_csv_empty_line_as_null() const {
+        return _query_options.__isset.read_csv_empty_line_as_null &&
+               _query_options.read_csv_empty_line_as_null;
     }
 
     int parallel_scan_max_scanners_count() const {
@@ -738,6 +745,11 @@ private:
     RuntimeState(const RuntimeState&);
 
     vectorized::ColumnInt64* _partial_update_auto_inc_column;
+
+    // save error log to s3
+    std::shared_ptr<io::S3FileSystem> _s3_error_fs;
+    // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
+    std::string _s3_error_log_file_path;
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

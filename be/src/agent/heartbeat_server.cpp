@@ -93,7 +93,12 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {
-        LOG(WARNING) << "heartbeat consume too much time. time=" << watch.elapsed_time();
+        LOG(WARNING) << "heartbeat consume too much time. time=" << watch.elapsed_time()
+                     << ", host:" << master_info.network_address.hostname
+                     << ", port:" << master_info.network_address.port
+                     << ", cluster id:" << master_info.cluster_id
+                     << ", frontend_info:" << PrintFrontendInfos(master_info.frontend_infos)
+                     << ", counter:" << google::COUNTER << ", BE start time: " << _be_epoch;
     }
 }
 
