@@ -449,6 +449,7 @@ template <typename Data>
 struct AggregateFunctionMaxData : public Data {
     using Self = AggregateFunctionMaxData;
     using Data::IsFixedLength;
+    constexpr static bool IS_ANY = false;
 
     AggregateFunctionMaxData() { reset(); }
 
@@ -476,6 +477,7 @@ template <typename Data>
 struct AggregateFunctionMinData : Data {
     using Self = AggregateFunctionMinData;
     using Data::IsFixedLength;
+    constexpr static bool IS_ANY = false;
 
     AggregateFunctionMinData() { reset(); }
 
@@ -502,6 +504,7 @@ template <typename Data>
 struct AggregateFunctionAnyData : Data {
     using Self = AggregateFunctionAnyData;
     using Data::IsFixedLength;
+    constexpr static bool IS_ANY = true;
 
     void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
         this->change_first_time(column, row_num, arena);
@@ -540,6 +543,16 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         this->data(place).change_if_better(*columns[0], row_num, arena);
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena) const override {
+        if constexpr (Data::IS_ANY) {
+            DCHECK_GT(batch_size, 0);
+            this->data(place).change_if_better(*columns[0], 0, arena);
+        } else {
+            Base::add_batch_single_place(batch_size, place, columns, arena);
+        }
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
