@@ -455,4 +455,75 @@ mysql [test]>select k3, CAST(k3 AS DECIMALV3(38, 10)) from test_arithmetic_expre
 
     qt_decimal256_mod """ select v1, v2, v1 % v2, v1 % v3 from test_arithmetic_expressions_256_5 ORDER BY id; """
 
+    sql """
+        drop table if exists decimalv3_div_round;
+    """
+    sql """
+        create table decimalv3_div_round (k1 decimalv3(38,3), k2 decimalv3(38,3)) distributed by hash(k1) properties("replication_num"="1");
+    """
+    sql """
+        insert into decimalv3_div_round values (2, 3), (2, -3), (-2, 3), (-2, -3), (2, 0), (-2, 0), (null, 3), (2, null);
+    """
+    sql """
+        set enable_decimal256 = false; 
+    """
+    qt_div_round1 """
+        select k1, k2, k1 / k2 from decimalv3_div_round order by 1, 2;
+    """
+    sql """
+        set enable_decimal256 = true; 
+    """
+    qt_div_round2 """
+        select k1, k2, k1 / k2 from decimalv3_div_round order by 1, 2;
+    """
+
+    sql """
+        drop table if exists decimalv3_div_round;
+    """
+    sql """
+        create table decimalv3_div_round (k1 decimalv3(38,9), k2 decimalv3(38,9)) distributed by hash(k1) properties("replication_num"="1");
+    """
+    sql """
+        insert into decimalv3_div_round values (2, 3), (2, -3), (-2, 3), (-2, -3), (2, 0), (-2, 0), (null, 3), (2, null);
+    """
+    sql """
+        set enable_decimal256 = false; 
+    """
+    qt_div_round3 """
+        select k1, k2, k1 / k2 from decimalv3_div_round order by 1, 2;
+    """
+    sql """
+        set enable_decimal256 = true; 
+    """
+    qt_div_round4 """
+        select k1, k2, k1 / k2 from decimalv3_div_round order by 1, 2;
+    """
+
+    sql """
+        drop table if exists decimalv3_div_round;
+    """
+    sql """
+        create table decimalv3_div_round (k1 bigint, k2 bigint) distributed by hash(k1) properties("replication_num"="1");
+    """
+    sql """
+        insert into decimalv3_div_round values (2, 3), (2, -3), (-2, 3), (-2, -3), (2, 0), (-2, 0), (null, 3), (2, null);
+    """
+    sql """
+        set enable_decimal256 = false; 
+    """
+    qt_div_round5 """
+        select k1, k2, k1 / k2 from decimalv3_div_round order by 1, 2;
+    """
+    qt_div_round6 """
+        select k1, k2, k1 / (k2 * 1.0) from decimalv3_div_round order by 1, 2;
+    """
+    sql """
+        set enable_decimal256 = true; 
+    """
+    qt_div_round7 """
+        select k1, k2, k1 / k2 from decimalv3_div_round order by 1, 2;
+    """
+    qt_div_round8 """
+        select k1, k2, k1 / (k2 * 1.0) from decimalv3_div_round order by 1, 2;
+    """
 }

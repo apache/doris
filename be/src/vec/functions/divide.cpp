@@ -64,7 +64,14 @@ struct DivideFloatingImpl {
     template <typename Result = ResultType>
     static inline Result apply(A a, B b, UInt8& is_null) {
         is_null = b == 0;
-        return static_cast<Result>(a) / (b + is_null);
+        if constexpr ((std::is_integral_v<Result> || std::is_same_v<Result, wide::Int256>)&&(
+                              (std::is_integral_v<A> && std::is_integral_v<B>) ||
+                              (std::is_same_v<A, wide::Int256> &&
+                               std::is_same_v<B, wide::Int256>))) {
+            return static_cast<Result>(a + ((a ^ b) > 0 ? b / 2 : -b / 2)) / (b + is_null);
+        } else {
+            return static_cast<Result>(a) / (b + is_null);
+        }
     }
 };
 
