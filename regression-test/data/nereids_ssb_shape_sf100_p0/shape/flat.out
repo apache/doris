@@ -3,16 +3,13 @@
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((s.s_suppkey = l.lo_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[lo_suppkey]
+------hashJoin[INNER_JOIN broadcast] hashCondition=((s.s_suppkey = l.lo_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[lo_suppkey]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((c.c_custkey = l.lo_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((c.c_custkey = l.lo_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((p.p_partkey = l.lo_partkey)) otherCondition=() build RFs:RF0 p_partkey->[lo_partkey]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((p.p_partkey = l.lo_partkey)) otherCondition=() build RFs:RF0 p_partkey->[lo_partkey]
 ----------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalOlapScan[part]
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalOlapScan[customer]
---------PhysicalDistribute[DistributionSpecReplicated]
-----------PhysicalOlapScan[supplier]
+----------------PhysicalOlapScan[part]
+------------PhysicalOlapScan[customer]
+--------PhysicalOlapScan[supplier]
 
