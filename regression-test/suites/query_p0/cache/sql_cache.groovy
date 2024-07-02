@@ -55,7 +55,7 @@ suite("sql_cache") {
                     ("2022-06-02",0)
         """
 
-    qt_sql_cache """
+    qt_sql_cache1 """
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -71,7 +71,7 @@ suite("sql_cache") {
     
     sql "set enable_sql_cache=true "
 
-    qt_sql_cache """
+    qt_sql_cache2 """
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -84,7 +84,7 @@ suite("sql_cache") {
                     order by
                         k1;
                 """
-    qt_sql_cache """
+    qt_sql_cache3 """
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -98,7 +98,7 @@ suite("sql_cache") {
                         k1;
                 """
 
-    qt_sql_cache """
+    qt_sql_cache4 """
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -124,7 +124,7 @@ suite("sql_cache") {
                         k1;
                 """
     
-    qt_sql_cache """
+    qt_sql_cache5 """
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -153,7 +153,7 @@ suite("sql_cache") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    qt_sql_cache """
+    qt_sql_cache6 """
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -166,7 +166,7 @@ suite("sql_cache") {
                     order by
                         k1;
                 """
-    qt_sql_cache """
+    qt_sql_cache7 """
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -183,7 +183,7 @@ suite("sql_cache") {
     sql 'set default_order_by_limit = 2'
     sql 'set sql_select_limit = 1'
 
-    qt_sql_cache """
+    qt_sql_cache8 """
                     select
                         k1,
                         sum(k2) as total_pv 
@@ -197,7 +197,7 @@ suite("sql_cache") {
                         k1;
                 """
     
-    qt_sql_cache """
+    qt_sql_cache9 """
                     select
                         k1,
                         sum(k2) as total_pv 

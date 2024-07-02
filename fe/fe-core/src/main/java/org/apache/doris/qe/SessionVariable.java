@@ -1269,6 +1269,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
     private int rewriteOrToInPredicateThreshold = 2;
 
+    @VariableMgr.VarAttr(name = "push_topn_to_agg", fuzzy = false, needForward = true)
+    public boolean pushTopnToAgg = true;
+
     @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR, needForward = true)
     private double nereidsCboPenaltyFactor = 0.7;
 
