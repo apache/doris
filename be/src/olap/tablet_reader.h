@@ -183,8 +183,6 @@ public:
         void check_validation() const;
 
         std::string to_string() const;
-
-        int64_t batch_size = -1;
     };
 
     TabletReader() = default;

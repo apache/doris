@@ -446,6 +446,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
+    public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
+
     /**
      * use insert stmt as the unified backend for all loads
      */
@@ -569,6 +571,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MATERIALIZED_VIEW_NEST_REWRITE
             = "enable_materialized_view_nest_rewrite";
+
+    public static final String ENABLE_SYNC_MV_COST_BASED_REWRITE
+            = "enable_sync_mv_cost_based_rewrite";
 
     public static final String MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT
             = "materialized_view_relation_mapping_max_count";
@@ -1553,6 +1558,13 @@ public class SessionVariable implements Serializable, Writable {
     public int numPartitionsInBatchMode = 1024;
 
     @VariableMgr.VarAttr(
+            name = FETCH_SPLITS_MAX_WAIT_TIME,
+            description = {"batch方式中BE获取splits的最大等待时间",
+                    "The max wait time of getting splits in batch mode."},
+            needForward = true)
+    public long fetchSplitsMaxWaitTime = 4000;
+
+    @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
             description = {"控制 parquet reader 是否启用延迟物化技术。默认为 true。",
                     "Controls whether to use lazy materialization technology in parquet reader. "
@@ -1807,6 +1819,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否允许嵌套物化视图改写",
                     "Whether enable materialized view nest rewrite"})
     public boolean enableMaterializedViewNestRewrite = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_SYNC_MV_COST_BASED_REWRITE, needForward = true,
+            description = {"是否允许基于代价改写同步物化视图",
+                    "Whether enable cost based rewrite for sync mv"})
+    public boolean enableSyncMvCostBasedRewrite = true;
 
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",
@@ -2860,6 +2877,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setNumSplitsInBatchMode(int numPartitionsInBatchMode) {
         this.numPartitionsInBatchMode = numPartitionsInBatchMode;
+    }
+
+    public long getFetchSplitsMaxWaitTime() {
+        return fetchSplitsMaxWaitTime;
+    }
+
+    public void setFetchSplitsMaxWaitTime(long fetchSplitsMaxWaitTime) {
+        this.fetchSplitsMaxWaitTime = fetchSplitsMaxWaitTime;
     }
 
     public boolean isEnableParquetLazyMat() {
@@ -3990,6 +4015,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewNestRewrite() {
         return enableMaterializedViewNestRewrite;
+    }
+
+    public boolean isEnableSyncMvCostBasedRewrite() {
+        return enableSyncMvCostBasedRewrite;
+    }
+
+    public void setEnableSyncMvCostBasedRewrite(boolean enableSyncMvCostBasedRewrite) {
+        this.enableSyncMvCostBasedRewrite = enableSyncMvCostBasedRewrite;
     }
 
     public int getMaterializedViewRelationMappingMaxCount() {

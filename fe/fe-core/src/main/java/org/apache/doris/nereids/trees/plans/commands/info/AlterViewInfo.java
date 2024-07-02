@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -82,8 +83,8 @@ public class AlterViewInfo extends BaseViewInfo {
                     PrivPredicate.ALTER.getPrivs().toString(), viewName.getTbl());
         }
         analyzeAndFillRewriteSqlMap(querySql, ctx);
-        OutermostPlanFinderContext outermostPlanFinderContext = new OutermostPlanFinderContext();
-        analyzedPlan.accept(OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
+        PlanUtils.OutermostPlanFinderContext outermostPlanFinderContext = new PlanUtils.OutermostPlanFinderContext();
+        analyzedPlan.accept(PlanUtils.OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
         List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
         createFinalCols(outputs);
     }
