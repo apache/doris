@@ -42,7 +42,7 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
 
     public void analyze(ConnectContext ctx) throws AnalysisException {
         super.analyze(ctx);
-        analyzeProperties();
+        analyzeProperties(ctx);
     }
 
     @Override
@@ -50,9 +50,9 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
         Env.getCurrentEnv().alterMTMVProperty(this);
     }
 
-    private void analyzeProperties() {
+    private void analyzeProperties(ConnectContext ctx) {
         for (String key : properties.keySet()) {
-            MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
+            MTMVPropertyUtil.analyzeProperty(key, properties.get(key), ctx, Env.getCurrentEnv());
         }
     }
 

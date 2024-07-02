@@ -17,19 +17,28 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPropertyUtil {
+    public static final String VARIABLE_PREFIX = "session.";
     public static final Set<String> MV_PROPERTY_KEYS = Sets.newHashSet(
             PropertyAnalyzer.PROPERTIES_GRACE_PERIOD,
             PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES,
@@ -41,7 +50,36 @@ public class MTMVPropertyUtil {
             PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION
     );
 
-    public static void analyzeProperty(String key, String value) {
+    public static boolean isSessionVariableProperty(String key) {
+        Preconditions.checkNotNull(key);
+        return key.startsWith(VARIABLE_PREFIX);
+    }
+
+    public static boolean isMTMVProperty(String key) {
+        Preconditions.checkNotNull(key);
+        return MV_PROPERTY_KEYS.contains(key) || isSessionVariableProperty(key);
+    }
+
+    public static String getSessionVariableKey(String key) {
+        Preconditions.checkState(isSessionVariableProperty(key));
+        return key.substring(VARIABLE_PREFIX.length());
+    }
+
+    public static void analyzeProperty(String key, String value, ConnectContext ctx, Env env) {
+        Objects.requireNonNull(key);
+        if (isSessionVariableProperty(key)) {
+            Analyzer analyzer = new Analyzer(env, ctx);
+            try {
+                SetVar setVar = new SetVar(getSessionVariableKey(key),
+                        new StringLiteral(value));
+                setVar.analyze(analyzer);
+                // to verify the validity of variables
+                VariableMgr.setVar(new SessionVariable(), setVar);
+            } catch (UserException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+            return;
+        }
         switch (key) {
             case PropertyAnalyzer.PROPERTIES_GRACE_PERIOD:
                 analyzeGracePeriod(value);

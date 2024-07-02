@@ -158,8 +158,9 @@ public class MTMVTask extends AbstractTask {
         if (LOG.isDebugEnabled()) {
             LOG.debug("mtmv task run, taskId: {}", super.getTaskId());
         }
-        ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
+        ConnectContext ctx = null;
         try {
+            ctx = MTMVPlanUtil.createMTMVContext(mtmv);
             if (LOG.isDebugEnabled()) {
                 String taskSessionContext = ctx.getSessionVariable().toJson().toJSONString();
                 if (LOG.isDebugEnabled()) {
@@ -169,7 +170,7 @@ public class MTMVTask extends AbstractTask {
             }
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
-            this.relation = MTMVPlanUtil.generateMTMVRelation(mtmv, ctx);
+            this.relation = MTMVPlanUtil.generateMTMVRelationByPlan(mtmv, ctx);
             // Now, the MTMV first ensures consistency with the data in the cache.
             // To be completely consistent with hive, you need to manually refresh the cache
             // refreshHmsTable();
@@ -205,9 +206,11 @@ public class MTMVTask extends AbstractTask {
             if (getStatus() == TaskStatus.RUNNING) {
                 StringBuilder errMsg = new StringBuilder();
                 // when env ctl/db not exist, need give client tips
-                Pair<Boolean, String> pair = MTMVPlanUtil.checkEnvInfo(mtmv.getEnvInfo(), ctx);
-                if (!pair.first) {
-                    errMsg.append(pair.second);
+                if (ctx != null) {
+                    Pair<Boolean, String> pair = MTMVPlanUtil.checkEnvInfo(mtmv.getEnvInfo(), ctx);
+                    if (!pair.first) {
+                        errMsg.append(pair.second);
+                    }
                 }
                 errMsg.append(e.getMessage());
                 LOG.warn("run task failed: ", errMsg.toString());
