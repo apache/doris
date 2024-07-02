@@ -80,21 +80,21 @@ public class HttpDialectUtils {
                     if (result.code == 0) {
                         if (!"v1".equals(result.version)) {
                             LOG.warn("failed to convert sql, response version is not v1: {}", result.version);
-                            return originStmt;
+                            return null;
                         }
                         return result.data;
                     } else {
                         LOG.warn("failed to convert sql, response: {}", result);
-                        return originStmt;
+                        return null;
                     }
                 }
             } else {
                 LOG.warn("failed to convert sql, response code: {}", responseCode);
-                return originStmt;
+                return null;
             }
         } catch (Exception e) {
-            LOG.warn("failed to convert sql", e);
-            return originStmt;
+            LOG.warn("failed to convert sql, targetURL: {}", targetURL, e);
+            return null;
         } finally {
             if (connection != null) {
                 connection.disconnect();
