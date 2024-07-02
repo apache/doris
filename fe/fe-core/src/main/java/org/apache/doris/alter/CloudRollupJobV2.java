@@ -196,20 +196,21 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                         ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                             .createTabletMetaBuilder(tableId, rollupIndexId,
                             partitionId, rollupTablet, tabletType, rollupSchemaHash,
-                            rollupKeysType, rollupShortKeyColumnCount, tbl.getCopiedBfColumns(),
-                            tbl.getBfFpp(), null, rollupSchema,
-                            tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStoragePolicy(),
-                            tbl.isInMemory(), true,
-                            tbl.getName(), tbl.getTTLSeconds(),
-                            tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                            tbl.getBaseSchemaVersion(), tbl.getCompactionPolicy(),
-                            tbl.getTimeSeriesCompactionGoalSizeMbytes(),
-                            tbl.getTimeSeriesCompactionFileCountThreshold(),
-                            tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
-                            tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                            tbl.getTimeSeriesCompactionLevelThreshold(),
-                            tbl.disableAutoCompaction(),
-                            tbl.getRowStoreColumnsUniqueIds(rowStoreColumns));
+                                    rollupKeysType, rollupShortKeyColumnCount, tbl.getCopiedBfColumns(),
+                                    tbl.getBfFpp(), null, rollupSchema,
+                                    tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStoragePolicy(),
+                                    tbl.isInMemory(), true,
+                                    tbl.getName(), tbl.getTTLSeconds(),
+                                    tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
+                                    tbl.getBaseSchemaVersion(), tbl.getCompactionPolicy(),
+                                    tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                                    tbl.getTimeSeriesCompactionFileCountThreshold(),
+                                    tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                    tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                    tbl.getTimeSeriesCompactionLevelThreshold(),
+                                    tbl.disableAutoCompaction(),
+                                    tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                                    tbl.getEnableDeleteOnDeletePredicate());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

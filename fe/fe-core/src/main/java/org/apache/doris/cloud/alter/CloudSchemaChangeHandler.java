@@ -99,7 +99,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION));
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE));
 
         if (properties.size() != 1) {
             throw new UserException("Can only set one table property at a time");
@@ -292,6 +293,29 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             }
             param.disableAutoCompaction = disableAutoCompaction;
             param.type = UpdatePartitionMetaParam.TabletMetaType.DISABLE_AUTO_COMPACTION;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)) {
+            boolean enableMowDeleteOnDeletePredicate = Boolean.parseBoolean(properties.get(PropertyAnalyzer
+                    .PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE));
+            olapTable.readLock();
+            try {
+                if (enableMowDeleteOnDeletePredicate
+                        == olapTable.getEnableDeleteOnDeletePredicate()) {
+                    LOG.info("enableMowDeleteOnDeletePredicate:{} is equal with"
+                                    + " olapTable.getEnableDeleteOnDeletePredicate():{}",
+                            enableMowDeleteOnDeletePredicate,
+                            olapTable.getEnableDeleteOnDeletePredicate());
+                    return;
+                }
+                if (olapTable.getEnableUniqueKeyMergeOnWrite() && !enableMowDeleteOnDeletePredicate) {
+                    throw new UserException("enable_mow_delete_on_delete_predicate property is "
+                            + "not supported for unique merge-on-read table");
+                }
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.enableMowDeleteOnDeletePredicate = enableMowDeleteOnDeletePredicate;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.ENABLE_MOW_DELETE_ON_DELETE_PREDICATE;
         } else {
             LOG.warn("invalid properties:{}", properties);
             throw new UserException("invalid properties");
@@ -323,6 +347,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
             TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
             DISABLE_AUTO_COMPACTION,
+            ENABLE_MOW_DELETE_ON_DELETE_PREDICATE,
         }
 
         TabletMetaType type;
@@ -338,6 +363,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         long timeSeriesCompactionEmptyRowsetsThreshold = 0;
         long timeSeriesCompactionLevelThreshold = 0;
         boolean disableAutoCompaction = false;
+        boolean enableMowDeleteOnDeletePredicate = false;
     }
 
     public void updateCloudPartitionMeta(Database db,
@@ -411,6 +437,11 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                     case DISABLE_AUTO_COMPACTION:
                         infoBuilder.setDisableAutoCompaction(
                                 param.disableAutoCompaction);
+                        break;
+                    case ENABLE_MOW_DELETE_ON_DELETE_PREDICATE:
+                        infoBuilder.setEnableMowDeleteOnDeletePredicate(
+                                param.enableMowDeleteOnDeletePredicate
+                        );
                         break;
                     default:
                         throw new UserException("Unknown TabletMetaType");
