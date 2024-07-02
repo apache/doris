@@ -18,6 +18,7 @@
 suite("test_bucket_shuffle_join") {
 
     sql "set disable_join_reorder=true"
+    sql "set parallel_pipeline_task_num=1"
 
     sql """ DROP TABLE IF EXISTS `test_colo1` """
     sql """ DROP TABLE IF EXISTS `test_colo2` """
