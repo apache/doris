@@ -236,7 +236,7 @@ public:
 
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 
-    ThreadPool* get_non_pipe_exec_thread_pool();
+    ThreadPool* get_memtable_flush_pool();
 
     int64_t mem_limit() const { return _bytes_limit; }
 
@@ -337,7 +337,7 @@ private:
 
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
-    ThreadPool* _non_pipe_thread_pool = nullptr;
+    ThreadPool* _memtable_flush_pool = nullptr;
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 

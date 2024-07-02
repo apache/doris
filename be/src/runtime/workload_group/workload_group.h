@@ -190,7 +190,7 @@ private:
     std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
-    std::unique_ptr<ThreadPool> _non_pipe_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _memtable_flush_pool = nullptr;
 };
 
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
