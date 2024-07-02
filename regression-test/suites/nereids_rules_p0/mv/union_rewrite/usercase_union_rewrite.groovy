@@ -18,9 +18,6 @@
 suite ("usercase_union_rewrite") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
 
     sql """
     drop table if exists orders_user
@@ -163,7 +160,6 @@ suite ("usercase_union_rewrite") {
     compare_res(query_stmt + " order by 1,2,3,4,5,6,7,8")
 
     sql """insert into orders_user values (5, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-19');"""
-    sql "SET enable_materialized_view_union_rewrite=true"
     sleep(10 * 1000)
     explain {
         sql("${query_stmt}")
