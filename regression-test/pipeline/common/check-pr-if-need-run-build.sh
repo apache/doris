@@ -46,13 +46,25 @@ _get_pr_changed_files() {
     per_page=100
     file_name='pr_change_files'
     while [[ ${try_times} -gt 0 ]]; do
-        if curl \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/"${OWNER}"/"${REPO}"/pulls/"${PULL_NUMBER}"/files?per_page="${per_page}" \
-            2>/dev/null >"${file_name}"; then
-            break
+        if [[ -n "${GITHUB_TOKEN}" ]]; then
+            if curl \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer ${GITHUB_TOKEN:-}" \
+                https://api.github.com/repos/"${OWNER}"/"${REPO}"/pulls/"${PULL_NUMBER}"/files?per_page="${per_page}" \
+                2>/dev/null >"${file_name}"; then
+                break
+            else
+                try_times=$((try_times - 1))
+            fi
         else
-            try_times=$((try_times - 1))
+            if curl \
+                -H "Accept: application/vnd.github+json" \
+                https://api.github.com/repos/"${OWNER}"/"${REPO}"/pulls/"${PULL_NUMBER}"/files?per_page="${per_page}" \
+                2>/dev/null >"${file_name}"; then
+                break
+            else
+                try_times=$((try_times - 1))
+            fi
         fi
     done
     if [[ ${try_times} = 0 ]]; then echo -e "\033[31m List pull request(${pr_url}) files FAIL... \033[0m" && return 255; fi
