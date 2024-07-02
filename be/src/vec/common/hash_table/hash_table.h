@@ -1033,6 +1033,13 @@ public:
 
     size_t get_buffer_size_in_cells() const { return grower.buf_size(); }
 
+    size_t estimate_for_expanding(const size_t) const {
+        Grower new_grower = grower;
+        new_grower.increase_size();
+
+        return new_grower.buf_size() * sizeof(Cell);
+    }
+
     bool add_elem_size_overflow(size_t add_size) const {
         return grower.overflow(add_size + m_size);
     }
