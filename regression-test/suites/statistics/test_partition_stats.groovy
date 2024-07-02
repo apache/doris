@@ -105,10 +105,14 @@ suite("test_partition_stats") {
     // Don't record partition update rows until first analyze finish.
     def result = sql """show table stats part partition(*)"""
     assertEquals(0, result.size())
-    sql """analyze table part with sync;"""
+    sql """analyze table part properties("use.auto.analyzer"="true");"""
     result = sql """show table stats part"""
     assertEquals(1, result.size())
     assertEquals("0", result[0][0])
+    result = sql """show auto analyze part"""
+    assertEquals(1, result.size())
+    assertEquals("true", result[0][15])
+
 
     // Test show cached partition stats.
     sql """analyze table part with sync;"""
