@@ -17,62 +17,72 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
 #include "olap/olap_common.h"
 #include "operator.h"
+#include "pipeline/exec/set_sink_operator.h"
+#include "pipeline/exec/spill_utils.h"
+#include "vec/runtime/partitioner.h"
+#include "vec/spill/spill_stream_manager.h"
 
-namespace doris {
-
-namespace vectorized {
-template <class HashTableContext, bool is_intersected>
-struct HashTableBuild;
-}
-
-namespace pipeline {
+namespace doris::pipeline {
 
 template <bool is_intersect>
-class SetSinkOperatorX;
+class PartitionedSetSinkOperatorX;
 
 template <bool is_intersect>
-class PartitionedSetSinkLocalState;
-
-template <bool is_intersect>
-class SetSinkLocalState final : public PipelineXSinkLocalState<SetSharedState> {
+class PartitionedSetSinkLocalState final
+        : public PipelineXSinkLocalState<PartitionedSetSharedState> {
 public:
-    ENABLE_FACTORY_CREATOR(SetSinkLocalState);
-    using Base = PipelineXSinkLocalState<SetSharedState>;
-    using Parent = SetSinkOperatorX<is_intersect>;
+    ENABLE_FACTORY_CREATOR(PartitionedSetSinkLocalState);
+    using Base = PipelineXSinkLocalState<PartitionedSetSharedState>;
+    using Parent = PartitionedSetSinkOperatorX<is_intersect>;
 
-    SetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
+    PartitionedSetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
 
+    [[nodiscard]] Status revoke_memory(RuntimeState* state);
+    [[nodiscard]] Status revoke_unpartitioned_block(RuntimeState* state);
+    [[nodiscard]] size_t revocable_mem_size(RuntimeState* state) const;
+
+    [[nodiscard]] Status partition_block(vectorized::Block* block, RuntimeState* state);
+    [[nodiscard]] Status async_spill_block(vectorized::Block&& block, RuntimeState* state,
+                                           uint32_t partition_idx);
+
+    [[nodiscard]] Status setup_inner_operator(RuntimeState* state);
+
 private:
-    friend class SetSinkOperatorX<is_intersect>;
-    template <class HashTableContext, bool is_intersected>
-    friend struct vectorized::HashTableBuild;
-    friend class PartitionedSetSinkLocalState<is_intersect>;
+    friend class PartitionedSetSinkOperatorX<is_intersect>;
+
+    const uint32_t _partition_count = 32;
+
+    std::unique_ptr<SpillPartitionerType> _partitioner;
+
+    std::atomic_int _spilling_tasks_count = 0;
+    AtomicStatus _spill_status;
+    std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
+
+    bool _child_eos = false;
 
     RuntimeProfile::Counter* _build_timer; // time to build hash table
-    vectorized::MutableBlock _mutable_block;
-    // every child has its result expr list
-    vectorized::VExprContextSPtrs _child_exprs;
-    vectorized::Arena _arena;
 };
 
 template <bool is_intersect>
-class SetSinkOperatorX final : public DataSinkOperatorX<SetSinkLocalState<is_intersect>> {
+class PartitionedSetSinkOperatorX final
+        : public DataSinkOperatorX<PartitionedSetSinkLocalState<is_intersect>> {
 public:
-    using Base = DataSinkOperatorX<SetSinkLocalState<is_intersect>>;
+    using Base = DataSinkOperatorX<PartitionedSetSinkLocalState<is_intersect>>;
     using DataSinkOperatorXBase::operator_id;
     using Base::get_local_state;
     using typename Base::LocalState;
 
-    friend class SetSinkLocalState<is_intersect>;
-    SetSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
-                     const DescriptorTbl& descs)
+    friend class PartitionedSetSinkLocalState<is_intersect>;
+    PartitionedSetSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
+                                const DescriptorTbl& descs)
             : Base(sink_id, tnode.node_id, tnode.node_id),
               _cur_child_id(child_id),
               _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
@@ -82,10 +92,11 @@ public:
                                         : tnode.except_node.is_colocate),
               _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
                                             : tnode.except_node.result_expr_lists[child_id]) {}
-    ~SetSinkOperatorX() override = default;
+    ~PartitionedSetSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
-        return Status::InternalError("{} should not init with TDataSink",
-                                     DataSinkOperatorX<SetSinkLocalState<is_intersect>>::_name);
+        return Status::InternalError(
+                "{} should not init with TDataSink",
+                DataSinkOperatorX<PartitionedSetSinkLocalState<is_intersect>>::_name);
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
@@ -100,24 +111,21 @@ public:
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
+    [[nodiscard]] Status revoke_memory(RuntimeState* state) override;
+    [[nodiscard]] size_t revocable_mem_size(RuntimeState* state) const override;
+
+    void set_inner_operator(std::shared_ptr<SetSinkOperatorX<is_intersect>> inner_operator) {
+        _inner_sink_operator = std::move(inner_operator);
+    }
+
 private:
-    template <class HashTableContext, bool is_intersected>
-    friend struct HashTableBuild;
-
-    Status _process_build_block(SetSinkLocalState<is_intersect>& local_state,
-                                vectorized::Block& block, RuntimeState* state);
-    Status _extract_build_column(SetSinkLocalState<is_intersect>& local_state,
-                                 vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs,
-                                 size_t& rows);
-
     const int _cur_child_id;
     const int _child_quantity;
-    // every child has its result expr list
-    vectorized::VExprContextSPtrs _child_exprs;
+
     const bool _is_colocate;
     const std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child_x;
-};
 
-} // namespace pipeline
-} // namespace doris
+    std::shared_ptr<SetSinkOperatorX<is_intersect>> _inner_sink_operator;
+};
+} // namespace doris::pipeline
