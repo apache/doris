@@ -50,6 +50,9 @@ public abstract class AbstractTask implements Task {
     @SerializedName(value = "tt")
     private TaskType taskType;
 
+    @SerializedName(value = "tgid")
+    private Long taskGroupId;
+
     @SerializedName(value = "emg")
     private String errMsg;
 

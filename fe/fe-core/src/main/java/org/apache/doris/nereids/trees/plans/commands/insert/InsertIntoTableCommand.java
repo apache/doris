@@ -28,6 +28,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -36,6 +37,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.info.SplitColumnInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDynamicSplit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
@@ -49,11 +52,15 @@ import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
+import org.apache.commons.lang3.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * insert into select command implementation
@@ -75,6 +82,21 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private long jobId;
     private Optional<InsertCommandContext> insertCtx;
     private final Optional<LogicalPlan> cte;
+
+    /**
+     * The range to split the data. it's used for dynamic split.
+     */
+    private Range splitRange;
+
+    /**
+     * The column info to split the data. it's used for dynamic split.
+     */
+    private SplitColumnInfo splitColumnInfo;
+
+    /**
+     * The set of atomic booleans to indicate whether the dynamic split has been replaced.
+     */
+    private Set<AtomicBoolean> dynamicSplitReplacedSet;
 
     /**
      * constructor
@@ -111,12 +133,41 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
+    public void initSplitRange(SplitColumnInfo splitColumnInfo, Range range) {
+        this.splitColumnInfo = splitColumnInfo;
+        this.splitRange = range;
+    }
+
+    public TableIf getTargetTable(ConnectContext ctx) throws AnalysisException {
+        return InsertUtils.getTargetTable(logicalQuery, ctx);
+    }
+
+    private void rewriteLogicalPlanIfNecessary(LogicalPlan logicalQuery) {
+        if (this.splitRange != null && this.splitColumnInfo != null) {
+            dynamicSplitReplacedSet = new HashSet<>();
+            this.logicalQuery = (LogicalPlan) logicalQuery.rewriteUp(child -> {
+                if (child instanceof UnboundRelation) {
+                    AtomicBoolean replaced = new AtomicBoolean(false);
+                    dynamicSplitReplacedSet.add(replaced);
+                    return new LogicalDynamicSplit<>(this.splitColumnInfo, this.splitRange, replaced, child);
+                } else {
+                    return child;
+                }
+            });
+        }
+    }
+
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        return initPlan(ctx, executor, true);
+    }
+
     /**
      * This function is used to generate the plan for Nereids.
      * There are some load functions that only need to the plan, such as stream_load.
      * Therefore, this section will be presented separately.
      */
-    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor, boolean needBeginTransaction)
+            throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
@@ -141,6 +192,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         // should lock target table until we begin transaction.
         targetTableIf.readLock();
         try {
+            // rewrite the logical plan if necessary
+            rewriteLogicalPlanIfNecessary(logicalQuery);
             // 1. process inline table (default values, empty values)
             this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, insertCtx);
             if (cte.isPresent()) {
@@ -200,7 +253,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support [olap, hive, iceberg] table");
             }
-
+            if (null != dynamicSplitReplacedSet && dynamicSplitReplacedSet.stream().anyMatch(status -> !status.get())) {
+                throw new AnalysisException("dynamic split not replaced, please check the query plan. Sql");
+            }
+            if (!needBeginTransaction) {
+                targetTableIf.readUnlock();
+                return insertExecutor;
+            }
+            //check
             insertExecutor.beginTransaction();
             insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
             targetTableIf.readUnlock();
@@ -212,7 +272,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             }
             throw e;
         }
-
         executor.setProfileType(ProfileType.LOAD);
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
         // so we need to set this here
@@ -241,6 +300,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitInsertIntoTableCommand(this, context);
+    }
+
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
     }
 
     private boolean childIsEmptyRelation(PhysicalSink sink) {

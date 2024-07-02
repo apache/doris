@@ -27,18 +27,24 @@ import org.apache.doris.job.disruptor.TaskDisruptor;
 import org.apache.doris.job.disruptor.TimerJobEvent;
 import org.apache.doris.job.executor.DefaultTaskExecutorHandler;
 import org.apache.doris.job.executor.DispatchTaskHandler;
+import org.apache.doris.job.extensions.insert.BatchInsertTask;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.job.scheduler.TaskDispatchEvent;
 import org.apache.doris.job.task.AbstractTask;
 
+import com.google.common.eventbus.Subscribe;
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventFactory;
 import com.lmax.disruptor.EventTranslatorVararg;
 import com.lmax.disruptor.WorkHandler;
 import lombok.Getter;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadFactory;
 
 public class TaskDisruptorGroupManager<T extends AbstractTask> {
@@ -67,10 +73,13 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
     private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
 
+    private static final ConcurrentHashMap<Long, ConcurrentLinkedQueue<AbstractTask>> currentTaskMap =
+            new ConcurrentHashMap<>(16);
 
     public void init() {
         registerInsertDisruptor();
         registerMTMVDisruptor();
+        registerBatchInsertDisruptor();
         //when all task queue is ready, dispatch task to registered task executor
         registerDispatchDisruptor();
     }
@@ -106,6 +115,23 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
         disruptorMap.put(JobType.INSERT, insertDisruptor);
     }
 
+    private void registerBatchInsertDisruptor() {
+        EventFactory<ExecuteTaskEvent<BatchInsertTask>> insertEventFactory = ExecuteTaskEvent.factory();
+        ThreadFactory insertTaskThreadFactory = new CustomThreadFactory("insert-task-execute");
+        WorkHandler[] insertTaskExecutorHandlers = new WorkHandler[DISPATCH_INSERT_THREAD_NUM];
+        for (int i = 0; i < DISPATCH_INSERT_THREAD_NUM; i++) {
+            insertTaskExecutorHandlers[i] = new DefaultTaskExecutorHandler<InsertTask>();
+        }
+        EventTranslatorVararg<ExecuteTaskEvent<BatchInsertTask>> eventTranslator =
+                (event, sequence, args) -> {
+                    event.setTask((BatchInsertTask) args[0]);
+                    event.setJobConfig((JobExecutionConfiguration) args[1]);
+                };
+        TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DISPATCH_INSERT_TASK_QUEUE_SIZE,
+                insertTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
+        disruptorMap.put(JobType.BATCH_INSERT, insertDisruptor);
+    }
+
     private void registerMTMVDisruptor() {
         EventFactory<ExecuteTaskEvent<MTMVTask>> mtmvEventFactory = ExecuteTaskEvent.factory();
         ThreadFactory mtmvTaskThreadFactory = new CustomThreadFactory("mtmv-task-execute");
@@ -129,8 +155,44 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
 
     public void dispatchInstantTask(AbstractTask task, JobType jobType,
                                     JobExecutionConfiguration jobExecutionConfiguration) {
+        int maxConcurrentTaskNum = jobExecutionConfiguration.getMaxConcurrentTaskNum();
         disruptorMap.get(jobType).publishEvent(task, jobExecutionConfiguration);
+        currentTaskMap.putIfAbsent(task.getTaskGroupId(), new ConcurrentLinkedQueue<>());
+        ConcurrentLinkedQueue<AbstractTask> taskQueue = currentTaskMap.get(task.getTaskGroupId());
+        taskQueue.add(task);
+        if (taskQueue.size() <= maxConcurrentTaskNum) {
+            disruptorMap.get(jobType).publishEvent(task);
+        }
     }
 
+    @Subscribe
+    public void onTaskDispatchEvent(TaskDispatchEvent event) {
+        AbstractTask task = null;
+
+        switch (event.getTaskDispatchOperate()) {
+            case EXECUTE_GROUP_NEXT_TASK:
+                if (null == currentTaskMap.get(event.getGroupId())) {
+                    return;
+                }
+                task = currentTaskMap.get(event.getGroupId()).poll();
+                if (currentTaskMap.get(event.getGroupId()).isEmpty()) {
+                    currentTaskMap.remove(event.getGroupId());
+                }
+                break;
+            case DROP_GROUP_TASK:
+                currentTaskMap.remove(event.getGroupId());
+                break;
+            case DROP_ALL_TASK:
+                if (CollectionUtils.isNotEmpty(event.getGroupIds())) {
+                    event.getGroupIds().forEach(currentTaskMap::remove);
+                }
+                break;
+            default:
+                break;
+        }
+        if (null != task) {
+            disruptorMap.get(event.getJobType()).publishEvent(task);
+        }
+    }
 
 }
