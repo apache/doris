@@ -653,6 +653,23 @@ ColumnPtr remove_nullable(const ColumnPtr& column) {
     return column;
 }
 
+ColumnPtr remove_nullalbe_with_default(const ColumnPtr& column, bool need_to_default) {
+    if (column->is_nullable()) {
+        auto nested_column = remove_nullable(column);
+        if (need_to_default) {
+            const auto& null_map =
+                    assert_cast<const ColumnNullable*>(column.get())->get_null_map_data();
+            // only need to mutate nested column, avoid to copy nullmap
+            auto mutable_nested_col = (*std::move(nested_column)).mutate();
+            mutable_nested_col->replace_column_null_data(null_map.data());
+            return mutable_nested_col;
+        }
+        return nested_column;
+    } else {
+        return column;
+    }
+}
+
 void check_set_nullable(ColumnPtr& argument_column, ColumnVector<UInt8>::MutablePtr& null_map,
                         bool is_single) {
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*argument_column)) {
