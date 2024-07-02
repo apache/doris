@@ -1484,7 +1484,8 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _query_ctx_map.find(query_id);
         if (iter == _query_ctx_map.end()) {
-            return Status::InvalidArgument("query-id: {}", queryid.to_string());
+            return Status::EndOfFile("Query context (query-id: {}) not found, maybe finished",
+                                     queryid.to_string());
         }
 
         query_ctx = iter->second;
