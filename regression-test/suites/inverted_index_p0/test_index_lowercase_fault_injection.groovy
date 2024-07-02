@@ -77,4 +77,4 @@ suite("test_index_lowercase_fault_injection", "nonConcurrent") {
       qt_sql """ select count() from ${testTable} where (request match 'http');  """
     } finally {
     }
-}
+ }

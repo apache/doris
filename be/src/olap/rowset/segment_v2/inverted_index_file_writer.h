@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 
 namespace doris {
@@ -46,12 +47,14 @@ class InvertedIndexFileWriter {
 public:
     InvertedIndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
                             std::string rowset_id, int64_t seg_id,
-                            InvertedIndexStorageFormatPB storage_format)
+                            InvertedIndexStorageFormatPB storage_format,
+                            io::FileWriterPtr file_writer = nullptr)
             : _fs(std::move(fs)),
               _index_path_prefix(std::move(index_path_prefix)),
               _rowset_id(std::move(rowset_id)),
               _seg_id(seg_id),
-              _storage_format(storage_format) {}
+              _storage_format(storage_format),
+              _idx_v2_writer(std::move(file_writer)) {}
 
     Result<DorisFSDirectory*> open(const TabletIndex* index_meta);
     Status delete_index(const TabletIndex* index_meta);
@@ -76,6 +79,8 @@ private:
     int64_t _seg_id;
     InvertedIndexStorageFormatPB _storage_format;
     size_t _file_size = 0;
+    // write to disk or stream
+    io::FileWriterPtr _idx_v2_writer;
 };
 } // namespace segment_v2
 } // namespace doris

@@ -80,7 +80,8 @@ public:
                 "add_rowset_for_linked_schema_change is not implemented");
     }
 
-    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) override;
+    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
+                              FileType file_type = FileType::SEGMENT_FILE) override;
 
     Status flush() override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("flush is not implemented");

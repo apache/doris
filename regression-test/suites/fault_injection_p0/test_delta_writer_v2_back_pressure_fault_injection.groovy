@@ -96,8 +96,11 @@ suite("test_delta_writer_v2_back_pressure_fault_injection", "nonConcurrent") {
                 logger.info(res.toString())
             }
         }
+
     } catch(Exception e) {
         logger.info(e.getMessage())
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("DeltaWriterV2.write.back_pressure")
     }
 
     sql """ DROP TABLE IF EXISTS `baseall` """

@@ -249,6 +249,7 @@ struct TOlapTableSchemaParam {
     10: optional bool is_strict_mode = false
     11: optional string auto_increment_column
     12: optional i32 auto_increment_column_unique_id = -1
+    13: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V1
 }
 
 struct TTabletLocation {

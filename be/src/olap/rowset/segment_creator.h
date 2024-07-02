@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <string>
+#include <typeinfo>
 #include <unordered_map>
 #include <vector>
 
@@ -49,7 +51,8 @@ class FileWriterCreator {
 public:
     virtual ~FileWriterCreator() = default;
 
-    virtual Status create(uint32_t segment_id, io::FileWriterPtr& file_writer) = 0;
+    virtual Status create(uint32_t segment_id, io::FileWriterPtr& file_writer,
+                          FileType file_type = FileType::SEGMENT_FILE) = 0;
 };
 
 template <class T>
@@ -57,8 +60,9 @@ class FileWriterCreatorT : public FileWriterCreator {
 public:
     explicit FileWriterCreatorT(T* t) : _t(t) {}
 
-    Status create(uint32_t segment_id, io::FileWriterPtr& file_writer) override {
-        return _t->create_file_writer(segment_id, file_writer);
+    Status create(uint32_t segment_id, io::FileWriterPtr& file_writer,
+                  FileType file_type = FileType::SEGMENT_FILE) override {
+        return _t->create_file_writer(segment_id, file_writer, file_type);
     }
 
 private:

@@ -85,7 +85,8 @@ public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts,
-                           std::shared_ptr<MowContext> mow_context);
+                           std::shared_ptr<MowContext> mow_context,
+                           io::FileWriterPtr inverted_file_writer = nullptr);
     ~SegmentWriter();
 
     Status init();
@@ -197,7 +198,6 @@ private:
     // Not owned. owned by RowsetWriter or SegmentFlusher
     io::FileWriter* _file_writer = nullptr;
     std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
-
     SegmentFooterPB _footer;
     size_t _num_key_columns;
     size_t _num_short_key_columns;

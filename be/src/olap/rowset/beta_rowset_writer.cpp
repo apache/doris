@@ -831,10 +831,19 @@ Status BaseBetaRowsetWriter::_create_file_writer(const std::string& path,
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id,
-                                                io::FileWriterPtr& file_writer) {
-    auto path = _context.segment_path(segment_id);
-    return _create_file_writer(path, file_writer);
+Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWriterPtr& file_writer,
+                                                FileType file_type) {
+    auto segment_path = _context.segment_path(segment_id);
+    if (file_type == FileType::INVERTED_INDEX_FILE) {
+        std::string prefix =
+                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
+        std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
+        return _create_file_writer(index_path, file_writer);
+    } else if (file_type == FileType::SEGMENT_FILE) {
+        return _create_file_writer(segment_path, file_writer);
+    }
+    return Status::Error<ErrorCode::INTERNAL_ERROR>(
+            fmt::format("failed to create file = {}, file type = {}", segment_path, file_type));
 }
 
 Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(

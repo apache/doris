@@ -58,3 +58,8 @@ message PTopNCounter {
     required uint32 space_expand_rate = 2;
     repeated PCounter counter = 3;
 }
+
+enum FileType {
+  SEGMENT_FILE = 1;
+  INVERTED_INDEX_FILE = 2;
+}

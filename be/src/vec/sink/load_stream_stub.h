@@ -137,7 +137,7 @@ public:
             Status
             append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                         int64_t segment_id, uint64_t offset, std::span<const Slice> data,
-                        bool segment_eos = false);
+                        bool segment_eos = false, FileType file_type = FileType::SEGMENT_FILE);
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,

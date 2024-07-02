@@ -69,14 +69,14 @@ Status BetaRowsetWriterV2::init(const RowsetWriterContext& rowset_writer_context
     return Status::OK();
 }
 
-Status BetaRowsetWriterV2::create_file_writer(uint32_t segment_id, io::FileWriterPtr& file_writer) {
+Status BetaRowsetWriterV2::create_file_writer(uint32_t segment_id, io::FileWriterPtr& file_writer,
+                                              FileType file_type) {
     auto partition_id = _context.partition_id;
     auto index_id = _context.index_id;
     auto tablet_id = _context.tablet_id;
     auto load_id = _context.load_id;
-
     auto stream_writer = std::make_unique<io::StreamSinkFileWriter>(_streams);
-    stream_writer->init(load_id, partition_id, index_id, tablet_id, segment_id);
+    stream_writer->init(load_id, partition_id, index_id, tablet_id, segment_id, file_type);
     file_writer = std::move(stream_writer);
     return Status::OK();
 }

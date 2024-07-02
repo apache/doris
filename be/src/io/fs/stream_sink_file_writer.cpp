@@ -28,15 +28,17 @@
 namespace doris::io {
 
 void StreamSinkFileWriter::init(PUniqueId load_id, int64_t partition_id, int64_t index_id,
-                                int64_t tablet_id, int32_t segment_id) {
+                                int64_t tablet_id, int32_t segment_id, FileType file_type) {
     VLOG_DEBUG << "init stream writer, load id(" << UniqueId(load_id).to_string()
                << "), partition id(" << partition_id << "), index id(" << index_id
-               << "), tablet_id(" << tablet_id << "), segment_id(" << segment_id << ")";
+               << "), tablet_id(" << tablet_id << "), segment_id(" << segment_id << ")"
+               << ", file_type(" << file_type << ")";
     _load_id = load_id;
     _partition_id = partition_id;
     _index_id = index_id;
     _tablet_id = tablet_id;
     _segment_id = segment_id;
+    _file_type = file_type;
 }
 
 Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
@@ -47,7 +49,7 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
 
     VLOG_DEBUG << "writer appendv, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
                << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id
-               << ", data_length: " << bytes_req;
+               << ", data_length: " << bytes_req << "file_type" << _file_type;
 
     std::span<const Slice> slices {data, data_cnt};
     size_t stream_index = 0;
@@ -67,7 +69,7 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
         });
         if (!skip_stream) {
             st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
-                                     _bytes_appended, slices);
+                                     _bytes_appended, slices, false, _file_type);
         }
         DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", {
             if (stream_index >= 2) {
@@ -140,7 +142,7 @@ Status StreamSinkFileWriter::_finalize() {
     bool ok = false;
     for (auto& stream : _streams) {
         auto st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
-                                      _bytes_appended, {}, true);
+                                      _bytes_appended, {}, true, _file_type);
         ok = ok || st.ok();
         if (!st.ok()) {
             LOG(WARNING) << "failed to send segment eos to backend " << stream->dst_id()

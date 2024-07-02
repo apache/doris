@@ -34,7 +34,9 @@ suite("test_http_stream", "p0") {
             dt_1 DATETIME DEFAULT CURRENT_TIMESTAMP,
             dt_2 DATETIMEV2 DEFAULT CURRENT_TIMESTAMP,
             dt_3 DATETIMEV2(3) DEFAULT CURRENT_TIMESTAMP,
-            dt_4 DATETIMEV2(6) DEFAULT CURRENT_TIMESTAMP
+            dt_4 DATETIMEV2(6) DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_dt_2 (`dt_2`) USING INVERTED,
+            INDEX idx_dt_3 (`dt_3`) USING INVERTED
         )
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
@@ -298,7 +300,9 @@ suite("test_http_stream", "p0") {
             sex TINYINT,
             phone LARGEINT,
             address VARCHAR(500),
-            register_time DATETIME
+            register_time DATETIME,
+            INDEX idx_username (`username`) USING INVERTED,
+            INDEX idx_address (`address`) USING INVERTED
         )
         DUPLICATE KEY(`user_id`, `username`)
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
