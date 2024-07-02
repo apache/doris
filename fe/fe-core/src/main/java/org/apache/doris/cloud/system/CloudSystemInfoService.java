@@ -822,4 +822,23 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.info("auto start cluster {}, start cost {} ms", clusterName, stopWatch.getTime());
         }
     }
+
+    public ImmutableMap<Long, Backend> getIdToBackend() {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            LOG.warn("cloud mode cant get ConnectContext");
+            return ImmutableMap.of();
+        }
+        String cloudClusterName = context.getCloudCluster();
+        if (Strings.isNullOrEmpty(cloudClusterName)) {
+            LOG.warn("cloud mode cant get CloudClusterName");
+            return ImmutableMap.of();
+        }
+        return ImmutableMap.copyOf(getBackendsByClusterName(cloudClusterName)
+                .stream().collect(Collectors.toMap(Backend::getId, b -> b)));
+    }
+
+    public ImmutableMap<Long, Backend> getAllBackendsMap() {
+        return getIdToBackend();
+    }
 }
