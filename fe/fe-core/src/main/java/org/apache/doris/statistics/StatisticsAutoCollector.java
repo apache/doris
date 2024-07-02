@@ -214,7 +214,6 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setColName(stringJoiner.toString())
                 .setJobColumns(jobColumns)
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
-                .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
                 .setPartitionNames(Collections.emptySet())
                 .setSampleRows(analysisMethod.equals(AnalysisMethod.SAMPLE)
@@ -229,6 +228,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
                 .setPriority(priority)
                 .setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows)
+                .setEnablePartition(StatisticsUtil.enablePartitionAnalyze())
                 .build();
     }
 
