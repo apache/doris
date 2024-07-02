@@ -91,11 +91,6 @@ public class PhysicalDeferMaterializeOlapScan extends PhysicalCatalogRelation im
     }
 
     @Override
-    public long getSelectedIndexIdForMV() {
-        return physicalOlapScan.getSelectedIndexIdForMV();
-    }
-
-    @Override
     public List<Long> getSelectedPartitionIds() {
         return physicalOlapScan.getSelectedPartitionIds();
     }

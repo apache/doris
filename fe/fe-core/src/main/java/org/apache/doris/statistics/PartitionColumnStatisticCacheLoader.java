@@ -57,7 +57,7 @@ public class PartitionColumnStatisticCacheLoader extends
     private Optional<PartitionColumnStatistic> loadFromPartitionStatsTable(PartitionColumnStatisticCacheKey key) {
         List<ResultRow> partitionResults;
         try {
-            String partName = "'" + key.partId + "'";
+            String partName = "'" + StatisticsUtil.escapeSQL(key.partId) + "'";
             partitionResults = StatisticsRepository.loadPartitionColumnStats(
                 key.catalogId, key.dbId, key.tableId, key.idxId, partName, key.colName);
         } catch (InternalQueryExecutionException e) {

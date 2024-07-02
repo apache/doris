@@ -91,14 +91,6 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     }
 
     @Override
-    public long getSelectedIndexIdForMV() {
-        if (getTable().getBaseIndexId() != selectedIndexId) {
-            return selectedIndexId;
-        }
-        return -1;
-    }
-
-    @Override
     public List<Long> getSelectedTabletIds() {
         return selectedTabletIds;
     }

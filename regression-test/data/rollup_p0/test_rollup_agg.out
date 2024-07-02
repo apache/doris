@@ -12,5 +12,5 @@ rollup_city	AGG_KEYS	citycode	SMALLINT	SMALLINT	No	true	\N		true
 		vv	BIGINT	BIGINT	Yes	false	0	SUM	true		
 
 -- !sql --
-1	200
+1	300
 

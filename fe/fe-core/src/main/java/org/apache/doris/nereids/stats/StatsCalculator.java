@@ -243,7 +243,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     .noneMatch(e -> newStats.isInputSlotsUnknown(e.getInputSlots()));
             groupExpression.getOwnerGroup().setStatsReliable(isReliable);
             groupExpression.getOwnerGroup().setStatistics(newStats);
-            groupExpression.setEstOutputRowCount(newStats.getRowCount());
         } else {
             // the reason why we update col stats here.
             // consider join between 3 tables: A/B/C with join condition: A.id=B.id=C.id and a filter: C.id=1
@@ -258,6 +257,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // now we update OwnerGroup().getStatistics().A.id.ndv to 1
             groupExpression.getOwnerGroup().getStatistics().updateNdv(newStats);
         }
+        groupExpression.setEstOutputRowCount(newStats.getRowCount());
         groupExpression.setStatDerived(true);
     }
 
@@ -312,7 +312,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (tableMeta != null) {
             ColStatsMeta colMeta = tableMeta.findColumnStatsMeta(
                     olapScan.getTable().getIndexNameById(olapScan.getSelectedIndexId()), slot.getName());
-            if (colMeta != null) {
+            if (colMeta != null && colMeta.partitionUpdateRows != null) {
+                // when fe upgraded from old version, colMeta object may be deserialized from json,
+                // and colMeta.partitionUpdateRows could be null
                 if (olapScan.getSelectedPartitionIds().isEmpty()) {
                     deltaRowCount = tableMeta.updatedRows.get() - colMeta.updatedRows;
                 } else {
@@ -350,7 +352,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private ColumnStatistic getColumnStatsFromTableCache(CatalogRelation catalogRelation, SlotReference slot) {
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
-            idxId = ((OlapScan) catalogRelation).getSelectedIndexIdForMV();
+            idxId = ((OlapScan) catalogRelation).getSelectedIndexId();
         }
         return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId);
     }
@@ -359,7 +361,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             List<String> partitionNames) {
         long idxId = -1;
         if (catalogRelation instanceof OlapScan) {
-            idxId = ((OlapScan) catalogRelation).getSelectedIndexIdForMV();
+            idxId = ((OlapScan) catalogRelation).getSelectedIndexId();
         }
         return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId, partitionNames);
     }
@@ -434,7 +436,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             for (Slot slot : olapScan.getOutput()) {
                 if (isVisibleSlotReference(slot)) {
                     ColumnStatistic cache = getColumnStatistic(olapTable, slot.getName(),
-                            olapScan.getSelectedIndexIdForMV());
+                            olapScan.getSelectedIndexId());
                     rowCount = Math.max(rowCount, cache.count);
                 }
                 builder.putColumnStatistics(slot,
