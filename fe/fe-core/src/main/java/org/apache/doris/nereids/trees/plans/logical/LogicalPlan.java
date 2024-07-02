@@ -62,7 +62,7 @@ public interface LogicalPlan extends Plan {
      *   - BlockFDPropagation: clean the fd
      *   - PropagateFD: propagate the fd
      */
-    default DataTrait computeFuncDeps() {
+    default DataTrait computeDataTrait() {
         DataTrait.Builder fdBuilder = new DataTrait.Builder();
         computeUniform(fdBuilder);
         computeUnique(fdBuilder);

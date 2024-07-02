@@ -111,11 +111,18 @@ public class LogicalIntersect extends LogicalSetOperation {
 
     void replaceSlotInFuncDeps(DataTrait.Builder builder,
             List<Slot> originalOutputs, List<Slot> newOutputs) {
+
+    }
+
+    Map<Slot, Slot> constructReplaceMap() {
         Map<Slot, Slot> replaceMap = new HashMap<>();
-        for (int i = 0; i < newOutputs.size(); i++) {
-            replaceMap.put(originalOutputs.get(i), newOutputs.get(i));
+        for (int i = 0; i < children.size(); i++) {
+            List<? extends Slot> originOutputs = this.regularChildrenOutputs.isEmpty()
+                    ? child(i).getOutput()
+                    : regularChildrenOutputs.get(i);
+            replaceMap.put(originOutputs.get(i), getOutput().get(i));
         }
-        builder.replace(replaceMap);
+        return replaceMap;
     }
 
     @Override
@@ -123,8 +130,8 @@ public class LogicalIntersect extends LogicalSetOperation {
         for (Plan child : children) {
             builder.addUniqueSlot(
                     child.getLogicalProperties().getTrait());
-            replaceSlotInFuncDeps(builder, child.getOutput(), getOutput());
         }
+        builder.replaceUniqueBy(constructReplaceMap());
         if (qualifier == Qualifier.DISTINCT) {
             builder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
@@ -135,8 +142,8 @@ public class LogicalIntersect extends LogicalSetOperation {
         for (Plan child : children) {
             builder.addUniformSlot(
                     child.getLogicalProperties().getTrait());
-            replaceSlotInFuncDeps(builder, child.getOutput(), getOutput());
         }
+        builder.replaceUniformBy(constructReplaceMap());
     }
 
     @Override
@@ -144,8 +151,8 @@ public class LogicalIntersect extends LogicalSetOperation {
         for (Plan child : children) {
             builder.addEqualSet(
                     child.getLogicalProperties().getTrait());
-            replaceSlotInFuncDeps(builder, child.getOutput(), getOutput());
         }
+        builder.replaceEqualSetBy(constructReplaceMap());
     }
 
     @Override
@@ -153,8 +160,8 @@ public class LogicalIntersect extends LogicalSetOperation {
         for (Plan child : children) {
             builder.addFuncDepsDG(
                     child.getLogicalProperties().getTrait());
-            replaceSlotInFuncDeps(builder, child.getOutput(), getOutput());
         }
+        builder.replaceFuncDepsBy(constructReplaceMap());
     }
 
     @Override
