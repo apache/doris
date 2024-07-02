@@ -220,14 +220,12 @@ public class ProfileManager {
         try {
             if (!queryIdDeque.contains(key)) {
                 if (queryIdDeque.size() >= Config.max_query_profile_num) {
-                    ProfileElement profileElementRemoved = queryIdToProfileMap.remove(queryIdDeque.getFirst());
-                    // If the Profile object is removed from manager, then related execution profile is also useless.
-                    if (profileElementRemoved != null) {
-                        for (ExecutionProfile executionProfile : profileElementRemoved.profile.getExecutionProfiles()) {
-                            this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
-                        }
+                    String toEject = collectProfileToBeEjected();
+                    if (toEject != null) {
+                        queryIdToProfileMap.remove(toEject);
+                        queryIdDeque.remove(toEject);
+                        LOG.info("Eject profile: {}", toEject);
                     }
-                    queryIdDeque.removeFirst();
                 }
                 queryIdDeque.addLast(key);
             }
@@ -328,6 +326,31 @@ public class ProfileManager {
         return resp;
     }
 
+    private String collectProfileToBeEjected() {
+        if (!writeLock.isHeldByCurrentThread()) {
+            return null;
+        }
+
+        Iterator<String> profileIter = queryIdDeque.iterator();
+        while (profileIter.hasNext()) {
+            String profileId = profileIter.next();
+            ProfileElement profileElem = queryIdToProfileMap.get(profileId);
+            if (profileElem == null) {
+                LOG.warn("null profile element found in queryIdToProfileMap, profileId: {}", profileId);
+                continue;
+            }
+
+            if (profileElem.profile.isComplete()) {
+                return profileId;
+            }
+        }
+
+        String toEject = queryIdDeque.getFirst();
+        LOG.info("All profiles are not finished, eject the oldest running profile {}.", toEject);
+
+        return toEject;
+    }
+
     private List<Future<TGetRealtimeExecStatusResponse>> createFetchRealTimeProfileTasks(String id) {
         // For query, id is queryId, for load, id is LoadLoadingTaskId
         class QueryIdAndAddress {
@@ -340,7 +363,7 @@ public class ProfileManager {
         try {
             queryId = DebugUtil.parseTUniqueIdFromString(id);
         } catch (NumberFormatException e) {
-            LOG.warn("Failed to parse TUniqueId from string {} when fetch profile", id);
+            LOG.debug("Failed to parse TUniqueId from string {} when fetch profile", id);
         }
         List<QueryIdAndAddress> involvedBackends = Lists.newArrayList();
 
@@ -360,7 +383,7 @@ public class ProfileManager {
             try {
                 loadJobId = Long.parseLong(id);
             } catch (Exception e) {
-                throw new IllegalArgumentException("Invalid profile id: " + id);
+                return futures;
             }
 
             LoadJob loadJob = Env.getCurrentEnv().getLoadManager().getLoadJob(loadJobId);

@@ -153,25 +153,25 @@ public class ExecutionProfile {
 
     public RuntimeProfile getAggregatedFragmentsProfile(Map<Integer, String> planNodeMap) {
         /*
-            * Fragment 0
-            * ---Pipeline 0
-            * ------pipelineTask 0
-            * ------pipelineTask 0
-            * ------pipelineTask 0
-            * ---Pipeline 1
-            * ------pipelineTask 1
-            * ---Pipeline 2
-            * ------pipelineTask 2
-            * ------pipelineTask 2
-            * Fragment 1
-            * ---Pipeline 0
-            * ------......
-            * ---Pipeline 1
-            * ------......
-            * ---Pipeline 2
-            * ------......
-            * ......
-            */
+         * Fragment 0
+         * ---Pipeline 0
+         * ------pipelineTask 0
+         * ------pipelineTask 0
+         * ------pipelineTask 0
+         * ---Pipeline 1
+         * ------pipelineTask 1
+         * ---Pipeline 2
+         * ------pipelineTask 2
+         * ------pipelineTask 2
+         * Fragment 1
+         * ---Pipeline 0
+         * ------......
+         * ---Pipeline 1
+         * ------......
+         * ---Pipeline 2
+         * ------......
+         * ......
+         */
         return getPipelineAggregatedProfile(planNodeMap);
     }
 
@@ -336,4 +336,15 @@ public class ExecutionProfile {
     public void setSummaryProfile(SummaryProfile summaryProfile) {
         this.summaryProfile = summaryProfile;
     }
+
+    // This method is for test only
+    public void setFragmentProfiles(Map<Integer, RuntimeProfile> fragmentProfiles) {
+        this.fragmentProfiles = fragmentProfiles;
+    }
+
+    // This method is for test only
+    public void setFragmentIdBeNum(Map<Integer, Integer> fragmentIdBeNum) {
+        this.fragmentIdBeNum = fragmentIdBeNum;
+    }
+
 }
