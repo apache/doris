@@ -10,7 +10,7 @@ PhysicalResultSink
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((a.ca_address_sk = c.c_current_addr_sk)) otherCondition=() build RFs:RF5 c_current_addr_sk->[ca_address_sk]
+--------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((a.ca_address_sk = c.c_current_addr_sk)) otherCondition=() build RFs:RF5 c_current_addr_sk->[ca_address_sk]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer_address] apply RFs: RF5
 ----------------------PhysicalProject
