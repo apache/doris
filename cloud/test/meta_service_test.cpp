@@ -5241,6 +5241,70 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(txn->get(partition_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     req.add_index_ids(index_id);
+    // ------------Test check partition-----------
+    // Normal
+    req.set_db_id(1);
+    req.set_table_id(table_id + 1);
+    req.add_index_ids(index_id + 1);
+    req.add_partition_ids(partition_id + 1);
+    meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    meta_service->commit_partition(&ctrl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    CheckKVRequest req_check;
+    CheckKVResponse res_check;
+    meta_service->check_kv(&ctrl, &req_check, &res_check, nullptr);
+    ASSERT_EQ(res_check.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    res_check.Clear();
+    req_check.set_op(CheckKVRequest::CREATE_PARTITION_AFTER_FE_COMMIT);
+    CheckKeyInfos check_keys_pb;
+    check_keys_pb.add_table_ids(table_id + 1);
+    check_keys_pb.add_index_ids(index_id + 1);
+    check_keys_pb.add_partition_ids(partition_id + 1);
+    req_check.mutable_check_keys()->CopyFrom(check_keys_pb);
+    meta_service->check_kv(&ctrl, &req_check, &res_check, nullptr);
+    ASSERT_EQ(res_check.status().code(), MetaServiceCode::OK);
+    res_check.Clear();
+    // AbNomal not commit
+    req.Clear();
+    req.set_db_id(1);
+    req.set_table_id(table_id + 2);
+    req.add_index_ids(index_id + 2);
+    req.add_partition_ids(partition_id + 2);
+    meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    req_check.Clear();
+    req_check.set_op(CheckKVRequest::CREATE_PARTITION_AFTER_FE_COMMIT);
+    check_keys_pb.Clear();
+    check_keys_pb.add_table_ids(table_id + 2);
+    check_keys_pb.add_index_ids(index_id + 2);
+    check_keys_pb.add_partition_ids(partition_id + 2);
+    req_check.mutable_check_keys()->CopyFrom(check_keys_pb);
+    meta_service->check_kv(&ctrl, &req_check, &res_check, nullptr);
+    ASSERT_EQ(res_check.status().code(), MetaServiceCode::ALREADY_EXISTED);
+
+    // ------------Test check index-----------
+    // Normal
+    IndexRequest req_index;
+    IndexResponse res_index;
+    req_index.set_db_id(1);
+    req_index.set_table_id(table_id + 3);
+    req_index.add_index_ids(index_id + 3);
+    meta_service->prepare_index(&ctrl, &req_index, &res_index, nullptr);
+    ASSERT_EQ(res_index.status().code(), MetaServiceCode::OK);
+    meta_service->commit_index(&ctrl, &req_index, &res_index, nullptr);
+    ASSERT_EQ(res_index.status().code(), MetaServiceCode::OK);
+    req_check.Clear();
+    res_check.Clear();
+    req_check.set_op(CheckKVRequest::CREATE_INDEX_AFTER_FE_COMMIT);
+    check_keys_pb.Clear();
+    check_keys_pb.add_table_ids(table_id + 3);
+    check_keys_pb.add_index_ids(index_id + 3);
+    req_check.mutable_check_keys()->CopyFrom(check_keys_pb);
+    meta_service->check_kv(&ctrl, &req_check, &res_check, nullptr);
+    ASSERT_EQ(res_check.status().code(), MetaServiceCode::OK);
+    res_check.Clear();
+
     // ------------Test drop partition------------
     reset_meta_service();
     req.Clear();

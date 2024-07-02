@@ -145,6 +145,9 @@ public:
     void drop_index(::google::protobuf::RpcController* controller, const IndexRequest* request,
                     IndexResponse* response, ::google::protobuf::Closure* done) override;
 
+    void check_kv(::google::protobuf::RpcController* controller, const CheckKVRequest* request,
+                  CheckKVResponse* response, ::google::protobuf::Closure* done) override;
+
     void prepare_partition(::google::protobuf::RpcController* controller,
                            const PartitionRequest* request, PartitionResponse* response,
                            ::google::protobuf::Closure* done) override;
@@ -279,6 +282,13 @@ private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
             std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
+
+    using check_create_table_type = std::function<const std::tuple<
+            const ::google::protobuf::RepeatedField<int64_t>, std::string,
+            std::function<std::string(std::string, int64_t)>>(const CheckKVRequest* request)>;
+    void check_create_table(std::string instance_id, const CheckKVRequest* request,
+                            CheckKVResponse* response, MetaServiceCode* code, std::string* msg,
+                            check_create_table_type get_check_info);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
@@ -424,6 +434,11 @@ public:
     void drop_index(::google::protobuf::RpcController* controller, const IndexRequest* request,
                     IndexResponse* response, ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::drop_index, controller, request, response, done);
+    }
+
+    void check_kv(::google::protobuf::RpcController* controller, const CheckKVRequest* request,
+                  CheckKVResponse* response, ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::check_kv, controller, request, response, done);
     }
 
     void prepare_partition(::google::protobuf::RpcController* controller,

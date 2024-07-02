@@ -255,6 +255,10 @@ public class MetaServiceClient {
         return blockingStub.commitPartition(request);
     }
 
+    public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) {
+        return blockingStub.checkKv(request);
+    }
+
     public Cloud.PartitionResponse dropPartition(Cloud.PartitionRequest request) {
         return blockingStub.dropPartition(request);
     }
