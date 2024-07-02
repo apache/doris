@@ -57,7 +57,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_big_pad," +
     "test_bitmap_filter," +
     "test_broker_load," +
-    "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
