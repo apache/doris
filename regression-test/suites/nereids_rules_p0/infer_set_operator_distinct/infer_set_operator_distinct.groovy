@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_infer_set_operator_distinct") {
+suite("infer_set_operator_distinct") {
     sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"

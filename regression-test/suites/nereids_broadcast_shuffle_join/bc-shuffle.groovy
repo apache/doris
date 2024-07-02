@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("broadcastJoin") {
+suite("bc-shuffle") {
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql "set enable_parallel_result_sink=false;"
     String database = context.config.getDbNameByFile(context.file)
