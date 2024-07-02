@@ -32,6 +32,7 @@
 #include "recycler/checker.h"
 #include "recycler/meta_checker.h"
 #include "recycler/recycler.h"
+#include "recycler/s3_accessor.h"
 
 namespace doris::cloud {
 

@@ -147,39 +147,40 @@ void ParquetBuildHelper::build_compression_type(
         const TParquetCompressionType::type& compression_type) {
     switch (compression_type) {
     case TParquetCompressionType::SNAPPY: {
-        builder.compression(parquet::Compression::SNAPPY);
+        builder.compression(arrow::Compression::SNAPPY);
         break;
     }
     case TParquetCompressionType::GZIP: {
-        builder.compression(parquet::Compression::GZIP);
+        builder.compression(arrow::Compression::GZIP);
         break;
     }
     case TParquetCompressionType::BROTLI: {
-        builder.compression(parquet::Compression::BROTLI);
+        builder.compression(arrow::Compression::BROTLI);
         break;
     }
     case TParquetCompressionType::ZSTD: {
-        builder.compression(parquet::Compression::ZSTD);
+        builder.compression(arrow::Compression::ZSTD);
         break;
     }
     case TParquetCompressionType::LZ4: {
-        builder.compression(parquet::Compression::LZ4);
+        builder.compression(arrow::Compression::LZ4);
         break;
     }
-    case TParquetCompressionType::LZO: {
-        builder.compression(parquet::Compression::LZO);
-        break;
-    }
-    case TParquetCompressionType::BZ2: {
-        builder.compression(parquet::Compression::BZ2);
-        break;
-    }
+    // arrow do not support lzo and bz2 compression type.
+    // case TParquetCompressionType::LZO: {
+    //     builder.compression(arrow::Compression::LZO);
+    //     break;
+    // }
+    // case TParquetCompressionType::BZ2: {
+    //     builder.compression(arrow::Compression::BZ2);
+    //     break;
+    // }
     case TParquetCompressionType::UNCOMPRESSED: {
-        builder.compression(parquet::Compression::UNCOMPRESSED);
+        builder.compression(arrow::Compression::UNCOMPRESSED);
         break;
     }
     default:
-        builder.compression(parquet::Compression::UNCOMPRESSED);
+        builder.compression(arrow::Compression::SNAPPY);
     }
 }
 

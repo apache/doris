@@ -19,11 +19,14 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TPartitionType;
 
+import com.google.gson.annotations.SerializedName;
+
 public enum PartitionType {
     UNPARTITIONED("UNPARTITIONED"),
     RANGE("RANGE"),
     LIST("LIST");
 
+    @SerializedName("ts")
     public String typeString;
 
     private PartitionType(String typeString) {

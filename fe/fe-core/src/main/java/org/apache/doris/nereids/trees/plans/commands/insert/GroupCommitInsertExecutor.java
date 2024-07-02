@@ -81,6 +81,10 @@ public class GroupCommitInsertExecutor extends AbstractInsertExecutor {
      */
     public static boolean canGroupCommit(ConnectContext ctx, DataSink sink,
                                          PhysicalSink physicalSink, NereidsPlanner planner) {
+        // The flag is set to false before execute sql, if it is true, this is a http stream
+        if (ctx.isGroupCommit()) {
+            return false;
+        }
         PhysicalOlapTableSink<?> olapSink = (PhysicalOlapTableSink<?>) physicalSink;
         boolean can = analyzeGroupCommit(ctx, sink, olapSink, planner);
         ctx.setGroupCommit(can);

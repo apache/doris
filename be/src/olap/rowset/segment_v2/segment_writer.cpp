@@ -138,7 +138,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
         _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 _opts.rowset_ctx->fs(),
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
-                        _opts.rowset_ctx->segment_path(segment_id))},
+                        file_writer->path().c_str())},
                 _opts.rowset_ctx->rowset_id.to_string(), segment_id,
                 _tablet_schema->get_inverted_index_storage_format());
     }
@@ -467,7 +467,6 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    auto* tablet = static_cast<Tablet*>(_tablet.get());
     if (block->columns() <= _tablet_schema->num_key_columns() ||
         block->columns() >= _tablet_schema->num_columns()) {
         return Status::InvalidArgument(
@@ -533,7 +532,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
-        std::shared_lock rlock(tablet->get_header_lock());
+        std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _mow_context->rowset_ptrs;
         if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
             // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
@@ -586,8 +585,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
         RowsetSharedPtr rowset;
-        auto st = tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
-                                         _mow_context->max_version, segment_caches, &rowset);
+        auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
+                                          _mow_context->max_version, segment_caches, &rowset);
         if (st.is<KEY_NOT_FOUND>()) {
             if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
@@ -636,7 +635,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             // partial update should not contain invisible columns
             use_default_or_null_flag.emplace_back(false);
             _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-            tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
+            _tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
         }
 
         if (st.is<KEY_ALREADY_EXISTS>()) {
@@ -655,8 +654,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
-        tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
-                                                   _mow_context->rowset_ids);
+        _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
+                                                    _mow_context->rowset_ids);
     }
 
     // read and fill block
@@ -728,7 +727,6 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
         // TODO(plat1ko): cloud mode
         return Status::NotSupported("fill_missing_columns");
     }
-    auto tablet = static_cast<Tablet*>(_tablet.get());
     // create old value columns
     const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
@@ -747,7 +745,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 read_index[id_and_pos.pos] = read_idx++;
             }
             if (has_row_column) {
-                auto st = tablet->fetch_value_through_row_column(
+                auto st = _tablet->fetch_value_through_row_column(
                         rowset, *_tablet_schema, seg_it.first, rids, cids_missing, old_value_block);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value through row column";
@@ -758,8 +756,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             auto mutable_old_columns = old_value_block.mutate_columns();
             for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
                 TabletColumn tablet_column = _tablet_schema->column(cids_missing[cid]);
-                auto st = tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
-                                                        mutable_old_columns[cid]);
+                auto st = _tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
+                                                         mutable_old_columns[cid]);
                 // set read value to output block
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value by rowids";

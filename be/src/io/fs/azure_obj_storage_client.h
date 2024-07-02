@@ -51,11 +51,8 @@ public:
                                          std::vector<std::string> objs) override;
     ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse delete_objects_recursively(const ObjectStoragePathOptions& opts) override;
-    // TODO(ByteYue) : to be implemented
     std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                       int64_t expiration_secs) override {
-        return "http://azure.to.be.implenmented";
-    };
+                                       int64_t expiration_secs, const S3ClientConf& conf) override;
 
 private:
     std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> _client;

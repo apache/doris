@@ -49,7 +49,6 @@ public class DecommissionBackendTest extends TestWithFeService {
     @Override
     protected void beforeCluster() {
         FeConstants.runningUnitTest = true;
-        needCleanDir = false;
     }
 
     @BeforeAll

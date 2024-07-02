@@ -1823,7 +1823,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new MetaNotFoundException("db " + request.getDb() + " does not exist");
         }
         long dbId = db.getId();
-        if (request.getTxnId() != 0) { // txnId is required in thrift
+        if (request.getTxnId() > 0) { // txnId is required in thrift
             TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(dbId, request.getTxnId());
             if (transactionState == null) {
@@ -2132,6 +2132,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getPipelineParams().setTableName(httpStreamParams.getTable().getName());
             result.getPipelineParams().setTxnConf(new TTxnParams().setTxnId(httpStreamParams.getTxnId()));
             result.getPipelineParams().setImportLabel(httpStreamParams.getLabel());
+            result.getPipelineParams()
+                    .setIsMowTable(((OlapTable) httpStreamParams.getTable()).getEnableUniqueKeyMergeOnWrite());
             result.setDbId(httpStreamParams.getDb().getId());
             result.setTableId(httpStreamParams.getTable().getId());
             result.setBaseSchemaVersion(((OlapTable) httpStreamParams.getTable()).getBaseSchemaVersion());
@@ -2624,6 +2626,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TAutoIncrementRangeResult result = new TAutoIncrementRangeResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("failed to getAutoIncrementRange:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
+            return result;
+        }
+
         try {
             Env env = Env.getCurrentEnv();
             Database db = env.getInternalCatalog().getDbOrMetaException(request.getDbId());

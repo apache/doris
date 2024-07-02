@@ -289,6 +289,13 @@ public class NereidsParser {
         return (T) realLogicalPlanBuilder.visit(tree);
     }
 
+    public Optional<String> parseForSyncMv(String sql) {
+        ParserRuleContext tree = toAst(sql, DorisParser::singleStatement);
+        LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv();
+        logicalPlanBuilderForSyncMv.visit(tree);
+        return logicalPlanBuilderForSyncMv.getQuerySql();
+    }
+
     /** toAst */
     public static ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));

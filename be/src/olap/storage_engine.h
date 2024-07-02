@@ -131,6 +131,8 @@ public:
 
     int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
 
+    int get_disk_num() { return _disk_num; }
+
 protected:
     void _evict_querying_rowset();
     void _evict_quring_rowset_thread_callback();
@@ -153,6 +155,8 @@ protected:
     scoped_refptr<Thread> _evict_quering_rowset_thread;
 
     int64_t _memory_limitation_bytes_for_schema_change;
+
+    int _disk_num {-1};
 };
 
 class StorageEngine final : public BaseStorageEngine {

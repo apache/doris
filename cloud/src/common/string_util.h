@@ -21,10 +21,20 @@
 
 namespace doris::cloud {
 
-static inline std::string trim(std::string& str) {
+// Removes any trailing charactor in `to_drop` in `str`
+static inline void strip_trailing(std::string& str, std::string_view to_drop) {
+    str.erase(str.find_last_not_of(to_drop) + 1);
+}
+
+// Removes any leading charactor in `to_drop` in `str`
+static inline void strip_leading(std::string& str, std::string_view to_drop) {
+    str.erase(0, str.find_first_not_of(to_drop));
+}
+
+static inline void trim(std::string& str) {
     constexpr std::string_view drop = "/ \t";
-    str.erase(str.find_last_not_of(drop) + 1);
-    return str.erase(0, str.find_first_not_of(drop));
+    strip_trailing(str, drop);
+    strip_leading(str, drop);
 }
 
 static inline std::vector<std::string> split(const std::string& str, const char delim) {

@@ -62,11 +62,6 @@ VDataStreamRecvr::SenderQueue::~SenderQueue() {
     _pending_closures.clear();
 }
 
-bool VDataStreamRecvr::SenderQueue::should_wait() {
-    std::unique_lock<std::mutex> l(_lock);
-    return !_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0;
-}
-
 Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     std::unique_lock<std::mutex> l(_lock);
     // wait until something shows up or we know we're done
@@ -418,24 +413,10 @@ void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
     _sender_queues[use_sender_id]->add_block(block, use_move);
 }
 
-bool VDataStreamRecvr::sender_queue_empty(int sender_id) {
-    int use_sender_id = _is_merging ? sender_id : 0;
-    return _sender_queues[use_sender_id]->queue_empty();
-}
-
 std::shared_ptr<pipeline::Dependency> VDataStreamRecvr::get_local_channel_dependency(
         int sender_id) {
     DCHECK(_sender_to_local_channel_dependency[_is_merging ? sender_id : 0] != nullptr);
     return _sender_to_local_channel_dependency[_is_merging ? sender_id : 0];
-}
-
-bool VDataStreamRecvr::ready_to_read() {
-    for (const auto& queue : _sender_queues) {
-        if (queue->should_wait()) {
-            return false;
-        }
-    }
-    return true;
 }
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {

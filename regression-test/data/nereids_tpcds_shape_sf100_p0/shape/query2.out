@@ -6,7 +6,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = wscs.sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk,ws_sold_date_sk]
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = wscs.sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk,ws_sold_date_sk]
 --------------PhysicalUnion
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
@@ -14,33 +14,26 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0
---------------PhysicalDistribute[DistributionSpecReplicated]
-----------------PhysicalProject
-------------------PhysicalOlapScan[date_dim]
+--------------PhysicalProject
+----------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 53))) otherCondition=()
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF2 d_week_seq->[d_week_seq]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF2
---------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------PhysicalProject
-------------------------filter((date_dim.d_year = 1998))
---------------------------PhysicalOlapScan[date_dim]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = d_week_seq2)) otherCondition=() build RFs:RF1 d_week_seq->[d_week_seq]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF1
---------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------PhysicalProject
-------------------------filter((date_dim.d_year = 1999))
---------------------------PhysicalOlapScan[date_dim]
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 53))) otherCondition=()
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((date_dim.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF2 d_week_seq->[d_week_seq]
+------------------PhysicalProject
+--------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF2
+------------------PhysicalProject
+--------------------filter((date_dim.d_year = 1998))
+----------------------PhysicalOlapScan[date_dim]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((date_dim.d_week_seq = d_week_seq2)) otherCondition=() build RFs:RF1 d_week_seq->[d_week_seq]
+------------------PhysicalProject
+--------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF1
+------------------PhysicalProject
+--------------------filter((date_dim.d_year = 1999))
+----------------------PhysicalOlapScan[date_dim]
 

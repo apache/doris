@@ -67,7 +67,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-// import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -100,7 +100,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -1128,7 +1127,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             binlogConfig,
                             localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool);
-                    task.setInvertedIndexStorageFormat(localTbl.getInvertedIndexStorageFormat());
+                    task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
                 }
@@ -1149,6 +1148,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // generate new partition id
         long newPartId = env.getNextId();
+        long oldPartId = remotePart.getId();
         remotePart.setIdForRestore(newPartId);
 
         // indexes
@@ -1168,9 +1168,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // save version info for creating replicas
         long visibleVersion = remotePart.getVisibleVersion();
+        LOG.info("reset partition {} for restore, visible version: {}, old partition id: {}",
+                newPartId, visibleVersion, oldPartId);
 
         // tablets
-        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
+        Map<Tag, Integer> nextIndexes = Maps.newHashMap();
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
@@ -1185,7 +1187,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 // replicas
                 try {
                     Pair<Map<Tag, List<Long>>, TStorageMedium> beIdsAndMedium = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs, null, false, false);
+                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexes, null, false, false);
                     Map<Tag, List<Long>> beIds = beIdsAndMedium.first;
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
@@ -1811,9 +1813,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!replica.checkVersionCatchUp(visibleVersion, false)) {
-                                    replica.updateVersion(visibleVersion);
-                                }
+                                replica.updateVersionForRestore(visibleVersion);
                             }
                         }
                     }
@@ -2097,83 +2097,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        Text.writeString(out, backupTimestamp);
-        jobInfo.write(out);
-        out.writeBoolean(allowLoad);
-
-        Text.writeString(out, state.name());
-
-        if (backupMeta != null) {
-            out.writeBoolean(true);
-            backupMeta.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        fileMapping.write(out);
-
-        out.writeLong(metaPreparedTime);
-        out.writeLong(snapshotFinishedTime);
-        out.writeLong(downloadFinishedTime);
-
-        replicaAlloc.write(out);
-
-        out.writeInt(restoredPartitions.size());
-        for (Pair<String, Partition> entry : restoredPartitions) {
-            Text.writeString(out, entry.first);
-            entry.second.write(out);
-        }
-
-        out.writeInt(restoredTbls.size());
-        for (Table tbl : restoredTbls) {
-            tbl.write(out);
-        }
-
-        out.writeInt(restoredVersionInfo.rowKeySet().size());
-        for (long tblId : restoredVersionInfo.rowKeySet()) {
-            out.writeLong(tblId);
-            out.writeInt(restoredVersionInfo.row(tblId).size());
-            for (Map.Entry<Long, Long> entry : restoredVersionInfo.row(tblId).entrySet()) {
-                out.writeLong(entry.getKey());
-                out.writeLong(entry.getValue());
-                // It is version hash in the past,
-                // but it useless but should compatible with old version so that write 0 here
-                out.writeLong(0L);
-            }
-        }
-
-        out.writeInt(snapshotInfos.rowKeySet().size());
-        for (long tabletId : snapshotInfos.rowKeySet()) {
-            out.writeLong(tabletId);
-            Map<Long, SnapshotInfo> map = snapshotInfos.row(tabletId);
-            out.writeInt(map.size());
-            for (Map.Entry<Long, SnapshotInfo> entry : map.entrySet()) {
-                out.writeLong(entry.getKey());
-                entry.getValue().write(out);
-            }
-        }
-
-        out.writeInt(restoredResources.size());
-        for (Resource resource : restoredResources) {
-            resource.write(out);
-        }
-
-        // write properties
-        out.writeInt(properties.size());
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
-    }
-
     public static RestoreJob read(DataInput in) throws IOException {
-        RestoreJob job = new RestoreJob();
-        job.readFields(in);
-        return job;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            RestoreJob job = new RestoreJob();
+            job.readFields(in);
+            return job;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), RestoreJob.class);
+        }
     }
 
     @Deprecated

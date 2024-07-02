@@ -19,38 +19,40 @@
 
 #include <memory>
 
-#include "recycler/obj_store_accessor.h"
+#include "recycler/obj_storage_client.h"
 
 namespace Azure::Storage::Blobs {
 class BlobContainerClient;
 } // namespace Azure::Storage::Blobs
 
 namespace doris::cloud {
-class AzureObjClient : public ObjStorageClient {
+class AzureObjClient final : public ObjStorageClient {
 public:
     AzureObjClient(std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client)
-            : _client(std::move(client)) {}
-    ~AzureObjClient() override = default;
+            : client_(std::move(client)) {}
+    ~AzureObjClient() override;
 
-    ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
-                                     std::string_view stream) override;
-    ObjectStorageResponse head_object(const ObjectStoragePathOptions& opts) override;
-    ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
-                                       std::vector<ObjectMeta>* files) override;
-    ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
-                                         std::vector<std::string> objs) override;
-    ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override;
-    ObjectStorageResponse delete_objects_recursively(const ObjectStoragePathOptions& opts) override;
-    ObjectStorageResponse delete_expired(const ObjectStorageDeleteExpiredOptions& opts,
-                                         int64_t expired_time) override;
-    ObjectStorageResponse get_life_cycle(const ObjectStoragePathOptions& opts,
+    ObjectStorageResponse put_object(ObjectStoragePathRef path, std::string_view stream) override;
+
+    ObjectStorageResponse head_object(ObjectStoragePathRef path, ObjectMeta* res) override;
+
+    std::unique_ptr<ObjectListIterator> list_objects(ObjectStoragePathRef path) override;
+
+    ObjectStorageResponse delete_objects(const std::string& bucket,
+                                         std::vector<std::string> keys) override;
+
+    ObjectStorageResponse delete_object(ObjectStoragePathRef path) override;
+
+    ObjectStorageResponse delete_objects_recursively(ObjectStoragePathRef path,
+                                                     int64_t expiration_time = 0) override;
+
+    ObjectStorageResponse get_life_cycle(const std::string& bucket,
                                          int64_t* expiration_days) override;
 
-    ObjectStorageResponse check_versioning(const ObjectStoragePathOptions& opts) override;
-
-    const std::shared_ptr<Aws::S3::S3Client>& s3_client() override;
+    ObjectStorageResponse check_versioning(const std::string& bucket) override;
 
 private:
-    std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> _client;
+    std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client_;
 };
+
 } // namespace doris::cloud

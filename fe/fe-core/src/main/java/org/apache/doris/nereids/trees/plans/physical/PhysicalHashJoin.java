@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MutableState;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -193,7 +194,14 @@ public class PhysicalHashJoin<
     @Override
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder();
-        builder.append("hashJoin[").append(joinType).append("]");
+        boolean ignoreDistribute = ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes()
+                .contains(PhysicalDistribute.class.getSimpleName());
+        if (ignoreDistribute) {
+            builder.append("hashJoin[").append(joinType).append("]");
+        } else {
+            builder.append("hashJoin[").append(joinType).append(" ").append(shuffleType()).append("]");
+        }
         // print sorted hash conjuncts for plan check
         builder.append(hashJoinConjuncts.stream().map(conjunct -> conjunct.shapeInfo())
                 .sorted().collect(Collectors.joining(" and ", " hashCondition=(", ")")));

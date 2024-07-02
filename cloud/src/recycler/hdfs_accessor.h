@@ -23,53 +23,57 @@
 #include <hdfs/hdfs.h> // IWYU pragma: export
 #endif
 
-#include "recycler/obj_store_accessor.h"
+#include "recycler/storage_vault_accessor.h"
 
 namespace doris::cloud {
 
 class HdfsVaultInfo;
 
-class HdfsAccessor final : public ObjStoreAccessor {
+using HdfsSPtr = std::shared_ptr<struct hdfs_internal>;
+
+class HdfsAccessor final : public StorageVaultAccessor {
 public:
     explicit HdfsAccessor(const HdfsVaultInfo& info);
 
     ~HdfsAccessor() override;
 
-    const std::string& path() const override { return uri_; }
-
     // returns 0 for success otherwise error
-    int init() override;
+    int init();
 
-    // returns 0 for success, negative for other errors
-    int delete_objects_by_prefix(const std::string& relative_path) override;
+    int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0) override;
 
-    // returns 0 for success otherwise error
-    int delete_objects(const std::vector<std::string>& relative_paths) override;
+    int delete_directory(const std::string& dir_path) override;
 
-    // returns 0 for success otherwise error
-    int delete_object(const std::string& relative_path) override;
+    int delete_all(int64_t expiration_time = 0) override;
 
-    // for test
-    // returns 0 for success otherwise error
-    int put_object(const std::string& relative_path, const std::string& content) override;
+    int delete_files(const std::vector<std::string>& paths) override;
 
-    // returns 0 for success otherwise error
-    // Notice: list directory in hdfs has no recursive semantics
-    int list(const std::string& relative_path, std::vector<ObjectMeta>* ObjectMeta) override;
+    int delete_file(const std::string& path) override;
 
-    // return 0 if object exists, 1 if object is not found, negative for error
-    int exist(const std::string& relative_path) override;
+    int list_directory(const std::string& dir_path, std::unique_ptr<ListIterator>* res) override;
+
+    int list_all(std::unique_ptr<ListIterator>* res) override;
+
+    int put_file(const std::string& path, const std::string& content) override;
+
+    int exists(const std::string& path) override;
 
 private:
-    std::string fs_path(const std::string& relative_path);
+    int delete_directory_impl(const std::string& dir_path);
 
-    std::string uri(const std::string& relative_path);
+    // Convert relative path to hdfs path
+    std::string to_fs_path(const std::string& path);
+
+    // Convert relative path to uri
+    std::string to_uri(const std::string& path);
 
     const HdfsVaultInfo& info_; // Only use when init
 
-    hdfsFS fs_ = nullptr;
+    HdfsSPtr fs_;
 
     std::string prefix_; // Either be empty or start with '/' if length > 1
+    // format: fs_name/prefix/
+    // e.g.: hdfs://localhost:8020/test_prefix/
     std::string uri_;
 };
 

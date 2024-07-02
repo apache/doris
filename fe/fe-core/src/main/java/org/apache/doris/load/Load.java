@@ -37,6 +37,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -61,6 +62,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ExprUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
@@ -77,7 +79,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -354,6 +355,11 @@ public class Load {
         for (Column column : tbl.getBaseSchema()) {
             String columnName = column.getName();
             colToType.put(columnName, column.getType());
+            if (column.getGeneratedColumnInfo() != null) {
+                GeneratedColumnInfo info = column.getGeneratedColumnInfo();
+                exprsByName.put(column.getName(), info.getExpandExprForLoad());
+                continue;
+            }
             if (columnExprMap.containsKey(columnName)) {
                 continue;
             }
@@ -617,30 +623,13 @@ public class Load {
                         importColumnDesc.setExpr(derivativeColumns.get(columnName));
                     }
                 } else {
-                    recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns);
+                    ExprUtil.recursiveRewrite(importColumnDesc.getExpr(), derivativeColumns);
                 }
                 derivativeColumns.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
             }
         }
 
         columnDescs.isColumnDescsRewrited = true;
-    }
-
-    private static void recursiveRewrite(Expr expr, Map<String, Expr> derivativeColumns) {
-        if (CollectionUtils.isEmpty(expr.getChildren())) {
-            return;
-        }
-        for (int i = 0; i < expr.getChildren().size(); i++) {
-            Expr e = expr.getChild(i);
-            if (e instanceof SlotRef) {
-                String columnName = ((SlotRef) e).getColumnName();
-                if (derivativeColumns.containsKey(columnName)) {
-                    expr.setChild(i, derivativeColumns.get(columnName));
-                }
-            } else {
-                recursiveRewrite(e, derivativeColumns);
-            }
-        }
     }
 
     /**

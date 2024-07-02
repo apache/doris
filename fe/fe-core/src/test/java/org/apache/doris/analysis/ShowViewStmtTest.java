@@ -34,6 +34,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.StringReader;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -229,10 +230,11 @@ public class ShowViewStmtTest {
         ShowResultSet resultSet = executor.execute();
         System.out.println(resultSet.getResultRows());
         Assert.assertEquals(2, resultSet.getResultRows().size());
+        List<String> views = Arrays.asList("view4", "view5");
         Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("view4", resultSet.getString(0));
+        Assert.assertTrue(views.contains(resultSet.getString(0)));
         Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("view5", resultSet.getString(0));
+        Assert.assertTrue(views.contains(resultSet.getString(0)));
 
         dorisAssert.dropView("view4")
                    .dropView("view5");

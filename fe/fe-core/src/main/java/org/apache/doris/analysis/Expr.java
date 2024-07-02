@@ -2369,7 +2369,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, typeList, Type.INVALID, false, true);
         List<Expr> mockedExprs = getMockedExprs(typeList, nullableList);
-        Function f = Env.getCurrentEnv().getFunction(searchDesc, Function.CompareMode.IS_IDENTICAL);
+        Function f = Env.getCurrentEnv().getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         return isNullable(f, mockedExprs);
     }
 

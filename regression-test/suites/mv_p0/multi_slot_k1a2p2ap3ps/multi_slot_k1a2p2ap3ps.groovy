@@ -49,6 +49,9 @@ suite ("multi_slot_k1a2p2ap3ps") {
 
     sql "insert into d_table select -4,-4,-4,'d';"
 
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     qt_select_star "select * from d_table order by k1;"
 
     explain {
@@ -62,4 +65,15 @@ suite ("multi_slot_k1a2p2ap3ps") {
         contains "(d_table)"
     }
     qt_select_base "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2 order by abs(k1)+k2;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by abs(k1)+k2+1")
+        contains "(k1a2p2ap3ps)"
+    }
+
+    explain {
+        sql("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2 order by abs(k1)+k2")
+        contains "(d_table)"
+    }
 }

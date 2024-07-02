@@ -21,7 +21,7 @@ suite("test_dup_schema_key_drop", "p0") {
     sql """ DROP TABLE IF EXISTS ${tbName1} """
     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName1}' ORDER BY createtime DESC LIMIT 1  "
     def errorMessage = ""
-    def insertSql = "insert into ${tbName1} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
+    def insertSql = "insert into ${tbName1} values(923456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00');"
 
 
     /**

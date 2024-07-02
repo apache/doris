@@ -30,8 +30,10 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
@@ -1283,9 +1285,9 @@ public class TempPartitionTest {
         // 2. Read objects from file
         DataInputStream in = new DataInputStream(new FileInputStream(file));
 
-        OlapTable readTbl = (OlapTable) Table.read(in);
+        OlapTable readTbl = OlapTable.read(in);
         Assert.assertEquals(tbl.getId(), readTbl.getId());
-        Assert.assertEquals(tbl.getTempPartitions().size(), readTbl.getTempPartitions().size());
+        Assert.assertEquals(tbl.getAllTempPartitions().size(), readTbl.getAllTempPartitions().size());
         file.delete();
     }
 
@@ -1299,7 +1301,7 @@ public class TempPartitionTest {
         file.createNewFile();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
-        tempPartitionsInstance.write(out);
+        Text.writeString(out, GsonUtils.GSON.toJson(tempPartitionsInstance));
         out.flush();
         out.close();
 

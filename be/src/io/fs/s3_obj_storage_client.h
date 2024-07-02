@@ -54,7 +54,7 @@ public:
     ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse delete_objects_recursively(const ObjectStoragePathOptions& opts) override;
     std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                       int64_t expiration_secs) override;
+                                       int64_t expiration_secs, const S3ClientConf&) override;
 
 private:
     std::shared_ptr<Aws::S3::S3Client> _client;

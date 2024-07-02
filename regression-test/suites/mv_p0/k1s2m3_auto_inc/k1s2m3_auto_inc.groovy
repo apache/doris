@@ -50,9 +50,18 @@ suite ("k1s2m3_auto_inc") {
 
     qt_select_star "select * from d_table order by k1;"
 
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;")
         contains "(k3ap2spa)"
     }
     qt_select_mv "select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;")
+        contains "(k3ap2spa)"
+    }
 }

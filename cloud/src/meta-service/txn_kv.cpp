@@ -265,7 +265,7 @@ void Transaction::put(std::string_view key, std::string_view val) {
 
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
-    approximate_bytes_ = key.size() * 3 + val.size(); // See fdbclient/ReadYourWrites.actor.cpp
+    approximate_bytes_ += key.size() * 3 + val.size(); // See fdbclient/ReadYourWrites.actor.cpp
 }
 
 // return 0 for success otherwise error

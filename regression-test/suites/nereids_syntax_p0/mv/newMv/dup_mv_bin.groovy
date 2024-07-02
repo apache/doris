@@ -44,6 +44,9 @@ suite ("dup_mv_bin") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "analyze table dup_mv_bin with sync;"
+    sql """set enable_stats=false;"""
+
 
     order_qt_select_star "select * from dup_mv_bin order by k1;"
 
@@ -82,4 +85,35 @@ suite ("dup_mv_bin") {
         contains "(dup_mv_bin)"
     }
     order_qt_select_group_mv_not "select group_concat(bin(k2)) from dup_mv_bin group by k3 order by k3;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,bin(k2) from dup_mv_bin order by k1;")
+        contains "(k12b)"
+    }
+
+    explain {
+        sql("select bin(k2) from dup_mv_bin order by k1;")
+        contains "(k12b)"
+    }
+
+    explain {
+        sql("select bin(k2)+1 from dup_mv_bin order by k1;")
+        contains "(k12b)"
+    }
+
+    explain {
+        sql("select group_concat(bin(k2)) from dup_mv_bin group by k1 order by k1;")
+        contains "(k12b)"
+    }
+
+    explain {
+        sql("select group_concat(concat(bin(k2),'a')) from dup_mv_bin group by k1 order by k1;")
+        contains "(k12b)"
+    }
+
+    explain {
+        sql("select group_concat(bin(k2)) from dup_mv_bin group by k3;")
+        contains "(dup_mv_bin)"
+    }
 }

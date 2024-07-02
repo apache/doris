@@ -19,7 +19,6 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -282,8 +281,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
         if (tableStats == null) {
             return;
         }
-        OlapTable table = (OlapTable) tbl;
-        String indexName = info.indexId == -1 ? table.getName() : table.getIndexNameById(info.indexId);
+        String indexName = table.getName();
         ColStatsMeta columnStats = tableStats.findColumnStatsMeta(indexName, info.colName);
         if (columnStats == null) {
             return;

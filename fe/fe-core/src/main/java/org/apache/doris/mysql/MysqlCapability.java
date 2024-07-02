@@ -161,9 +161,13 @@ public class MysqlCapability {
         return (flags & Flag.CLIENT_DEPRECATE_EOF.getFlagBit()) != 0;
     }
 
+    public boolean isClientMultiStatements() {
+        return (flags & Flag.CLIENT_MULTI_STATEMENTS.getFlagBit()) != 0;
+    }
+
     @Override
     public boolean equals(Object obj) {
-        if (obj == null || !(obj instanceof MysqlCapability)) {
+        if (!(obj instanceof MysqlCapability)) {
             return false;
         }
         if (flags != ((MysqlCapability) obj).flags) {

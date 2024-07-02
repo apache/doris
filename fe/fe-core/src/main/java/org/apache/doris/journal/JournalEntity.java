@@ -244,8 +244,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_ADD_PARTITION: {
-                data = new PartitionPersistInfo();
-                ((PartitionPersistInfo) data).readFields(in);
+                data = PartitionPersistInfo.read(in);
                 isRead = true;
                 break;
             }

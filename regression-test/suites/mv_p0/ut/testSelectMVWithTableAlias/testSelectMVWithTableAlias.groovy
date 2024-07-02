@@ -36,6 +36,9 @@ suite ("testSelectMVWithTableAlias") {
 
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
 
+    sql "analyze table user_tags with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from user_tags order by time_col;")
         contains "(user_tags)"
@@ -47,4 +50,15 @@ suite ("testSelectMVWithTableAlias") {
         contains "(user_tags_mv)"
     }
     qt_select_mv "select count(tag_id) from user_tags t;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from user_tags order by time_col;")
+        contains "(user_tags)"
+    }
+
+    explain {
+        sql("select count(tag_id) from user_tags t;")
+        contains "(user_tags_mv)"
+    }
 }

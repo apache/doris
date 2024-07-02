@@ -98,6 +98,9 @@ suite ("mv_ssb_q_4_1") {
 
     qt_select_star "select * from lineorder_flat order by 1, 2, P_MFGR;"
 
+    sql """analyze table lineorder_flat with sync;"""
+    sql """set enable_stats=false;"""
+
     explain {
         sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,
@@ -121,7 +124,20 @@ suite ("mv_ssb_q_4_1") {
                 AND P_MFGR IN ('MFGR#1', 'MFGR#2')
                 GROUP BY YEAR, C_NATION
                 ORDER BY YEAR ASC, C_NATION ASC;"""
-
+    sql """set enable_stats=true;"""
+    explain {
+        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+                C_NATION,
+                SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
+                FROM lineorder_flat
+                WHERE
+                C_REGION = 'AMERICA'
+                AND S_REGION = 'AMERICA'
+                AND P_MFGR IN ('MFGR#1', 'MFGR#2')
+                GROUP BY YEAR, C_NATION
+                ORDER BY YEAR ASC, C_NATION ASC;""")
+        contains "(lineorder_q_4_1)"
+    }
     sql""" drop materialized view lineorder_q_4_1 on lineorder_flat; """
 
     qt_select """SELECT (LO_ORDERDATE DIV 10000) AS YEAR,

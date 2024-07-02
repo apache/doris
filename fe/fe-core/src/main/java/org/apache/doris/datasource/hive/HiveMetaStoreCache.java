@@ -41,6 +41,7 @@ import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
@@ -66,7 +67,6 @@ import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -136,16 +136,16 @@ public class HiveMetaStoreCache {
      **/
     private void init() {
         CacheFactory partitionValuesCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
+                OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                Config.max_hive_table_cache_num,
+                Config.max_hive_partition_table_cache_num,
                 false,
                 null);
         partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), null,
                 refreshExecutor);
 
         CacheFactory partitionCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
+                OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_hive_partition_cache_num,
                 false,
@@ -433,7 +433,7 @@ public class HiveMetaStoreCache {
     }
 
     private synchronized void setJobConf() {
-        Configuration configuration = new HdfsConfiguration();
+        Configuration configuration = DFSFileSystem.getHdfsConf(catalog.ifNotSetFallbackToSimpleAuth());
         for (Map.Entry<String, String> entry : catalog.getCatalogProperty().getHadoopProperties().entrySet()) {
             configuration.set(entry.getKey(), entry.getValue());
         }

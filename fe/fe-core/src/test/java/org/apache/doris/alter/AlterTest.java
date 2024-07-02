@@ -446,7 +446,7 @@ public class AlterTest {
         // add temp partition when dynamic partition is enable
         stmt = "alter table test.tbl1 add temporary partition tp3 values less than('2020-04-01') distributed by hash(k2) buckets 4 PROPERTIES ('replication_num' = '1')";
         alterTable(stmt, false);
-        Assert.assertEquals(1, tbl.getTempPartitions().size());
+        Assert.assertEquals(1, tbl.getAllTempPartitions().size());
 
         // disable the dynamic partition
         stmt = "alter table test.tbl1 set ('dynamic_partition.enable' = 'false')";
@@ -547,7 +547,7 @@ public class AlterTest {
         stmt = "alter table test.tbl6 add temporary partition tp3 values less than('2020-04-01 00:00:00') distributed"
                 + " by hash(k2) buckets 4 PROPERTIES ('replication_num' = '1')";
         alterTable(stmt, false);
-        Assert.assertEquals(1, tbl.getTempPartitions().size());
+        Assert.assertEquals(1, tbl.getAllTempPartitions().size());
 
         // disable the dynamic partition
         stmt = "alter table test.tbl6 set ('dynamic_partition.enable' = 'false')";

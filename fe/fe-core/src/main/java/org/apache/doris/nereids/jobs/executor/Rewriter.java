@@ -110,6 +110,7 @@ import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
@@ -319,11 +320,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
 
             topic("Eager aggregation",
-                    topDown(
+                    costBased(topDown(
                             new PushDownAggThroughJoinOneSide(),
                             new PushDownAggThroughJoin()
-                    ),
-                    custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)
+                    )),
+                    costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new))
             ),
 
             // this rule should invoke after infer predicate and push down distinct, and before push down limit
@@ -348,8 +349,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
 
             // this rule should be invoked after topic "Join pull up"
-            topic("eliminate group by keys according to fd items",
-                    topDown(new EliminateGroupByKey())
+            topic("eliminate Aggregate according to fd items",
+                    topDown(new EliminateGroupByKey()),
+                    topDown(new PushDownAggThroughJoinOnPkFk())
             ),
 
             topic("Limit optimization",

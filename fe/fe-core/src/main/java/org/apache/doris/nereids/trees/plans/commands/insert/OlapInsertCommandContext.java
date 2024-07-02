@@ -21,18 +21,25 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
  * For Olap Table
  */
 public class OlapInsertCommandContext extends InsertCommandContext {
-    private boolean allowAutoPartition;
-    private boolean autoDetectOverwrite = false;
-    private long overwriteGroupId = 0;
+    private final boolean allowAutoPartition;
+    private final boolean autoDetectOverwrite;
+    private final long overwriteGroupId;
+    private final boolean isOverwrite;
 
-    public OlapInsertCommandContext(boolean allowAutoPartition) {
-        this.allowAutoPartition = allowAutoPartition;
-    }
-
-    public OlapInsertCommandContext(boolean allowAutoPartition, boolean autoDetectOverwrite, long overwriteGroupId) {
+    public OlapInsertCommandContext(boolean allowAutoPartition, boolean autoDetectOverwrite, long overwriteGroupId,
+            boolean isOverwrite) {
         this.allowAutoPartition = allowAutoPartition;
         this.autoDetectOverwrite = autoDetectOverwrite;
         this.overwriteGroupId = overwriteGroupId;
+        this.isOverwrite = isOverwrite;
+    }
+
+    public OlapInsertCommandContext(boolean allowAutoPartition) {
+        this(allowAutoPartition, false, 0, false);
+    }
+
+    public OlapInsertCommandContext(boolean allowAutoPartition, boolean isOverwrite) {
+        this(allowAutoPartition, false, 0, isOverwrite);
     }
 
     public boolean isAllowAutoPartition() {
@@ -47,7 +54,7 @@ public class OlapInsertCommandContext extends InsertCommandContext {
         return overwriteGroupId;
     }
 
-    public void setAllowAutoPartition(boolean allowAutoPartition) {
-        this.allowAutoPartition = allowAutoPartition;
+    public boolean isOverwrite() {
+        return isOverwrite;
     }
 }

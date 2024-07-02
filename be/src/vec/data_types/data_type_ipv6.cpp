@@ -32,7 +32,15 @@ namespace doris::vectorized {
 bool DataTypeIPv6::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
-
+size_t DataTypeIPv6::number_length() const {
+    //ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+    return 40;
+}
+void DataTypeIPv6::push_bumber(ColumnString::Chars& chars, const IPv6& num) const {
+    auto value = IPv6Value(num);
+    auto ipv6_str = value.to_string();
+    chars.insert(ipv6_str.begin(), ipv6_str.end());
+}
 std::string DataTypeIPv6::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;

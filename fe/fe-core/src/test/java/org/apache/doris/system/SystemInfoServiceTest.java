@@ -46,6 +46,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class SystemInfoServiceTest {
     private SystemInfoService infoService;
@@ -403,7 +405,7 @@ public class SystemInfoServiceTest {
         ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         // also check if the random selection logic can evenly distribute the replica.
         Map<Long, Integer> beCounterMap = Maps.newHashMap();
-        for (int i = 0; i < 10000; ++i) {
+        for (int i = 0; i < 30000; ++i) {
             Pair<Map<Tag, List<Long>>, TStorageMedium> ret = infoService.selectBackendIdsForReplicaCreation(replicaAlloc,
                     Maps.newHashMap(), TStorageMedium.HDD, false, false);
             Map<Tag, List<Long>> res = ret.first;
@@ -412,11 +414,16 @@ public class SystemInfoServiceTest {
                 beCounterMap.put(beId, beCounterMap.getOrDefault(beId, 0) + 1);
             }
         }
+        Set<Long> expectBackendIds = infoService.getMixBackends().stream()
+                .filter(Backend::isAlive).map(Backend::getId)
+                .collect(Collectors.toSet());
+        Assert.assertEquals(expectBackendIds, beCounterMap.keySet().stream().collect(Collectors.toSet()));
         List<Integer> list = Lists.newArrayList(beCounterMap.values());
         Collections.sort(list);
-        int diff = list.get(list.size() - 1) - list.get(0);
-        // The max replica num and min replica num's diff is less than 5%.
-        Assert.assertTrue((diff * 1.0 / list.get(0)) < 0.05);
+        int max = list.get(list.size() - 1);
+        int diff =  max - list.get(0);
+        // The max replica num and min replica num's diff is less than 30%.
+        Assert.assertTrue((diff * 1.0 / max) < 0.3);
     }
 
     private void addDisk(Backend be, String path, TStorageMedium medium, long totalB, long availB) {

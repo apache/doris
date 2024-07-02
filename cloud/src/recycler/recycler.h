@@ -28,6 +28,7 @@
 #include <string_view>
 #include <thread>
 
+#include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 
 namespace brpc {
@@ -37,7 +38,7 @@ class Server;
 namespace doris::cloud {
 class TxnKv;
 class InstanceRecycler;
-class ObjStoreAccessor;
+class StorageVaultAccessor;
 class Checker;
 
 class Recycler {
@@ -187,11 +188,11 @@ private:
     int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets);
 
     /**
-     * Get stage storage info from instance and init ObjStoreAccessor
+     * Get stage storage info from instance and init StorageVaultAccessor
      * @return 0 if accessor is successfully inited, 1 if stage not found, negative for error
      */
     int init_copy_job_accessor(const std::string& stage_id, const StagePB::StageType& stage_type,
-                               std::shared_ptr<ObjStoreAccessor>* accessor);
+                               std::shared_ptr<StorageVaultAccessor>* accessor);
 
     void register_recycle_task(const std::string& task_name, int64_t start_time);
 
@@ -204,7 +205,7 @@ private:
     InstanceInfoPB instance_info_;
 
     // TODO(plat1ko): Add new accessor to map in runtime for new created storage vaults
-    std::unordered_map<std::string, std::shared_ptr<ObjStoreAccessor>> accessor_map_;
+    std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
 
     class InvertedIndexIdCache;
     std::unique_ptr<InvertedIndexIdCache> inverted_index_id_cache_;

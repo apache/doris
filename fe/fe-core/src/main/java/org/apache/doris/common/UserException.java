@@ -73,4 +73,8 @@ public class UserException extends Exception {
     public String getMessage() {
         return errorCode + ", detailMessage = " + super.getMessage();
     }
+
+    public String getDetailMessage() {
+        return super.getMessage();
+    }
 }

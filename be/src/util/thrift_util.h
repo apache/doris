@@ -147,7 +147,7 @@ Status deserialize_thrift_msg(const uint8_t* buf, uint32_t* len, bool compact,
     try {
         deserialized_msg->read(tproto.get());
     } catch (std::exception& e) {
-        return Status::InternalError("Couldn't deserialize thrift msg:\n{}", e.what());
+        return Status::InternalError<false>("Couldn't deserialize thrift msg:\n{}", e.what());
     } catch (...) {
         // TODO: Find the right exception for 0 bytes
         return Status::InternalError("Unknown exception");

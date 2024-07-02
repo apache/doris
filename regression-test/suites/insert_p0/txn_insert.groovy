@@ -739,10 +739,10 @@ suite("txn_insert") {
                 sql """ delete from ${unique_table}_2 where id <= 1; """
                 sql """ commit """
 
-                sql """ delete from ${unique_table}_3 where id <= 1; """
                 sql """ insert into ${unique_table}_3(id, score) select id, score from ${unique_table}_0; """
                 sql """ insert into ${unique_table}_3(id, score) select id, score from ${unique_table}_1; """
                 sql """ update ${unique_table}_3 set score = score + 100 where id in (select id from ${unique_table}_0); """
+                sql """ delete from ${unique_table}_3 where id <= 1; """
             } catch (Throwable e) {
                 logger.warn("column update failed", e)
                 assertTrue(false)

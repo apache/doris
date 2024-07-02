@@ -86,10 +86,6 @@ public:
 
     void add_block(Block* block, int sender_id, bool use_move);
 
-    bool sender_queue_empty(int sender_id);
-
-    bool ready_to_read();
-
     Status get_next(Block* block, bool* eos);
 
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
@@ -194,8 +190,6 @@ public:
         return _local_channel_dependency;
     }
 
-    bool should_wait();
-
     virtual Status get_batch(Block* next_block, bool* eos);
 
     Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
@@ -208,11 +202,6 @@ public:
     void cancel(Status cancel_status);
 
     void close();
-
-    bool queue_empty() {
-        std::unique_lock<std::mutex> l(_lock);
-        return _block_queue.empty();
-    }
 
     void set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
         _source_dependency = dependency;

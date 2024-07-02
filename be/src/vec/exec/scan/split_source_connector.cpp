@@ -45,7 +45,7 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
     std::lock_guard<std::mutex> l(_range_lock);
     *has_next = false;
     if (_scan_index == _scan_ranges.size() && !_last_batch) {
-        SCOPED_RAW_TIMER(&_get_split_timer);
+        SCOPED_TIMER(_get_split_timer);
         Status coord_status;
         FrontendServiceConnection coord(_state->exec_env()->frontend_client_cache(),
                                         _state->get_query_ctx()->coord_addr, &coord_status);

@@ -8,21 +8,18 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[RIGHT_ANTI_JOIN] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=() build RFs:RF0 c_custkey->[o_custkey]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[orders] apply RFs: RF0
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------NestedLoopJoin[INNER_JOIN](cast(c_acctbal as DECIMALV3(38, 4)) > avg(cast(c_acctbal as DECIMALV3(17, 4))))
-------------------------PhysicalProject
---------------------------filter(substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
-----------------------------PhysicalOlapScan[customer]
-------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------hashAgg[GLOBAL]
-----------------------------PhysicalDistribute[DistributionSpecGather]
-------------------------------hashAgg[LOCAL]
---------------------------------PhysicalProject
-----------------------------------filter((customer.c_acctbal > 0.00) and substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
-------------------------------------PhysicalOlapScan[customer]
+----------------hashJoin[RIGHT_ANTI_JOIN shuffle] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=() build RFs:RF0 c_custkey->[o_custkey]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[orders] apply RFs: RF0
+------------------PhysicalProject
+--------------------NestedLoopJoin[INNER_JOIN](cast(c_acctbal as DECIMALV3(38, 4)) > avg(cast(c_acctbal as DECIMALV3(17, 4))))
+----------------------PhysicalProject
+------------------------filter(substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
+--------------------------PhysicalOlapScan[customer]
+----------------------hashAgg[GLOBAL]
+------------------------PhysicalDistribute[DistributionSpecGather]
+--------------------------hashAgg[LOCAL]
+----------------------------PhysicalProject
+------------------------------filter((customer.c_acctbal > 0.00) and substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
+--------------------------------PhysicalOlapScan[customer]
 

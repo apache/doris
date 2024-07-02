@@ -875,7 +875,7 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
         }
     }
     if (tablet->enable_unique_key_merge_on_write()) {
-        tablet->tablet_meta()->delete_bitmap() = cloned_tablet_meta->delete_bitmap();
+        tablet->tablet_meta()->delete_bitmap().merge(cloned_tablet_meta->delete_bitmap());
     }
     return tablet->revise_tablet_meta(to_add, to_delete, false);
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica

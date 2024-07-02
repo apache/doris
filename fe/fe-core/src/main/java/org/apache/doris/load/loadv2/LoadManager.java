@@ -933,8 +933,10 @@ public class LoadManager implements Writable {
                 idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs))
                         .filter(t -> !(t instanceof MiniLoadJob)).collect(Collectors.toList());
 
+        LOG.info("write load job size: {}", loadJobs.size());
         out.writeInt(loadJobs.size());
         for (LoadJob loadJob : loadJobs) {
+            LOG.info("write load job: {}", loadJob.getId());
             loadJob.write(out);
         }
     }
@@ -945,6 +947,7 @@ public class LoadManager implements Writable {
     public void readFields(DataInput in) throws IOException {
         long currentTimeMs = System.currentTimeMillis();
         int size = in.readInt();
+        LOG.info("load job num {} ", size);
         for (int i = 0; i < size; i++) {
             LoadJob loadJob = LoadJob.read(in);
             if (loadJob.isExpired(currentTimeMs)) {

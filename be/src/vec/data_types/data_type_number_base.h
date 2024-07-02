@@ -164,6 +164,34 @@ public:
         return std::make_shared<DataTypeNumberSerDe<T>>(nesting_level);
     };
 
+protected:
+    template <typename Derived>
+    void to_string_batch_impl(const IColumn& column, ColumnString& column_to) const {
+        // column may be column const
+        const auto& col_ptr = column.get_ptr();
+        const auto& [column_ptr, is_const] = unpack_if_const(col_ptr);
+        if (is_const) {
+            _to_string_batch_impl<Derived, true>(column_ptr, column_to);
+        } else {
+            _to_string_batch_impl<Derived, false>(column_ptr, column_to);
+        }
+    }
+
+    template <typename Derived, bool is_const>
+    void _to_string_batch_impl(const ColumnPtr& column_ptr, ColumnString& column_to) const {
+        auto& col_vec = assert_cast<const ColumnVector<T>&>(*column_ptr);
+        const auto size = col_vec.size();
+        auto& chars = column_to.get_chars();
+        auto& offsets = column_to.get_offsets();
+        offsets.resize(size);
+        chars.reserve(static_cast<const Derived*>(this)->number_length() * size);
+        for (int row_num = 0; row_num < size; row_num++) {
+            auto num = is_const ? col_vec.get_element(0) : col_vec.get_element(row_num);
+            static_cast<const Derived*>(this)->push_bumber(chars, num);
+            offsets[row_num] = chars.size();
+        }
+    }
+
 private:
     bool _is_null_literal = false;
 };

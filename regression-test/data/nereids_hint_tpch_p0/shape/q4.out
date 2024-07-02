@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
+----------------hashJoin[RIGHT_SEMI_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
 ------------------PhysicalProject
 --------------------filter((lineitem.l_commitdate < lineitem.l_receiptdate))
 ----------------------PhysicalOlapScan[lineitem]

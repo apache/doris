@@ -17,20 +17,31 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.CommonResultSet;
+import org.apache.doris.qe.ResultSet;
+import org.apache.doris.qe.ResultSetMetaData;
+import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -41,7 +52,7 @@ import java.util.Optional;
  * e.g.
  * select * from tbl limit 0
  */
-public class PhysicalEmptyRelation extends PhysicalRelation implements EmptyRelation {
+public class PhysicalEmptyRelation extends PhysicalRelation implements EmptyRelation, ComputeResultSet {
 
     private final List<? extends NamedExpression> projects;
 
@@ -101,5 +112,31 @@ public class PhysicalEmptyRelation extends PhysicalRelation implements EmptyRela
             Statistics statistics) {
         return new PhysicalEmptyRelation(relationId, projects, Optional.empty(),
                 logicalPropertiesSupplier.get(), physicalProperties, statistics);
+    }
+
+    @Override
+    public Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext,
+            Optional<SqlCacheContext> sqlCacheContext) {
+        List<Column> columns = Lists.newArrayList();
+        List<Slot> outputSlots = getOutput();
+        for (int i = 0; i < outputSlots.size(); i++) {
+            NamedExpression output = outputSlots.get(i);
+            columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
+        }
+
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        boolean enableSqlCache
+                = CacheAnalyzer.canUseSqlCache(statementContext.getConnectContext().getSessionVariable());
+
+        ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+        ResultSet resultSet = new CommonResultSet(metadata, ImmutableList.of());
+        if (sqlCacheContext.isPresent() && enableSqlCache) {
+            sqlCacheContext.get().setResultSetInFe(resultSet);
+            Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
+                    statementContext.getConnectContext(),
+                    statementContext.getOriginStatement().originStmt
+            );
+        }
+        return Optional.of(resultSet);
     }
 }

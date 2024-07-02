@@ -49,7 +49,6 @@ class PipelineFragmentContext;
 } // namespace pipeline
 
 struct ReportStatusRequest {
-    bool is_pipeline_x;
     const Status status;
     std::vector<RuntimeState*> runtime_states;
     RuntimeProfile* profile = nullptr;
@@ -206,7 +205,7 @@ public:
 
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 
-    ThreadPool* get_non_pipe_exec_thread_pool();
+    ThreadPool* get_memtable_flush_pool();
 
     std::vector<TUniqueId> get_fragment_instance_ids() const { return fragment_instance_ids; }
 
@@ -299,7 +298,7 @@ private:
 
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
-    ThreadPool* _non_pipe_thread_pool = nullptr;
+    ThreadPool* _memtable_flush_pool = nullptr;
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 

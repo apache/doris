@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((T.l_linenumber = expr_cast(r_regionkey as BIGINT))) otherCondition=() build RFs:RF0 expr_cast(r_regionkey as BIGINT)->[cast(l_linenumber as BIGINT),o_orderkey]
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((T.l_linenumber = expr_cast(r_regionkey as BIGINT))) otherCondition=() build RFs:RF0 expr_cast(r_regionkey as BIGINT)->[cast(l_linenumber as BIGINT),o_orderkey]
 ------------PhysicalExcept
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
@@ -13,9 +13,8 @@ PhysicalResultSink
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[orders] apply RFs: RF0
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[region]
+------------PhysicalProject
+--------------PhysicalOlapScan[region]
 
 -- !rf_setop_expr --
 PhysicalResultSink
@@ -23,7 +22,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((expr_abs(l_linenumber) = expr_cast(r_regionkey as LARGEINT))) otherCondition=() build RFs:RF0 expr_cast(r_regionkey as LARGEINT)->[abs(cast(l_linenumber as BIGINT)),abs(o_orderkey)]
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_abs(l_linenumber) = expr_cast(r_regionkey as LARGEINT))) otherCondition=() build RFs:RF0 expr_cast(r_regionkey as LARGEINT)->[abs(cast(l_linenumber as BIGINT)),abs(o_orderkey)]
 ------------PhysicalProject
 --------------PhysicalExcept
 ----------------PhysicalDistribute[DistributionSpecHash]
@@ -32,7 +31,6 @@ PhysicalResultSink
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[orders] apply RFs: RF0
-------------PhysicalDistribute[DistributionSpecReplicated]
---------------PhysicalProject
-----------------PhysicalOlapScan[region]
+------------PhysicalProject
+--------------PhysicalOlapScan[region]
 

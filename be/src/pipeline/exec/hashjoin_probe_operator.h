@@ -159,8 +159,8 @@ public:
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
     bool require_data_distribution() const override {
-        return _join_distribution == TJoinDistributionType::COLOCATE ||
-               _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE;
+        return _join_distribution != TJoinDistributionType::BROADCAST &&
+               _join_distribution != TJoinDistributionType::NONE;
     }
 
 private:

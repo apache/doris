@@ -87,12 +87,14 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
         const_cast<ColumnObject&>(variant).finalize();
     }
     result.writeKey(col_id);
+    std::string value_str;
+    if (!variant.serialize_one_row_to_string(row_num, &value_str)) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
+                               variant.dump_structure());
+    }
     JsonbParser json_parser;
-    CHECK(variant.get_rowstore_column() != nullptr);
-    // use original document
-    const auto& data_ref = variant.get_rowstore_column()->get_data_at(row_num);
     // encode as jsonb
-    bool succ = json_parser.parse(data_ref.data, data_ref.size);
+    bool succ = json_parser.parse(value_str.data(), value_str.size());
     // maybe more graceful, it is ok to check here since data could be parsed
     CHECK(succ);
     result.writeStartBinary();

@@ -36,10 +36,18 @@ suite("partition_col_stats") {
     """
     //run this sql to make stats be cached
     sql "select * from pt where k1<3;"
-    sleep(10)
+    def pt_data = sql "show data from pt;"
+    def retry= 0;
+    while (pt_data[0][4] != '7' && retry < 20) {
+        pt_data = sql "show data from pt;"
+        sleep(10000);
+        retry ++;
+        print("wait partition row count, retry " + retry +" times\n");
+    }
+    
     explain{
         sql "physical plan select * from pt where k1<3;"
         contains("stats=4")
     }
-
+    sql "set global enable_partition_analyze=false;"
 }

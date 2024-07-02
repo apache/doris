@@ -1603,8 +1603,7 @@ Status PipelineFragmentContext::send_report(bool done) {
         runtime_states.push_back(task_state.get());
     }
 
-    ReportStatusRequest req {true,
-                             exec_status,
+    ReportStatusRequest req {exec_status,
                              runtime_states,
                              _runtime_profile.get(),
                              _runtime_state->load_channel_profile(),

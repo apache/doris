@@ -27,6 +27,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Function dependence items.
@@ -61,6 +62,7 @@ public class FuncDeps {
     }
 
     private final Set<FuncDepsItem> items;
+    // determinants -> dependencies
     private final Map<Set<Slot>, Set<Set<Slot>>> edges;
 
     public FuncDeps() {
@@ -96,11 +98,25 @@ public class FuncDeps {
         }
     }
 
-    // find item that not in a circle
-    private Set<FuncDepsItem> findValidItems() {
+    // Find items that are not part of a circular dependency.
+    // To keep the slots in requireOutputs, we need to always keep the edges that start with output slots.
+    // Note: We reduce the last edge in a circular dependency,
+    // so we need to traverse from parents that contain the required output slots.
+    private Set<FuncDepsItem> findValidItems(Set<Slot> requireOutputs) {
         Set<FuncDepsItem> circleItem = new HashSet<>();
         Set<Set<Slot>> visited = new HashSet<>();
-        for (Set<Slot> parent : edges.keySet()) {
+        Set<Set<Slot>> parentInOutput = edges.keySet().stream()
+                .filter(requireOutputs::containsAll)
+                .collect(Collectors.toSet());
+        for (Set<Slot> parent : parentInOutput) {
+            if (!visited.contains(parent)) {
+                dfs(parent, visited, circleItem);
+            }
+        }
+        Set<Set<Slot>> otherParent = edges.keySet().stream()
+                .filter(parent -> !parentInOutput.contains(parent))
+                .collect(Collectors.toSet());
+        for (Set<Slot> parent : otherParent) {
             if (!visited.contains(parent)) {
                 dfs(parent, visited, circleItem);
             }
@@ -126,10 +142,10 @@ public class FuncDeps {
      * @param slots the initial set of slot sets to be reduced
      * @return the minimal set of slot sets after applying all possible reductions
      */
-    public Set<Set<Slot>> eliminateDeps(Set<Set<Slot>> slots) {
+    public Set<Set<Slot>> eliminateDeps(Set<Set<Slot>> slots, Set<Slot> requireOutputs) {
         Set<Set<Slot>> minSlotSet = Sets.newHashSet(slots);
         Set<Set<Slot>> eliminatedSlots = new HashSet<>();
-        Set<FuncDepsItem> validItems = findValidItems();
+        Set<FuncDepsItem> validItems = findValidItems(requireOutputs);
         for (FuncDepsItem funcDepsItem : validItems) {
             if (minSlotSet.contains(funcDepsItem.dependencies)
                     && minSlotSet.contains(funcDepsItem.determinants)) {
@@ -142,6 +158,24 @@ public class FuncDeps {
 
     public boolean isFuncDeps(Set<Slot> dominate, Set<Slot> dependency) {
         return items.contains(new FuncDepsItem(dominate, dependency));
+    }
+
+    public boolean isCircleDeps(Set<Slot> dominate, Set<Slot> dependency) {
+        return items.contains(new FuncDepsItem(dominate, dependency))
+                && items.contains(new FuncDepsItem(dependency, dominate));
+    }
+
+    /**
+     * find the determinants of dependencies
+     */
+    public Set<Set<Slot>> findDeterminats(Set<Slot> dependency) {
+        Set<Set<Slot>> determinants = new HashSet<>();
+        for (FuncDepsItem item : items) {
+            if (item.dependencies.equals(dependency)) {
+                determinants.add(item.determinants);
+            }
+        }
+        return determinants;
     }
 
     @Override

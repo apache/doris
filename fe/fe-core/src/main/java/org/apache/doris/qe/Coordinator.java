@@ -41,6 +41,8 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -186,9 +188,10 @@ public class Coordinator implements CoordInterface {
 
     // copied from TQueryExecRequest; constant across all fragments
     private final TDescriptorTable descTable;
+    private FragmentIdMapping<DistributedPlan> distributedPlans;
 
     // scan node id -> TFileScanRangeParams
-    private Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap = Maps.newHashMap();
+    protected Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap = Maps.newHashMap();
 
     // Why do we use query global?
     // When `NOW()` function is in sql, we need only one now(),
@@ -212,7 +215,7 @@ public class Coordinator implements CoordInterface {
     private boolean returnedAllResults = false;
 
     // populated in computeFragmentExecParams()
-    private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
+    protected final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 
     private final List<PlanFragment> fragments;
 
@@ -336,6 +339,8 @@ public class Coordinator implements CoordInterface {
         if (!useNereids) {
             // Enable local shuffle on pipelineX engine only if Nereids planner is applied.
             queryOptions.setEnableLocalShuffle(false);
+        } else {
+            distributedPlans = ((NereidsPlanner) planner).getDistributedPlans();
         }
 
         setFromUserProperty(context);
@@ -1287,7 +1292,7 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private void computeFragmentExecParams() throws Exception {
+    protected void computeFragmentExecParams() throws Exception {
         // fill hosts field in fragmentExecParams
         computeFragmentHosts();
 
@@ -1303,10 +1308,16 @@ public class Coordinator implements CoordInterface {
             for (int j = 0; j < params.instanceExecParams.size(); ++j) {
                 // we add instance_num to query_id.lo to create a
                 // globally-unique instance id
+                FInstanceExecParam instanceExecParam = params.instanceExecParams.get(j);
+
+                // already set by nereids coordinator?
+                if (instanceExecParam.instanceId != null) {
+                    continue;
+                }
                 TUniqueId instanceId = new TUniqueId();
                 instanceId.setHi(queryId.hi);
                 instanceId.setLo(queryId.lo + instanceIds.size() + 1);
-                params.instanceExecParams.get(j).instanceId = instanceId;
+                instanceExecParam.instanceId = instanceId;
                 instanceIds.add(instanceId);
             }
         }
@@ -1679,7 +1690,7 @@ public class Coordinator implements CoordInterface {
 
     // For each fragment in fragments, computes hosts on which to run the instances
     // and stores result in fragmentExecParams.hosts.
-    private void computeFragmentHosts() throws Exception {
+    protected void computeFragmentHosts() throws Exception {
         // compute hosts of producer fragment before those of consumer fragment(s),
         // the latter might inherit the set of hosts from the former
         // compute hosts *bottom up*.
@@ -2048,6 +2059,27 @@ public class Coordinator implements CoordInterface {
                         scanNode.getId().asInt(), ((FileQueryScanNode) scanNode).getFileScanRangeParams());
             }
 
+            if (fragmentExecParamsMap.get(scanNode.getFragmentId()) == null) {
+                StringBuilder sb = new StringBuilder();
+                int idx = 0;
+                sb.append("query id=").append(DebugUtil.printId(queryId)).append(",");
+                sb.append("fragment=[");
+                for (Map.Entry<PlanFragmentId, FragmentExecParams> entry : fragmentExecParamsMap.entrySet()) {
+                    if (idx++ != 0) {
+                        sb.append(",");
+                    }
+                    sb.append(entry.getKey());
+                    entry.getValue().appendTo(sb);
+                }
+                sb.append("]");
+
+                LOG.info("log when get npe, query_id: {}, scanNode: {}, scanNode fid: {}, map: {}",
+                        DebugUtil.printId(queryId),
+                        scanNode.toString(),
+                        scanNode.getFragmentId(),
+                        sb);
+            }
+
             FragmentScanRangeAssignment assignment
                     = fragmentExecParamsMap.get(scanNode.getFragmentId()).scanRangeAssignment;
             boolean fragmentContainsColocateJoin = isColocateFragment(scanNode.getFragment(),
@@ -2081,12 +2113,7 @@ public class Coordinator implements CoordInterface {
             fragmentIdTobucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
 
             // Same as bucket shuffle.
-            int bucketNum = 0;
-            if (scanNode.getOlapTable().isColocateTable()) {
-                bucketNum = scanNode.getOlapTable().getDefaultDistributionInfo().getBucketNum();
-            } else {
-                bucketNum = (int) (scanNode.getTotalTabletsNum());
-            }
+            int bucketNum = scanNode.getBucketNum();
             scanNode.getFragment().setBucketNum(bucketNum);
         }
         Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
@@ -2439,14 +2466,14 @@ public class Coordinator implements CoordInterface {
 
     class BucketShuffleJoinController {
         // fragment_id -> < bucket_seq -> < scannode_id -> scan_range_params >>
-        private final Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = Maps.newHashMap();
+        protected final Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = Maps.newHashMap();
         // fragment_id -> < bucket_seq -> be_addresss >
         private final Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentIdToSeqToAddressMap
                 = Maps.newHashMap();
         // fragment_id -> < be_id -> bucket_count >
         private final Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBuckendIdBucketCountMap = Maps.newHashMap();
         // fragment_id -> bucket_num
-        private final Map<PlanFragmentId, Integer> fragmentIdToBucketNumMap = Maps.newHashMap();
+        protected final Map<PlanFragmentId, Integer> fragmentIdToBucketNumMap = Maps.newHashMap();
 
         // cache the bucketShuffleFragmentIds
         private final Set<Integer> bucketShuffleFragmentIds = new HashSet<>();
@@ -2459,7 +2486,7 @@ public class Coordinator implements CoordInterface {
         }
 
         // check whether the node fragment is bucket shuffle join fragment
-        private boolean isBucketShuffleJoin(int fragmentId, PlanNode node) {
+        protected boolean isBucketShuffleJoin(int fragmentId, PlanNode node) {
             if (ConnectContext.get() != null) {
                 if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()
                         && !ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
@@ -2544,18 +2571,7 @@ public class Coordinator implements CoordInterface {
                 Map<TNetworkAddress, Long> addressToBackendID,
                 Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
             if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
-                // In bucket shuffle join, we have 2 situation.
-                // 1. Only one partition: in this case, we use scanNode.getTotalTabletsNum() to get the right bucket num
-                //    because when table turn on dynamic partition, the bucket number in default distribution info
-                //    is not correct.
-                // 2. Table is colocated: in this case, table could have more than one partition, but all partition's
-                //    bucket number must be same, so we use default bucket num is ok.
-                int bucketNum = 0;
-                if (scanNode.getOlapTable().isColocateTable()) {
-                    bucketNum = scanNode.getOlapTable().getDefaultDistributionInfo().getBucketNum();
-                } else {
-                    bucketNum = (int) (scanNode.getTotalTabletsNum());
-                }
+                int bucketNum = scanNode.getBucketNum();
                 fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), bucketNum);
                 fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashMap<>());
                 fragmentIdBucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
@@ -2710,11 +2726,11 @@ public class Coordinator implements CoordInterface {
     }
 
     private final Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdTobucketSeqToScanRangeMap = Maps.newHashMap();
-    private final Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentIdToSeqToAddressMap = Maps.newHashMap();
+    protected final Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentIdToSeqToAddressMap = Maps.newHashMap();
     // cache the fragment id to its scan node ids. Used for colocate join.
     private final Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = Maps.newHashMap();
     private final Set<Integer> colocateFragmentIds = new HashSet<>();
-    private final BucketShuffleJoinController bucketShuffleJoinController
+    protected final BucketShuffleJoinController bucketShuffleJoinController
             = new BucketShuffleJoinController(fragmentIdToScanNodeIds);
 
     public class PipelineExecContext {

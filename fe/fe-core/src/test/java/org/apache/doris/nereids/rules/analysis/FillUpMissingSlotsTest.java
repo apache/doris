@@ -22,7 +22,6 @@ import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
-import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -95,7 +94,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         SlotReference value = new SlotReference(new ExprId(3), "value", TinyIntType.INSTANCE, true,
                 ImmutableList.of());
         PlanChecker.from(connectContext).analyze(sql)
-                .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
+                .applyBottomUp(new ExpressionRewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE))
                 .matches(
                         logicalProject(
                                 logicalFilter(
@@ -108,7 +107,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
-                .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
+                .applyBottomUp(new ExpressionRewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE))
                 .matches(
                         logicalFilter(
                                 logicalProject(
@@ -129,7 +128,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         PlanChecker.from(connectContext).analyze(sql)
-                .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
+                .applyBottomUp(new ExpressionRewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE))
                 .matches(
                         logicalProject(
                                 logicalFilter(

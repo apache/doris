@@ -385,7 +385,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (partition == null) {
                 continue;
             }
-            partition.setCachedVisibleVersion(version);
+            partition.setCachedVisibleVersion(version, commitTxnResponse.getVersionUpdateTimeMs());
+            LOG.info("Update Partition. transactionId:{}, table_id:{}, partition_id:{}, version:{}, update time:{}",
+                    txnId, tableId, partition.getId(), version, commitTxnResponse.getVersionUpdateTimeMs());
         }
         env.getAnalysisManager().setNewPartitionLoaded(
                 tablePartitionMap.keySet().stream().collect(Collectors.toList()));

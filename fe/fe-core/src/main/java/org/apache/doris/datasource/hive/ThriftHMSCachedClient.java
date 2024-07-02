@@ -206,7 +206,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 throw e;
             }
         } catch (Exception e) {
-            throw new HMSClientException("failed to create database from hms client", e);
+            throw new HMSClientException("failed to create table from hms client", e);
         }
     }
 
@@ -245,6 +245,23 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                ugiDoAs(() -> {
+                    client.client.truncateTable(dbName, tblName, partitions);
+                    return null;
+                });
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to truncate table %s in db %s.", e, tblName, dbName);
+        }
+    }
+
+    @Override
     public boolean tableExists(String dbName, String tblName) {
         try (ThriftHMSClient client = getClient()) {
             try {
@@ -272,7 +289,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 throw e;
             }
         } catch (Exception e) {
-            throw new HMSClientException("failed to check if table %s in db %s exists", e, tblName, dbName);
+            throw new HMSClientException("failed to list partitions in table '%s.%s'.", e, dbName, tblName);
         }
     }
 

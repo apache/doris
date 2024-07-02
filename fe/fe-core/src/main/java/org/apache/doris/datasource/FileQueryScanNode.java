@@ -337,10 +337,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 locationType = getLocationType(fileSplit.getPath().toString());
             }
             totalFileSize = fileSplit.getLength() * inputSplitsNum;
+            long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
             int numSplitsPerBE = numApproximateSplits() / backendPolicy.numBackends();
             for (Backend backend : backendPolicy.getBackends()) {
-                SplitSource splitSource = new SplitSource(backend, splitAssignment);
+                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
                 splitSources.add(splitSource);
                 Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
                 TScanRangeLocations curLocations = newLocations();

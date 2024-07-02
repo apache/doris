@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -56,7 +57,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -193,7 +193,7 @@ public class MTMV extends OlapTable {
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
-                if (!Env.isCheckpointThread()) {
+                if (!Env.isCheckpointThread() && !Config.enable_check_compatibility_mode) {
                     try {
                         this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
                     } catch (Throwable e) {
@@ -449,12 +449,7 @@ public class MTMV extends OlapTable {
         this.mvRwLock.writeLock().unlock();
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

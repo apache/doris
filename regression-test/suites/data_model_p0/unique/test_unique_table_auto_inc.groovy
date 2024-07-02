@@ -425,5 +425,43 @@ suite("test_unique_table_auto_inc") {
     sql """insert into ${table12} select r_regionkey, "test3", "test4" from ${table12} where r_regionkey=4;"""
     qt_sql "select * from ${table12} order by r_regionkey;"
     sql "drop table if exists ${table12};"
+
+
+    def table13 = "test_unique_tab_auto_inc_col_insert_select3"
+    sql "drop table if exists ${table13}"
+    sql """ CREATE TABLE ${table13} (
+        mykey BIGINT NOT NULL AUTO_INCREMENT,
+        name VARCHAR(64)
+        ) UNIQUE KEY(mykey)
+        DISTRIBUTED BY HASH(mykey)
+        BUCKETS AUTO PROPERTIES("replication_num" = "1"); """
+    def table14 = "test_unique_tab_auto_inc_col_insert_select4"
+    sql "drop table if exists ${table14}"
+    sql """ CREATE TABLE ${table14} (
+        mykey BIGINT NULL,
+        name VARCHAR(64)
+        ) DUPLICATE KEY(mykey)
+        DISTRIBUTED BY HASH(mykey)
+        BUCKETS AUTO PROPERTIES("replication_num" = "1"); """
+    
+    sql """insert into ${table13}(name) values("A"), ("B"), ("C")"""
+    qt_sql "select * from ${table13} order by mykey;"
+    sql """insert into ${table13}(name) select lower(name) from ${table13};"""
+    qt_sql """ select count(mykey), count(distinct mykey) from ${table13}"""
+    qt_sql "select name from ${table13} order by name;"
+    sql """ insert into ${table13}(name) select "Jack" as name from ${table13};"""
+    qt_sql """ select count(mykey), count(distinct mykey) from ${table13}"""
+    qt_sql "select name from ${table13} order by name;"
+    
+    sql """ insert into ${table14} values
+    (100,"John"), (null, "Mick"), (300, "Bob"), (null, "Alice"), (null, "Steve");"""
+    qt_ql "select * from ${table14} order by mykey, name;"
+    sql """ insert into ${table13} select mykey, name from ${table14};"""
+    qt_sql """ select count(mykey), count(distinct mykey) from ${table13}"""
+    qt_sql "select name from ${table13} order by name;"
+
+    sql "drop table if exists ${table13};"
+    sql "drop table if exists ${table14};"
+    
 }
 

@@ -125,10 +125,6 @@ public class CloudInternalCatalog extends InternalCatalog {
             indexMap.put(indexId, rollup);
         }
 
-        // version and version hash
-        if (versionInfo != null) {
-            partition.updateVisibleVersion(versionInfo);
-        }
         long version = partition.getVisibleVersion();
 
         final String storageVaultName = tbl.getStorageVaultName();
@@ -159,6 +155,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                 indexes = Lists.newArrayList();
             }
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
+            List<String> rowStoreColumns =
+                                                tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet tablet : index.getTablets()) {
                 OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
@@ -170,7 +168,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                         tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                         tbl.getTimeSeriesCompactionLevelThreshold(),
-                        tbl.disableAutoCompaction());
+                        tbl.disableAutoCompaction(),
+                        tbl.getRowStoreColumnsUniqueIds(rowStoreColumns));
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -216,7 +215,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             boolean storeRowColumn, int schemaVersion, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
-            Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction) throws DdlException {
+            Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
+            List<Integer> rowStoreColumnUniqueIds) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -328,6 +328,9 @@ public class CloudInternalCatalog extends InternalCatalog {
                 Index index = indexes.get(i);
                 schemaBuilder.addIndex(index.toPb(schemaColumns));
             }
+        }
+        if (rowStoreColumnUniqueIds != null) {
+            schemaBuilder.addAllRowStoreColumnUniqueIds(rowStoreColumnUniqueIds);
         }
         schemaBuilder.setDisableAutoCompaction(disableAutoCompaction);
 

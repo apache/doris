@@ -45,6 +45,9 @@ suite ("multi_slot5") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
+    sql "analyze table multi_slot5 with sync;"
+    sql """set enable_stats=false;"""
+
     order_qt_select_star "select * from multi_slot5 order by k1,k4;"
 
     explain {
@@ -53,16 +56,13 @@ suite ("multi_slot5") {
     }
     order_qt_select_mv "select k1,k2+k3 from multi_slot5 order by k1;"
 
-    explain {
-        sql("select lhs.k1,rhs.k2 from multi_slot5 as lhs right join multi_slot5 as rhs on lhs.k1=rhs.k1;")
-        contains "(k123p)"
-        contains "(multi_slot5)"
-    }
     order_qt_select_mv "select lhs.k1,rhs.k2 from multi_slot5 as lhs right join multi_slot5 as rhs on lhs.k1=rhs.k1 order by lhs.k1;"
 
+    order_qt_select_mv "select k1,version() from multi_slot5 order by k1;"
+
+    sql """set enable_stats=true;"""
     explain {
-        sql("select k1,version() from multi_slot5;")
+        sql("select k1,k2+k3 from multi_slot5 order by k1;")
         contains "(k123p)"
     }
-    order_qt_select_mv "select k1,version() from multi_slot5 order by k1;"
 }

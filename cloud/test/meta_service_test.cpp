@@ -5687,7 +5687,7 @@ TEST(MetaServiceTest, NormalizeHdfsConfTest) {
     EXPECT_EQ(prefix, "test");
     prefix = "  /test// ";
     EXPECT_TRUE(normalize_hdfs_prefix(prefix));
-    EXPECT_EQ(prefix, "/test");
+    EXPECT_EQ(prefix, "test");
     prefix = "/";
     EXPECT_TRUE(normalize_hdfs_prefix(prefix));
     EXPECT_EQ(prefix, "");

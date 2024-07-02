@@ -326,7 +326,7 @@ public class AnalysisManagerTest {
             3L, new AnalysisInfoBuilder().setJobId(3).setJobType(JobType.SYSTEM).setState(AnalysisState.FINISHED).build());
         analysisManager.analysisJobInfoMap.put(
             4L, new AnalysisInfoBuilder().setJobId(4).setJobType(JobType.SYSTEM).setState(AnalysisState.FAILED).build());
-        List<AnalysisInfo> analysisInfos = analysisManager.showAnalysisJob(stmt);
+        List<AnalysisInfo> analysisInfos = analysisManager.findAnalysisJobs(stmt);
         Assertions.assertEquals(3, analysisInfos.size());
         Assertions.assertEquals(AnalysisState.RUNNING, analysisInfos.get(0).getState());
         Assertions.assertEquals(AnalysisState.FINISHED, analysisInfos.get(1).getState());

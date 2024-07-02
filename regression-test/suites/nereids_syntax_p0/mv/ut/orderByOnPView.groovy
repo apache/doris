@@ -44,18 +44,29 @@ suite ("orderByOnPView") {
 
     sql """insert into orderByOnPView values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table orderByOnPView with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
-        sql("select * from orderByOnPView order by empid;")
+        sql("select * from orderByOnPView where time_col='2020-01-01' order by empid;")
         contains "(orderByOnPView)"
     }
     order_qt_select_star "select * from orderByOnPView order by empid;"
 
 
     explain {
-        sql("select empid from orderByOnPView order by deptno;")
+        sql("select empid from orderByOnPView where deptno = 0 order by deptno;")
         contains "(orderByOnPView_mv)"
     }
     order_qt_select_mv "select empid from orderByOnPView order by deptno;"
 
-
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from orderByOnPView where time_col='2020-01-01' order by empid;")
+        contains "(orderByOnPView)"
+    }
+    explain {
+        sql("select empid from orderByOnPView where deptno = 0 order by deptno;")
+        contains "(orderByOnPView_mv)"
+    }
 }

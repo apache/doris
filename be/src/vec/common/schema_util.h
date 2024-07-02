@@ -79,9 +79,6 @@ struct ExtraInfo {
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
                                 const ExtraInfo& ext_info);
 
-TabletColumn get_least_type_column(const TabletColumn& original, const DataTypePtr& new_type,
-                                   const ExtraInfo& ext_info, bool* changed);
-
 struct ParseContext {
     // record an extract json column, used for encoding row store
     bool record_raw_json_column = false;
@@ -123,14 +120,6 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
 // get sorted subcolumns of variant
 vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
         const vectorized::ColumnObject::Subcolumns& subcolumns);
-
-// Rebuild schema from original schema by extend dynamic columns generated from ColumnObject.
-// Block consists of two parts, dynamic part of columns and static part of columns.
-//     static     extracted
-// | --------- | ----------- |
-// The static ones are original tablet_schame columns
-void rebuild_schema_and_block(const TabletSchemaSPtr& original, const std::vector<int>& variant_pos,
-                              Block& flush_block, TabletSchemaSPtr& flush_schema);
 
 // Extract json data from source with path
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);

@@ -38,7 +38,8 @@ suite ("k123p_nereids") {
 
     createMV ("""create materialized view k123p1w as select k1,k2+k3 from d_table where k1 = 1;""")
     createMV ("""create materialized view k123p4w as select k1,k2+k3 from d_table where k4 = "b";""")
-    createMV ("""create materialized view kwh1 as select k2 from d_table where k1=1;""")
+    createMV ("""create materialized view kwh1 as select k2, k1 from d_table where k1=1;""")
+    createMV ("""create materialized view kwh2 as select k2, k1 from d_table where k1>1;""")
 
 
     sql "insert into d_table select 1,1,1,'a';"
@@ -46,6 +47,9 @@ suite ("k123p_nereids") {
     sql "insert into d_table select 3,-3,null,'c';"
 
     qt_select_star "select * from d_table order by k1;"
+
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
 
     explain {
         sql("select k1,k2+k3 from d_table order by k1;")
@@ -98,6 +102,16 @@ suite ("k123p_nereids") {
     qt_select_mv "select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;"
 
     explain {
+        sql("select k2 from d_table where k1>10 order by k2;")
+        contains "(kwh2)"
+    }
+
+    explain {
+        sql("select k2 from d_table where k1>10 or k2 = 0 order by k2;")
+        contains "(d_table)"
+    }
+
+    explain {
         sql("select k2 from d_table where k1=1 and (k2>2 or k2<0) order by k2;")
         contains "(kwh1)"
     }
@@ -114,4 +128,69 @@ suite ("k123p_nereids") {
         contains "(d_table)"
     }
     qt_select_mv "select k2,k1=2 from d_table where k1=1 order by k2;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,k2+k3 from d_table order by k1;")
+        contains "(d_table)"
+    }
+
+    explain {
+        sql("select k1,k2+k3 from d_table where k1 = 1 order by k1;")
+        contains "(k123p1w)"
+    }
+
+    explain {
+        sql("select k1,k2+k3 from d_table where k1 = 2 order by k1;")
+        contains "(d_table)"
+    }
+
+    explain {
+        sql("select k1,k2+k3 from d_table where k1 = '1' order by k1;")
+        contains "(k123p1w)"
+    }
+
+    explain {
+        sql("select k1,k2+k3 from d_table where k4 = 'b' order by k1;")
+        contains "(k123p4w)"
+    }
+
+    explain {
+        sql("select k1,k2+k3 from d_table where k4 = 'a' order by k1;")
+        contains "(d_table)"
+    }
+
+    explain {
+        sql("""select k1,k2+k3 from d_table where k1 = 2 and k4 = "b";""")
+        contains "(k123p4w)"
+    }
+
+    explain {
+        sql("select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;")
+        contains "(d_table)"
+    }
+
+    explain {
+        sql("select k2 from d_table where k1>10 order by k2;")
+        contains "(kwh2)"
+    }
+
+    explain {
+        sql("select k2 from d_table where k1>10 or k2 = 0 order by k2;")
+        contains "(d_table)"
+    }
+
+    explain {
+        sql("select k2 from d_table where k1=1 and (k2>2 or k2<0) order by k2;")
+        contains "(kwh1)"
+    }
+
+    explain {
+        sql("select k2,k1=1 from d_table where k1=1 order by k2;")
+        contains "(kwh1)"
+    }
+
+    explain {
+        sql("select k2,k1=2 from d_table where k1=1 order by k2;")
+    }
 }

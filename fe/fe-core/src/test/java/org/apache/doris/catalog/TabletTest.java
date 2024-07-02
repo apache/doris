@@ -20,6 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Sets;
@@ -117,13 +119,13 @@ public class TabletTest {
     public void testSerialization() throws Exception {
         final Path path = Files.createTempFile("olapTabletTest", "tmp");
         DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
-        tablet.write(dos);
+        Text.writeString(dos, GsonUtils.GSON.toJson(tablet));
         dos.flush();
         dos.close();
 
         // 2. Read a object from file
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
-        Tablet rTablet1 = Tablet.read(dis);
+        Tablet rTablet1 = GsonUtils.GSON.fromJson(Text.readString(dis), Tablet.class);
         Assert.assertEquals(1, rTablet1.getId());
         Assert.assertEquals(3, rTablet1.getReplicas().size());
         Assert.assertEquals(rTablet1.getReplicas().get(0).getVersion(), rTablet1.getReplicas().get(1).getVersion());

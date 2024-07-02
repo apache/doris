@@ -38,22 +38,56 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     private final String dbName;
     private final boolean isDistinct;
 
+    // the start and end position of the function string in original sql
+    private final Optional<FunctionIndexInSql> functionIndexInSql;
+
+    /**
+     * FunctionIndexInSql
+     */
+    public static class FunctionIndexInSql implements Comparable<FunctionIndexInSql> {
+        public final int functionNameBegin;
+        public final int functionNameEnd;
+        public final int functionExpressionEnd;
+
+        public FunctionIndexInSql(int nameBegin, int nameEnd, int expressionEnd) {
+            this.functionNameBegin = nameBegin;
+            this.functionNameEnd = nameEnd;
+            this.functionExpressionEnd = expressionEnd;
+        }
+
+        @Override
+        public int compareTo(FunctionIndexInSql functionIndexInSql) {
+            return this.functionNameBegin - functionIndexInSql.functionNameBegin;
+        }
+
+        public FunctionIndexInSql indexInQueryPart(int offset) {
+            return new FunctionIndexInSql(functionNameBegin - offset, functionNameEnd - offset,
+                    functionExpressionEnd - offset);
+        }
+    }
+
     public UnboundFunction(String name, List<Expression> arguments) {
-        this(null, name, false, arguments);
+        this(null, name, false, arguments, Optional.empty());
     }
 
     public UnboundFunction(String dbName, String name, List<Expression> arguments) {
-        this(dbName, name, false, arguments);
+        this(dbName, name, false, arguments, Optional.empty());
     }
 
     public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
-        this(null, name, isDistinct, arguments);
+        this(null, name, isDistinct, arguments, Optional.empty());
     }
 
     public UnboundFunction(String dbName, String name, boolean isDistinct, List<Expression> arguments) {
+        this(dbName, name, isDistinct, arguments, Optional.empty());
+    }
+
+    public UnboundFunction(String dbName, String name, boolean isDistinct,
+            List<Expression> arguments, Optional<FunctionIndexInSql> functionIndexInSql) {
         super(name, arguments);
         this.dbName = dbName;
         this.isDistinct = isDistinct;
+        this.functionIndexInSql = functionIndexInSql;
     }
 
     @Override
@@ -98,6 +132,14 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     @Override
     public UnboundFunction withChildren(List<Expression> children) {
         return new UnboundFunction(dbName, getName(), isDistinct, children);
+    }
+
+    public Optional<FunctionIndexInSql> getFunctionIndexInSql() {
+        return functionIndexInSql;
+    }
+
+    public UnboundFunction withIndexInSqlString(Optional<FunctionIndexInSql> functionIndexInSql) {
+        return new UnboundFunction(dbName, getName(), isDistinct, children, functionIndexInSql);
     }
 
     @Override
