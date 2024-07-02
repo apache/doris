@@ -212,6 +212,7 @@ public class PlanVisitorTest extends TestWithFeService {
                             TableCollectorContext collectorContextWithNoExpand =
                                     new TableCollector.TableCollectorContext(Sets.newHashSet(TableType.OLAP),
                                             false);
+                            collectorContext.setConnectContext(connectContext);
                             physicalPlan.accept(TableCollector.INSTANCE, collectorContextWithNoExpand);
                             Set<String> expectedTablesWithNoExpand = new HashSet<>();
                             expectedTablesWithNoExpand.add("table1");
@@ -224,6 +225,7 @@ public class PlanVisitorTest extends TestWithFeService {
 
                             TableCollectorContext mvCollectorContext = new TableCollector.TableCollectorContext(
                                     Sets.newHashSet(TableType.MATERIALIZED_VIEW), true);
+                            mvCollectorContext.setConnectContext(connectContext);
                             physicalPlan.accept(TableCollector.INSTANCE, mvCollectorContext);
                             Set<String> expectedMvs = new HashSet<>();
                             expectedMvs.add("mv1");
@@ -236,6 +238,7 @@ public class PlanVisitorTest extends TestWithFeService {
                             TableCollectorContext mvCollectorContextWithNoExpand =
                                     new TableCollector.TableCollectorContext(
                                     Sets.newHashSet(TableType.MATERIALIZED_VIEW), false);
+                            mvCollectorContextWithNoExpand.setConnectContext(connectContext);
                             physicalPlan.accept(TableCollector.INSTANCE, mvCollectorContextWithNoExpand);
                             Set<String> expectedMvsWithNoExpand = new HashSet<>();
                             expectedMvsWithNoExpand.add("mv1");
