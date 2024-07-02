@@ -446,6 +446,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
+    public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
+
     /**
      * use insert stmt as the unified backend for all loads
      */
@@ -570,6 +572,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_NEST_REWRITE
             = "enable_materialized_view_nest_rewrite";
 
+    public static final String ENABLE_SYNC_MV_COST_BASED_REWRITE
+            = "enable_sync_mv_cost_based_rewrite";
+
     public static final String MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT
             = "materialized_view_relation_mapping_max_count";
 
@@ -597,6 +602,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
 
     public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
+
+    public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -1466,9 +1473,9 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableInvertedIndexQuery = true;
 
     // Whether enable query expr with inverted index.
-    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX, needForward = true, description = {
-            "是否启用表达式上使用 inverted index。", "Set whether to use inverted index query for expr."})
-    public boolean enableCommonExpPushDownForInvertedIndex = false;
+    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX, fuzzy = true, needForward = true,
+            description = {"是否启用表达式上使用 inverted index。", "Set whether to use inverted index query for expr."})
+    public boolean enableCommonExpPushDownForInvertedIndex = true;
 
     // Whether enable pushdown count agg to scan node when using inverted index match.
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
@@ -1551,6 +1558,13 @@ public class SessionVariable implements Serializable, Writable {
                     "If the number of partitions exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
     public int numPartitionsInBatchMode = 1024;
+
+    @VariableMgr.VarAttr(
+            name = FETCH_SPLITS_MAX_WAIT_TIME,
+            description = {"batch方式中BE获取splits的最大等待时间",
+                    "The max wait time of getting splits in batch mode."},
+            needForward = true)
+    public long fetchSplitsMaxWaitTime = 4000;
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
@@ -1808,6 +1822,11 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether enable materialized view nest rewrite"})
     public boolean enableMaterializedViewNestRewrite = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_SYNC_MV_COST_BASED_REWRITE, needForward = true,
+            description = {"是否允许基于代价改写同步物化视图",
+                    "Whether enable cost based rewrite for sync mv"})
+    public boolean enableSyncMvCostBasedRewrite = true;
+
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",
                     "The maximum number of partitions created during table creation"})
@@ -1968,6 +1987,13 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkExternalAggPartitionBits", fuzzy = true)
     public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
 
+    @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, description = {
+            "在CTAS中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即65533。默认为 true。",
+            "In CTAS (Create Table As Select), if CHAR/VARCHAR columns do not originate from the source table,"
+                    + " whether to set the length of such a column to MAX, which is 65533. The default is true."
+    })
+    public boolean useMaxLengthOfVarcharInCtas = true;
+
     public boolean isEnableJoinSpill() {
         return enableJoinSpill;
     }
@@ -1991,6 +2017,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
+        this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
@@ -2860,6 +2887,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setNumSplitsInBatchMode(int numPartitionsInBatchMode) {
         this.numPartitionsInBatchMode = numPartitionsInBatchMode;
+    }
+
+    public long getFetchSplitsMaxWaitTime() {
+        return fetchSplitsMaxWaitTime;
+    }
+
+    public void setFetchSplitsMaxWaitTime(long fetchSplitsMaxWaitTime) {
+        this.fetchSplitsMaxWaitTime = fetchSplitsMaxWaitTime;
     }
 
     public boolean isEnableParquetLazyMat() {
@@ -3990,6 +4025,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewNestRewrite() {
         return enableMaterializedViewNestRewrite;
+    }
+
+    public boolean isEnableSyncMvCostBasedRewrite() {
+        return enableSyncMvCostBasedRewrite;
+    }
+
+    public void setEnableSyncMvCostBasedRewrite(boolean enableSyncMvCostBasedRewrite) {
+        this.enableSyncMvCostBasedRewrite = enableSyncMvCostBasedRewrite;
     }
 
     public int getMaterializedViewRelationMappingMaxCount() {

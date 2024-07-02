@@ -141,8 +141,6 @@ public:
                                         MemTracker* mem_tracker,
                                         InvertedIndexReaderType reader_type);
 
-    Status check_file_exist(const std::string& index_file_key);
-
 protected:
     friend class InvertedIndexIterator;
     std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
