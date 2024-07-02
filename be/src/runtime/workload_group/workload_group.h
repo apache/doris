@@ -168,7 +168,7 @@ private:
     const uint64_t _id;
     std::string _name;
     int64_t _version;
-    int64_t _memory_limit;                      // bytes
+    int64_t _memory_limit; // bytes
     // `_weighted_mem_used` is a rough memory usage in this group,
     // because we can only get a precise memory usage by MemTracker which is not include page cache.
     std::atomic_int64_t _weighted_mem_used = 0; // bytes
