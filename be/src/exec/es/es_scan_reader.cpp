@@ -74,19 +74,31 @@ ESScanReader::ESScanReader(const std::string& target,
     std::string filter_path =
             _doc_value_mode ? DOCVALUE_SCROLL_SEARCH_FILTER_PATH : SOURCE_SCROLL_SEARCH_FILTER_PATH;
 
+    int32 shard_id = std::stoi(_shards);
     if (props.find(KEY_TERMINATE_AFTER) != props.end()) {
         _exactly_once = true;
         std::stringstream scratch;
         // just send a normal search  against the elasticsearch with additional terminate_after param to achieve terminate early effect when limit take effect
         if (_type.empty()) {
-            // `terminate_after` and `size` can not be used together in scroll request of ES 8.x
-            scratch << _target << REQUEST_SEPARATOR << _index << "/_search?"
-                    << REQUEST_PREFERENCE_PREFIX << _shards << "&" << filter_path;
+            if (shard_id < 0) {
+                scratch << _target << REQUEST_SEPARATOR << _index << "/_search?" << filter_path;
+            } else {
+                // `terminate_after` and `size` can not be used together in scroll request of ES 8.x
+                scratch << _target << REQUEST_SEPARATOR << _index << "/_search?"
+                        << REQUEST_PREFERENCE_PREFIX << _shards << "&" << filter_path;
+            }
         } else {
-            scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
-                    << "/_search?"
-                    << "terminate_after=" << props.at(KEY_TERMINATE_AFTER)
-                    << REQUEST_PREFERENCE_PREFIX << _shards << "&" << filter_path;
+            if (shard_id < 0) {
+                scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
+                        << "/_search?"
+                        << "terminate_after=" << props.at(KEY_TERMINATE_AFTER) << "&"
+                        << filter_path;
+            } else {
+                scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
+                        << "/_search?"
+                        << "terminate_after=" << props.at(KEY_TERMINATE_AFTER)
+                        << REQUEST_PREFERENCE_PREFIX << _shards << "&" << filter_path;
+            }
         }
         _search_url = scratch.str();
     } else {
@@ -95,15 +107,27 @@ ESScanReader::ESScanReader(const std::string& target,
         // scroll request for scanning
         // add terminate_after for the first scroll to avoid decompress all postings list
         if (_type.empty()) {
-            // `terminate_after` and `size` can not be used together in scroll request of ES 8.x
-            scratch << _target << REQUEST_SEPARATOR << _index << "/_search?"
-                    << "scroll=" << _scroll_keep_alive << REQUEST_PREFERENCE_PREFIX << _shards
-                    << "&" << filter_path;
+            if (shard_id < 0) {
+                scratch << _target << REQUEST_SEPARATOR << _index << "/_search?"
+                        << "scroll=" << _scroll_keep_alive << "&" << filter_path;
+            } else {
+                // `terminate_after` and `size` can not be used together in scroll request of ES 8.x
+                scratch << _target << REQUEST_SEPARATOR << _index << "/_search?"
+                        << "scroll=" << _scroll_keep_alive << REQUEST_PREFERENCE_PREFIX << _shards
+                        << "&" << filter_path;
+            }
         } else {
-            scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
-                    << "/_search?"
-                    << "scroll=" << _scroll_keep_alive << REQUEST_PREFERENCE_PREFIX << _shards
-                    << "&" << filter_path << "&terminate_after=" << batch_size_str;
+            if (shard_id < 0) {
+                scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
+                        << "/_search?"
+                        << "scroll=" << _scroll_keep_alive << "&" << filter_path
+                        << "&terminate_after=" << batch_size_str;
+            } else {
+                scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
+                        << "/_search?"
+                        << "scroll=" << _scroll_keep_alive << REQUEST_PREFERENCE_PREFIX << _shards
+                        << "&" << filter_path << "&terminate_after=" << batch_size_str;
+            }
         }
         _init_scroll_url = scratch.str();
         _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + filter_path;

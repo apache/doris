@@ -989,6 +989,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static long es_state_sync_interval_second = 10;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"ES catalog 是否开启 shard 级别的 scroll 请求，默认开启。",
+        "Whether to enable shard-level scroll requests for ES catalog, enabled by default."})
+    public static boolean enable_es_shard_scroll = true;
+
     /**
      * the factor of delay time before deciding to repair tablet.
      * if priority is VERY_HIGH, repair it immediately.

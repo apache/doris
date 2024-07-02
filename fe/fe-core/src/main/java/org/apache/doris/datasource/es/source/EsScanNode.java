@@ -28,6 +28,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FederationBackendPolicy;
@@ -63,6 +64,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -218,8 +220,13 @@ public class EsScanNode extends ExternalScanNode {
                     String.join(",", unPartitionedIndices), String.join(",", partitionedIndices));
         }
         List<TScanRangeLocations> result = Lists.newArrayList();
+        boolean enableShardScroll = Config.enable_es_shard_scroll;
         for (EsShardPartitions indexState : selectedIndex) {
-            for (List<EsShardRouting> shardRouting : indexState.getShardRoutings().values()) {
+            List<List<EsShardRouting>> shardRoutings = enableShardScroll
+                    ? new ArrayList<>(indexState.getShardRoutings().values()) :
+                    Collections.singletonList(indexState.getShardRoutings().get(0));
+
+            for (List<EsShardRouting> shardRouting : shardRoutings) {
                 // get backends
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
                 List<String> preLocations = new ArrayList<>();
@@ -231,7 +238,8 @@ public class EsScanNode extends ExternalScanNode {
                 FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
                 backendPolicy.init(preLocations);
                 TScanRangeLocations locations = new TScanRangeLocations();
-                for (int i = 0; i < backendPolicy.numBackends(); ++i) {
+                int numBackends = enableShardScroll ? backendPolicy.numBackends() : 1;
+                for (int i = 0; i < numBackends; ++i) {
                     TScanRangeLocation location = new TScanRangeLocation();
                     Backend be = backendPolicy.getNextBe();
                     location.setBackendId(be.getId());
@@ -246,7 +254,7 @@ public class EsScanNode extends ExternalScanNode {
                 if (table.getType() != null) {
                     esScanRange.setType(table.getMappingType());
                 }
-                esScanRange.setShardId(shardRouting.get(0).getShardId());
+                esScanRange.setShardId(enableShardScroll ? shardRouting.get(0).getShardId() : -1);
                 // Scan range
                 TScanRange scanRange = new TScanRange();
                 scanRange.setEsScanRange(esScanRange);
