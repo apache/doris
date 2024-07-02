@@ -23,6 +23,10 @@ suite("test_schema_change_datev2_with_delete") {
          return jobStateResult[0][9]
     }
 
+    sql """ admin set frontend config("enable_date_conversion" = "false"); """
+    sql """ admin set frontend config("disable_datev1" = "false"); """
+    sql "sync;"
+
     sql """ DROP TABLE IF EXISTS ${tbName} FORCE"""
     // Create table and disable light weight schema change
     sql """
@@ -118,4 +122,8 @@ suite("test_schema_change_datev2_with_delete") {
     qt_sql """select * from ${tbName} ORDER BY `datek1`;"""
 
     sql """ DROP TABLE  ${tbName} force"""
+
+    sql """ admin set frontend config("enable_date_conversion" = "true"); """
+    sql """ admin set frontend config("disable_datev1" = "true"); """
+    sql "sync;"
 }
