@@ -139,6 +139,30 @@ struct StringOP {
                                                         string_value.data() + string_value.size());
         offsets[index] = chars.size();
     }
+
+    static void fast_repeat(uint8_t* dst, const uint8_t* src, size_t src_size,
+                            int32_t repeat_times) {
+        if (UNLIKELY(repeat_times <= 0)) {
+            return;
+        }
+        uint8_t* dst_begin = dst;
+        uint8_t* dst_curr = dst;
+        int32_t k = 0;
+        int32_t is_odd = repeat_times & 1;
+        repeat_times >>= 1;
+
+        memcpy(dst_curr, src, src_size);
+        dst_curr += src_size;
+        for (; repeat_times > 0; k += 1, is_odd = repeat_times & 1, repeat_times >>= 1) {
+            int32_t len = src_size * (1 << k);
+            memcpy(dst_curr, dst_begin, len);
+            dst_curr += len;
+            if (is_odd) {
+                memcpy(dst_curr, dst_begin, len);
+                dst_curr += len;
+            }
+        }
+    }
 };
 
 struct SubstringUtil {
@@ -1314,35 +1338,25 @@ public:
         auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res = ColumnString::create();
 
-        size_t argument_size = arguments.size();
-        std::vector<ColumnPtr> argument_columns(argument_size);
-        for (size_t i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (const auto* nullable =
-                        check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
+        ColumnPtr col[3];
+        bool col_const[3];
+        for (size_t i = 0; i < 3; ++i) {
+            std::tie(col[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-
         auto& null_map_data = null_map->get_data();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
 
-        const auto* strcol = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* strcol = assert_cast<const ColumnString*>(col[0].get());
         const auto& strcol_offsets = strcol->get_offsets();
         const auto& strcol_chars = strcol->get_chars();
 
-        const auto* col_len = assert_cast<const ColumnInt32*>(argument_columns[1].get());
+        const auto* col_len = assert_cast<const ColumnInt32*>(col[1].get());
         const auto& col_len_data = col_len->get_data();
 
-        const auto* padcol = assert_cast<const ColumnString*>(argument_columns[2].get());
+        const auto* padcol = assert_cast<const ColumnString*>(col[2].get());
         const auto& padcol_offsets = padcol->get_offsets();
         const auto& padcol_chars = padcol->get_chars();
 
@@ -1350,33 +1364,36 @@ public:
         std::vector<size_t> pad_index;
 
         fmt::memory_buffer buffer;
-
+        const bool str_const = col_const[0];
+        const bool len_const = col_const[1];
+        const bool pad_const = col_const[2];
+        const int repeat_max_num = context->state()->repeat_max_num();
         for (size_t i = 0; i < input_rows_count; ++i) {
             str_index.clear();
             pad_index.clear();
             buffer.clear();
-            if (null_map_data[i] || col_len_data[i] < 0) {
-                // return NULL when input string is NULL or input length is invalid number
+            const auto len = col_len_data[index_check_const(i, len_const)];
+            if (len < 0) {
+                // return NULL when input length is invalid number
                 null_map_data[i] = true;
                 StringOP::push_empty_string(i, res_chars, res_offsets);
             } else {
-                int str_len = strcol_offsets[i] - strcol_offsets[i - 1];
-                const char* str_data =
-                        reinterpret_cast<const char*>(&strcol_chars[strcol_offsets[i - 1]]);
+                const auto str_idx = index_check_const(i, str_const);
+                const int str_len = strcol_offsets[str_idx] - strcol_offsets[str_idx - 1];
+                const auto* str_data = &strcol_chars[strcol_offsets[str_idx - 1]];
+                const auto pad_idx = index_check_const(i, pad_const);
+                const int pad_len = padcol_offsets[pad_idx] - padcol_offsets[pad_idx - 1];
+                const auto* pad_data = &padcol_chars[padcol_offsets[pad_idx - 1]];
+                // get utf8 len
+                size_t str_char_size = simd::VStringFunctions::get_char_len((const char*)str_data,
+                                                                            str_len, str_index);
+                size_t pad_char_size = simd::VStringFunctions::get_char_len((const char*)pad_data,
+                                                                            pad_len, pad_index);
 
-                int pad_len = padcol_offsets[i] - padcol_offsets[i - 1];
-                const char* pad_data =
-                        reinterpret_cast<const char*>(&padcol_chars[padcol_offsets[i - 1]]);
-
-                size_t str_char_size =
-                        simd::VStringFunctions::get_char_len(str_data, str_len, str_index);
-                size_t pad_char_size =
-                        simd::VStringFunctions::get_char_len(pad_data, pad_len, pad_index);
-
-                if (col_len_data[i] <= str_char_size) {
+                if (len <= str_char_size) {
                     // truncate the input string
-                    if (col_len_data[i] < str_char_size) {
-                        buffer.append(str_data, str_data + str_index[col_len_data[i]]);
+                    if (len < str_char_size) {
+                        buffer.append(str_data, str_data + str_index[len]);
                     } else {
                         buffer.append(str_data, str_data + str_len);
                     }
@@ -1385,13 +1402,14 @@ public:
                                                 res_chars, res_offsets);
                     continue;
                 }
-                if (col_len_data[i] > context->state()->repeat_max_num()) {
+                if (len > repeat_max_num) {
                     return Status::InvalidArgument(
                             " {} function the length argument is {} exceeded maximum default "
                             "value: {}."
-                            "if you really need this length, you could change the session variable "
+                            "if you really need this length, you could change the session "
+                            "variable "
                             "set repeat_max_num = xxx.",
-                            get_name(), col_len_data[i], context->state()->repeat_max_num());
+                            get_name(), len, repeat_max_num);
                 }
 
                 // make compatible with mysql. return empty string if pad is empty
@@ -1400,42 +1418,29 @@ public:
                     continue;
                 }
 
-                int32_t pad_byte_len = 0;
-                int32_t pad_times = (col_len_data[i] - str_char_size) / pad_char_size;
-                int32_t pad_remainder = (col_len_data[i] - str_char_size) % pad_char_size;
-                pad_byte_len = pad_times * pad_len;
-                pad_byte_len += pad_index[pad_remainder];
-                int32_t byte_len = str_len + pad_byte_len;
-                // StringRef result(context, byte_len);
-                if constexpr (Impl::is_lpad) {
-                    int result_index = 0;
-
-                    // Prepend chars of pad.
-                    while (result_index < pad_byte_len) {
-                        int remain = std::min(pad_len, pad_byte_len - result_index);
-                        buffer.append(pad_data, pad_data + remain);
-                        result_index += remain;
-                    }
-
-                    // Append given string.
-                    buffer.append(str_data, str_data + str_len);
-                    StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                                res_chars, res_offsets);
-
-                } else {
-                    // is rpad
-                    buffer.append(str_data, str_data + str_len);
-
-                    // Append chars of pad until desired length
-                    int result_len = str_len;
-                    while (result_len < byte_len) {
-                        int remain = std::min(pad_len, byte_len - result_len);
-                        buffer.append(pad_data, pad_data + remain);
-                        result_len += remain;
-                    }
-                    StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                                res_chars, res_offsets);
+                const int32_t pad_times = (len - str_char_size) / pad_char_size;
+                const int32_t pad_remainder = (len - str_char_size) % pad_char_size;
+                buffer.reserve(str_len + (pad_times + 1) * pad_len);
+                auto* buffer_data = buffer.data();
+                int32_t buffer_len = 0;
+                if constexpr (!Impl::is_lpad) {
+                    memcpy(buffer_data, str_data, str_len);
+                    buffer_len += str_len;
                 }
+                // Prepend chars of pad.
+                StringOP::fast_repeat((uint8_t*)buffer.data() + buffer_len, pad_data, pad_len,
+                                      pad_times);
+                buffer_len += pad_times * pad_len;
+
+                memcpy(buffer_data + buffer_len, pad_data, pad_index[pad_remainder]);
+                buffer_len += pad_index[pad_remainder];
+
+                if constexpr (Impl::is_lpad) {
+                    memcpy(buffer_data + buffer_len, str_data, str_len);
+                    buffer_len += str_len;
+                }
+                StringOP::push_value_string(std::string_view(buffer_data, buffer_len), i, res_chars,
+                                            res_offsets);
             }
         }
 
