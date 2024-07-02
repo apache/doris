@@ -160,14 +160,6 @@ bool HashJoinProbeLocalState::_need_probe_null_map(vectorized::Block& block,
     return false;
 }
 
-void HashJoinProbeLocalState::init_for_probe(RuntimeState* state) {
-    if (_probe_inited) {
-        return;
-    }
-
-    _probe_inited = true;
-}
-
 void HashJoinProbeLocalState::add_tuple_is_null_column(vectorized::Block* block) {
     DCHECK(_parent->cast<HashJoinProbeOperatorX>()._is_outer_join);
     if (!_parent->cast<HashJoinProbeOperatorX>()._use_specific_projections) {
@@ -235,7 +227,6 @@ HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode
 Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
                                     bool* eos) const {
     auto& local_state = get_local_state(state);
-    local_state.init_for_probe(state);
     SCOPED_TIMER(local_state._probe_timer);
     if (local_state._shared_state->short_circuit_for_probe) {
         // If we use a short-circuit strategy, should return empty block directly.
