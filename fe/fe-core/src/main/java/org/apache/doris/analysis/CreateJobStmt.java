@@ -128,6 +128,7 @@ public class CreateJobStmt extends DdlStmt {
         if (null != onceJobStartTimestamp) {
             if (onceJobStartTimestamp.equalsIgnoreCase(CURRENT_TIMESTAMP_STRING)) {
                 jobExecutionConfiguration.setImmediate(true);
+                timerDefinition.setStartTimeMs(System.currentTimeMillis());
             } else {
                 timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(onceJobStartTimestamp));
             }
@@ -149,6 +150,8 @@ public class CreateJobStmt extends DdlStmt {
         if (null != startsTimeStamp) {
             if (startsTimeStamp.equalsIgnoreCase(CURRENT_TIMESTAMP_STRING)) {
                 jobExecutionConfiguration.setImmediate(true);
+                //To avoid immediate re-scheduling, set the start time of the timer 100ms before the current time.
+                timerDefinition.setStartTimeMs(System.currentTimeMillis());
             } else {
                 timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(startsTimeStamp));
             }
