@@ -29,22 +29,23 @@ namespace vectorized {
 template <bool is_binary_format>
 Status DataTypeIPv4SerDe::_write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<is_binary_format>& result,
-                                                 int row_idx, bool col_const) const {
+                                                 int row_idx, bool col_const,
+                                                 const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnVector<IPv4>&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     IPv4Value ipv4_val(data[col_index]);
-    // _nesting_level >= 2 means this datetimev2 is in complex type
+    // _nesting_level >= 2 means this ipv4 is in complex type
     // and we should add double quotes
-    if (_nesting_level >= 2) {
-        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+    if (_nesting_level >= 2 && options.wrapper_len > 0) {
+        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
     if (UNLIKELY(0 != result.push_ipv4(ipv4_val))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
-    if (_nesting_level >= 2) {
-        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+    if (_nesting_level >= 2 && options.wrapper_len > 0) {
+        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
@@ -53,14 +54,16 @@ Status DataTypeIPv4SerDe::_write_column_to_mysql(const IColumn& column,
 
 Status DataTypeIPv4SerDe::write_column_to_mysql(const IColumn& column,
                                                 MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                bool col_const,
+                                                const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeIPv4SerDe::write_column_to_mysql(const IColumn& column,
                                                 MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                bool col_const,
+                                                const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeIPv4SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
