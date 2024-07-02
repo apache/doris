@@ -411,6 +411,7 @@ message TabletSchemaCloudPB {
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
+    optional bool enable_mow_delete_on_delete_predicate = 27 [default=false];
 
     optional bool is_dynamic_schema = 100 [default=false];
 }
