@@ -539,6 +539,12 @@ suite("test_jsonb_load_and_function", "p0") {
 
 
     // explode_json_object function
-    qt_order_select_explode_json_object "select id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id;"
-    qt_order_select_explode_json_object_out "select id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id;"
+    qt_order_select_explode_json_object "select id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id, k;"
+    qt_order_select_explode_json_object_out "select id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id, k;"
+
+    // json_parse
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":"v1"}')"""
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":1, "":"v1"}')"""
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":1, "ab":"v1", "":"v1", "": 2}')"""
+
 }
