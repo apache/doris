@@ -39,10 +39,7 @@ import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -140,43 +137,6 @@ public class BaseViewInfo {
                 column.setComment(simpleColumnDefinitions.get(i).getComment());
                 finalCols.add(column);
             }
-        }
-    }
-
-    /**OutermostPlanFinderContext*/
-    protected static class OutermostPlanFinderContext {
-        public Plan outermostPlan = null;
-        public boolean found = false;
-    }
-
-    /**OutermostPlanFinder*/
-    protected static class OutermostPlanFinder extends
-            DefaultPlanVisitor<Void, OutermostPlanFinderContext> {
-        public static final OutermostPlanFinder INSTANCE = new OutermostPlanFinder();
-
-        @Override
-        public Void visit(Plan plan, OutermostPlanFinderContext ctx) {
-            if (ctx.found) {
-                return null;
-            }
-            ctx.outermostPlan = plan;
-            ctx.found = true;
-            return null;
-        }
-
-        @Override
-        public Void visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
-                OutermostPlanFinderContext ctx) {
-            if (ctx.found) {
-                return null;
-            }
-            return super.visit(cteAnchor, ctx);
-        }
-
-        @Override
-        public Void visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer,
-                OutermostPlanFinderContext ctx) {
-            return null;
         }
     }
 

@@ -312,7 +312,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (tableMeta != null) {
             ColStatsMeta colMeta = tableMeta.findColumnStatsMeta(
                     olapScan.getTable().getIndexNameById(olapScan.getSelectedIndexId()), slot.getName());
-            if (colMeta != null) {
+            if (colMeta != null && colMeta.partitionUpdateRows != null) {
+                // when fe upgraded from old version, colMeta object may be deserialized from json,
+                // and colMeta.partitionUpdateRows could be null
                 if (olapScan.getSelectedPartitionIds().isEmpty()) {
                     deltaRowCount = tableMeta.updatedRows.get() - colMeta.updatedRows;
                 } else {

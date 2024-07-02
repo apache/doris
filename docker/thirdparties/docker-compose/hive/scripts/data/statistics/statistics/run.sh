@@ -10,3 +10,4 @@ hadoop fs -put "${CUR_DIR}"/data/* /user/doris/suites/statistics/
 
 # create table
 hive -f "${CUR_DIR}/create_table.hql"
+
