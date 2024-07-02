@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.cost;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.PlanContext;
@@ -24,14 +25,19 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -52,8 +58,11 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.Set;
 
 class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
@@ -113,6 +122,57 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         return CostV1.ofCpu(context.getSessionVariable(), rows - aggMvBonus);
     }
 
+    private Set<Column> getColumnForRangePredicate(Set<Expression> expressions) {
+        Set<Column> columns = Sets.newHashSet();
+        for (Expression expr : expressions) {
+            if (expr instanceof ComparisonPredicate) {
+                ComparisonPredicate compare = (ComparisonPredicate) expr;
+                boolean hasLiteral = compare.left() instanceof Literal || compare.right() instanceof Literal;
+                boolean hasSlot = compare.left() instanceof SlotReference || compare.right() instanceof SlotReference;
+                if (hasSlot && hasLiteral) {
+                    if (compare.left() instanceof SlotReference) {
+                        if (((SlotReference) compare.left()).getColumn().isPresent()) {
+                            columns.add(((SlotReference) compare.left()).getColumn().get());
+                        }
+                    } else {
+                        if (((SlotReference) compare.right()).getColumn().isPresent()) {
+                            columns.add(((SlotReference) compare.right()).getColumn().get());
+                        }
+                    }
+                }
+            }
+        }
+        return columns;
+    }
+
+    @Override
+    public Cost visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
+        double exprCost = expressionTreeCost(filter.getExpressions());
+        double filterCostFactor = 0.0001;
+        if (ConnectContext.get() != null) {
+            filterCostFactor = ConnectContext.get().getSessionVariable().filterCostFactor;
+        }
+        int prefixIndexMatched = 0;
+        if (filter.getGroupExpression().isPresent()) {
+            OlapScan olapScan = (OlapScan) filter.getGroupExpression().get().getFirstChildPlan(OlapScan.class);
+            if (olapScan != null) {
+                // check prefix index
+                long idxId = olapScan.getSelectedIndexId();
+                List<Column> keyColumns = olapScan.getTable().getIndexMetaByIndexId(idxId).getPrefixKeyColumns();
+                Set<Column> predicateColumns = getColumnForRangePredicate(filter.getConjuncts());
+                for (Column col : keyColumns) {
+                    if (predicateColumns.contains(col)) {
+                        prefixIndexMatched++;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        return CostV1.ofCpu(context.getSessionVariable(),
+                (filter.getConjuncts().size() - prefixIndexMatched + exprCost) * filterCostFactor);
+    }
+
     @Override
     public Cost visitPhysicalDeferMaterializeOlapScan(PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan,
             PlanContext context) {
@@ -141,7 +201,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
-        return CostV1.ofCpu(context.getSessionVariable(), 1);
+        double exprCost = expressionTreeCost(physicalProject.getProjects());
+        return CostV1.ofCpu(context.getSessionVariable(), exprCost + 1);
     }
 
     @Override
@@ -252,16 +313,29 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 intputRowCount * childStatistics.dataSizeFactor() * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumber);
     }
 
+    private double expressionTreeCost(List<? extends Expression> expressions) {
+        double exprCost = 0.0;
+        ExpressionCostEvaluator expressionCostEvaluator = new ExpressionCostEvaluator();
+        for (Expression expr : expressions) {
+            if (!(expr instanceof SlotReference)) {
+                exprCost += expr.accept(expressionCostEvaluator, null);
+            }
+        }
+        return exprCost;
+    }
+
     @Override
     public Cost visitPhysicalHashAggregate(
             PhysicalHashAggregate<? extends Plan> aggregate, PlanContext context) {
         Statistics inputStatistics = context.getChildStatistics(0);
+        double exprCost = expressionTreeCost(aggregate.getExpressions());
         if (aggregate.getAggPhase().isLocal()) {
-            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount() / beNumber,
+            return CostV1.of(context.getSessionVariable(),
+                    exprCost / 100 + inputStatistics.getRowCount() / beNumber,
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
             // global
-            return CostV1.of(context.getSessionVariable(), inputStatistics.getRowCount(),
+            return CostV1.of(context.getSessionVariable(), exprCost / 100 + inputStatistics.getRowCount(),
                     inputStatistics.getRowCount(), 0);
         }
     }
@@ -289,7 +363,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
-        if (leftRowCount == rightRowCount
+        if ((long) leftRowCount == (long) rightRowCount
                 && physicalHashJoin.getGroupExpression().isPresent()
                 && physicalHashJoin.getGroupExpression().get().getOwnerGroup() != null
                 && !physicalHashJoin.getGroupExpression().get().getOwnerGroup().isStatsReliable()) {
