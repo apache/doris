@@ -233,7 +233,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 }
             }
         }
-        builder.pruneSlots(getOutputSet());
     }
 
     @Override
@@ -252,7 +251,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 }
             }
         }
-        builder.pruneSlots(getOutputSet());
     }
 
     @Override
@@ -270,7 +268,6 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 }
             }
         }
-        builder.pruneSlots(getOutputSet());
     }
 
     @Override

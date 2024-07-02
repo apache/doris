@@ -317,6 +317,8 @@ public class DataTrait {
         public void pruneSlots(Set<Slot> outputSlots) {
             uniformSet.removeNotContain(outputSlots);
             uniqueSet.removeNotContain(outputSlots);
+            equalSetBuilder.removeNotContain(outputSlots);
+            fdDgBuilder.removeNotContain(outputSlots);
         }
 
         public void replace(Map<Slot, Slot> replaceMap) {
