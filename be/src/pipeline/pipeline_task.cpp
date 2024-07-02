@@ -59,8 +59,8 @@ PipelineTask::PipelineTask(
           _fragment_context(fragment_context),
           _parent_profile(parent_profile),
           _operators(pipeline->operator_xs()),
-          _source(_operators.front()),
-          _root(_operators.back()),
+          _source(_operators.front().get()),
+          _root(_operators.back().get()),
           _sink(pipeline->sink_shared_pointer()),
           _le_state_map(std::move(le_state_map)),
           _task_idx(task_idx),
@@ -409,7 +409,7 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
         DCHECK(big_memory_operator_num >= 0);
         int64_t mem_limit_of_op;
         if (0 == big_memory_operator_num) {
-            mem_limit_of_op = int64_t(query_weighted_limit * 0.8);
+            return false;
         } else {
             mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
         }
