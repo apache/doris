@@ -62,6 +62,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -174,6 +175,8 @@ public class ExportJob implements Writable {
     private String withBom;
     @SerializedName("dataConsistency")
     private String dataConsistency;
+    @SerializedName("compressType")
+    private String compressType;
 
     private TableRef tableRef;
 
@@ -621,6 +624,12 @@ public class ExportJob implements Writable {
         if (format.equals("csv") || format.equals("csv_with_names") || format.equals("csv_with_names_and_types")) {
             outfileProperties.put(OutFileClause.PROP_COLUMN_SEPARATOR, columnSeparator);
             outfileProperties.put(OutFileClause.PROP_LINE_DELIMITER, lineDelimiter);
+        } else {
+            // orc / parquet
+            // compressType == null means outfile will use default compression type
+            if (compressType != null) {
+                outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
+            }
         }
         if (!maxFileSize.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_MAX_FILE_SIZE, maxFileSize);
