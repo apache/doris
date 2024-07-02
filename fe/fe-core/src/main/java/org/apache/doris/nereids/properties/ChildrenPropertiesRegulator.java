@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -471,6 +472,19 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         visit(sort, context);
         if (sort.getSortPhase() == SortPhase.GATHER_SORT && sort.child() instanceof PhysicalDistribute) {
             // forbid gather sort need explicit shuffle
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public Boolean visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, Void context) {
+        // process must shuffle
+        visit(topN, context);
+
+        // If child is DistributionSpecGather, topN should forbid two-phase topN
+        if (topN.getSortPhase() == SortPhase.LOCAL_SORT
+                && childrenProperties.get(0).getDistributionSpec().equals(DistributionSpecGather.INSTANCE)) {
             return false;
         }
         return true;
