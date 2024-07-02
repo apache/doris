@@ -3257,17 +3257,12 @@ public class Env {
             boolean getDdlForSync, List<Long> partitionId) {
         // replicationNum
         ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
-        if (Config.isCloudMode()) {
-            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
-            sb.append(olapTable.getTTLSeconds()).append("\"");
-        } else {
-            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
-            sb.append(replicaAlloc.toCreateStmt()).append("\"");
+        sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
+        sb.append(replicaAlloc.toCreateStmt()).append("\"");
 
-            // min load replica num
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM).append("\" = \"");
-            sb.append(olapTable.getMinLoadReplicaNum()).append("\"");
-        }
+        // min load replica num
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM).append("\" = \"");
+        sb.append(olapTable.getMinLoadReplicaNum()).append("\"");
 
         // bloom filter
         Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
@@ -3313,11 +3308,6 @@ public class Env {
         // only display z-order sort info
         if (olapTable.isZOrderSort()) {
             sb.append(olapTable.getDataSortInfo().toSql());
-        }
-
-        if (olapTable.getTTLSeconds() != 0) {
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
-            sb.append(olapTable.getTTLSeconds()).append("\"");
         }
 
         // in memory
@@ -3386,14 +3376,8 @@ public class Env {
 
         // store row column
         if (olapTable.storeRowColumn()) {
-            List<String> rsColumnNames = olapTable.getTableProperty().getCopiedRowStoreColumns();
-            if (rsColumnNames != null && !rsColumnNames.isEmpty()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS).append("\" = \"");
-                sb.append(Joiner.on(",").join(rsColumnNames)).append("\"");
-            } else {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
-                sb.append(olapTable.storeRowColumn()).append("\"");
-            }
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
+            sb.append(olapTable.storeRowColumn()).append("\"");
         }
 
         // skip inverted index on load
@@ -3447,13 +3431,6 @@ public class Env {
             sb.append(",\n\"").append(PropertyAnalyzer
                     .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
             sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
-        }
-
-        // Storage Vault
-        if (!olapTable.getStorageVaultName().isEmpty()) {
-            sb.append(",\n\"").append(PropertyAnalyzer
-                    .PROPERTIES_STORAGE_VAULT_NAME).append("\" = \"");
-            sb.append(olapTable.getStorageVaultName()).append("\"");
         }
 
         // disable auto compaction
