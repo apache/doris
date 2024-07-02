@@ -18,11 +18,9 @@
 #include "io/cache/block/cached_remote_file_reader.h"
 
 #include <fmt/format.h>
-#include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <string.h>
 
-#include <algorithm>
 #include <list>
 #include <vector>
 
@@ -33,7 +31,6 @@
 #include "io/cache/block/block_file_segment.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
-#include "util/bit_util.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 
@@ -89,12 +86,9 @@ std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
         align_right = (right / config::file_cache_max_file_segment_size + 1) *
                       config::file_cache_max_file_segment_size;
     } else {
-        size_t segment_size =
-                std::min(std::max(read_size, (size_t)config::file_cache_min_file_segment_size),
-                         (size_t)config::file_cache_max_file_segment_size);
-        segment_size = BitUtil::next_power_of_two(segment_size);
-        align_left = (left / segment_size) * segment_size;
-        align_right = (right / segment_size + 1) * segment_size;
+        size_t segment_size = std::max(read_size, (size_t)config::file_cache_min_file_segment_size);
+        align_left = left;
+        align_right = left + segment_size;
     }
     align_right = align_right < size() ? align_right : size();
     size_t align_size = align_right - align_left;
@@ -149,7 +143,7 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
         empty_start = empty_segments.front()->range().left;
         empty_end = empty_segments.back()->range().right;
         size_t size = empty_end - empty_start + 1;
-        std::unique_ptr<char[]> buffer(new char[size]);
+        std::shared_ptr<char[]> buffer(new char[size]);
         {
             SCOPED_RAW_TIMER(&stats.remote_read_timer);
             RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
@@ -160,10 +154,9 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
                 continue;
             }
             SCOPED_RAW_TIMER(&stats.local_write_timer);
-            char* cur_ptr = buffer.get() + segment->range().left - empty_start;
             size_t segment_size = segment->range().size();
-            RETURN_IF_ERROR(segment->append(Slice(cur_ptr, segment_size)));
-            RETURN_IF_ERROR(segment->finalize_write());
+            RETURN_IF_ERROR(segment->async_write(buffer, segment->range().left - empty_start,
+                                                 segment_size));
             stats.bytes_write_into_file_cache += segment_size;
         }
         // copy from memory directly

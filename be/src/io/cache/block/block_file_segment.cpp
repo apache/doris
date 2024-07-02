@@ -31,6 +31,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 namespace io {
@@ -42,6 +43,7 @@ FileBlock::FileBlock(size_t offset_, size_t size_, const Key& key_, IFileCache* 
           _file_key(key_),
           _cache(cache_),
           _cache_type(cache_type) {
+    _async_write_pool = ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool();
     /// On creation, file segment state can be EMPTY, DOWNLOADED, DOWNLOADING.
     switch (_download_state) {
     /// EMPTY is used when file segment is not in cache and
@@ -132,7 +134,7 @@ void FileBlock::reset_downloader(std::lock_guard<std::mutex>& segment_lock) {
 void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& segment_lock) {
     if (_downloaded_size == range().size()) {
         static_cast<void>(set_downloaded(segment_lock));
-    } else {
+    } else if (_download_state != State::DOWNLOADING) {
         _downloaded_size = 0;
         _download_state = State::EMPTY;
         _downloader_id.clear();
@@ -152,6 +154,24 @@ bool FileBlock::is_downloader() const {
 
 bool FileBlock::is_downloader_impl(std::lock_guard<std::mutex>& /* segment_lock */) const {
     return get_caller_id() == _downloader_id;
+}
+
+Status FileBlock::async_write(std::shared_ptr<char[]> buffer, size_t offset, size_t length) {
+    return _async_write_pool->submit_func(
+            [block_ptr = shared_from_this(), buffer_ptr = buffer, off = offset, size = length]() {
+                if (!block_ptr->_status) {
+                    return;
+                }
+                Status append_st = block_ptr->append(Slice(buffer_ptr.get() + off, size));
+                if (!append_st) {
+                    block_ptr->_status = append_st;
+                    return;
+                }
+                Status final_st = block_ptr->finalize_write();
+                if (!final_st) {
+                    block_ptr->_status = final_st;
+                }
+            });
 }
 
 Status FileBlock::append(Slice data) {
@@ -180,7 +200,9 @@ std::string FileBlock::get_path_in_local_cache() const {
 }
 
 Status FileBlock::read_at(Slice buffer, size_t read_offset) {
-    Status st = Status::OK();
+    if (!_status) {
+        return _status;
+    }
     std::shared_ptr<FileReader> reader;
     if (!(reader = _cache_reader.lock())) {
         std::lock_guard<std::mutex> lock(_mutex);
@@ -194,7 +216,7 @@ Status FileBlock::read_at(Slice buffer, size_t read_offset) {
     size_t bytes_reads = buffer.size;
     RETURN_IF_ERROR(reader->read_at(read_offset, buffer, &bytes_reads));
     DCHECK(bytes_reads == buffer.size);
-    return st;
+    return Status::OK();
 }
 
 bool FileBlock::change_cache_type(CacheType new_type) {

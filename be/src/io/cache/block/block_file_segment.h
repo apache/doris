@@ -35,6 +35,7 @@
 #include "io/cache/block/block_file_cache.h"
 #include "io/fs/file_writer.h"
 #include "util/slice.h"
+#include "util/threadpool.h"
 
 namespace doris {
 namespace io {
@@ -45,7 +46,7 @@ class FileReader;
 using FileBlockSPtr = std::shared_ptr<FileBlock>;
 using FileBlocks = std::list<FileBlockSPtr>;
 
-class FileBlock {
+class FileBlock : public std::enable_shared_from_this<FileBlock> {
     friend class LRUFileCache;
     friend struct FileBlocksHolder;
 
@@ -106,6 +107,8 @@ public:
 
     State wait();
 
+    Status async_write(std::shared_ptr<char[]> buffer, size_t offset, size_t length);
+
     // append data to cache file
     Status append(Slice data);
 
@@ -159,6 +162,8 @@ private:
 
     void reset_downloader_impl(std::lock_guard<std::mutex>& segment_lock);
 
+    ThreadPool* _async_write_pool;
+
     const Range _segment_range;
 
     State _download_state;
@@ -190,6 +195,7 @@ private:
 
     std::atomic<bool> _is_downloaded {false};
     CacheType _cache_type;
+    Status _status = Status::OK();
 };
 
 struct FileBlocksHolder {
