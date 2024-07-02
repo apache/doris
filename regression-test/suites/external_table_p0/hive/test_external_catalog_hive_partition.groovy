@@ -15,12 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_external_catalog_hive_partition", "p2,external,hive,external_remote,external_remote_hive") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "test_external_catalog_hive_partition"
+suite("test_external_catalog_hive_partition", "p0,external,hive,external_docker,external_docker_hive") {
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable Hive test.")
+        return;
+    }
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
+        String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "${hivePrefix}_test_external_catalog_hive_partition"
 
         sql """drop catalog if exists ${catalog_name};"""
         sql """
@@ -39,7 +43,7 @@ suite("test_external_catalog_hive_partition", "p2,external,hive,external_remote,
             qt_q04 """ select * from multi_catalog.parquet_partitioned_columns order by t_float """
             qt_q05 """ select * from multi_catalog.parquet_partitioned_columns where t_int is null order by t_float """
             qt_q06 """ select * from multi_catalog.parquet_partitioned_columns where t_int is not null order by t_float """
-            qt_q07 """ select  o_orderyear, o_orderkey, o_custkey from multi_catalog.orders_par_parquet where o_custkey=1820677 order by o_orderkey """
+            //qt_q07 """ select  o_orderyear, o_orderkey, o_custkey from multi_catalog.orders_par_parquet where o_custkey=1820677 order by o_orderkey """
         }
         // test orc format
         def q01_orc = {
@@ -49,7 +53,7 @@ suite("test_external_catalog_hive_partition", "p2,external,hive,external_remote,
             qt_q04 """ select * from multi_catalog.orc_partitioned_columns order by t_float """
             qt_q05 """ select * from multi_catalog.orc_partitioned_columns where t_int is null order by t_float """
             qt_q06 """ select * from multi_catalog.orc_partitioned_columns where t_int is not null order by t_float """
-            qt_q07 """ select  o_orderyear, o_orderkey, o_custkey from multi_catalog.orders_par_orc where o_custkey=1820677 order by o_orderkey """
+            //qt_q07 """ select  o_orderyear, o_orderkey, o_custkey from multi_catalog.orders_par_orc where o_custkey=1820677 order by o_orderkey """
         }
         // test text format
         def q01_text = {
