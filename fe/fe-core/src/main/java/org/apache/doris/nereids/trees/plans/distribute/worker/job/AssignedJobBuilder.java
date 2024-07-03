@@ -45,9 +45,8 @@ public class AssignedJobBuilder {
             List<AssignedJob> fragmentAssignedJobs =
                     unassignedJob.computeAssignedJobs(workerManager, inputAssignedJobs);
             if (fragmentAssignedJobs.isEmpty()) {
-                throw new IllegalStateException("Fragment " + fragmentId + " has no instance, unassignedJob: "
-                        + unassignedJob + ", fragment: "
-                        + unassignedJob.getFragment().getExplainString(TExplainLevel.VERBOSE));
+                throw new IllegalStateException("Fragment has no instance, unassignedJob: " + unassignedJob
+                        + ", fragment: " + unassignedJob.getFragment().getExplainString(TExplainLevel.VERBOSE));
             }
             allAssignedJobs.putAll(fragmentId, fragmentAssignedJobs);
         }
