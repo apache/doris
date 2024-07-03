@@ -22,6 +22,7 @@ suite("test_jsonb_with_unescaped_string", "p0") {
     // define a sql table with array<text> which has some Escape Character and should also to cast to json
     def testTable = "tbl_unescaped_jsonb"
     def dataFile = "test_jsonb_unescaped.csv"
+    def dataFileJson = "test_jsonb_unescaped.json"
 
     sql """ set experimental_enable_nereids_planner = true """
     sql """ set enable_fallback_to_original_planner = true """
@@ -63,5 +64,36 @@ suite("test_jsonb_with_unescaped_string", "p0") {
     sql """ sync; """
 
     // check result
-    qt_select "SELECT * FROM ${testTable} ORDER BY id"
+    qt_select_csv "SELECT * FROM ${testTable} ORDER BY id"
+
+    sql "truncate table ${testTable}"
+    // load the jsonb data from json file
+    streamLoad {
+        table testTable
+
+        file dataFileJson // import json file
+        time 10000 // limit inflight 10s
+        set 'format', 'json' // import format
+        set 'read_json_by_line', 'true' // read json by line
+        set 'strict_mode', 'true'
+
+        // if declared a check callback, the default check condition will ignore.
+        // So you must check all condition
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(5, json.NumberTotalRows)
+            assertEquals(5, json.NumberLoadedRows)
+            assertTrue(json.LoadBytes > 0)
+        }
+    }
+
+
+    sql """ sync; """
+
+    // check result
+    qt_select_json "SELECT * FROM ${testTable} ORDER BY id"
 }
