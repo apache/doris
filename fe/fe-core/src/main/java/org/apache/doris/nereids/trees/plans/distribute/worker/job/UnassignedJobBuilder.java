@@ -29,10 +29,12 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Maps;
 
@@ -97,9 +99,15 @@ public class UnassignedJobBuilder {
             // e.g. select 100 union select 200
             unassignedJob = buildQueryConstantJob(planFragment);
         } else if (olapScanNodeNum == 0) {
-            // only scan external tables or cloud tables or table valued functions
-            // e,g. select * from numbers('number'='100')
-            unassignedJob = buildScanRemoteTableJob(planFragment, scanNodes, inputJobs, scanWorkerSelector);
+            ScanNode scanNode = scanNodes.get(0);
+            if (scanNode instanceof SchemaScanNode) {
+                // select * from information_schema.tables
+                unassignedJob = buildScanMetadataJob(planFragment, (SchemaScanNode) scanNode);
+            } else {
+                // only scan external tables or cloud tables or table valued functions
+                // e,g. select * from numbers('number'='100')
+                unassignedJob = buildScanRemoteTableJob(planFragment, scanNodes, inputJobs, scanWorkerSelector);
+            }
         }
 
         if (unassignedJob != null) {
@@ -152,6 +160,11 @@ public class UnassignedJobBuilder {
 
     private UnassignedQueryConstantJob buildQueryConstantJob(PlanFragment planFragment) {
         return new UnassignedQueryConstantJob(planFragment);
+    }
+
+    private UnassignedJob buildScanMetadataJob(
+            PlanFragment fragment, SchemaScanNode schemaScanNode) {
+        return new UnassignedScanMetadataJob(fragment, ImmutableList.of(schemaScanNode));
     }
 
     private UnassignedJob buildScanRemoteTableJob(
