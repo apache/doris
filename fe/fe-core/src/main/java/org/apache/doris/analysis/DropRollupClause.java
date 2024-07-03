@@ -54,6 +54,11 @@ public class DropRollupClause extends AlterTableClause {
     }
 
     @Override
+    public boolean needChangeMTMVState() {
+        return false;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP ROLLUP ");
