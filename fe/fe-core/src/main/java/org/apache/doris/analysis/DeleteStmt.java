@@ -52,7 +52,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-public class DeleteStmt extends DdlStmt {
+@Deprecated
+public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final List<ExprRewriteRule> EXPR_NORMALIZE_RULES = ImmutableList.of(
             BetweenToCompoundRule.INSTANCE
