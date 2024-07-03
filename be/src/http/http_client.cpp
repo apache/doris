@@ -66,7 +66,7 @@ HttpClient::~HttpClient() {
     }
 }
 
-Status HttpClient::init(const std::string& url) {
+Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
     if (_curl == nullptr) {
         _curl = curl_easy_init();
         if (_curl == nullptr) {
@@ -94,10 +94,12 @@ Status HttpClient::init(const std::string& url) {
         return Status::InternalError("fail to set CURLOPT_NOSIGNAL");
     }
     // set fail on error
-    code = curl_easy_setopt(_curl, CURLOPT_FAILONERROR, 1L);
-    if (code != CURLE_OK) {
-        LOG(WARNING) << "fail to set CURLOPT_FAILONERROR, msg=" << _to_errmsg(code);
-        return Status::InternalError("fail to set CURLOPT_FAILONERROR");
+    if (set_fail_on_error) {
+        code = curl_easy_setopt(_curl, CURLOPT_FAILONERROR, 1L);
+        if (code != CURLE_OK) {
+            LOG(WARNING) << "fail to set CURLOPT_FAILONERROR, msg=" << _to_errmsg(code);
+            return Status::InternalError("fail to set CURLOPT_FAILONERROR");
+        }
     }
     // set redirect
     code = curl_easy_setopt(_curl, CURLOPT_FOLLOWLOCATION, 1L);

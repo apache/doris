@@ -139,11 +139,12 @@ ESScanReader::~ESScanReader() {}
 
 Status ESScanReader::open() {
     _is_first = true;
+    bool set_fail_on_error = false;
     if (_exactly_once) {
-        RETURN_IF_ERROR(_network_client.init(_search_url));
+        RETURN_IF_ERROR(_network_client.init(_search_url, set_fail_on_error));
         LOG(INFO) << "search request URL: " << _search_url;
     } else {
-        RETURN_IF_ERROR(_network_client.init(_init_scroll_url));
+        RETURN_IF_ERROR(_network_client.init(_init_scroll_url, set_fail_on_error));
         LOG(INFO) << "First scroll request URL: " << _init_scroll_url;
     }
     _network_client.set_basic_auth(_user_name, _passwd);
@@ -156,7 +157,8 @@ Status ESScanReader::open() {
     Status status = _network_client.execute_post_request(_query, &_cached_response);
     if (!status.ok() || _network_client.get_http_status() != 200) {
         std::stringstream ss;
-        ss << "Failed to connect to ES server, errmsg is: " << status;
+        ss << "Failed to connect to ES server, errmsg is: " << status
+           << ", response: " << _cached_response;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -179,7 +181,8 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         if (_exactly_once) {
             return Status::OK();
         }
-        RETURN_IF_ERROR(_network_client.init(_next_scroll_url));
+        bool set_fail_on_error = false;
+        RETURN_IF_ERROR(_network_client.init(_next_scroll_url, set_fail_on_error));
         _network_client.set_basic_auth(_user_name, _passwd);
         _network_client.set_content_type("application/json");
         _network_client.set_timeout_ms(_http_timeout_ms);
@@ -235,7 +238,8 @@ Status ESScanReader::close() {
     }
 
     std::string scratch_target = _target + REQUEST_SEARCH_SCROLL_PATH;
-    RETURN_IF_ERROR(_network_client.init(scratch_target));
+    bool set_fail_on_error = false;
+    RETURN_IF_ERROR(_network_client.init(scratch_target, set_fail_on_error));
     _network_client.set_basic_auth(_user_name, _passwd);
     _network_client.set_method(DELETE);
     _network_client.set_content_type("application/json");
