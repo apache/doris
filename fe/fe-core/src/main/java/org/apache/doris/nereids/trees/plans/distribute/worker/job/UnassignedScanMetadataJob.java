@@ -21,7 +21,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWor
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -33,9 +33,11 @@ import java.util.List;
 
 /** UnassignedScanMetadataJob */
 public class UnassignedScanMetadataJob extends AbstractUnassignedJob {
-    public UnassignedScanMetadataJob(PlanFragment fragment,
-            List<ScanNode> scanNodes) {
-        super(fragment, scanNodes, ArrayListMultimap.create());
+    private final SchemaScanNode schemaScanNode;
+
+    public UnassignedScanMetadataJob(PlanFragment fragment, SchemaScanNode schemaScanNode) {
+        super(fragment, ImmutableList.of(schemaScanNode), ArrayListMultimap.create());
+        this.schemaScanNode = schemaScanNode;
     }
 
     @Override
@@ -47,5 +49,14 @@ public class UnassignedScanMetadataJob extends AbstractUnassignedJob {
         return ImmutableList.of(
                 assignWorkerAndDataSources(0, instanceId, randomAvailableWorker, DefaultScanSource.empty())
         );
+    }
+
+    @Override
+    public String toString() {
+        return getClass().getSimpleName() + "(tableName="
+                + schemaScanNode.getSchemaCatalog()
+                + "." + schemaScanNode.getSchemaDb()
+                + "." + schemaScanNode.getTableName()
+                + ")";
     }
 }

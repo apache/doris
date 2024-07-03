@@ -35,7 +35,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExplainLevel;
 
 import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Maps;
 
@@ -165,7 +164,7 @@ public class UnassignedJobBuilder {
 
     private UnassignedJob buildScanMetadataJob(
             PlanFragment fragment, SchemaScanNode schemaScanNode) {
-        return new UnassignedScanMetadataJob(fragment, ImmutableList.of(schemaScanNode));
+        return new UnassignedScanMetadataJob(fragment, schemaScanNode);
     }
 
     private UnassignedJob buildScanRemoteTableJob(
