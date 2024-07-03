@@ -78,7 +78,7 @@
         "type"="JAVA_UDF"
     ); """
 
-    sql """ CREATE GLOBAL FUNCTION java_udf_int_test_global(int) RETURNS int PROPERTIES (
+    sql """ CREATE GLOBAL FUNCTION java_udf_int_test_global_2(int) RETURNS int PROPERTIES (
         "file"="file://${jarPath}",
         "symbol"="org.apache.doris.udf.IntTest",
         "type"="JAVA_UDF"
