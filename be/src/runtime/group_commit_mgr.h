@@ -168,9 +168,7 @@ private:
     Status _create_group_commit_load(int be_exe_version,
                                      std::shared_ptr<MemTrackerLimiter> mem_tracker);
     Status _exec_plan_fragment(int64_t db_id, int64_t table_id, const std::string& label,
-                               int64_t txn_id, bool is_pipeline,
-                               const TExecPlanFragmentParams& params,
-                               const TPipelineFragmentParams& pipeline_params);
+                               int64_t txn_id, const TPipelineFragmentParams& pipeline_params);
     Status _finish_group_commit_load(int64_t db_id, int64_t table_id, const std::string& label,
                                      int64_t txn_id, const TUniqueId& instance_id, Status& status,
                                      RuntimeState* state);
@@ -187,6 +185,7 @@ private:
     // fragment_instance_id to load_block_queue
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
     bool _is_creating_plan_fragment = false;
+    std::vector<std::shared_ptr<pipeline::Dependency>> _create_plan_deps;
 };
 
 class GroupCommitMgr {

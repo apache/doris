@@ -162,6 +162,10 @@ public class Config extends ConfigBase {
             "MySQL Jdbc Catalog mysql does not support pushdown functions"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
+    @ConfField(description = {"强制 SQLServer Jdbc Catalog 加密为 false",
+            "Force SQLServer Jdbc Catalog encrypt to false"})
+    public static boolean force_sqlserver_jdbc_encrypt_false = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 8;
@@ -1944,16 +1948,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static long max_hive_partition_cache_num = 100000;
 
-    @ConfField(mutable = false, masterOnly = false, description = {"Hive表到分区名列表缓存的最大数量。",
-        "Max cache number of hive table to partition names list."})
+    @ConfField(mutable = false, masterOnly = false, description = {"Hive表名缓存的最大数量。",
+            "Max cache number of hive table name list."})
     public static long max_hive_table_cache_num = 1000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "Hive分区表缓存的最大数量", "Max cache number of hive partition table"
+    })
+    public static long max_hive_partition_table_cache_num = 1000;
+
     @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
-        "Max number of hive partition values to return while list partitions, -1 means no limitation."})
+            "Max number of hive partition values to return while list partitions, -1 means no limitation."})
     public static short max_hive_list_partition_num = -1;
 
     @ConfField(mutable = false, masterOnly = false, description = {"远程文件系统缓存的最大数量",
-        "Max cache number of remote file system."})
+            "Max cache number of remote file system."})
     public static long max_remote_file_system_cache_num = 100;
 
     @ConfField(mutable = false, masterOnly = false, description = {"外表行数缓存最大数量",
@@ -2618,6 +2627,15 @@ public class Config extends ConfigBase {
             "Default storage format of inverted index, the default value is V1."
     })
     public static String inverted_index_storage_format = "V2";
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
+                    + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
+            "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
+                    + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
+                    + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."
+    })
+    public static boolean enable_mow_delete_on_predicate = false;
 
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",

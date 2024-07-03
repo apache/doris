@@ -54,11 +54,6 @@ namespace doris::pipeline {
     }
 
 template <typename Derived>
-bool ScanLocalState<Derived>::ready_to_read() {
-    return !_scanner_ctx->empty_in_queue(0);
-}
-
-template <typename Derived>
 bool ScanLocalState<Derived>::should_run_serial() const {
     return _parent->cast<typename Derived::Parent>()._should_run_serial;
 }
@@ -1298,7 +1293,6 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
-    _prefilter_timer = ADD_TIMER(_scanner_profile, "ScannerPrefilterTime");
     _convert_block_timer = ADD_TIMER(_scanner_profile, "ScannerConvertBlockTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
 

@@ -187,12 +187,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation, qualifiedTableName);
         List<Long> tabletIds = unboundRelation.getTabletIds();
-        if (!CollectionUtils.isEmpty(partIds)) {
+        if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, qualifiedTableName, partIds,
                     tabletIds, unboundRelation.getHints(), unboundRelation.getTableSample());
         } else {
             Optional<String> indexName = unboundRelation.getIndexName();
+            // For direct mv scan.
             if (indexName.isPresent()) {
                 OlapTable olapTable = (OlapTable) table;
                 Long indexId = olapTable.getIndexIdByName(indexName.get());
@@ -204,8 +205,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         : PreAggStatus.off("For direct index scan on mor/agg.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifiedTableName, tabletIds, indexId,
-                    preAggStatus, unboundRelation.getHints(), unboundRelation.getTableSample());
+                    (OlapTable) table, qualifiedTableName, tabletIds,
+                    CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() : partIds, indexId,
+                    preAggStatus, CollectionUtils.isEmpty(partIds) ? ImmutableList.of() : partIds,
+                    unboundRelation.getHints(), unboundRelation.getTableSample());
             } else {
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, qualifiedTableName, tabletIds, unboundRelation.getHints(),
@@ -344,7 +347,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(), () -> {
-            viewContext.newAnalyzer(true, customTableResolver).analyze();
+            viewContext.newAnalyzer(customTableResolver).analyze();
         });
         parentContext.addPlanProcesses(viewContext.getPlanProcesses());
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict

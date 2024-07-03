@@ -67,6 +67,15 @@ template <typename T>
 T index_check_const(T arg, bool constancy) noexcept {
     return constancy ? 0 : arg;
 }
+template <bool is_const, typename T>
+    requires std::is_integral_v<T>
+constexpr T index_check_const(T arg) noexcept {
+    if constexpr (is_const) {
+        return 0;
+    } else {
+        return arg;
+    }
+}
 
 /*
  * @return first : data_column_ptr for ColumnConst, itself otherwise.

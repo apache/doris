@@ -266,6 +266,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CleanTrashTask;
+import org.apache.doris.task.CleanUDFCacheTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
@@ -290,6 +291,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -1588,8 +1590,15 @@ public class Env {
                                 SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
                     }
                 }
-                if (journalVersion <= FeMetaVersion.VERSION_133) {
-                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                if (journalVersion <= FeMetaVersion.VERSION_129) {
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0", SessionVariable.ENABLE_NEREIDS_PLANNER,
+                            "true");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0", SessionVariable.ENABLE_NEREIDS_DML,
+                            "true");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0",
+                            SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
+                            "false");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0",
                             SessionVariable.ENABLE_MATERIALIZED_VIEW_REWRITE,
                             "true");
                 }
@@ -3446,7 +3455,7 @@ public class Env {
 
         // inverted index storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
-        sb.append(olapTable.getInvertedIndexStorageFormat()).append("\"");
+        sb.append(olapTable.getInvertedIndexFileStorageFormat()).append("\"");
 
         // compression type
         if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
@@ -3584,6 +3593,13 @@ public class Env {
         // group commit data bytes
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
         sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
+
+        // enable delete on delete predicate
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)
+                    .append("\" = \"");
+            sb.append(olapTable.getEnableDeleteOnDeletePredicate()).append("\"");
+        }
 
         // enable duplicate without keys by default
         if (olapTable.isDuplicateWithoutKey()) {
@@ -4621,7 +4637,8 @@ public class Env {
                 db.unregisterTable(oldTableName);
                 db.registerTable(table);
 
-                TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
+                TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), oldTableName,
+                        newTableName);
                 editLog.logTableRename(tableInfo);
                 LOG.info("rename table[{}] to {}", oldTableName, newTableName);
             } finally {
@@ -4808,7 +4825,8 @@ public class Env {
             indexNameToIdMap.put(newRollupName, indexId);
 
             // log
-            TableInfo tableInfo = TableInfo.createForRollupRename(db.getId(), table.getId(), indexId, newRollupName);
+            TableInfo tableInfo = TableInfo.createForRollupRename(db.getId(), table.getId(), indexId,
+                    rollupName, newRollupName);
             editLog.logRollupRename(tableInfo);
             LOG.info("rename rollup[{}] to {}", rollupName, newRollupName);
         } finally {
@@ -4867,7 +4885,7 @@ public class Env {
 
             // log
             TableInfo tableInfo = TableInfo.createForPartitionRename(db.getId(), table.getId(), partition.getId(),
-                    newPartitionName);
+                    partitionName, newPartitionName);
             editLog.logPartitionRename(tableInfo);
             LOG.info("rename partition[{}] to {}", partitionName, newPartitionName);
         } finally {
@@ -5568,8 +5586,10 @@ public class Env {
      * otherwise, it will only truncate those specified partitions.
      *
      */
-    public void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException {
-        getInternalCatalog().truncateTable(truncateTableStmt);
+    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getTblRef().getName().getCtl(),
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.truncateTable(stmt);
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
@@ -5612,6 +5632,7 @@ public class Env {
             Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
             db.dropFunction(stmt.getFunction(), stmt.isIfExists());
         }
+        cleanUDFCacheTask(stmt); // BE will cache classload, when drop function, BE need clear cache
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
@@ -6102,6 +6123,18 @@ public class Env {
             CleanTrashTask cleanTrashTask = new CleanTrashTask(backend.getId());
             batchTask.addTask(cleanTrashTask);
             LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
+        }
+        AgentTaskExecutor.submit(batchTask);
+    }
+
+    public void cleanUDFCacheTask(DropFunctionStmt stmt) {
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
+        String functionSignature = stmt.signatureString();
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (Backend backend : backendsInfo.values()) {
+            CleanUDFCacheTask cleanUDFCacheTask = new CleanUDFCacheTask(backend.getId(), functionSignature);
+            batchTask.addTask(cleanUDFCacheTask);
+            LOG.info("clean udf cache in be {}, beId {}", backend.getHost(), backend.getId());
         }
         AgentTaskExecutor.submit(batchTask);
     }
