@@ -875,6 +875,10 @@ public class StatisticsUtil {
         return GlobalVariable.partitionAnalyzeBatchSize;
     }
 
+    public static boolean enableRecordPartitionUpdateRows() {
+        return GlobalVariable.enableRecordPartitionUpdateRows;
+    }
+
     public static long getHugeTableAutoAnalyzeIntervalInMillis() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)

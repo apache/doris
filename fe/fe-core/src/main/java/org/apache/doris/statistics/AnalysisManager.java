@@ -1208,7 +1208,7 @@ public class AnalysisManager implements Writable {
                         tableUpdateRows += entry.getValue() / replicaNum;
                     }
                     statsStatus.updatedRows.addAndGet(tableUpdateRows);
-                    if (StatisticsUtil.enablePartitionAnalyze()) {
+                    if (StatisticsUtil.enableRecordPartitionUpdateRows()) {
                         updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);
                     }
                 }

@@ -65,6 +65,7 @@ public final class GlobalVariable {
 
     public static final String PARTITION_ANALYZE_BATCH_SIZE = "partition_analyze_batch_size";
     public static final String HUGE_PARTITION_LOWER_BOUND_ROWS = "huge_partition_lower_bound_rows";
+    public static final String ENABLE_RECORD_PARTITION_UPDATE_ROWS = "enable_record_partition_update_rows";
 
     public static final String ENABLE_FETCH_ICEBERG_STATS = "enable_fetch_iceberg_stats";
 
@@ -178,6 +179,12 @@ public final class GlobalVariable {
                 "当HMS catalog中的Iceberg表没有统计信息时，是否通过Iceberg Api获取统计信息",
                 "Enable fetch stats for HMS Iceberg table when it's not analyzed."})
     public static boolean enableFetchIcebergStats = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_RECORD_PARTITION_UPDATE_ROWS, flag = VariableMgr.GLOBAL,
+            description = {
+                "在导入完成时是否记录每个分区的行数变更量",
+                "Enable record partition level update rows when load job finished."})
+    public static boolean enableRecordPartitionUpdateRows = true;
 
     // Don't allow creating instance.
     private GlobalVariable() {
