@@ -32,6 +32,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TExplainLevel;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -114,9 +115,8 @@ public class UnassignedJobBuilder {
             return unassignedJob;
         }
 
-        throw new IllegalStateException(
-                "Unsupported fragment which contains multiple scan nodes and some of them are not OlapScanNode"
-        );
+        throw new IllegalStateException("Unsupported build UnassignedJob for fragment: "
+                + planFragment.getExplainString(TExplainLevel.VERBOSE));
     }
 
     private UnassignedJob buildSpecifyInstancesJob(
