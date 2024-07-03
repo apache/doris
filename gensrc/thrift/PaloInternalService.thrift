@@ -316,6 +316,8 @@ struct TQueryOptions {
   117: optional bool read_csv_empty_line_as_null = false;
 
   118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
+
+  119: optional bool enable_exchange_pass_through = false;
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

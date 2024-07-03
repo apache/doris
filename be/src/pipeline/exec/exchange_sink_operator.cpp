@@ -367,7 +367,8 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 Status status;
                 for (auto* channel : local_state.channels) {
                     if (!channel->is_receiver_eof()) {
-                        status = channel->send_local_block(block);
+                        status = channel->send_local_block(block,
+                                                           state->enable_exchange_pass_through());
                         HANDLE_CHANNEL_STATUS(state, channel, status);
                     }
                 }

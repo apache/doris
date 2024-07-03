@@ -355,6 +355,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_LOCAL_EXCHANGE = "enable_local_exchange";
 
+    public static final String ENABLE_EXCHANGE_PASS_THROUGH = "enable_exchange_pass_through";
+
     public static final String SKIP_STORAGE_ENGINE_MERGE = "skip_storage_engine_merge";
 
     public static final String SKIP_DELETE_PREDICATE = "skip_delete_predicate";
@@ -1326,6 +1328,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, varType = VariableAnnotation.DEPRECATED)
     public boolean enableLocalExchange = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_EXCHANGE_PASS_THROUGH, fuzzy = true, varType = VariableAnnotation.DEPRECATED)
+    private boolean enableExchangePassThrough = true;
+
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
      */
@@ -2023,6 +2028,7 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
+        this.enableExchangePassThrough = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
@@ -3489,6 +3495,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
         tResult.setEnableLocalExchange(enableLocalExchange);
+        tResult.setEnableExchangePassThrough(enableExchangePassThrough);
 
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
 
