@@ -130,7 +130,7 @@ public class NereidsPlanner extends Planner {
         setParsedPlan(parsedPlan);
 
         PhysicalProperties requireProperties = buildInitRequireProperties();
-        statementContext.getStopwatch().start();
+        statementContext.getStopwatch().reset().start();
         Plan resultPlan = null;
         try {
             boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
