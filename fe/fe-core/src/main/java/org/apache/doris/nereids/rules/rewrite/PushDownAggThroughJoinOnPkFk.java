@@ -98,7 +98,8 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
             if (primaryAndForeign == null) {
                 continue;
             }
-            LogicalAggregate<?> newAgg = eliminatePrimaryOutput(agg, primaryAndForeign.first, primaryAndForeign.second);
+            LogicalAggregate<?> newAgg =
+                    eliminatePrimaryOutput(agg, subJoin, primaryAndForeign.first, primaryAndForeign.second);
             if (newAgg == null) {
                 return null;
             }
@@ -114,7 +115,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
     }
 
     // eliminate the slot of primary plan in agg
-    private LogicalAggregate<?> eliminatePrimaryOutput(LogicalAggregate<?> agg,
+    private LogicalAggregate<?> eliminatePrimaryOutput(LogicalAggregate<?> agg, Plan child,
             Plan primary, Plan foreign) {
         Set<Slot> aggInputs = agg.getInputSlots();
         if (primary.getOutputSet().stream().noneMatch(aggInputs::contains)) {
@@ -122,7 +123,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
         }
         Set<Slot> primaryOutputSet = primary.getOutputSet();
         Set<Slot> primarySlots = Sets.intersection(aggInputs, primaryOutputSet);
-        DataTrait dataTrait = agg.child().getLogicalProperties().getTrait();
+        DataTrait dataTrait = child.getLogicalProperties().getTrait();
         FuncDeps funcDeps = dataTrait.getAllValidFuncDeps(Sets.union(foreign.getOutputSet(), primary.getOutputSet()));
         HashMap<Slot, Slot> primaryToForeignDeps = new HashMap<>();
         for (Slot slot : primarySlots) {

@@ -28,7 +28,7 @@ import com.google.common.collect.ImmutableSet;
  */
 public interface BlockFuncDepsPropagation extends LogicalPlan {
     @Override
-    default DataTrait computeFuncDeps() {
+    default DataTrait computeDataTrait() {
         return DataTrait.EMPTY_TRAIT;
     }
 
