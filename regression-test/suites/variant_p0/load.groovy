@@ -473,6 +473,13 @@ suite("regression_test_variant", "nonConcurrent"){
         sql """insert into var_as_key values(2, '{"b" : 11}')"""
         qt_sql "select * from var_as_key order by k"
 
+        test {
+            sql """
+                SELECT "1234"["abc"]
+            """ 
+            exception("errCode = 2, detailMessage = Can not find the compatibility")
+        }
+
     } finally {
         // reset flags
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")

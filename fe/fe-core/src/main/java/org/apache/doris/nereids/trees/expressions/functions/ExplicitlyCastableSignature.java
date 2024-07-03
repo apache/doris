@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.analyzer.ComplexDataType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
@@ -49,6 +50,9 @@ public interface ExplicitlyCastableSignature extends ComputeSignature {
         }
         if (realType instanceof NullType) {
             return true;
+        }
+        if (signatureType instanceof VariantType) {
+            return false;
         }
         if (signatureType instanceof ComplexDataType && !(realType instanceof ComplexDataType)) {
             return false;
