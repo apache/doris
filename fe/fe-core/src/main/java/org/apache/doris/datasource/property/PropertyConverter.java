@@ -93,6 +93,11 @@ public class PropertyConverter {
             metaProperties = convertToDLFProperties(props, DLFProperties.getCredential(props));
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
             if (!hasS3Properties(props)) {
+                String type = props.get(CatalogMgr.CATALOG_TYPE_PROP);
+                // paimon do not need old s3 properties
+                if (type != null && type.equalsIgnoreCase(Type.PAIMON.toString())) {
+                    return props;
+                }
                 // checkout env in the end
                 // if meet AWS_XXX properties, convert to s3 properties
                 return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props), true);
