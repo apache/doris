@@ -870,7 +870,7 @@ void SystemMetrics::get_disks_io_time(std::map<std::string, int64_t>* map) {
 }
 
 double SystemMetrics::get_load_average_1_min() {
-    if (!_load_average_metrics) {
+    if (_load_average_metrics) {
         return _load_average_metrics->load_average_1_minutes->value();
     } else {
         return 0;
