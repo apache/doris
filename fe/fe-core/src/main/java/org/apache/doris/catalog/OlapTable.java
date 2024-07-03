@@ -2766,11 +2766,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // 1. Estimate tablets for a partition, 1 at least
     // 2. Pick the partition sorted with id in desc order, greater id with the newest partition
     // 3. Truncate to sampleSize
-    public List<Tablet> getSampleTablets(int sampleSize) throws AnalysisException {
+    public List<Tablet> getSampleTablets(int sampleSize) {
         List<Tablet> sampleTablets = new ArrayList<>();
-        Collection<Partition> partitions = getPartitions();
+        // Filter partition with empty data
+        Collection<Partition> partitions = getPartitions()
+                .stream()
+                .filter(partition -> partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
+                .collect(Collectors.toList());
         if (partitions.isEmpty()) {
-            throw new AnalysisException("No partitions available.");
+            return sampleTablets;
         }
         // 1. Estimate tablets for a partition, 1 at least
         int estimatePartitionTablets = Math.max(sampleSize / partitions.size(), 1);
@@ -2788,10 +2792,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         for (Partition partition : sortedPartitions) {
             List<Tablet> targetTablets = new ArrayList<>(partition.getBaseIndex().getTablets());
             Collections.shuffle(targetTablets);
-
-            // Ensure we do not exceed the available number of tablets
-            int tabletsToFetch = Math.min(targetTablets.size(), estimatePartitionTablets);
-            sampleTablets.addAll(targetTablets.subList(0, tabletsToFetch));
+            if (!targetTablets.isEmpty()) {
+                // Ensure we do not exceed the available number of tablets
+                int tabletsToFetch = Math.min(targetTablets.size(), estimatePartitionTablets);
+                sampleTablets.addAll(targetTablets.subList(0, tabletsToFetch));
+            }
 
             if (sampleTablets.size() >= sampleSize) {
                 break;
