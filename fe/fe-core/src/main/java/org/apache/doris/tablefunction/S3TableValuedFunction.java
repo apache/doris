@@ -57,6 +57,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
         final boolean isAzureTvf = AzureProperties.checkAzureProviderPropertyExist(properties);
+        // Azure could run without region
+        if (isAzureTvf) {
+            properties.put(S3Properties.REGION, "REGION");
+        }
         // 1. analyze common properties
         Map<String, String> otherProps = super.parseCommonProperties(properties);
 
@@ -79,8 +83,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         // get endpoint first from properties, if not present, get it from s3 uri.
         // If endpoint is missing, exception will be thrown.
         String endpoint = constructEndpoint(otherProps, s3uri);
-        // Azure could run without region
-        if (!otherProps.containsKey(S3Properties.REGION) && !isAzureTvf) {
+        if (!otherProps.containsKey(S3Properties.REGION)) {
             String region = s3uri.getRegion().orElseThrow(() ->
                     new AnalysisException(String.format("Properties '%s' is required.", S3Properties.REGION)));
             otherProps.put(S3Properties.REGION, region);
