@@ -381,7 +381,7 @@ public class StructInfo {
      * lazy init for performance
      */
     public EquivalenceClass getEquivalenceClass() {
-        if (this.splitPredicate == null && this.predicates != null) {
+        if (this.equivalenceClass == null && this.predicates != null) {
             Pair<SplitPredicate, EquivalenceClass> derivedPredicates = predicatesDerive(this.predicates, topPlan);
             this.splitPredicate = derivedPredicates.key();
             this.equivalenceClass = derivedPredicates.value();
