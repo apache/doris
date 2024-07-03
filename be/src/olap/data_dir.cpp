@@ -910,7 +910,7 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
         LOG(INFO) << "delete tablet dir " << tablet_path
                   << " directly due to trash_file_expire_time_sec is 0";
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_path));
-        RETURN_IF_ERROR(delete_tablet_parent_path_if_empty(tablet_path));
+        return delete_tablet_parent_path_if_empty(tablet_path);
     }
 
     Status res = Status::OK();
