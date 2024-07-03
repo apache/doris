@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <memory>
 #include <ostream>
+#include <sstream>
 #include <tuple>
 
 #include "common/exception.h"
@@ -75,7 +76,7 @@ bool VOlapTablePartKeyComparator::operator()(const BlockRowWithIndicator& lhs,
     bool l_use_new = std::get<2>(lhs);
     bool r_use_new = std::get<2>(rhs);
 
-    VLOG_TRACE << '\n' << l_block->dump_data() << '\n' << r_block->dump_data();
+    VLOG_TRACE << '\n' << l_block->dump_data(0, 1) << '\n' << r_block->dump_data(0, 1);
 
     if (l_row == -1) {
         return false;
@@ -435,6 +436,11 @@ bool VOlapTablePartitionParam::_part_contains(VOlapTablePartition* part,
 static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key, uint16_t pos) {
     auto column = std::move(*part_key->first->get_by_position(pos).column).mutate();
     //TODO: use assert_cast before insert_data
+
+    std::stringstream ss;
+    t_expr.printTo(ss);
+    VLOG_TRACE << "try create partition key" << ss.str();
+
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
         if (TypeDescriptor::from_thrift(t_expr.type).is_date_v2_type()) {
