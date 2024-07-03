@@ -729,9 +729,13 @@ Status Compaction::do_inverted_index_compaction() {
             status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
         }
     }
+
+    uint64_t inverted_index_file_size = 0;
     for (auto& inverted_index_file_writer : inverted_index_file_writers) {
         if (Status st = inverted_index_file_writer->close(); !st.ok()) {
             status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
+        } else {
+            inverted_index_file_size += inverted_index_file_writer->get_index_file_size();
         }
     }
     // check index compaction status. If status is not ok, we should return error and end this compaction round.
@@ -739,11 +743,22 @@ Status Compaction::do_inverted_index_compaction() {
         return status;
     }
 
+    // index compaction should update total disk size and index disk size
+    _output_rowset->rowset_meta()->set_data_disk_size(_output_rowset->data_disk_size() +
+                                                      inverted_index_file_size);
+    _output_rowset->rowset_meta()->set_total_disk_size(_output_rowset->data_disk_size() +
+                                                       inverted_index_file_size);
+    _output_rowset->rowset_meta()->set_index_disk_size(_output_rowset->index_disk_size() +
+                                                       inverted_index_file_size);
+
+    COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
+
     LOG(INFO) << "succeed to do index compaction"
               << ". tablet=" << _tablet->tablet_id() << ", input row number=" << _input_row_num
               << ", output row number=" << _output_rowset->num_rows()
               << ", input_rowset_size=" << _input_rowsets_size
               << ", output_rowset_size=" << _output_rowset->data_disk_size()
+              << ", inverted index file size=" << inverted_index_file_size
               << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
 
     return Status::OK();
