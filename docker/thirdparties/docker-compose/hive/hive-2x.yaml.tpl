@@ -89,7 +89,7 @@ services:
       - hive-metastore-postgresql
     healthcheck:
       test: ["CMD", "sh", "-c", "/mnt/scripts/healthy_check.sh"]
-      interval: 10s
+      interval: 20s
       timeout: 60s
       retries: 120
     network_mode: "host"
@@ -101,7 +101,7 @@ services:
       - "${PG_PORT}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
+      interval: 10s
       timeout: 60s
       retries: 120
 

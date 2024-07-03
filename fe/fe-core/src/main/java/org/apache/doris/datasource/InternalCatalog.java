@@ -136,6 +136,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -1263,7 +1264,19 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (resultExpr.getSrcSlotRef() != null
                             && resultExpr.getSrcSlotRef().getTable() != null
                             && !resultExpr.getSrcSlotRef().getTable().isManagedTable()) {
-                        typeDef = new TypeDef(ScalarType.createStringType());
+                        if (createTableStmt.getPartitionDesc().inIdentifierPartitions(
+                                resultExpr.getSrcSlotRef().getColumnName())
+                                || (createTableStmt.getDistributionDesc() != null
+                                && createTableStmt.getDistributionDesc().inDistributionColumns(
+                                        resultExpr.getSrcSlotRef().getColumnName()))) {
+                            // String type can not be used in partition/distributed column
+                            // so we replace it to varchar
+                            if (resultType.getPrimitiveType() == PrimitiveType.STRING) {
+                                typeDef = new TypeDef(ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH));
+                            }
+                        } else {
+                            typeDef = new TypeDef(ScalarType.createStringType());
+                        }
                     }
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
@@ -3090,6 +3103,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         OlapTable olapTable = db.getOlapTableOrDdlException(dbTbl.getTbl());
 
         long rowsToTruncate = 0;
+        if (olapTable instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ConnectContext.get())) {
+            throw new DdlException("Not allowed to perform current operation on async materialized view");
+        }
 
         BinlogConfig binlogConfig;
         olapTable.readLock();

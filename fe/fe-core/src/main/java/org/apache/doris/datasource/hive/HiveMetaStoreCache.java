@@ -136,16 +136,16 @@ public class HiveMetaStoreCache {
      **/
     private void init() {
         CacheFactory partitionValuesCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
+                OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                Config.max_hive_table_cache_num,
+                Config.max_hive_partition_table_cache_num,
                 false,
                 null);
         partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), null,
                 refreshExecutor);
 
         CacheFactory partitionCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
+                OptionalLong.of(28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_hive_partition_cache_num,
                 false,

@@ -671,6 +671,8 @@ DEFINE_Int32(flush_thread_num_per_store, "6");
 // number of thread for flushing memtable per store, for high priority load task
 DEFINE_Int32(high_priority_flush_thread_num_per_store, "6");
 
+DEFINE_Int32(wg_flush_thread_num_per_store, "6");
+
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
 DEFINE_mInt32(tablet_meta_checkpoint_min_interval_secs, "600");
@@ -1247,6 +1249,11 @@ DEFINE_Int64(min_row_group_size, "134217728");
 
 // The time out milliseconds for remote fetch schema RPC, default 60s
 DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
+
+// If set to false, the parquet reader will not use page index to filter data.
+// This is only for debug purpose, in case sometimes the page index
+// filter wrong data.
+DEFINE_mBool(enable_parquet_page_index, "true");
 
 // clang-format off
 #ifdef BE_TEST
