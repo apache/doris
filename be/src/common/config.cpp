@@ -139,7 +139,7 @@ DEFINE_mBool(enable_stacktrace_in_allocator_check_failed, "false");
 
 DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
-DEFINE_mBool(enable_memory_orphan_check, "true");
+DEFINE_mBool(enable_memory_orphan_check, "false");
 
 // The maximum time a thread waits for full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -690,6 +690,9 @@ DEFINE_Int32(high_priority_flush_thread_num_per_store, "6");
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DEFINE_Int32(max_flush_thread_num_per_cpu, "4");
+
+DEFINE_mInt32(wg_flush_thread_num_per_store, "6");
+DEFINE_mInt32(wg_flush_thread_num_per_cpu, "4");
 
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -1312,6 +1315,11 @@ DEFINE_Bool(enable_file_logger, "true");
 
 // The minimum row group size when exporting Parquet files. default 128MB
 DEFINE_Int64(min_row_group_size, "134217728");
+
+// If set to false, the parquet reader will not use page index to filter data.
+// This is only for debug purpose, in case sometimes the page index
+// filter wrong data.
+DEFINE_mBool(enable_parquet_page_index, "true");
 
 // clang-format off
 #ifdef BE_TEST

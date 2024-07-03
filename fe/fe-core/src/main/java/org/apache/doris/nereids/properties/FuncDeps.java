@@ -62,6 +62,7 @@ public class FuncDeps {
     }
 
     private final Set<FuncDepsItem> items;
+    // determinants -> dependencies
     private final Map<Set<Slot>, Set<Set<Slot>>> edges;
 
     public FuncDeps() {
@@ -157,6 +158,24 @@ public class FuncDeps {
 
     public boolean isFuncDeps(Set<Slot> dominate, Set<Slot> dependency) {
         return items.contains(new FuncDepsItem(dominate, dependency));
+    }
+
+    public boolean isCircleDeps(Set<Slot> dominate, Set<Slot> dependency) {
+        return items.contains(new FuncDepsItem(dominate, dependency))
+                && items.contains(new FuncDepsItem(dependency, dominate));
+    }
+
+    /**
+     * find the determinants of dependencies
+     */
+    public Set<Set<Slot>> findDeterminats(Set<Slot> dependency) {
+        Set<Set<Slot>> determinants = new HashSet<>();
+        for (FuncDepsItem item : items) {
+            if (item.dependencies.equals(dependency)) {
+                determinants.add(item.determinants);
+            }
+        }
+        return determinants;
     }
 
     @Override
