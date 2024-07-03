@@ -150,9 +150,7 @@ private:
     RuntimeProfile::Counter* _remote_bytes_received_counter = nullptr;
     RuntimeProfile::Counter* _local_bytes_received_counter = nullptr;
     RuntimeProfile::Counter* _deserialize_row_batch_timer = nullptr;
-    RuntimeProfile::Counter* _first_batch_wait_total_timer = nullptr;
     RuntimeProfile::Counter* _buffer_full_total_timer = nullptr;
-    RuntimeProfile::Counter* _data_arrival_timer = nullptr;
     RuntimeProfile::Counter* _decompress_timer = nullptr;
     RuntimeProfile::Counter* _decompress_bytes = nullptr;
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
@@ -190,12 +188,12 @@ public:
         return _local_channel_dependency;
     }
 
-    virtual Status get_batch(Block* next_block, bool* eos);
+    Status get_batch(Block* next_block, bool* eos);
 
     Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done);
 
-    virtual void add_block(Block* block, bool use_move);
+    void add_block(Block* block, bool use_move);
 
     void decrement_senders(int sender_id);
 
@@ -219,58 +217,12 @@ protected:
 
     void try_set_dep_ready_without_lock();
 
-    // To record information about several variables in the event of a DCHECK failure.
-    //  DCHECK(_is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0)
-#ifndef NDEBUG
-    constexpr static auto max_record_number = 128;
-    std::list<size_t> _record_block_queue;
-    std::list<int> _record_num_remaining_senders;
-#else
-#endif
-
-    // only in debug
-    ALWAYS_INLINE inline void _record_debug_info() {
-#ifndef NDEBUG
-        if (_record_block_queue.size() > max_record_number) {
-            _record_block_queue.pop_front();
-        }
-        if (_record_num_remaining_senders.size() > max_record_number) {
-            _record_num_remaining_senders.pop_front();
-        }
-        _record_block_queue.push_back(_block_queue.size());
-        _record_num_remaining_senders.push_back(_num_remaining_senders);
-#else
-#endif
-    }
-
-    ALWAYS_INLINE inline std::string _debug_string_info() {
-#ifndef NDEBUG
-        std::stringstream out;
-        DCHECK_EQ(_record_block_queue.size(), _record_num_remaining_senders.size());
-        out << "record_debug_info [  \n";
-
-        auto it1 = _record_block_queue.begin();
-        auto it2 = _record_num_remaining_senders.begin();
-        for (; it1 != _record_block_queue.end(); it1++, it2++) {
-            out << "( "
-                << "_block_queue size : " << *it1 << " , _num_remaining_senders : " << *it2
-                << " ) \n";
-        }
-        out << "  ]\n";
-        return out.str();
-#else
-#endif
-        return "";
-    }
-
     // Not managed by this class
     VDataStreamRecvr* _recvr = nullptr;
     std::mutex _lock;
     bool _is_cancelled;
     Status _cancel_status;
     int _num_remaining_senders;
-    std::condition_variable _data_arrival_cv;
-    std::condition_variable _data_removal_cv;
     std::unique_ptr<MemTracker> _queue_mem_tracker;
     std::list<std::pair<BlockUPtr, size_t>> _block_queue;
 
@@ -285,28 +237,5 @@ protected:
     std::shared_ptr<pipeline::Dependency> _source_dependency;
     std::shared_ptr<pipeline::Dependency> _local_channel_dependency;
 };
-
-class VDataStreamRecvr::PipSenderQueue : public SenderQueue {
-public:
-    PipSenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile)
-            : SenderQueue(parent_recvr, num_senders, profile) {}
-
-    Status get_batch(Block* block, bool* eos) override {
-        std::lock_guard<std::mutex> l(_lock); // protect _block_queue
-#ifndef NDEBUG
-        if (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "_is_cancelled: {}, _block_queue_empty: {}, "
-                                   "_num_remaining_senders: {}, _debug_string_info: {}",
-                                   _is_cancelled, _block_queue.empty(), _num_remaining_senders,
-                                   _debug_string_info());
-        }
-#endif
-        return _inner_get_batch_without_lock(block, eos);
-    }
-
-    void add_block(Block* block, bool use_move) override;
-};
-
 } // namespace vectorized
 } // namespace doris
