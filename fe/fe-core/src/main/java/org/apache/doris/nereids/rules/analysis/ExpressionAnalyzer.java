@@ -393,6 +393,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         String functionName = unboundFunction.getName();
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(
                 dbName, functionName, arguments);
+        // for create view stmt
         if (builder instanceof UdfBuilder) {
             unboundFunction.getIndexInSqlString().ifPresent(index ->
                     ConnectContext.get().getStatementContext().addIndexInSqlToString(index,
