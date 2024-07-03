@@ -1203,7 +1203,7 @@ struct TRuntimeFilterDesc {
   // for bitmap filter
   11: optional bool bitmap_filter_not_in
 
-  12: optional bool opt_remote_rf; // Deprecated
+  12: optional bool opt_remote_rf;
   
   // for min/max rf
   13: optional TMinMaxRuntimeFilterType min_max_type;

@@ -307,7 +307,7 @@ public:
     bool need_sync_filter_size();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(const TNetworkAddress* addr);
+    Status push_to_remote(const TNetworkAddress* addr, bool opt_remote_rf);
 
     void init_profile(RuntimeProfile* parent_profile);
 
@@ -445,6 +445,7 @@ protected:
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
+    bool _opt_remote_rf;
     // `_need_local_merge` indicates whether this runtime filter is global on this BE.
     // All runtime filters should be merged on each BE before push_to_remote or publish.
     bool _need_local_merge = false;

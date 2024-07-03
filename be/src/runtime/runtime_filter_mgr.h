@@ -159,8 +159,8 @@ public:
                 const TQueryOptions& query_options);
 
     // handle merge rpc
-    Status merge(const PMergeFilterRequest* request,
-                 butil::IOBufAsZeroCopyInputStream* attach_data);
+    Status merge(const PMergeFilterRequest* request, butil::IOBufAsZeroCopyInputStream* attach_data,
+                 bool opt_remote_rf);
 
     Status send_filter_size(const PSendFilterSizeRequest* request);
 
