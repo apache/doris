@@ -19,14 +19,11 @@
 
 #include <arrow/builder.h>
 
-#include <type_traits>
-
 #include "gutil/casts.h"
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 
 void DataTypeDateTimeV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                        int end_idx, BufferWritable& bw,
@@ -47,8 +44,9 @@ void DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column, 
 
     if (options.date_olap_format) {
         std::string format = "%Y-%m-%d %H:%i:%s.%f";
-        char buf[30];
-        val.to_format_string(format.c_str(), format.size(), buf);
+        char buf[30 + SAFE_FORMAT_STRING_MARGIN];
+        val.to_format_string_conservative(format.c_str(), format.size(), buf,
+                                          30 + SAFE_FORMAT_STRING_MARGIN);
         std::string s = std::string(buf);
         bw.write(s.c_str(), s.length());
     } else {
@@ -111,7 +109,7 @@ template <bool is_binary_format>
 Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
                                                        MysqlRowBuffer<is_binary_format>& result,
                                                        int row_idx, bool col_const) const {
-    auto& data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
+    const auto& data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     DateV2Value<DateTimeV2ValueType> date_val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(data[col_index]);
@@ -145,5 +143,4 @@ Status DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
