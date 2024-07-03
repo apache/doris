@@ -353,18 +353,6 @@ LOCATION
 
 msck repair table orc_all_types;
 
-CREATE TABLE `student` (
-  id varchar(50),
-  name varchar(50),
-  age int,
-  gender varchar(50),
-  addr varchar(50),
-  phone varchar(50)
-)
-ROW FORMAT DELIMITED FIELDS TERMINATED by ','
-LOCATION '/user/doris/preinstalled_data/data_case/student'
-TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
-
 CREATE TABLE `lineorder` (
   `lo_orderkey` int,
   `lo_linenumber` int,
@@ -388,70 +376,6 @@ ROW FORMAT DELIMITED FIELDS TERMINATED by ','
 LOCATION '/user/doris/preinstalled_data/data_case/lineorder'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
-CREATE TABLE `test1` (
-  col_1 int,
-  col_2 varchar(20),
-  col_3 int,
-  col_4 int,
-  col_5 varchar(20)
-)
-ROW FORMAT DELIMITED FIELDS TERMINATED by ','
-LOCATION '/user/doris/preinstalled_data/data_case/test1'
-TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
-
-CREATE TABLE `string_table` (
-  p_partkey string,
-  p_name string,
-  p_mfgr string,
-  p_brand string,
-  p_type string,
-  p_size string,
-  p_con string,
-  p_r_price string,
-  p_comment string
-)
-ROW FORMAT DELIMITED FIELDS TERMINATED by ','
-LOCATION '/user/doris/preinstalled_data/data_case/string_table'
-TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
-
-CREATE TABLE `account_fund` (
-  `batchno` string,
-  `appsheet_no` string,
-  `filedate` string,
-  `t_no` string,
-  `tano` string,
-  `t_name` string,
-  `chged_no` string,
-  `mob_no2` string,
-  `home_no` string,
-  `off_no` string
-)
-ROW FORMAT DELIMITED FIELDS TERMINATED by ','
-STORED AS INPUTFORMAT
-  'org.apache.hadoop.mapred.TextInputFormat'
-OUTPUTFORMAT
-  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
-LOCATION
-  '/user/doris/preinstalled_data/data_case/account_fund'
-TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
-
-create table sale_table (
-  `bill_code` varchar(500),
-  `dates` varchar(500),
-  `ord_year` varchar(500),
-  `ord_month` varchar(500),
-  `ord_quarter` varchar(500),
-  `on_time` varchar(500)
-)
-ROW FORMAT DELIMITED FIELDS TERMINATED by ','
-STORED AS INPUTFORMAT
-  'org.apache.hadoop.mapred.TextInputFormat'
-OUTPUTFORMAT
-    'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
-LOCATION
-  '/user/doris/preinstalled_data/data_case/sale_table'
-TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
-
 create table t_hive (
   `k1` int,
   `k2` char(10),
@@ -466,38 +390,6 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/data_case/t_hive'
-TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
-
-create table hive01 (
-  first_year int,
-  d_disease varchar(200),
-  i_day int,
-  card_cnt bigint
-)
-ROW FORMAT DELIMITED FIELDS TERMINATED by ','
-LOCATION
-  '/user/doris/preinstalled_data/data_case/hive01'
-TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
-
-CREATE TABLE test2 (
-id int,
-name string ,
-age string ,
-avg_patient_time double,
-dt date
-)
-row format delimited fields terminated by ','
-stored as textfile
-LOCATION '/user/doris/preinstalled_data/data_case/test2'
-TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
-
-create table test_hive_doris(
-id varchar(100),
-age varchar(100)
-)
-row format delimited fields terminated by ','
-stored as textfile
-LOCATION '/user/doris/preinstalled_data/data_case/test_hive_doris'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 CREATE external TABLE `table_with_vertical_line`(
