@@ -1066,6 +1066,15 @@ void BaseTablet::add_sentinel_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
     }
 }
 
+void BaseTablet::add_skip_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
+                                                std::vector<RowsetSharedPtr> rowsets) {
+    for (const auto& rowset : rowsets) {
+        delete_bitmap->add({rowset->rowset_id(), DeleteBitmap::INVALID_SEGMENT_ID,
+                            DeleteBitmap::INVALID_VERSION},
+                           DeleteBitmap::ROWSET_SKIP_MARK);
+    }
+}
+
 void BaseTablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
                                         const RowsetIdUnorderedSet& pre,
                                         RowsetIdUnorderedSet* to_add,
@@ -1236,6 +1245,22 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
     }
 
+    for (auto it = rowset_ids_to_add.begin(); it != rowset_ids_to_add.end();) {
+        if (delete_bitmap->contains(
+                    {*it, DeleteBitmap::INVALID_SEGMENT_ID, DeleteBitmap::INVALID_VERSION},
+                    DeleteBitmap::ROWSET_SKIP_MARK)) {
+            // These rowset are produced by compaction and their input rowsets have been considered
+            // when calculating delete bitmap for partial update during the flush or commit phase.
+            // So we can skip them now.
+            it = rowset_ids_to_add.erase(it);
+            delete_bitmap->remove(
+                    {*it, DeleteBitmap::INVALID_SEGMENT_ID, DeleteBitmap::INVALID_VERSION},
+                    DeleteBitmap::ROWSET_SKIP_MARK);
+        } else {
+            ++it;
+        }
+    }
+
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock meta_rlock(self->_meta_lock);
@@ -1270,6 +1295,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("delete bitmap correctness check failed in publish phase!");
         }
+        self->_remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
 
     if (transient_rs_writer) {

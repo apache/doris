@@ -991,6 +991,10 @@ Status CompactionMixin::modify_rowsets() {
                     _tablet->add_sentinel_mark_to_delete_bitmap(&txn_output_delete_bitmap,
                                                                 rowsetids);
                 }
+
+                _tablet->add_skip_mark_to_delete_bitmap(&txn_output_delete_bitmap,
+                                                        {_output_rowset});
+
                 it.delete_bitmap->merge(txn_output_delete_bitmap);
                 // Step3: write back updated delete bitmap and tablet info.
                 it.rowset_ids.insert(_output_rowset->rowset_id());

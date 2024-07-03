@@ -181,6 +181,9 @@ public:
     static void add_sentinel_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
                                                    const RowsetIdUnorderedSet& rowsetids);
 
+    static void add_skip_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
+                                               std::vector<RowsetSharedPtr> rowsets);
+
     Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
                                            int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
