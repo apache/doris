@@ -338,7 +338,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     } while (false);
 
     LOG(INFO) << "begin to execute routine load task: " << ctx->brief();
-
+    HANDLE_ERROR(_early_quit_for_task(ctx), "exec_task early quit");
     // create data consumer group
     std::shared_ptr<DataConsumerGroup> consumer_grp;
     HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp), "failed to get consumers");
@@ -419,6 +419,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
+    HANDLE_ERROR(_early_quit_for_task(ctx), "exec_task early quit");
     // return the consumer back to pool
     // call this before commit txn, in case the next task can come very fast
     consumer_pool->return_consumers(consumer_grp.get());
@@ -451,6 +452,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
             // So just print a warning
             LOG(WARNING) << st;
         }
+        HANDLE_ERROR(_early_quit_for_task(ctx), "exec_task early quit");
         _data_consumer_pool.return_consumer(consumer);
 
         // delete TopicPartition finally
@@ -514,6 +516,16 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(std::shared_ptr<StreamLoa
 
     std::thread t1(mock_consumer);
     t1.detach();
+    return Status::OK();
+}
+
+Status RoutineLoadTaskExecutor::_early_quit_for_task(std::shared_ptr<StreamLoadContext> ctx) {
+    // current cost time is larger than timeout, quit
+    int64_t cost = UnixMillis() - ctx->start_millis;
+    if (cost > (1000 * ctx->max_interval_s)) {
+        ctx->status = Status::TimedOut("early quit after timeout!");
+        return ctx->status;
+    }
     return Status::OK();
 }
 
