@@ -1333,23 +1333,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::SORT_NODE: {
-        const int64_t limit = tnode.limit;
-        const int64_t offset = tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0;
-        const bool use_two_phase_read = tnode.sort_node.sort_info.use_two_phase_read;
-        const auto& row_desc = cur_pipe->operator_xs().back()->row_desc();
-        SortAlgorithm algorithm;
-        if (limit > 0 && limit + offset < vectorized::HeapSorter::HEAP_SORT_THRESHOLD &&
-            (use_two_phase_read || _query_ctx->has_runtime_predicate(tnode.node_id) ||
-             !row_desc.has_varlen_slots())) {
-            algorithm = SortAlgorithm::HEAP_SORT;
-        } else if (limit > 0 && row_desc.has_varlen_slots() &&
-                   limit + offset < vectorized::TopNSorter::TOPN_SORT_THRESHOLD) {
-            algorithm = SortAlgorithm::TOPN_SORT;
-        } else {
-            algorithm = SortAlgorithm::FULL_SORT;
-        }
-        const auto should_spill =
-                _runtime_state->enable_sort_spill() && algorithm == SortAlgorithm::FULL_SORT;
+        const auto should_spill = _runtime_state->enable_sort_spill() &&
+                                  tnode.sort_node.algorithm == TSortAlgorithm::FULL_SORT;
         if (should_spill) {
             op.reset(new SpillSortSourceOperatorX(pool, tnode, next_operator_id(), descs));
         } else {
@@ -1367,10 +1352,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         DataSinkOperatorXPtr sink;
         if (should_spill) {
             sink.reset(new SpillSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                                  _require_bucket_distribution, algorithm));
+                                                  _require_bucket_distribution));
         } else {
             sink.reset(new SortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                             _require_bucket_distribution, algorithm));
+                                             _require_bucket_distribution));
         }
         _require_bucket_distribution =
                 _require_bucket_distribution || sink->require_data_distribution();

@@ -43,19 +43,19 @@ Status SortSinkLocalState::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     switch (p._algorithm) {
-    case SortAlgorithm::HEAP_SORT: {
+    case TSortAlgorithm::HEAP_SORT: {
         _shared_state->sorter = vectorized::HeapSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child_x->row_desc());
         break;
     }
-    case SortAlgorithm::TOPN_SORT: {
+    case TSortAlgorithm::TOPN_SORT: {
         _shared_state->sorter = vectorized::TopNSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child_x->row_desc(), state, _profile);
         break;
     }
-    case SortAlgorithm::FULL_SORT: {
+    case TSortAlgorithm::FULL_SORT: {
         _shared_state->sorter = vectorized::FullSorter::create_unique(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child_x->row_desc(), state, _profile);
@@ -74,8 +74,7 @@ Status SortSinkLocalState::open(RuntimeState* state) {
 
 SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                      const DescriptorTbl& descs,
-                                     const bool require_bucket_distribution,
-                                     const SortAlgorithm& algorithm)
+                                     const bool require_bucket_distribution)
         : DataSinkOperatorX(operator_id, tnode.node_id),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
           _pool(pool),
@@ -89,8 +88,8 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TP
                                     : false),
           _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
                                                                : std::vector<TExpr> {}),
-          _algorithm(algorithm),
-          _reuse_mem(algorithm == SortAlgorithm::HEAP_SORT) {}
+          _algorithm(tnode.sort_node.algorithm),
+          _reuse_mem(tnode.sort_node.algorithm != TSortAlgorithm::HEAP_SORT) {}
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));

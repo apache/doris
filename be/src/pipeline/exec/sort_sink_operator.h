@@ -24,8 +24,6 @@
 
 namespace doris::pipeline {
 
-enum class SortAlgorithm { HEAP_SORT, TOPN_SORT, FULL_SORT };
-
 class SortSinkOperatorX;
 
 class SortSinkLocalState : public PipelineXSinkLocalState<SortSharedState> {
@@ -53,8 +51,7 @@ private:
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
     SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                      const DescriptorTbl& descs, const bool require_bucket_distribution,
-                      const SortAlgorithm& algorithm);
+                      const DescriptorTbl& descs, const bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<SortSinkLocalState>::_name);
@@ -106,7 +103,7 @@ private:
     const bool _require_bucket_distribution = false;
     const bool _is_analytic_sort = false;
     const std::vector<TExpr> _partition_exprs;
-    const SortAlgorithm _algorithm;
+    const TSortAlgorithm::type _algorithm;
     const bool _reuse_mem;
 };
 
