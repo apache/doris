@@ -74,7 +74,8 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             "AWS_ACCESS_KEY" = "${getS3AK()}",
             "AWS_SECRET_KEY" = "${getS3SK()}",
             "s3.bucket" = "${getS3BucketName()}",
-            "AWS_REGION" = "${getS3Region()}"
+            "AWS_REGION" = "${getS3Region()}",
+            "provider" = "${getS3Provider()}"
         );
     """
     logger.info("the first sql result is {}", result)
@@ -95,7 +96,8 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
                 "AWS_ACCESS_KEY" = "${getS3AK()}",
                 "AWS_SECRET_KEY" = "${getS3SK()}",
                 "s3.bucket" = "${getS3BucketName()}",
-                "AWS_REGION" = "${getS3Region()}"
+                "AWS_REGION" = "${getS3Region()}",
+                "provider" = "${getS3Provider()}"
             );
         """
         logger.info("the second sql result is {}", result)
@@ -150,7 +152,8 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
                 "AWS_ACCESS_KEY" = "${getS3AK()}",
                 "AWS_SECRET_KEY" = "${getS3SK()}",
                 "s3.bucket" = "${getS3BucketName()}",
-                "AWS_REGION" = "${getS3Region()}"
+                "AWS_REGION" = "${getS3Region()}",
+                "provider" = "${getS3Provider()}"
             );
         """
         logger.info("the fourth sql result is {}", result)

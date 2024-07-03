@@ -95,6 +95,7 @@ suite("test_parquet_orc_compression", "p0") {
                     "s3.region" = "${region}",
                     "s3.secret_key"="${sk}",
                     "s3.bucket" = "${getS3BucketName()}",
+                    "provider" = "${getS3Provider()}",
                     "s3.access_key" = "${ak}"
                 );
             """
