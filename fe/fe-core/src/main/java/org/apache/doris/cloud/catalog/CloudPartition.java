@@ -104,7 +104,12 @@ public class CloudPartition extends Partition {
 
     @Override
     public long getVisibleVersion(Boolean fromCache) {
-        return super.getVisibleVersion();
+        lock.lock();
+        try {
+            return super.getVisibleVersion();
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Override
