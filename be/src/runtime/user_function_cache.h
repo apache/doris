@@ -58,6 +58,7 @@ public:
 
     Status get_jarpath(int64_t fid, const std::string& url, const std::string& checksum,
                        std::string* libpath);
+    void remove_cache_jar(int64_t fid);
 
 private:
     Status _load_cached_lib();

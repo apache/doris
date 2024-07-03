@@ -71,98 +71,84 @@ suite("test_javaudtf_all_types") {
         qt_select """select * from ${tableName} order by 1,2,3;"""
 
 
-        sql """DROP FUNCTION IF EXISTS udtf_boolean(boolean, int);"""
         sql """CREATE TABLES FUNCTION udtf_boolean(boolean, int) RETURNS array<boolean> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfBoolean",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_tinyint(tinyint, int);"""
         sql """CREATE TABLES FUNCTION udtf_tinyint(tinyint, int) RETURNS array<tinyint> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfByte",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_short(smallint, int);"""
         sql """CREATE TABLES FUNCTION udtf_short(smallint, int) RETURNS array<smallint> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfShort",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_int(int, int);"""
         sql """CREATE TABLES FUNCTION udtf_int(int, int) RETURNS array<int> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfInt",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_long(bigint, int);"""
         sql """CREATE TABLES FUNCTION udtf_long(bigint, int) RETURNS array<bigint> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfLong",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_largeint(largeint, int);"""
         sql """CREATE TABLES FUNCTION udtf_largeint(largeint, int) RETURNS array<largeint> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfLargeInt",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_decimal(decimal(15, 4), int);"""
         sql """CREATE TABLES FUNCTION udtf_decimal(decimal(15, 4), int) RETURNS array<decimal(15, 4)> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfDecimal",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_float(float, int);"""
         sql """CREATE TABLES FUNCTION udtf_float(float, int) RETURNS array<float> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfFloat",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_double(double, int);"""
         sql """CREATE TABLES FUNCTION udtf_double(double, int) RETURNS array<double> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfDouble",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_date(date, int);"""
         sql """CREATE TABLES FUNCTION udtf_date(date, int) RETURNS array<date> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfDate",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_datetime(datetime(6), int);"""
         sql """CREATE TABLES FUNCTION udtf_datetime(datetime(6), int) RETURNS array<datetime(6)> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfDateTime",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_string(string, string);"""
         sql """CREATE TABLES FUNCTION udtf_string(string,string) RETURNS array<string> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfString",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_list(array<string>, int);"""
         sql """CREATE TABLES FUNCTION udtf_list(array<string>, int) RETURNS array<string> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfList",
             "type"="JAVA_UDF"
         );"""
 
-        sql """DROP FUNCTION IF EXISTS udtf_map(map<string,string>, int);"""
         sql """CREATE TABLES FUNCTION udtf_map(map<string,string>, int) RETURNS array<string> PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UDTFAllTypeTest\$UdtfMap",
@@ -198,20 +184,20 @@ suite("test_javaudtf_all_types") {
         qt_select_array_col_outer    """select int_col, array_col,e1 from ${tableName} lateral view udtf_list_outer(array_col, int_col) tmp1 as e1 order by int_col,3;"""
         qt_select_map_col_outer      """select int_col, map_col,e1 from ${tableName} lateral view udtf_map_outer(map_col, int_col) tmp1 as e1 order by int_col,3;"""
     } finally {
-        try_sql """DROP FUNCTION IF EXISTS udtf_boolean_outer(boolean, int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_tinyint_outer(tinyint, int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_short_outer(smallint, int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_int_outer(int, int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_long_outer(bigint, int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_largeint_outer(largeint, int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_decimal_outer(decimal(15, 4), int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_float_outer(float, int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_double_outer(double, int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_date_outer(date, int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_datetime_outer(datetime(6), int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_string_outer(string, string);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_list_outer(array<string>, int);"""
-        try_sql """DROP FUNCTION IF EXISTS udtf_map_outer(map<string,string>, int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_boolean(boolean, int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_tinyint(tinyint, int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_short(smallint, int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_int(int, int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_long(bigint, int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_largeint(largeint, int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_decimal(decimal(15, 4), int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_float(float, int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_double(double, int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_date(date, int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_datetime(datetime(6), int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_string(string, string);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_list(array<string>, int);"""
+        try_sql """DROP FUNCTION IF EXISTS udtf_map(map<string,string>, int);"""
         try_sql """DROP TABLE IF EXISTS ${tableName};"""
     }
 }

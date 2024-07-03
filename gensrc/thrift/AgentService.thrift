@@ -117,6 +117,7 @@ struct TCleanTrashReq {}
 
 struct TCleanUDFCacheReq {
     1: optional string function_signature //function_name(arg_type)
+    2: optional i64 function_id
 }
 
 enum TCompressionType {

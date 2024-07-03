@@ -2054,10 +2054,13 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 }
 
 void clean_udf_cache_callback(const TAgentTaskRequest& req) {
-    LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature;
+    LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature << " "
+              << req.clean_udf_cache_req.function_id;
     static_cast<void>(
             JniUtil::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
-    LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
+    JniUtil::clean_udf_jar_cache(req.clean_udf_cache_req.function_id);
+    LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature << " "
+              << req.clean_udf_cache_req.function_id;
 }
 
 } // namespace doris

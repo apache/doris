@@ -5627,13 +5627,14 @@ public class Env {
 
     public void dropFunction(DropFunctionStmt stmt) throws UserException {
         FunctionName name = stmt.getFunctionName();
+        long functionId = -1L;
         if (SetType.GLOBAL.equals(stmt.getType())) {
-            globalFunctionMgr.dropFunction(stmt.getFunction(), stmt.isIfExists());
+            functionId = globalFunctionMgr.dropFunction(stmt.getFunction(), stmt.isIfExists());
         } else {
             Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
-            db.dropFunction(stmt.getFunction(), stmt.isIfExists());
+            functionId = db.dropFunction(stmt.getFunction(), stmt.isIfExists());
         }
-        cleanUDFCacheTask(stmt); // BE will cache classload, when drop function, BE need clear cache
+        cleanUDFCacheTask(stmt, functionId); // BE will cache classload, when drop function, BE need clear cache
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
@@ -6131,12 +6132,12 @@ public class Env {
         AgentTaskExecutor.submit(batchTask);
     }
 
-    public void cleanUDFCacheTask(DropFunctionStmt stmt) {
+    public void cleanUDFCacheTask(DropFunctionStmt stmt, long functionId) {
         ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
         String functionSignature = stmt.signatureString();
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Backend backend : backendsInfo.values()) {
-            CleanUDFCacheTask cleanUDFCacheTask = new CleanUDFCacheTask(backend.getId(), functionSignature);
+            CleanUDFCacheTask cleanUDFCacheTask = new CleanUDFCacheTask(backend.getId(), functionSignature, functionId);
             batchTask.addTask(cleanUDFCacheTask);
             LOG.info("clean udf cache in be {}, beId {}", backend.getHost(), backend.getId());
         }
