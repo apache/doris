@@ -14,40 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
 #pragma once
 
-#include <vector>
-
-#include "gutil/ref_counted.h"
-#include "util/countdown_latch.h"
-#include "util/thread.h"
+#include "http/http_handler.h"
+#include "http/http_request.h"
 
 namespace doris {
 
-class Daemon {
+class HttpRequest;
+
+class BeProcThreadAction : public HttpHandler {
 public:
-    Daemon() : _stop_background_threads_latch(1) {}
-    ~Daemon() = default;
-
-    // Start background threads
-    void start();
-
-    // Stop background threads
-    void stop();
-
-private:
-    void tcmalloc_gc_thread();
-    void memory_maintenance_thread();
-    void memory_gc_thread();
-    void memtable_memory_refresh_thread();
-    void calculate_metrics_thread();
-    void je_purge_dirty_pages_thread() const;
-    void report_runtime_query_statistics_thread();
-    void wg_mem_used_refresh_thread();
-    void be_proc_monitor_thread();
-
-    CountDownLatch _stop_background_threads_latch;
-    std::vector<scoped_refptr<Thread>> _threads;
+    BeProcThreadAction() = default;
+    ~BeProcThreadAction() override = default;
+    void handle(HttpRequest* req) override;
 };
-} // namespace doris
+
+}; // namespace doris

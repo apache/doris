@@ -15,39 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "http/action/be_proc_thread_action.h"
 
-#include <vector>
-
-#include "gutil/ref_counted.h"
-#include "util/countdown_latch.h"
-#include "util/thread.h"
+#include "http/http_channel.h"
+#include "http/http_headers.h"
+#include "http/http_status.h"
+#include "runtime/be_proc_monitor.h"
 
 namespace doris {
 
-class Daemon {
-public:
-    Daemon() : _stop_background_threads_latch(1) {}
-    ~Daemon() = default;
+const static std::string HEADER_JSON = "application/json";
 
-    // Start background threads
-    void start();
+void BeProcThreadAction::handle(HttpRequest* req) {
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");
+    HttpChannel::send_reply(req, HttpStatus::OK, BeProcMonitor::get_be_thread_info());
+}
 
-    // Stop background threads
-    void stop();
-
-private:
-    void tcmalloc_gc_thread();
-    void memory_maintenance_thread();
-    void memory_gc_thread();
-    void memtable_memory_refresh_thread();
-    void calculate_metrics_thread();
-    void je_purge_dirty_pages_thread() const;
-    void report_runtime_query_statistics_thread();
-    void wg_mem_used_refresh_thread();
-    void be_proc_monitor_thread();
-
-    CountDownLatch _stop_background_threads_latch;
-    std::vector<scoped_refptr<Thread>> _threads;
-};
-} // namespace doris
+}; // namespace doris
