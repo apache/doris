@@ -91,7 +91,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     // table family group map
     private final Map<Long, Table> idToTable;
-    @SerializedName(value = "nameToTable")
     private ConcurrentMap<String, Table> nameToTable;
     // table name lower cast -> table name
     private final Map<String, String> lowerCaseToTableName;
@@ -595,8 +594,35 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             Database db = new Database();
             db.readFields(in);
             return db;
-        } else {
+        } else if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_138) {
             return GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+        } else {
+            Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+            db.readTables(in);
+            return db;
+        }
+    }
+
+    private void writeTables(DataOutput out) throws IOException {
+        out.writeInt(nameToTable.size());
+        for (Table table : nameToTable.values()) {
+            Text.writeString(out, GsonUtils.GSON.toJson(table));
+        }
+    }
+
+    private void readTables(DataInput in) throws IOException {
+        nameToTable = Maps.newConcurrentMap();
+        int numTables = in.readInt();
+        for (int i = 0; i < numTables; ++i) {
+            Table table = Table.read(in);
+            table.setQualifiedDbName(fullQualifiedName);
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
+            }
+            String tableName = table.getName();
+            nameToTable.put(tableName, table);
+            idToTable.put(table.getId(), table);
+            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
         }
     }
 
@@ -650,6 +676,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public void write(DataOutput out) throws IOException {
         discardHudiTable();
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+        if (FeMetaVersion.VERSION_138 <= Env.getCurrentEnvJournalVersion()) {
+            writeTables(out);
+            return;
+        }
     }
 
 
