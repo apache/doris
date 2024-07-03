@@ -55,6 +55,7 @@ suite("test_schema_change") {
             'AWS_ENDPOINT' = '${getS3Endpoint()}',
             'AWS_ACCESS_KEY' = '${getS3AK()}',
             'AWS_SECRET_KEY' = '${getS3SK()}',
+            "s3.bucket" = "${getS3BucketName()}",
             "provider" = "${getS3Provider()}"
         )
         PROPERTIES

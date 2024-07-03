@@ -73,6 +73,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             "AWS_ENDPOINT" = "${getS3Endpoint()}",
             "AWS_ACCESS_KEY" = "${getS3AK()}",
             "AWS_SECRET_KEY" = "${getS3SK()}",
+            "s3.bucket" = "${getS3BucketName()}",
             "AWS_REGION" = "${getS3Region()}"
         );
     """
@@ -93,6 +94,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
                 "AWS_ENDPOINT" = "${getS3Endpoint()}1",
                 "AWS_ACCESS_KEY" = "${getS3AK()}",
                 "AWS_SECRET_KEY" = "${getS3SK()}",
+                "s3.bucket" = "${getS3BucketName()}",
                 "AWS_REGION" = "${getS3Region()}"
             );
         """
@@ -147,6 +149,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_ACCESS_KEY" = "${getS3AK()}",
                 "AWS_SECRET_KEY" = "${getS3SK()}",
+                "s3.bucket" = "${getS3BucketName()}",
                 "AWS_REGION" = "${getS3Region()}"
             );
         """

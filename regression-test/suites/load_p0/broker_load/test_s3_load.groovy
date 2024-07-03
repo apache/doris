@@ -485,6 +485,7 @@ suite("test_s3_load", "load_p0") {
                 "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
                 "AWS_REGION" = "ap-beijing",
                 "use_path_style" = "$attributes.usePathStyle",
+                "s3.bucket" = "${getS3BucketName()}",
                 "provider" = "${getS3Provider()}"
             )
             ${prop}

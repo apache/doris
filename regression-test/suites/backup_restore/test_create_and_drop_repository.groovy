@@ -45,6 +45,7 @@ suite("test_create_and_drop_repository", "backup_restore") {
         "s3.region" = "${region}",
         "s3.access_key" = "${ak}",
         "s3.secret_key" = "${sk}",
+        "s3.bucket" = "${getS3BucketName()}",
         "provider" = "${getS3Provider()}"
     )
         """
@@ -70,6 +71,7 @@ suite("test_create_and_drop_repository", "backup_restore") {
         "s3.region" = "${region}",
         "s3.access_key" = "${ak}",
         "s3.secret_key" = "${sk}",
+        "s3.bucket" = "${getS3BucketName()}",
         "provider" = "${getS3Provider()}"
     )
         """

@@ -108,6 +108,7 @@ suite("test_export_table_with_materialized_view", "p0") {
                 "s3.region" = "${region}",
                 "s3.secret_key"="${sk}",
                 "s3.access_key" = "${ak}",
+                "s3.bucket" = "${getS3BucketName()}",
                 "provider" = "${getS3Provider()}"
             );
         """

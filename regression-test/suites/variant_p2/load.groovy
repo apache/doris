@@ -108,6 +108,7 @@ suite("github_event_advance_p2", "variant_type,p2"){
                     "AWS_SECRET_KEY" = "$sk",
                     "AWS_ENDPOINT" = "${s3Endpoint}",
                     "AWS_REGION" = "${s3Region}",
+                    "s3.bucket" = "${getS3BucketName()}",
                     "provider" = "${getS3Provider()}"
                 )
                 PROPERTIES(

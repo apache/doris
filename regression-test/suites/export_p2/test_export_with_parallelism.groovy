@@ -106,6 +106,7 @@ suite("test_export_with_parallelism", "p2") {
                 "s3.region" = "${region}",
                 "s3.secret_key"="${sk}",
                 "s3.access_key" = "${ak}",
+                "s3.bucket" = "${getS3BucketName()}",
                 "provider" = "${getS3Provider()}"
             );
         """

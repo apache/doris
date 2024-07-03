@@ -30,6 +30,7 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
             |"AWS_ACCESS_KEY" = "${getS3AK()}",
             |"AWS_SECRET_KEY" = "${getS3SK()}",
             |"AWS_ENDPOINT" = "${getS3Endpoint()}",
+            |"s3.bucket" = "${getS3BucketName()}",
             |"AWS_REGION" = "${getS3Region()}",
             |"provider" = "${getS3Provider()}")
             |PROPERTIES(

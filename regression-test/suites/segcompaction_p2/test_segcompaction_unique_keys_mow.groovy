@@ -88,6 +88,7 @@ suite("test_segcompaction_unique_keys_mow") {
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "$endpoint",
                 "AWS_REGION" = "$region",
+                "s3.bucket" = "${getS3BucketName()}",
                 "provider" = "${getS3Provider()}"
             )
             properties(

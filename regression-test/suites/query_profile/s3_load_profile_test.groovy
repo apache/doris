@@ -131,6 +131,7 @@ PROPERTIES (
             "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
             "AWS_REGION" = "ap-beijing",
             "use_path_style" = "$loadAttribute.usePathStyle",
+            "s3.bucket" = "${getS3BucketName()}",
             "provider" = "${getS3Provider()}"
         )
         ${prop}

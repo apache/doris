@@ -106,6 +106,7 @@ suite("test_update_rows_and_partition_first_load", "p2") {
                     "AWS_SECRET_KEY" = "$sk",
                     "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
                     "AWS_REGION" = "ap-beijing",
+                    "s3.bucket" = "${getS3BucketName()}",
                     "provider" = "${getS3Provider()}"
                 );
         """

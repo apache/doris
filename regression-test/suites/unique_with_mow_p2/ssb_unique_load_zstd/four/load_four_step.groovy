@@ -36,6 +36,7 @@ suite("load_four_step") {
         |"AWS_SECRET_KEY" = "${getS3SK()}",
         |"AWS_ENDPOINT" = "${getS3Endpoint()}",
         |"AWS_REGION" = "${getS3Region()}",
+        |"s3.bucket" = "${getS3BucketName()}",
         |"provider" = "${getS3Provider()}")
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",

@@ -82,6 +82,7 @@ suite("test_too_many_segments", "nonConcurrent,p2") { // the epic -238 case
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "$endpoint",
                 "AWS_REGION" = "$region",
+                "s3.bucket" = "${getS3BucketName()}",
                 "provider" = "${getS3Provider()}"
             )
             properties(

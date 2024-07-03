@@ -86,6 +86,7 @@ suite("test_segcompaction_dup_keys_index") {
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "$endpoint",
                 "AWS_REGION" = "$region",
+                "s3.bucket" = "${getS3BucketName()}",
                 "provider" = "${getS3Provider()}"
             )
             properties(
