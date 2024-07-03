@@ -37,6 +37,7 @@ suite('compaction_width_array_column', "p2") {
         |"AWS_SECRET_KEY" = "${getS3SK()}",
         |"AWS_ENDPOINT" = "${getS3Endpoint()}",
         |"s3.bucket" = "${getS3BucketName()}",
+        |"provider" = "${getS3Provider()}",
         |"AWS_REGION" = "${getS3Region()}")
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
