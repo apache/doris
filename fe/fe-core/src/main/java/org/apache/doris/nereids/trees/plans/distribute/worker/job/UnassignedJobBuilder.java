@@ -136,7 +136,8 @@ public class UnassignedJobBuilder {
                     planFragment, olapScanNodes.get(0), inputJobs, scanWorkerSelector);
         } else {
             throw new IllegalStateException("Not supported multiple scan multiple "
-                    + "OlapTable but not contains colocate join or bucket shuffle join");
+                    + "OlapTable but not contains colocate join or bucket shuffle join: "
+                    + planFragment.getExplainString(TExplainLevel.VERBOSE));
         }
     }
 
