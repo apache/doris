@@ -47,6 +47,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "runtime/exec_env.h"
 #include "util/doris_metrics.h"
 #include "util/slice.h"
 #include "util/stopwatch.hpp"
@@ -460,6 +461,160 @@ size_t LRUFileCache::try_release() {
     return trash.size();
 }
 
+std::pair<size_t, size_t> LRUFileCache::try_merge() {
+    std::unordered_map<Key, std::vector<std::vector<size_t>>, HashCachedFileKey> merged_files;
+    {
+        std::lock_guard<std::mutex> l(_mutex);
+        for (auto& [key, segments] : _files) {
+            std::vector<std::vector<size_t>> merged_blocks = find_continuous_cells(segments);
+            if (!merged_blocks.empty()) {
+                merged_files[key] = merged_blocks;
+            }
+        }
+    }
+    if (!merged_files.empty()) {
+        return merge_continuous_cells(merged_files);
+    }
+    return {0, 0};
+}
+
+std::vector<std::vector<size_t>> LRUFileCache::find_continuous_cells(
+        const FileBlocksByOffset& segments) {
+    std::vector<std::vector<size_t>> merged_blocks;
+    std::vector<size_t> continuous_blocks;
+    size_t end_offset;
+    size_t merged_size = 0;
+    for (auto& [offset, cell] : segments) {
+        if (cell.file_block->cache_type() != CacheType::NORMAL) {
+            break;
+        }
+        if (cell.releasable()) {
+            if (continuous_blocks.empty()) {
+                continuous_blocks.push_back(offset);
+                end_offset = offset + cell.size();
+                merged_size = cell.size();
+            } else if (offset == end_offset) {
+                if (merged_size >= MAX_MERGED_SIZE) {
+                    if (continuous_blocks.size() > 1) {
+                        merged_blocks.push_back(continuous_blocks);
+                    }
+                    continuous_blocks.clear();
+                    merged_size = cell.size();
+                } else {
+                    merged_size += cell.size();
+                }
+                continuous_blocks.push_back(offset);
+                end_offset = offset + cell.size();
+            } else {
+                if (continuous_blocks.size() > 1) {
+                    merged_blocks.push_back(continuous_blocks);
+                }
+                continuous_blocks.clear();
+                continuous_blocks.push_back(offset);
+                end_offset = offset + cell.size();
+                merged_size = cell.size();
+            }
+        }
+    }
+    if (continuous_blocks.size() > 1) {
+        merged_blocks.push_back(continuous_blocks);
+    }
+    return merged_blocks;
+}
+
+std::pair<size_t, size_t> LRUFileCache::merge_continuous_cells(
+        const std::unordered_map<Key, std::vector<std::vector<size_t>>, HashCachedFileKey>&
+                merged_files) {
+    size_t buffer_size = 1024 * 1024;
+    char buffer[buffer_size];
+    std::pair<size_t, size_t> origin_to_merged(0, 0);
+    for (auto& [key, continuous_blocks] : merged_files) {
+        std::lock_guard<std::mutex> l(_mutex);
+        FileBlocksByOffset& offset_cells = _files[key];
+        bool has_deleted = false;
+        for (auto& offsets : continuous_blocks) {
+            for (auto& offset : offsets) {
+                if (!offset_cells.contains(offset)) {
+                    // lock for each file, some files maybe deleted
+                    has_deleted = true;
+                }
+            }
+        }
+        if (has_deleted) {
+            continue;
+        }
+        for (auto& offsets : continuous_blocks) {
+            size_t merged_cell_offset = offsets[0];
+            size_t merged_size = offset_cells.at(offsets.back()).file_block->range().right + 1 -
+                                 merged_cell_offset;
+            CacheType cache_type = offset_cells.at(merged_cell_offset).cache_type;
+            CacheContext mock_ctx;
+            mock_ctx.cache_type = cache_type;
+            if (!try_reserve(key, mock_ctx, merged_cell_offset, merged_size, l)) {
+                return origin_to_merged;
+            }
+            FileBlockCell merged_cell(
+                    std::make_shared<FileBlock>(merged_cell_offset, merged_size, key, this,
+                                                FileBlock::State::EMPTY, cache_type, true),
+                    cache_type, l);
+            merged_cell.file_block->get_or_set_downloader();
+            bool success_merged = true;
+            for (auto& offset : offsets) {
+                FileBlockCell& cell = offset_cells.at(offset);
+                size_t cell_offset = 0;
+                size_t remaining_size = cell.size();
+                while (remaining_size > 0) {
+                    size_t bytes_read = std::min(buffer_size, remaining_size);
+                    Slice data(buffer, bytes_read);
+                    if (!cell.file_block->read_at(data, cell_offset)) {
+                        break;
+                    }
+                    if (!merged_cell.file_block->append(data)) {
+                        break;
+                    }
+                    cell_offset += bytes_read;
+                    remaining_size -= bytes_read;
+                }
+                if (remaining_size != 0) {
+                    success_merged = false;
+                    break;
+                }
+            }
+            if (success_merged) {
+                std::ostringstream offsets_info;
+                for (auto& offset : offsets) {
+                    FileBlockCell& cell = offset_cells.at(offset);
+                    offsets_info << offset << " ";
+                    std::lock_guard<std::mutex> lc(cell.file_block->_mutex);
+                    remove(cell.file_block, l, lc);
+                }
+                if (merged_cell.file_block->finalize_write()) {
+                    auto& queue = get_queue(cache_type);
+                    merged_cell.queue_iterator = queue.add(key, merged_cell_offset, merged_size, l);
+                    auto [it, inserted] =
+                            offset_cells.insert({merged_cell_offset, std::move(merged_cell)});
+                    if (inserted) {
+                        _cur_cache_size += merged_size;
+                        it->second.update_atime();
+                        origin_to_merged.first += offsets.size();
+                        origin_to_merged.second += 1;
+                        LOG(INFO) << "Success to merge " << offsets.size()
+                                  << " small cells, key=" << key.to_string()
+                                  << ", offsets=" << offsets_info.str();
+                    } else {
+                        merged_cell.file_block->remove_merged_file();
+                    }
+                } else {
+                    merged_cell.file_block->remove_merged_file();
+                }
+            } else {
+                merged_cell.file_block->remove_merged_file();
+            }
+        }
+    }
+    return origin_to_merged;
+}
+
 LRUFileCache::LRUQueue& LRUFileCache::get_queue(CacheType type) {
     switch (type) {
     case CacheType::INDEX:
@@ -659,11 +814,7 @@ bool LRUFileCache::try_reserve_from_other_queue(CacheType cur_cache_type, size_t
     std::for_each(trash.begin(), trash.end(), remove_file_block_if);
     std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
 
-    if (is_overflow()) {
-        return false;
-    }
-
-    return true;
+    return !is_overflow();
 }
 
 bool LRUFileCache::try_reserve_for_lru(const Key& key, QueryFileCacheContextPtr query_context,
@@ -1105,9 +1256,18 @@ std::string LRUFileCache::dump_structure_unlocked(const Key& key, std::lock_guar
 }
 
 void LRUFileCache::run_background_operation() {
-    int64_t interval_time_seconds = 20;
+    int64_t interval_time_seconds = 20; // 20s
+    int64_t interval_merge_cells = 600; // 10min
+    int64_t last_merge_duration = 0;
     while (!_close) {
         std::this_thread::sleep_for(std::chrono::seconds(interval_time_seconds));
+        last_merge_duration += interval_time_seconds;
+        if (last_merge_duration >= interval_merge_cells) {
+            std::pair<size_t, size_t> merged = try_merge();
+            LOG(INFO) << "Merge " << merged.first << " small cells into " << merged.second
+                      << " large cells";
+            last_merge_duration = 0;
+        }
         // report
         _cur_size_metrics->set_value(_cur_cache_size);
     }

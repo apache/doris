@@ -58,6 +58,24 @@ size_t FileCacheFactory::try_release(const std::string& base_path) {
     return 0;
 }
 
+std::pair<size_t, size_t> FileCacheFactory::try_merge() {
+    std::pair<size_t, size_t> origin_to_merge(0, 0);
+    for (auto& cache : _caches) {
+        auto res = cache->try_merge();
+        origin_to_merge.first += res.first;
+        origin_to_merge.second += res.second;
+    }
+    return origin_to_merge;
+}
+
+std::pair<size_t, size_t> FileCacheFactory::try_merge(const std::string& base_path) {
+    auto iter = _path_to_cache.find(base_path);
+    if (iter != _path_to_cache.end()) {
+        return iter->second->try_merge();
+    }
+    return {0, 0};
+}
+
 void FileCacheFactory::create_file_cache(const std::string& cache_base_path,
                                          const FileCacheSettings& file_cache_settings,
                                          Status* status) {
@@ -87,7 +105,6 @@ void FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     LOG(INFO) << "[FileCache] path: " << cache_base_path
               << " total_size: " << file_cache_settings.total_size;
     *status = Status::OK();
-    return;
 }
 
 CloudFileCachePtr FileCacheFactory::get_by_path(const IFileCache::Key& key) {

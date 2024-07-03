@@ -46,6 +46,10 @@ public:
 
     size_t try_release(const std::string& base_path);
 
+    std::pair<size_t, size_t> try_merge();
+
+    std::pair<size_t, size_t> try_merge(const std::string& base_path);
+
     CloudFileCachePtr get_by_path(const IFileCache::Key& key);
     CloudFileCachePtr get_by_path(const std::string& cache_base_path);
     std::vector<IFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(

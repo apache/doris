@@ -70,6 +70,12 @@ FileBlock::FileBlock(size_t offset_, size_t size_, const Key& key_, IFileCache* 
     }
 }
 
+FileBlock::FileBlock(size_t offset, size_t size, const Key& key, IFileCache* cache,
+                     State download_state, CacheType cache_type, bool is_merged_file)
+        : FileBlock(offset, size, key, cache, download_state, cache_type) {
+    _is_merged_file = is_merged_file;
+}
+
 FileBlock::~FileBlock() {
     std::shared_ptr<FileReader> reader;
     if ((reader = _cache_reader.lock())) {
@@ -196,6 +202,9 @@ Status FileBlock::append(Slice data) {
 }
 
 std::string FileBlock::get_path_in_local_cache() const {
+    if (_is_merged_file) {
+        return _cache->get_merged_path(key(), offset());
+    }
     return _cache->get_path_in_local_cache(key(), offset(), _cache_type);
 }
 
@@ -287,7 +296,31 @@ Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* segment_lock */
     _download_state = State::DOWNLOADED;
     _is_downloaded = true;
     _downloader_id.clear();
+
+    if (_is_merged_file) {
+        std::string merged_path = _cache->get_merged_path(key(), offset());
+        std::string final_path = _cache->get_path_in_local_cache(key(), offset(), _cache_type);
+        RETURN_IF_ERROR(global_local_filesystem()->rename(merged_path, final_path));
+        _is_merged_file = false;
+    }
+
     return Status::OK();
+}
+
+void FileBlock::remove_merged_file() {
+    if (_is_merged_file) {
+        std::string merged_path = get_path_in_local_cache();
+        bool exists = false;
+        Status st;
+        RETURN_IF_STATUS_ERROR(st, global_local_filesystem()->exists(merged_path, &exists));
+        if (exists) {
+            RETURN_IF_STATUS_ERROR(st, global_local_filesystem()->delete_file(merged_path));
+        }
+        if (_cache_writer) {
+            RETURN_IF_STATUS_ERROR(st, _cache_writer->close());
+            _cache_writer.reset();
+        }
+    }
 }
 
 void FileBlock::complete_unlocked(std::lock_guard<std::mutex>& segment_lock) {
