@@ -67,7 +67,7 @@ public class AnyValue extends NullableAggregateFunction
     }
 
     @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+    public AnyValue withAlwaysNullable(boolean alwaysNullable) {
         return new AnyValue(distinct, alwaysNullable, children.get(0));
     }
 
