@@ -88,8 +88,9 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TP
                                     : false),
           _partition_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
                                                                : std::vector<TExpr> {}),
-          _algorithm(tnode.sort_node.algorithm),
-          _reuse_mem(tnode.sort_node.algorithm != TSortAlgorithm::HEAP_SORT) {}
+          _algorithm(tnode.sort_node.__isset.algorithm ? tnode.sort_node.algorithm
+                                                       : TSortAlgorithm::FULL_SORT),
+          _reuse_mem(_algorithm != TSortAlgorithm::HEAP_SORT) {}
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
