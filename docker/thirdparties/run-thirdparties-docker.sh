@@ -393,17 +393,25 @@ fi
 
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     # iceberg
+    ICEBERG_DIR=${ROOT}/docker-compose/iceberg
     cp "${ROOT}"/docker-compose/iceberg/iceberg.yaml.tpl "${ROOT}"/docker-compose/iceberg/iceberg.yaml
     cp "${ROOT}"/docker-compose/iceberg/entrypoint.sh.tpl "${ROOT}"/docker-compose/iceberg/entrypoint.sh
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/iceberg.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/entrypoint.sh
     sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env down
-    sudo rm -rf "${ROOT}"/docker-compose/iceberg/data
     if [[ "${STOP}" -ne 1 ]]; then
-        wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data.zip
-        sudo unzip -d "${ROOT}"/docker-compose/iceberg -q ${ROOT}/docker-compose/iceberg/iceberg_data.zip
-        sudo mv "${ROOT}"/docker-compose/iceberg/iceberg_data "${ROOT}"/docker-compose/iceberg/data
-        sudo rm -rf ${ROOT}/docker-compose/iceberg/iceberg_data.zip
+        if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
+            echo "${ICEBERG_DIR}/data does not exist"
+            cd "${ICEBERG_DIR}" && rm -f iceberg_data.zip \
+            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data.zip \
+            && sudo unzip iceberg_data.zip \
+            && sudo mv iceberg_data data \
+            && sudo rm -rf iceberg_data.zip
+            cd -
+        else
+            echo "${ICEBERG_DIR}/data exist, continue !"
+        fi
+
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
     fi
 fi
