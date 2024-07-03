@@ -76,11 +76,11 @@ public:
         const auto& value = assert_cast<const ColumnType&>(*ptr).get_data_at(row_num);
 
         if (_nesting_level > 1) {
-            // _nested_level > 1 means string is in a complex type, we add double quotes, and escape
-            // which should make deal with some special characters in json str
             bw.write('"');
-            if constexpr (std::is_same_v<ColumnType, ColumnString>) {
-                // we should make deal with some special characters in json str
+        }
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            if (options.escape_char != 0) {
+                // we should make deal with some special characters in json str if we have escape_char
                 StringRef str_ref = value;
                 for (char it : str_ref) {
                     switch (it) {
@@ -112,10 +112,13 @@ public:
             } else {
                 bw.write(value.data, value.size);
             }
-            bw.write('"');
         } else {
             bw.write(value.data, value.size);
         }
+        if (_nesting_level > 1) {
+            bw.write('"');
+        }
+
         return Status::OK();
     }
 
