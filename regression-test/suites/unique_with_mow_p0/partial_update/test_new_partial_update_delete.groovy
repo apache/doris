@@ -43,12 +43,12 @@ suite('test_new_partial_update_delete') {
                     PROPERTIES (
                         "disable_auto_compaction" = "true",
                         "enable_unique_key_merge_on_write" = "false",
-                        "enable_mow_delete_on_delete_predicate" = "true",
+                        "enable_light_delete" = "true",
                         "replication_num" = "1",
                         "store_row_column" = "${use_row_store}"); """
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+                assertTrue(e.getMessage().contains('enable_light_delete property is not supported for unique merge-on-read table'))
             }
 
             try {
@@ -67,10 +67,10 @@ suite('test_new_partial_update_delete') {
                         "enable_unique_key_merge_on_write" = "false",
                         "replication_num" = "1",
                         "store_row_column" = "${use_row_store}"); """
-                sql """alter table ${tableMorName2} set ("enable_mow_delete_on_delete_predicate"="true")"""
+                sql """alter table ${tableMorName2} set ("enable_light_delete"="true")"""
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+                assertTrue(e.getMessage().contains('enable_light_delete property is not supported for unique merge-on-read table'))
             }
 
             def tableName1 = "test_new_partial_update_delete1"
@@ -89,7 +89,7 @@ suite('test_new_partial_update_delete') {
                     "store_row_column" = "${use_row_store}"); """
 
             def output1 = sql "show create table ${tableName1}"
-            assertTrue output1[0][1].contains("\"enable_mow_delete_on_delete_predicate\" = \"false\"");
+            assertTrue output1[0][1].contains("\"enable_light_delete\" = \"false\"");
             sql "insert into ${tableName1} values(1,1,1,1,1)"
             // 1,1,1,1,1
             qt_sql1 "select * from ${tableName1} order by k1;"
@@ -108,11 +108,11 @@ suite('test_new_partial_update_delete') {
 
 
 
-            sql """alter table ${tableName1} set ("enable_mow_delete_on_delete_predicate"="true") """
+            sql """alter table ${tableName1} set ("enable_light_delete"="true") """
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict=true;"
             def output2 = sql "show create table ${tableName1}"
-            assertTrue output2[0][1].contains("\"enable_mow_delete_on_delete_predicate\" = \"true\"");
+            assertTrue output2[0][1].contains("\"enable_light_delete\" = \"true\"");
             sql "insert into ${tableName1} values(2,2,2,2,2)"
             // 1,2,NULL,NULL,NULL
             // 2,2,2,2,2
@@ -156,12 +156,12 @@ suite('test_new_partial_update_delete') {
                     PROPERTIES (
                         "disable_auto_compaction" = "true",
                         "enable_unique_key_merge_on_write" = "false",
-                        "enable_mow_delete_on_delete_predicate" = "true",
+                        "enable_light_delete" = "true",
                         "replication_num" = "1",
                         "store_row_column" = "${use_row_store}"); """
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+                assertTrue(e.getMessage().contains('enable_light_delete property is not supported for unique merge-on-read table'))
             }
 
             try {
@@ -180,10 +180,10 @@ suite('test_new_partial_update_delete') {
                         "enable_unique_key_merge_on_write" = "false",
                         "replication_num" = "1",
                         "store_row_column" = "${use_row_store}"); """
-                sql """alter table ${tableMorName4} set ("enable_mow_delete_on_delete_predicate"="true")"""
+                sql """alter table ${tableMorName4} set ("enable_light_delete"="true")"""
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+                assertTrue(e.getMessage().contains('enable_light_delete property is not supported for unique merge-on-read table'))
             }
             sql "set enable_nereids_planner=false"
             def tableName2 = "test_new_partial_update_delete2"
@@ -202,7 +202,7 @@ suite('test_new_partial_update_delete') {
                     "store_row_column" = "${use_row_store}"); """
 
             def output3 = sql "show create table ${tableName2}"
-            assertTrue output3[0][1].contains("\"enable_mow_delete_on_delete_predicate\" = \"false\"");
+            assertTrue output3[0][1].contains("\"enable_light_delete\" = \"false\"");
             sql "insert into ${tableName2} values(1,1,1,1,1)"
             // 1,1,1,1,1
             qt_sql21 "select * from ${tableName2} order by k1;"
@@ -221,11 +221,11 @@ suite('test_new_partial_update_delete') {
 
 
 
-            sql """alter table ${tableName2} set ("enable_mow_delete_on_delete_predicate"="true") """
+            sql """alter table ${tableName2} set ("enable_light_delete"="true") """
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict=true;"
             def output4 = sql "show create table ${tableName2}"
-            assertTrue output4[0][1].contains("\"enable_mow_delete_on_delete_predicate\" = \"true\"");
+            assertTrue output4[0][1].contains("\"enable_light_delete\" = \"true\"");
             sql "insert into ${tableName2} values(2,2,2,2,2)"
             // 1,2,NULL,NULL,NULL
             // 2,2,2,2,2
