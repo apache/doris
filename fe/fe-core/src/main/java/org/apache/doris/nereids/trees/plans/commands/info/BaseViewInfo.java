@@ -345,6 +345,7 @@ public class BaseViewInfo {
 
     private static class SlotDealer extends DefaultExpressionVisitor<Void, StatementContext> {
         private static final SlotDealer INSTANCE = new SlotDealer();
+
         @Override
         public Void visitSlot(Slot slot, StatementContext ctx) {
             slot.getIndexInSqlString().ifPresent(index ->

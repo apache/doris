@@ -41,6 +41,10 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
         this(ImmutableList.copyOf(nameParts), Optional.empty());
     }
 
+    public UnboundSlot(List<String> nameParts) {
+        this(ImmutableList.copyOf(nameParts), Optional.empty());
+    }
+
     public UnboundSlot(List<String> nameParts, Optional<Pair<Integer, Integer>> indexInSqlString) {
         super(indexInSqlString);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts can not be null"));
