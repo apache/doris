@@ -77,7 +77,7 @@ public:
                 const_cast<std::string&&>(outcome.GetResult().GetNextContinuationToken())));
 
         auto&& content = outcome.GetResult().GetContents();
-        DCHECK(!has_more_ || content.empty()) << has_more_ << ' ' << content.empty();
+        DCHECK(!(has_more_ && content.empty())) << has_more_ << ' ' << content.empty();
 
         results_.reserve(content.size());
         for (auto&& obj : std::ranges::reverse_view(content)) {

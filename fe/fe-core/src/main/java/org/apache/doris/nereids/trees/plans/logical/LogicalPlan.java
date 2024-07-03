@@ -88,6 +88,13 @@ public interface LogicalPlan extends Plan {
             fdBuilder.addUniformByEqualSet(validEqualSet);
             fdBuilder.addUniqueByEqualSet(validEqualSet);
         }
+        Set<Slot> output = this.getOutputSet();
+        for (Plan child : children()) {
+            if (!output.containsAll(child.getOutputSet())) {
+                fdBuilder.pruneSlots(output);
+                break;
+            }
+        }
         return fdBuilder.build();
     }
 
