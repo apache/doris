@@ -475,6 +475,11 @@ Status VNodeChannel::open_wait() {
             _cancelled = true;
             auto error_code = open_callback->cntl_->ErrorCode();
             auto error_text = open_callback->cntl_->ErrorText();
+            if (error_text.find("Reached timeout") != std::string::npos) {
+                LOG(WARNING) << "failed to open tablet writer may caused by timeout. increase BE "
+                                "config `tablet_writer_open_rpc_timeout_sec` if you are sure that "
+                                "your table building and data are reasonable.";
+            }
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                     "failed to open tablet writer, error={}, error_text={}, info={}",
                     berror(error_code), error_text, channel_info());
@@ -820,10 +825,15 @@ void VNodeChannel::_add_block_failed_callback(const WriteBlockCallbackContext& c
     SCOPED_ATTACH_TASK(_state);
     // If rpc failed, mark all tablets on this node channel as failed
     _index_channel->mark_as_failed(this,
-                                   fmt::format("rpc failed, error coed:{}, error text:{}",
+                                   fmt::format("rpc failed, error code:{}, error text:{}",
                                                _send_block_callback->cntl_->ErrorCode(),
                                                _send_block_callback->cntl_->ErrorText()),
                                    -1);
+    if (_send_block_callback->cntl_->ErrorText().find("Reached timeout") != std::string::npos) {
+        LOG(WARNING) << "rpc failed may caused by timeout. increase BE config "
+                        "`min_load_rpc_timeout_ms` of to avoid this if you are sure that your "
+                        "table building and data are reasonable.";
+    }
     Status st = _index_channel->check_intolerable_failure();
     if (!st.ok()) {
         _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
