@@ -170,7 +170,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        tbl.getEnableDeleteOnDeletePredicate());
+                        tbl.getEnableLightDelete());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -217,7 +217,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-            List<Integer> rowStoreColumnUniqueIds, boolean enableMowDeleteOnDeletePredicate) throws DdlException {
+            List<Integer> rowStoreColumnUniqueIds, boolean enableLightDelete) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -334,7 +334,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             schemaBuilder.addAllRowStoreColumnUniqueIds(rowStoreColumnUniqueIds);
         }
         schemaBuilder.setDisableAutoCompaction(disableAutoCompaction);
-        schemaBuilder.setEnableMowDeleteOnDeletePredicate(enableMowDeleteOnDeletePredicate);
+        schemaBuilder.setEnableLightDelete(enableLightDelete);
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);

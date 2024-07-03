@@ -270,14 +270,14 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)) {
-            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_DELETE)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_DELETE)
                     .equalsIgnoreCase("true")
                     && !properties.get(PropertyAnalyzer
-                    .PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE).equalsIgnoreCase("false")) {
+                    .PROPERTIES_ENABLE_LIGHT_DELETE).equalsIgnoreCase("false")) {
                 throw new AnalysisException(
                         "Property "
-                                + PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
+                                + PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_DELETE
                                 + " should be set to true or false");
             }
             OlapTable table = null;
@@ -285,12 +285,12 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                 table = (OlapTable) (Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb())
                         .getTableOrAnalysisException(tableName.getTbl()));
             }
-            String enableMowDeleteOnDeletePredicate = properties.get(
-                    PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE);
+            String enableLightDelete = properties.get(
+                    PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_DELETE);
             if (!(table == null) && !table.getEnableUniqueKeyMergeOnWrite() && Boolean.getBoolean(
-                    enableMowDeleteOnDeletePredicate)) {
+                    enableLightDelete)) {
                 throw new AnalysisException(
-                        "enable_mow_delete_on_delete_predicate property is "
+                        "enable_light_delete property is "
                                 + "not supported for unique merge-on-read table");
             }
             this.needTableStable = false;

@@ -1324,12 +1324,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return null;
     }
 
-    public void setEnableDeleteOnDeletePredicate(boolean enable) {
-        getOrCreatTableProperty().setEnableDeleteOnDeletePredicate(enable);
+    public void setEnableLightDelete(boolean enable) {
+        getOrCreatTableProperty().setEnableLightDelete(enable);
     }
 
-    public boolean getEnableDeleteOnDeletePredicate() {
-        return getOrCreatTableProperty().getEnableDelteOnDeletePredicate();
+    public boolean getEnableLightDelete() {
+        return getOrCreatTableProperty().getEnableLightDelete();
     }
 
     public void setGroupCommitIntervalMs(int groupCommitInterValMs) {

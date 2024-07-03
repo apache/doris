@@ -100,7 +100,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE));
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_DELETE));
 
         if (properties.size() != 1) {
             throw new UserException("Can only set one table property at a time");
@@ -293,29 +293,29 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             }
             param.disableAutoCompaction = disableAutoCompaction;
             param.type = UpdatePartitionMetaParam.TabletMetaType.DISABLE_AUTO_COMPACTION;
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)) {
-            boolean enableMowDeleteOnDeletePredicate = Boolean.parseBoolean(properties.get(PropertyAnalyzer
-                    .PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE));
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_DELETE)) {
+            boolean enableLightDelete = Boolean.parseBoolean(properties.get(PropertyAnalyzer
+                    .PROPERTIES_ENABLE_LIGHT_DELETE));
             olapTable.readLock();
             try {
-                if (enableMowDeleteOnDeletePredicate
-                        == olapTable.getEnableDeleteOnDeletePredicate()) {
-                    LOG.info("enableMowDeleteOnDeletePredicate:{} is equal with"
-                                    + " olapTable.getEnableDeleteOnDeletePredicate():{}",
-                            enableMowDeleteOnDeletePredicate,
-                            olapTable.getEnableDeleteOnDeletePredicate());
+                if (enableLightDelete
+                        == olapTable.getEnableLightDelete()) {
+                    LOG.info("enableLightDelete:{} is equal with"
+                                    + " olapTable.getEnableLightDelete():{}",
+                            enableLightDelete,
+                            olapTable.getEnableLightDelete());
                     return;
                 }
-                if (olapTable.getEnableUniqueKeyMergeOnWrite() && !enableMowDeleteOnDeletePredicate) {
-                    throw new UserException("enable_mow_delete_on_delete_predicate property is "
+                if (!olapTable.getEnableUniqueKeyMergeOnWrite() && enableLightDelete) {
+                    throw new UserException("enable_light_delete property is "
                             + "not supported for unique merge-on-read table");
                 }
                 partitions.addAll(olapTable.getPartitions());
             } finally {
                 olapTable.readUnlock();
             }
-            param.enableMowDeleteOnDeletePredicate = enableMowDeleteOnDeletePredicate;
-            param.type = UpdatePartitionMetaParam.TabletMetaType.ENABLE_MOW_DELETE_ON_DELETE_PREDICATE;
+            param.enableLightDelete = enableLightDelete;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.ENABLE_LIGHT_DELETE;
         } else {
             LOG.warn("invalid properties:{}", properties);
             throw new UserException("invalid properties");
@@ -347,7 +347,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
             TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
             DISABLE_AUTO_COMPACTION,
-            ENABLE_MOW_DELETE_ON_DELETE_PREDICATE,
+            ENABLE_LIGHT_DELETE,
         }
 
         TabletMetaType type;
@@ -363,7 +363,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         long timeSeriesCompactionEmptyRowsetsThreshold = 0;
         long timeSeriesCompactionLevelThreshold = 0;
         boolean disableAutoCompaction = false;
-        boolean enableMowDeleteOnDeletePredicate = false;
+        boolean enableLightDelete = false;
     }
 
     public void updateCloudPartitionMeta(Database db,
@@ -438,9 +438,9 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                         infoBuilder.setDisableAutoCompaction(
                                 param.disableAutoCompaction);
                         break;
-                    case ENABLE_MOW_DELETE_ON_DELETE_PREDICATE:
-                        infoBuilder.setEnableMowDeleteOnDeletePredicate(
-                                param.enableMowDeleteOnDeletePredicate
+                    case ENABLE_LIGHT_DELETE:
+                        infoBuilder.setEnableLightDelete(
+                                param.enableLightDelete
                         );
                         break;
                     default:

@@ -578,7 +578,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
                         + "\"group_commit_interval_ms\" = \"10000\",\n"
                         + "\"group_commit_data_bytes\" = \"134217728\",\n"
-                        + "\"enable_mow_delete_on_delete_predicate\" = \"false\"\n"
+                        + "\"enable_light_delete\" = \"false\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }

@@ -2464,11 +2464,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException(e.getMessage());
             }
             if (enableDeleteOnDeletePredicate && !enableUniqueKeyMergeOnWrite) {
-                throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE
+                throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_DELETE
                         + " property is not supported for unique merge-on-read table");
             }
         }
-        olapTable.setEnableDeleteOnDeletePredicate(enableDeleteOnDeletePredicate);
+        olapTable.setEnableLightDelete(enableDeleteOnDeletePredicate);
 
         boolean enableSingleReplicaCompaction = false;
         try {

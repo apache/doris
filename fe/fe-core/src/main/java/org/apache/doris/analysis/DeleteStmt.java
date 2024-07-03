@@ -123,7 +123,7 @@ public class DeleteStmt extends DdlStmt {
 
         // analyze predicate
         if ((fromClause == null && !((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite())
-                || (fromClause == null && ((OlapTable) targetTable).getEnableDeleteOnDeletePredicate())) {
+                || (fromClause == null && ((OlapTable) targetTable).getEnableLightDelete())) {
             if (wherePredicate == null) {
                 throw new AnalysisException("Where clause is not set");
             }
