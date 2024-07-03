@@ -214,7 +214,9 @@ public class ConnectProcessor {
     // process COM_EXECUTE, parse binary row data
     // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
     private void handleExecute() {
-        // debugPacket();
+        if (LOG.isDebugEnabled()) {
+            debugPacket();
+        }
         packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
         // parse stmt_id, flags, params
         int stmtId = packetBuf.getInt();
