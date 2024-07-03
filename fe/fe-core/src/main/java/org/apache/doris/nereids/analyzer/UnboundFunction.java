@@ -38,8 +38,8 @@ import java.util.stream.Collectors;
 public class UnboundFunction extends Function implements Unbound, PropagateNullable {
     private final String dbName;
     private final boolean isDistinct;
+    // for create view, the start and end position of the function string in original sql
     private final Optional<Pair<Integer, Integer>> indexInSqlString;
-
     // the start and end position of the function string in original sql
     private final Optional<FunctionIndexInSql> functionIndexInSql;
 

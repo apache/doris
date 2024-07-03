@@ -365,6 +365,19 @@ suite("test_create_view_nereids") {
     qt_test_udf_sql "show create view test_view_udf;"
     qt_test_udf "select * from test_view_udf order by 1,2,3"
 
+    sql "DROP VIEW  if exists test_view_with_as_with_columns"
+    sql """CREATE VIEW if not exists test_view_with_as_with_columns AS (
+            with t1(c1,c2,c3) as (select * from mal_test_view),  t2 as (select * from mal_test_view),  
+            t3 as (select * from mal_test_view) SELECT * FROM t1);"""
+    qt_test_with_as_with_columns "select * from test_view_with_as_with_columns order by c1,c2,c3"
+    qt_test_with_as_with_columns_sql "show create view test_view_with_as_with_columns"
+
+    sql "drop view if exists test_having"
+    sql """create view test_having as
+    select sum(a) over(partition by a order by pk) as c1 , a from mal_test_view group by grouping sets((a),(b),(pk,a)) having a>1"""
+    qt_test_having "select * from test_having order by 1"
+    qt_test_having_sql "show create view test_having"
+
     sql "drop view if exists test_view_complicated;"
     sql """create view test_view_complicated as
     SELECT * FROM (

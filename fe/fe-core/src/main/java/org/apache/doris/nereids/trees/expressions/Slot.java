@@ -30,7 +30,8 @@ import java.util.Optional;
  * Abstract class for all slot in expression.
  */
 public abstract class Slot extends NamedExpression implements LeafExpression {
-    // the start and end position of the sql substring(e.g. "col1", "t1.col1", "db1.t1.col1", "ctl1.db1.t1.col1")
+    // for create view, the start and end position of the sql substring
+    // (e.g. "col1", "t1.col1", "db1.t1.col1", "ctl1.db1.t1.col1")
     protected final Optional<Pair<Integer, Integer>> indexInSqlString;
 
     protected Slot(Optional<Pair<Integer, Integer>> indexInSqlString) {

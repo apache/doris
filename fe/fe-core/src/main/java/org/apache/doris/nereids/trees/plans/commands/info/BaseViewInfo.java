@@ -249,8 +249,7 @@ public class BaseViewInfo {
             for (NamedExpression expr : aggregate.getOutputExpressions()) {
                 expr.accept(SlotDealer.INSTANCE, context);
             }
-            aggregate.child().accept(this, context);
-            return null;
+            return aggregate.child().accept(this, context);
         }
 
         @Override
@@ -258,16 +257,14 @@ public class BaseViewInfo {
             for (Expression expr : filter.getConjuncts()) {
                 expr.accept(SlotDealer.INSTANCE, context);
             }
-            filter.child().accept(this, context);
-            return null;
+            return filter.child().accept(this, context);
         }
 
         public Void visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, StatementContext context) {
             for (Expression expr : generate.getGenerators()) {
                 expr.accept(SlotDealer.INSTANCE, context);
             }
-            generate.child().accept(this, context);
-            return null;
+            return generate.child().accept(this, context);
         }
 
         @Override
@@ -275,8 +272,7 @@ public class BaseViewInfo {
             for (Expression expr : having.getConjuncts()) {
                 expr.accept(SlotDealer.INSTANCE, context);
             }
-            having.child().accept(this, context);
-            return null;
+            return having.child().accept(this, context);
         }
 
         @Override
@@ -288,8 +284,7 @@ public class BaseViewInfo {
                 expr.accept(SlotDealer.INSTANCE, context);
             }
             join.child(0).accept(this, context);
-            join.child(1).accept(this, context);
-            return null;
+            return join.child(1).accept(this, context);
         }
 
         @Override
@@ -297,8 +292,7 @@ public class BaseViewInfo {
             for (Expression expr : project.getProjects()) {
                 expr.accept(SlotDealer.INSTANCE, context);
             }
-            project.child().accept(this, context);
-            return null;
+            return project.child().accept(this, context);
         }
 
         @Override
@@ -311,8 +305,7 @@ public class BaseViewInfo {
                     expr.accept(SlotDealer.INSTANCE, context);
                 }
             }
-            repeat.child().accept(this, context);
-            return null;
+            return repeat.child().accept(this, context);
         }
 
         @Override
@@ -320,8 +313,7 @@ public class BaseViewInfo {
             for (OrderKey key : sort.getOrderKeys()) {
                 key.getExpr().accept(SlotDealer.INSTANCE, context);
             }
-            sort.child().accept(this, context);
-            return null;
+            return sort.child().accept(this, context);
         }
 
         @Override
@@ -329,8 +321,7 @@ public class BaseViewInfo {
             for (OrderKey key : topN.getOrderKeys()) {
                 key.getExpr().accept(SlotDealer.INSTANCE, context);
             }
-            topN.child().accept(this, context);
-            return null;
+            return topN.child().accept(this, context);
         }
 
         @Override
@@ -338,8 +329,7 @@ public class BaseViewInfo {
             for (Expression expr : window.getWindowExpressions()) {
                 expr.accept(SlotDealer.INSTANCE, context);
             }
-            window.child().accept(this, context);
-            return null;
+            return window.child().accept(this, context);
         }
     }
 
