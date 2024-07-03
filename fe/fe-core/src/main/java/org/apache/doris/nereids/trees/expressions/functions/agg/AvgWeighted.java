@@ -79,7 +79,7 @@ public class AvgWeighted extends NullableAggregateFunction
     }
 
     @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+    public AvgWeighted withAlwaysNullable(boolean alwaysNullable) {
         return new AvgWeighted(distinct, alwaysNullable, children.get(0), children.get(1));
     }
 
