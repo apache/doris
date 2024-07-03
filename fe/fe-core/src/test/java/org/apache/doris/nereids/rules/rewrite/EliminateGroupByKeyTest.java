@@ -66,7 +66,7 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
         funcDeps.addFuncItems(set1, set2);
         funcDeps.addFuncItems(set2, set3);
         funcDeps.addFuncItems(set3, set4);
-        Set<Set<Slot>> slots = funcDeps.eliminateDeps(ImmutableSet.of(set1, set2, set3, set4));
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(ImmutableSet.of(set1, set2, set3, set4), ImmutableSet.of());
         Assertions.assertEquals(1, slots.size());
         Assertions.assertEquals(set1, slots.iterator().next());
     }
@@ -78,7 +78,7 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
         funcDeps.addFuncItems(set2, set3);
         funcDeps.addFuncItems(set3, set4);
         funcDeps.addFuncItems(set4, set1);
-        Set<Set<Slot>> slots = funcDeps.eliminateDeps(ImmutableSet.of(set1, set2, set3, set4));
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(ImmutableSet.of(set1, set2, set3, set4), ImmutableSet.of());
         Assertions.assertEquals(1, slots.size());
         Assertions.assertEquals(set1, slots.iterator().next());
     }
@@ -89,7 +89,7 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
         funcDeps.addFuncItems(set1, set2);
         funcDeps.addFuncItems(set1, set3);
         funcDeps.addFuncItems(set1, set4);
-        Set<Set<Slot>> slots = funcDeps.eliminateDeps(ImmutableSet.of(set1, set2, set3, set4));
+        Set<Set<Slot>> slots = funcDeps.eliminateDeps(ImmutableSet.of(set1, set2, set3, set4), ImmutableSet.of());
         Assertions.assertEquals(1, slots.size());
         Assertions.assertEquals(set1, slots.iterator().next());
     }
@@ -163,11 +163,20 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
     @Test
     void testEliminateByEqual() {
         PlanChecker.from(connectContext)
-                .analyze("select count(t1.name) from t1 as t1 join t1 as t2 on t1.name = t2.name group by t1.name, t2.name")
+                .analyze("select t1.name from t1 as t1 join t1 as t2 on t1.name = t2.name group by t1.name, t2.name")
                 .rewrite()
                 .printlnTree()
                 .matches(logicalAggregate().when(agg ->
-                        agg.getGroupByExpressions().size() == 1 && agg.getGroupByExpressions().get(0).toSql().equals("name")));
-    }
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getGroupByExpressions().get(0).toSql().equals("name")));
 
+        PlanChecker.from(connectContext)
+                .analyze("select t2.name from t1 as t1 join t1 as t2 "
+                        + "on t1.name = t2.name group by t1.name, t2.name")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getGroupByExpressions().get(0).toSql().equals("name")));
+    }
 }

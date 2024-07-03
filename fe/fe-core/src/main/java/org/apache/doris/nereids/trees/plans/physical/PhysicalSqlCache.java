@@ -19,12 +19,15 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.TreeStringPlan;
@@ -44,7 +47,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** PhysicalSqlCache */
-public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStringPlan {
+public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStringPlan, ComputeResultSet {
     private final TUniqueId queryId;
     private final List<String> columnLabels;
     private final List<Expr> resultExprs;
@@ -153,5 +156,11 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
     @Override
     public String getChildrenTreeString() {
         return planBody;
+    }
+
+    @Override
+    public Optional<ResultSet> computeResultInFe(
+            CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext) {
+        return resultSet;
     }
 }

@@ -52,8 +52,6 @@ public:
 
     Status pull(int sender_idx, vectorized::Block* block, bool* eos);
 
-    void close_sender(int sender_idx);
-
     Status push(RuntimeState* state, vectorized::Block* block, bool eos);
 
     const RowDescriptor& row_desc() { return _row_desc; }

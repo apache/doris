@@ -76,6 +76,16 @@ public class HadoopUGI {
                 ((SimpleAuthenticationConfig) config).setUsername(hadoopUserName);
                 LOG.debug(AuthenticationConfig.HADOOP_USER_NAME + " is unset, use default user: hadoop");
             }
+
+            try {
+                ugi = UserGroupInformation.getLoginUser();
+                if (ugi.getUserName().equals(hadoopUserName)) {
+                    return ugi;
+                }
+            } catch (IOException e) {
+                LOG.warn("A SecurityException occurs with simple, do login immediately.", e);
+            }
+
             ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
             UserGroupInformation.setLoginUser(ugi);
             LOG.debug("Login by proxy user, hadoop.username: {}", hadoopUserName);
@@ -112,7 +122,9 @@ public class HadoopUGI {
         UserGroupInformation ugi = HadoopUGI.loginWithUGI(authConf);
         try {
             if (ugi != null) {
-                ugi.checkTGTAndReloginFromKeytab();
+                if (authConf instanceof KerberosAuthenticationConfig) {
+                    ugi.checkTGTAndReloginFromKeytab();
+                }
                 return ugi.doAs(action);
             } else {
                 return action.run();

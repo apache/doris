@@ -150,6 +150,53 @@ public class FuncDepsDG {
             return new FuncDepsDG(ImmutableMap.copyOf(itemMap), ImmutableList.copyOf(dgItems));
         }
 
+        public void removeNotContain(Set<Slot> validSlot) {
+            FuncDeps funcDeps = findValidFuncDeps(validSlot);
+            dgItems.clear();
+            itemMap.clear();
+            for (FuncDeps.FuncDepsItem item : funcDeps.getItems()) {
+                this.addDeps(item.determinants, item.dependencies);
+            }
+        }
+
+        /**
+         * Finds all functional dependencies that are applicable to a given set of valid slots.
+         */
+        public FuncDeps findValidFuncDeps(Set<Slot> validSlot) {
+            FuncDeps res = new FuncDeps();
+            for (Entry<Set<Slot>, Integer> entry : itemMap.entrySet()) {
+                if (validSlot.containsAll(entry.getKey())) {
+                    Set<DGItem> visited = new HashSet<>();
+                    Set<DGItem> children = new HashSet<>();
+                    DGItem dgItem = dgItems.get(entry.getValue());
+                    visited.add(dgItem);
+                    collectAllChildren(validSlot, dgItem, visited, children);
+                    for (DGItem child : children) {
+                        res.addFuncItems(dgItem.slots, child.slots);
+                    }
+                }
+            }
+            return res;
+        }
+
+        /**
+         * Helper method to recursively collect all child nodes of a given root node
+         * that are valid according to the specified slots.
+         */
+        private void collectAllChildren(Set<Slot> validSlot, DGItem root,
+                Set<DGItem> visited, Set<DGItem> children) {
+            for (int childIdx : root.children) {
+                DGItem child = dgItems.get(childIdx);
+                if (!visited.contains(child)) {
+                    if (validSlot.containsAll(child.slots)) {
+                        children.add(child);
+                    }
+                    visited.add(child);
+                    collectAllChildren(validSlot, child, visited, children);
+                }
+            }
+        }
+
         public void addDeps(Set<Slot> dominant, Set<Slot> dependency) {
             DGItem dominateItem = getOrCreateNode(dominant);
             DGItem dependencyItem = getOrCreateNode(dependency);

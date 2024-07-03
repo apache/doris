@@ -79,4 +79,9 @@ public class CustomRewriteJob implements RewriteJob {
     public boolean isOnce() {
         return false;
     }
+
+    public RuleType getRuleType() {
+        return ruleType;
+    }
+
 }
