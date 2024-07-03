@@ -1264,7 +1264,19 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (resultExpr.getSrcSlotRef() != null
                             && resultExpr.getSrcSlotRef().getTable() != null
                             && !resultExpr.getSrcSlotRef().getTable().isManagedTable()) {
-                        typeDef = new TypeDef(ScalarType.createStringType());
+                        if (createTableStmt.getPartitionDesc().inIdentifierPartitions(
+                                resultExpr.getSrcSlotRef().getColumnName())
+                                || (createTableStmt.getDistributionDesc() != null
+                                && createTableStmt.getDistributionDesc().inDistributionColumns(
+                                        resultExpr.getSrcSlotRef().getColumnName()))) {
+                            // String type can not be used in partition/distributed column
+                            // so we replace it to varchar
+                            if (resultType.getPrimitiveType() == PrimitiveType.STRING) {
+                                typeDef = new TypeDef(ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH));
+                            }
+                        } else {
+                            typeDef = new TypeDef(ScalarType.createStringType());
+                        }
                     }
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));

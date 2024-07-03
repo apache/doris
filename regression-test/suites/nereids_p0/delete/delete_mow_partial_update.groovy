@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('nereids_delete_mow_partial_update') {
+suite('delete_mow_partial_update') {
 
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
