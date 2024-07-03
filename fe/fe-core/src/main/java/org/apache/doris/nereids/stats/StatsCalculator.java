@@ -1049,7 +1049,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             builder.putColumnStatistics(slot, colStatsBuilder.build());
         }
         checkIfUnknownStatsUsedAsKey(builder);
-        return builder.build();
+        return builder.setRowCount(rowCount).build();
     }
 
     private Statistics computeTopN(TopN topN) {
