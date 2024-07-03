@@ -17,7 +17,11 @@
 
 #pragma once
 
+#ifdef __AVX2__
 #include <immintrin.h>
+
+#include "gutil/macros.h"
+#endif
 #include <unistd.h>
 
 #include <array>
@@ -112,7 +116,7 @@ public:
 
         if constexpr (trim_single) {
             const auto ch = remove_str.data[0];
-#if defined(__AVX2__) || defined(__aarch64__)
+#if defined(__AVX2__)
             constexpr auto AVX2_BYTES = sizeof(__m256i);
             const auto size = end - begin;
             const auto* const avx2_begin = end - size / AVX2_BYTES * AVX2_BYTES;
@@ -153,7 +157,7 @@ public:
 
         if constexpr (trim_single) {
             const auto ch = remove_str.data[0];
-#if defined(__AVX2__) || defined(__aarch64__)
+#if defined(__AVX2__)
             constexpr auto AVX2_BYTES = sizeof(__m256i);
             const auto size = end - begin;
             const auto* const avx2_end = begin + size / AVX2_BYTES * AVX2_BYTES;
