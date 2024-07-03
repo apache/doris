@@ -17,20 +17,25 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Abstract class for all slot in expression.
  */
 public abstract class Slot extends NamedExpression implements LeafExpression {
+    // the start and end position of the sql substring(e.g. "col1", "t1.col1", "db1.t1.col1", "ctl1.db1.t1.col1")
+    protected final Optional<Pair<Integer, Integer>> indexInSqlString;
 
-    protected Slot() {
+    protected Slot(Optional<Pair<Integer, Integer>> indexInSqlString) {
         super(ImmutableList.of());
+        this.indexInSqlString = indexInSqlString;
     }
 
     @Override
@@ -60,5 +65,13 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
 
     public String getInternalName() {
         throw new RuntimeException("Do not implement");
+    }
+
+    public Slot withIndexInSql(Pair<Integer, Integer> index) {
+        throw new RuntimeException("Do not implement");
+    }
+
+    public Optional<Pair<Integer, Integer>> getIndexInSqlString() {
+        return indexInSqlString;
     }
 }

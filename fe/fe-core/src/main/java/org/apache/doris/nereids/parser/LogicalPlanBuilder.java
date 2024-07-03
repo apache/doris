@@ -1152,6 +1152,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String generateName = ctx.tableName.getText();
         // if later view explode map type, we need to add a project to convert map to struct
         String columnName = ctx.columnNames.get(0).getText();
+
+        if (forCreateView) {
+            ConnectContext.get().getStatementContext().addIndexInSqlToString(
+                    Pair.of(ctx.tableName.start.getStartIndex(),
+                            ctx.tableName.stop.getStopIndex()),
+                    Utils.qualifiedNameWithBackquote(ImmutableList.of(ctx.tableName.getText())));
+            for (IdentifierContext colCtx : ctx.columnNames) {
+                ConnectContext.get().getStatementContext().addIndexInSqlToString(
+                        Pair.of(colCtx.start.getStartIndex(),
+                                colCtx.stop.getStopIndex()),
+                        Utils.qualifiedNameWithBackquote(ImmutableList.of(colCtx.getText())));
+            }
+        }
+
         List<String> expandColumnNames = Lists.newArrayList();
         if (ctx.columnNames.size() > 1) {
             columnName = ConnectContext.get() != null
@@ -1190,6 +1204,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .map(RuleContext::getText)
                     .collect(ImmutableList.toImmutableList())
             );
+            if (forCreateView) {
+                ConnectContext.get().getStatementContext().addIndexInSqlToString(
+                        Pair.of(ctx.identifier().start.getStartIndex(),
+                                ctx.identifier().stop.getStopIndex()),
+                        Utils.qualifiedNameWithBackquote(ImmutableList.of(ctx.identifier().getText())));
+                if (ctx.columnAliases() != null) {
+                    for (IdentifierContext colCtx : ctx.columnAliases().identifier()) {
+                        ConnectContext.get().getStatementContext().addIndexInSqlToString(
+                                Pair.of(colCtx.start.getStartIndex(),
+                                        colCtx.stop.getStopIndex()),
+                                Utils.qualifiedNameWithBackquote(ImmutableList.of(colCtx.getText())));
+                    }
+                }
+            }
             return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, queryPlan);
         });
     }
@@ -1378,6 +1406,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new ParseException("Do not implemented", ctx);
                 // TODO: multi-colName
             }
+            if (forCreateView) {
+                ConnectContext.get().getStatementContext().addIndexInSqlToString(
+                        Pair.of(ctx.strictIdentifier().start.getStartIndex(),
+                                ctx.strictIdentifier().stop.getStopIndex()),
+                        Utils.qualifiedNameWithBackquote(ImmutableList.of(alias)));
+            }
             return new LogicalSubQueryAlias<>(alias, plan);
         });
     }
@@ -1519,6 +1553,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
             String alias = visitIdentifierOrText(ctx.identifierOrText());
+            if (forCreateView) {
+                ConnectContext.get().getStatementContext().addIndexInSqlToString(
+                        Pair.of(ctx.identifierOrText().start.getStartIndex(),
+                                ctx.identifierOrText().stop.getStopIndex()),
+                        Utils.qualifiedNameWithBackquote(ImmutableList.of(alias)));
+            }
             return new UnboundAlias(expression, alias);
         });
     }
@@ -2167,6 +2207,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     dbName = ctx.functionIdentifier().dbName.getText();
                 }
                 UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params);
+                if (forCreateView) {
+                    function = function.withIndexInSql(Pair.of(
+                            ctx.functionIdentifier().start.getStartIndex(),
+                            ctx.functionIdentifier().stop.getStopIndex()));
+                }
                 if (ctx.windowSpec() != null) {
                     if (isDistinct) {
                         throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
@@ -2293,7 +2338,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 UnboundSlot unboundAttribute = (UnboundSlot) e;
                 List<String> nameParts = Lists.newArrayList(unboundAttribute.getNameParts());
                 nameParts.add(ctx.fieldName.getText());
-                return new UnboundSlot(nameParts);
+                UnboundSlot slot = new UnboundSlot(nameParts, Optional.empty());
+                return forCreateView ? slot.withIndexInSql(Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex()))
+                        : slot;
             } else {
                 // todo: base is an expression, may be not a table name.
                 throw new ParseException("Unsupported dereference expression: " + ctx.getText(), ctx);
@@ -2318,7 +2365,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitColumnReference(ColumnReferenceContext ctx) {
         // todo: handle quoted and unquoted
-        return UnboundSlot.quoted(ctx.getText());
+        UnboundSlot slot = UnboundSlot.quoted(ctx.getText());
+        return forCreateView ? slot.withIndexInSql(Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex())) : slot;
     }
 
     /**
@@ -2505,7 +2553,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public EqualTo visitUpdateAssignment(UpdateAssignmentContext ctx) {
-        return new EqualTo(new UnboundSlot(visitMultipartIdentifier(ctx.multipartIdentifier())),
+        return new EqualTo(new UnboundSlot(visitMultipartIdentifier(ctx.multipartIdentifier()), Optional.empty()),
                 getExpression(ctx.expression()));
     }
 

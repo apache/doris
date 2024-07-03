@@ -31,15 +31,31 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.jobs.executor.AbstractBatchJobExecutor;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -79,6 +95,9 @@ public class BaseViewInfo {
         AnalyzerForCreateView analyzerForStar = new AnalyzerForCreateView(viewContextForStar);
         analyzerForStar.analyze();
         analyzedPlan = viewContextForStar.getRewritePlan();
+        // Traverse all slots in the plan, and add the slot's location information
+        // and the fully qualified replacement string to the indexInSqlToString of the StatementContext.
+        analyzedPlan.accept(PlanSlotFinder.INSTANCE, ctx.getStatementContext());
     }
 
     protected String rewriteSql(Map<Pair<Integer, Integer>, String> indexStringSqlMap) {
@@ -216,6 +235,123 @@ public class BaseViewInfo {
                             new BindExpression()
                     )
             );
+        }
+    }
+
+    private static class PlanSlotFinder extends DefaultPlanVisitor<Void, StatementContext> {
+        private static PlanSlotFinder INSTANCE = new PlanSlotFinder();
+
+        @Override
+        public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, StatementContext context) {
+            for (Expression expr : aggregate.getGroupByExpressions()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            for (NamedExpression expr : aggregate.getOutputExpressions()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            aggregate.child().accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, StatementContext context) {
+            for (Expression expr : filter.getConjuncts()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            filter.child().accept(this, context);
+            return null;
+        }
+
+        public Void visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, StatementContext context) {
+            for (Expression expr : generate.getGenerators()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            generate.child().accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalHaving(LogicalHaving<? extends Plan> having, StatementContext context) {
+            for (Expression expr : having.getConjuncts()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            having.child().accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, StatementContext context) {
+            for (Expression expr : join.getOtherJoinConjuncts()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            for (Expression expr : join.getHashJoinConjuncts()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            join.child(0).accept(this, context);
+            join.child(1).accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalProject(LogicalProject<? extends Plan> project, StatementContext context) {
+            for (Expression expr : project.getProjects()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            project.child().accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, StatementContext context) {
+            for (Expression expr : repeat.getOutputExpressions()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            for (List<Expression> exprs : repeat.getGroupingSets()) {
+                for (Expression expr : exprs) {
+                    expr.accept(SlotDealer.INSTANCE, context);
+                }
+            }
+            repeat.child().accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalSort(LogicalSort<? extends Plan> sort, StatementContext context) {
+            for (OrderKey key : sort.getOrderKeys()) {
+                key.getExpr().accept(SlotDealer.INSTANCE, context);
+            }
+            sort.child().accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalTopN(LogicalTopN<? extends Plan> topN, StatementContext context) {
+            for (OrderKey key : topN.getOrderKeys()) {
+                key.getExpr().accept(SlotDealer.INSTANCE, context);
+            }
+            topN.child().accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalWindow(LogicalWindow<? extends Plan> window, StatementContext context) {
+            for (Expression expr : window.getWindowExpressions()) {
+                expr.accept(SlotDealer.INSTANCE, context);
+            }
+            window.child().accept(this, context);
+            return null;
+        }
+    }
+
+    private static class SlotDealer extends DefaultExpressionVisitor<Void, StatementContext> {
+        private static final SlotDealer INSTANCE = new SlotDealer();
+        @Override
+        public Void visitSlot(Slot slot, StatementContext ctx) {
+            slot.getIndexInSqlString().ifPresent(index ->
+                    ctx.addIndexInSqlToString(index,
+                            Utils.qualifiedNameWithBackquote(slot.getQualifier(), slot.getName()))
+            );
+            return null;
         }
     }
 }
