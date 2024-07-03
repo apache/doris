@@ -16,7 +16,7 @@ PhysicalResultSink
 --------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('DE', 'FL', 'ID', 'IL', 'IN', 'MT', 'ND', 'OH', 'TX'))
 ----------------------------PhysicalOlapScan[customer_address] apply RFs: RF8
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF7 ws_web_page_sk->[wp_web_page_sk]
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF7 ws_web_page_sk->[wp_web_page_sk]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[web_page] apply RFs: RF7
 ----------------------------PhysicalProject
