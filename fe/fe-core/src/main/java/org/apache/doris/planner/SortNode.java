@@ -331,8 +331,7 @@ public class SortNode extends PlanNode {
                 || info.getOrderingExprs().stream().allMatch(e -> !e.getType().isStringType()
                 && !e.getType().isCollectionType()))) {
             algorithm = TSortAlgorithm.HEAP_SORT;
-        } else if (limit > 0 && row_desc.has_varlen_slots() &&
-                limit + offset < 256) {
+        } else if (limit > 0 && row_desc.has_varlen_slots() && limit + offset < 256) {
             algorithm = TSortAlgorithm.TOPN_SORT;
         } else {
             algorithm = TSortAlgorithm.FULL_SORT;
