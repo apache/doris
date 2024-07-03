@@ -79,6 +79,7 @@ import java.util.stream.Collectors;
  * Representation of a single select block, including GROUP BY, ORDER BY and HAVING
  * clauses.
  */
+@Deprecated
 public class SelectStmt extends QueryStmt {
     private static final Logger LOG = LogManager.getLogger(SelectStmt.class);
     public static final String DEFAULT_VALUE = "__DEFAULT_VALUE__";
