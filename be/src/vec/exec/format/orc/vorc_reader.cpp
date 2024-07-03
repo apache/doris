@@ -70,6 +70,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/exec/format/table/transactional_hive_common.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
@@ -177,6 +178,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
 }
 
 OrcReader::~OrcReader() {
+    SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(ExecEnv::GetInstance()->orc_reader_tracker());
     if (_obj_pool && _obj_pool.get()) {
         _obj_pool->clear();
     }
@@ -252,6 +254,7 @@ Status OrcReader::_create_file_reader() {
     // create orc reader
     try {
         orc::ReaderOptions options;
+        options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
         _reader = orc::createReader(
                 std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
@@ -276,6 +279,7 @@ Status OrcReader::init_reader(
         const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
+    SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(ExecEnv::GetInstance()->orc_reader_tracker());
     _column_names = column_names;
     _colname_to_value_range = colname_to_value_range;
     _lazy_read_ctx.conjuncts = conjuncts;
@@ -1539,6 +1543,7 @@ std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int 
 }
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(ExecEnv::GetInstance()->orc_reader_tracker());
     RETURN_IF_ERROR(get_next_block_impl(block, read_rows, eof));
     if (_orc_filter) {
         RETURN_IF_ERROR(_orc_filter->get_status());

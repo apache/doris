@@ -31,7 +31,9 @@
 #include "orc/OrcFile.hh"
 #include "orc/Vector.hh"
 #include "runtime/define_primitive_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
 #include "util/debug_util.h"
@@ -122,7 +124,12 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
     set_compression_type(compress_type);
 }
 
+VOrcTransformer::~VOrcTransformer() {
+    SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(ExecEnv::GetInstance()->orc_writer_tracker());
+}
+
 Status VOrcTransformer::open() {
+    SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(ExecEnv::GetInstance()->orc_writer_tracker());
     if (!_schema_str.empty()) {
         try {
             _schema = orc::Type::buildTypeFromString(_schema_str);
@@ -151,6 +158,7 @@ Status VOrcTransformer::open() {
 
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
     try {
+        _write_options->setMemoryPool(ExecEnv::GetInstance()->orc_memory_pool());
         _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
     } catch (const std::exception& e) {
         return Status::InternalError("failed to create writer: {}", e.what());
@@ -314,6 +322,7 @@ int64_t VOrcTransformer::written_len() {
 }
 
 Status VOrcTransformer::close() {
+    SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(ExecEnv::GetInstance()->orc_writer_tracker());
     if (_writer != nullptr) {
         try {
             _writer->close();
@@ -331,6 +340,8 @@ Status VOrcTransformer::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
+
+    SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(ExecEnv::GetInstance()->orc_writer_tracker());
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     std::vector<StringRef> buffer_list;
@@ -353,13 +364,13 @@ Status VOrcTransformer::write(const Block& block) {
             RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(
                     _state->timezone(), *raw_column, nullptr, root->fields[i], 0, sz, buffer_list));
         }
+        root->numElements = sz;
+        _writer->add(*row_batch);
+        _cur_written_rows += sz;
     } catch (const std::exception& e) {
         LOG(WARNING) << "Orc write error: " << e.what();
         return Status::InternalError(e.what());
     }
-    root->numElements = sz;
-    _writer->add(*row_batch);
-    _cur_written_rows += sz;
 
     return Status::OK();
 }

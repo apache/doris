@@ -35,6 +35,10 @@
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 
+namespace orc {
+class MemoryPool;
+}
+
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
@@ -186,6 +190,9 @@ public:
     }
     std::shared_ptr<MemTrackerLimiter> s3_file_buffer_tracker() { return _s3_file_buffer_tracker; }
 
+    std::shared_ptr<MemTrackerLimiter> orc_reader_tracker() { return _orc_reader_tracker; }
+    std::shared_ptr<MemTrackerLimiter> orc_writer_tracker() { return _orc_writer_tracker; }
+
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* buffered_reader_prefetch_thread_pool() {
         return _buffered_reader_prefetch_thread_pool.get();
@@ -305,6 +312,8 @@ public:
 
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
 
+    orc::MemoryPool* orc_memory_pool() { return _orc_memory_pool; }
+
 private:
     ExecEnv();
 
@@ -352,6 +361,9 @@ private:
     std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
     std::shared_ptr<MemTrackerLimiter> _subcolumns_tree_tracker;
     std::shared_ptr<MemTrackerLimiter> _s3_file_buffer_tracker;
+
+    std::shared_ptr<MemTrackerLimiter> _orc_reader_tracker;
+    std::shared_ptr<MemTrackerLimiter> _orc_writer_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
     // Threadpool used to prefetch remote file for buffered reader
@@ -433,6 +445,8 @@ private:
     std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
     doris::vectorized::SpillStreamManager* _spill_stream_mgr = nullptr;
+
+    orc::MemoryPool* _orc_memory_pool = nullptr;
 };
 
 template <>

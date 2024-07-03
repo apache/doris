@@ -84,7 +84,7 @@ public:
                     TFileCompressType::type compression,
                     const iceberg::Schema* iceberg_schema = nullptr);
 
-    ~VOrcTransformer() = default;
+    ~VOrcTransformer();
 
     Status open() override;
 
