@@ -391,7 +391,7 @@ public class ColumnDef {
 
         if (type.getPrimitiveType() == PrimitiveType.JSONB
                 || type.getPrimitiveType() == PrimitiveType.VARIANT) {
-            if (isKey()) {
+            if (isOlap && isKey()) {
                 throw new AnalysisException("JSONB or VARIANT type should not be used in key column[" + getName()
                         + "].");
             }
