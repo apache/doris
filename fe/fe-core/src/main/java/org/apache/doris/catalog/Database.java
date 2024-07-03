@@ -676,10 +676,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public void write(DataOutput out) throws IOException {
         discardHudiTable();
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-        if (FeMetaVersion.VERSION_138 <= Env.getCurrentEnvJournalVersion()) {
-            writeTables(out);
-            return;
-        }
+        writeTables(out);
     }
 
 
