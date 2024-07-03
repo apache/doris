@@ -118,7 +118,7 @@ public class BindSink implements AnalysisRuleFactory {
         Database database = pair.first;
         OlapTable table = pair.second;
         boolean isPartialUpdate = (table.getKeysType() == KeysType.UNIQUE_KEYS
-                && (sink.isPartialUpdate()
+                && table.getEnableUniqueKeyMergeOnWrite() && (sink.isPartialUpdate()
                 || ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()));
 
         LogicalPlan child = ((LogicalPlan) sink.child());
