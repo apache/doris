@@ -192,4 +192,17 @@ public abstract class AbstractTask implements Task {
         return job;
     }
 
+    @Override
+    public String toString() {
+        return "AbstractTask{"
+                + "jobId=" + jobId
+                + ", taskId=" + taskId
+                + ", status=" + status
+                + ", createTimeMs=" + createTimeMs
+                + ", startTimeMs=" + startTimeMs
+                + ", finishTimeMs=" + finishTimeMs
+                + ", taskType=" + taskType
+                + ", errMsg='" + errMsg + '\''
+                + '}';
+    }
 }

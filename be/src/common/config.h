@@ -726,6 +726,9 @@ DECLARE_Int32(flush_thread_num_per_store);
 // number of thread for flushing memtable per store, for high priority load task
 DECLARE_Int32(high_priority_flush_thread_num_per_store);
 
+// workload group's flush thread num
+DECLARE_Int32(wg_flush_thread_num_per_store);
+
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
 DECLARE_mInt32(tablet_meta_checkpoint_min_interval_secs);
@@ -1330,6 +1333,8 @@ DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
 
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
+
+DECLARE_mBool(enable_parquet_page_index);
 
 #ifdef BE_TEST
 // test s3

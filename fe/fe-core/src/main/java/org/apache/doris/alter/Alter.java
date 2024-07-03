@@ -525,6 +525,11 @@ public class Alter {
         ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
         String newTblName = clause.getTblName();
         boolean swapTable = clause.isSwapTable();
+        processReplaceTable(db, origTable, newTblName, swapTable);
+    }
+
+    public void processReplaceTable(Database db, OlapTable origTable, String newTblName, boolean swapTable)
+            throws UserException {
         db.writeLockOrDdlException();
         try {
             List<TableType> tableTypes = Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW);
@@ -611,6 +616,9 @@ public class Alter {
         } else {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             Env.getCurrentEnv().onEraseOlapTable(origTable, isReplay);
+            if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
+                Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable);
+            }
         }
     }
 
@@ -893,7 +901,7 @@ public class Alter {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
 
-            mtmv.writeLock();
+            mtmv.writeMvLock();
             switch (alterMTMV.getOpType()) {
                 case ALTER_REFRESH_INFO:
                     mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
@@ -922,7 +930,7 @@ public class Alter {
             LOG.warn(e);
         } finally {
             if (mtmv != null) {
-                mtmv.writeUnlock();
+                mtmv.writeMvUnlock();
             }
         }
     }

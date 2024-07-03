@@ -775,11 +775,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                 std::make_pair(params.params.fragment_instance_id, fragment_executor));
     }
 
-    auto* current_thread_pool = query_ctx->get_non_pipe_exec_thread_pool();
-    if (!current_thread_pool) {
-        current_thread_pool = _thread_pool.get();
-    }
-    auto st = current_thread_pool->submit_func([this, fragment_executor, cb]() {
+    auto st = _thread_pool->submit_func([this, fragment_executor, cb]() {
 #ifndef BE_TEST
         SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
 #endif

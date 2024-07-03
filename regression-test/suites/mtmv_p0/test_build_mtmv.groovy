@@ -69,7 +69,6 @@ suite("test_build_mtmv") {
     sql """drop materialized view if exists ${mvName};"""
     sql """drop materialized view if exists ${mvNameRenamed};"""
 
-    // show create table
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         (aa comment "aaa",bb)
@@ -90,7 +89,7 @@ suite("test_build_mtmv") {
               show create table ${mvName};
           """
           exception "not support"
-      }
+     }
 
     // desc
     def descTableAllResult = sql """desc ${mvName} all"""
