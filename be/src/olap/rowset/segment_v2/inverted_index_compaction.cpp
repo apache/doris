@@ -40,7 +40,6 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
                     "debug point: index compaction error");
         }
     })
-
     lucene::store::Directory* dir =
             DorisFSDirectoryFactory::getDirectory(io::global_local_filesystem(), tmp_path.data());
     lucene::analysis::SimpleAnalyzer<char> analyzer;

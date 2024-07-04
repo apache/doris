@@ -46,6 +46,7 @@ class VerticalSegmentWriter;
 struct SegmentStatistics;
 class BetaRowsetWriter;
 class SegmentFileCollection;
+class InvertedIndexFilesInfo;
 
 class FileWriterCreator {
 public:
@@ -93,7 +94,8 @@ private:
 
 class SegmentFlusher {
 public:
-    SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files);
+    SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
+                   InvertedIndexFilesInfo& idx_files_info);
 
     ~SegmentFlusher();
 
@@ -158,6 +160,7 @@ private:
 private:
     RowsetWriterContext& _context;
     SegmentFileCollection& _seg_files;
+    InvertedIndexFilesInfo& _idx_files_info;
 
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
@@ -169,7 +172,8 @@ private:
 
 class SegmentCreator {
 public:
-    SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files);
+    SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files,
+                   InvertedIndexFilesInfo& idx_files_info);
 
     ~SegmentCreator() = default;
 

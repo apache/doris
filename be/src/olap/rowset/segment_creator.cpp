@@ -50,8 +50,9 @@
 namespace doris {
 using namespace ErrorCode;
 
-SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files)
-        : _context(context), _seg_files(seg_files) {}
+SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
+                               InvertedIndexFilesInfo& idx_files_info)
+        : _context(context), _seg_files(seg_files), _idx_files_info(idx_files_info) {}
 
 SegmentFlusher::~SegmentFlusher() = default;
 
@@ -242,10 +243,11 @@ Status SegmentFlusher::_flush_segment_writer(
     uint32_t segment_id = writer->segment_id();
     SegmentStatistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size + writer->inverted_index_file_size();
-    segstat.index_size = index_size + writer->inverted_index_file_size();
+    segstat.data_size = segment_size + writer->get_inverted_index_total_size();
+    segstat.index_size = index_size + writer->get_inverted_index_total_size();
     segstat.key_bounds = key_bounds;
 
+    _idx_files_info.add_file_info(segment_id, writer->get_inverted_index_file_info());
     writer.reset();
 
     RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
@@ -287,10 +289,11 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     uint32_t segment_id = writer->get_segment_id();
     SegmentStatistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size + writer->get_inverted_index_file_size();
-    segstat.index_size = index_size + writer->get_inverted_index_file_size();
+    segstat.data_size = segment_size + writer->get_inverted_index_total_size();
+    segstat.index_size = index_size + writer->get_inverted_index_total_size();
     segstat.key_bounds = key_bounds;
 
+    _idx_files_info.add_file_info(segment_id, writer->get_inverted_index_file_info());
     writer.reset();
 
     RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
@@ -324,8 +327,9 @@ int64_t SegmentFlusher::Writer::max_row_to_add(size_t row_avg_size_in_bytes) {
     return _writer->max_row_to_add(row_avg_size_in_bytes);
 }
 
-SegmentCreator::SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files)
-        : _segment_flusher(context, seg_files) {}
+SegmentCreator::SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files,
+                               InvertedIndexFilesInfo& idx_files_info)
+        : _segment_flusher(context, seg_files, idx_files_info) {}
 
 Status SegmentCreator::add_block(const vectorized::Block* block) {
     if (block->rows() == 0) {
