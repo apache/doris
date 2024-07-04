@@ -93,13 +93,6 @@ public:
         }
     }
 
-    void add_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) override {
-        _query_ctx->add_merge_controller_handler(handler);
-    }
-
-    //    bool is_canceled() const { return _runtime_state->is_cancelled(); }
-
     // Prepare global information including global states and the unique operator tree shared by all pipeline tasks.
     Status prepare(const doris::TPipelineFragmentParams& request) override;
 
