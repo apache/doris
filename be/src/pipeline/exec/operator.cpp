@@ -498,6 +498,9 @@ Status PipelineXLocalState<SharedStateArg>::close(RuntimeState* state) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
     _closed = true;
+    if (_shared_state && _shared_state->sink_deps.size() == 1) {
+        _shared_state->sink_deps.front()->set_always_ready();
+    }
     return Status::OK();
 }
 
