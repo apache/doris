@@ -633,7 +633,7 @@ class Suite implements GroovyInterceptable {
         }
         if (cleanOperator==true){
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
-            quickTest("", """ SELECT * FROM ${tbName}  """)
+            quickTest("", """ SELECT * FROM ${tbName}  """, true)
             sql """ DROP TABLE  ${tbName} """
         }
     }
@@ -647,6 +647,36 @@ class Suite implements GroovyInterceptable {
                 throw e
             }
         }
+    }
+
+    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null, String orderByFieldName = null) {
+        String orderByName = ""
+        if (ObjectUtils.isEmpty(orderByFieldName)){
+            orderByName = fieldName;
+        }else {
+            orderByName = orderByFieldName;
+        }
+        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${orderByName}"
+        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${orderByName}"
+        List<Object> tbData1 = new ArrayList<Object>();
+        for (List<Object> items:tb1Result){
+            tbData1.add(items.get(0))
+        }
+        List<Object> tbData2 = new ArrayList<Object>();
+        for (List<Object> items:tb2Result){
+            tbData2.add(items.get(0))
+        }
+        for (int i =0; i<tbData1.size(); i++) {
+            if (ObjectUtils.notEqual(tbData1.get(i),tbData2.get(i)) ){
+                throw new RuntimeException("tbData should be same")
+            }
+        }
+    }
+
+    String getRandomBoolean() {
+        Random random = new Random()
+        boolean randomBoolean = random.nextBoolean()
+        return randomBoolean ? "true" : "false"
     }
 
     String getBrokerName() {
