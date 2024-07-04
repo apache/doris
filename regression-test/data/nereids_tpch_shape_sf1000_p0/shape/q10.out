@@ -8,22 +8,19 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF2 o_orderkey->[l_orderkey]
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF2 o_orderkey->[l_orderkey]
 ------------------PhysicalProject
 --------------------filter((lineitem.l_returnflag = 'R'))
 ----------------------PhysicalOlapScan[lineitem] apply RFs: RF2
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[c_nationkey]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 o_custkey->[c_custkey]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF1
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
-----------------------------------PhysicalOlapScan[orders]
-------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[c_nationkey]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 o_custkey->[c_custkey]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[nation]
+----------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF1
+--------------------------PhysicalProject
+----------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
+------------------------------PhysicalOlapScan[orders]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[nation]
 

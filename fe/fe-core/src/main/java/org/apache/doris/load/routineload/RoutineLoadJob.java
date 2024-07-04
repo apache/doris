@@ -242,11 +242,16 @@ public abstract class RoutineLoadJob
     @SerializedName("pg")
     protected RoutineLoadProgress progress;
 
+    @SerializedName("lrt")
     protected long latestResumeTimestamp; // the latest resume time
+    @SerializedName("art")
     protected long autoResumeCount;
     // some other msg which need to show to user;
+    @SerializedName("om")
     protected String otherMsg = "";
+    @SerializedName("pr")
     protected ErrorReason pauseReason;
+    @SerializedName("cr")
     protected ErrorReason cancelReason;
 
     @SerializedName("cts")

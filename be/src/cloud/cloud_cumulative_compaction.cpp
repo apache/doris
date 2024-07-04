@@ -354,11 +354,20 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
         return st;
     }
 
+    int64_t max_score = config::cumulative_compaction_max_deltas;
+    auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
+    bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 0.8;
+    if (cloud_tablet()->last_compaction_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
+        memory_usage_high) {
+        max_score = std::max(config::cumulative_compaction_max_deltas /
+                                     config::cumulative_compaction_max_deltas_factor,
+                             config::cumulative_compaction_min_deltas + 1);
+    }
+
     size_t compaction_score = 0;
     auto compaction_policy = cloud_tablet()->tablet_meta()->compaction_policy();
     _engine.cumu_compaction_policy(compaction_policy)
-            ->pick_input_rowsets(cloud_tablet(), candidate_rowsets,
-                                 config::cumulative_compaction_max_deltas,
+            ->pick_input_rowsets(cloud_tablet(), candidate_rowsets, max_score,
                                  config::cumulative_compaction_min_deltas, &_input_rowsets,
                                  &_last_delete_version, &compaction_score);
 

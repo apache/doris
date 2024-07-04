@@ -151,7 +151,7 @@ public:
 
     void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                              vectorized::SimplifiedScanScheduler** scan_sched,
-                             ThreadPool** non_pipe_thread_pool,
+                             ThreadPool** memtable_flush_pool,
                              vectorized::SimplifiedScanScheduler** remote_scan_sched);
 
     void try_stop_schedulers();
@@ -160,6 +160,8 @@ public:
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _query_ctxs;
     }
+
+    std::string thread_debug_info();
 
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
@@ -185,11 +187,11 @@ private:
     std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctxs;
 
     std::shared_mutex _task_sched_lock;
-    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl = nullptr;
+    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
     std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
-    std::unique_ptr<ThreadPool> _non_pipe_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _memtable_flush_pool {nullptr};
 };
 
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;

@@ -28,11 +28,15 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.RuleType;
@@ -41,12 +45,17 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -54,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnary;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -61,6 +71,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
@@ -73,13 +84,13 @@ import java.util.stream.Collectors;
 /**
  * delete from unique key table.
  */
-public class DeleteFromCommand extends Command implements ForwardWithSync {
+public class DeleteFromCommand extends Command implements ForwardWithSync, Explainable {
 
-    private final List<String> nameParts;
-    private final String tableAlias;
-    private final boolean isTempPart;
-    private final List<String> partitions;
-    private final LogicalPlan logicalQuery;
+    protected final List<String> nameParts;
+    protected final String tableAlias;
+    protected final boolean isTempPart;
+    protected final List<String> partitions;
+    protected final LogicalPlan logicalQuery;
 
     /**
      * constructor
@@ -353,5 +364,74 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitDeleteFromCommand(this, context);
+    }
+
+    @Override
+    public Plan getExplainPlan(ConnectContext ctx) {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", e);
+            }
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
+        return completeQueryPlan(ctx, logicalQuery);
+    }
+
+    private OlapTable getTargetTable(ConnectContext ctx) {
+        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
+        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv());
+        if (!(table instanceof OlapTable)) {
+            throw new AnalysisException("table must be olapTable in delete command");
+        }
+        return ((OlapTable) table);
+    }
+
+    /**
+     * for explain command
+     */
+    public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) {
+        OlapTable targetTable = getTargetTable(ctx);
+        checkTargetTable(targetTable);
+        // add select and insert node.
+        List<NamedExpression> selectLists = Lists.newArrayList();
+        List<String> cols = Lists.newArrayList();
+        boolean isMow = targetTable.getEnableUniqueKeyMergeOnWrite();
+        String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        for (Column column : targetTable.getFullSchema()) {
+            if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                selectLists.add(new UnboundAlias(new TinyIntLiteral(((byte) 1)), Column.DELETE_SIGN));
+            } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)
+                    && targetTable.getSequenceMapCol() != null) {
+                selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
+            } else if (column.isKey()) {
+                selectLists.add(new UnboundSlot(tableName, column.getName()));
+            } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
+                selectLists.add(new UnboundSlot(tableName, column.getName()));
+            } else {
+                selectLists.add(new UnboundSlot(tableName, column.getName()));
+            }
+            cols.add(column.getName());
+        }
+
+        logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
+
+        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
+                && cols.size() < targetTable.getColumns().size();
+        logicalQuery = handleCte(logicalQuery);
+        // make UnboundTableSink
+        return UnboundTableSinkCreator.createUnboundTableSink(nameParts, cols, ImmutableList.of(),
+                isTempPart, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
+    }
+
+    protected LogicalPlan handleCte(LogicalPlan logicalPlan) {
+        return logicalPlan;
+    }
+
+    protected void checkTargetTable(OlapTable targetTable) {
+        if (targetTable.getKeysType() != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("delete command on aggregate/duplicate table is not explainable");
+        }
     }
 }
