@@ -45,6 +45,7 @@ import com.google.gson.JsonDeserializationContext;
 import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
 import com.google.gson.annotations.SerializedName;
@@ -529,6 +530,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 jsonArray.add(typeAndKey);
             }
 
+            // for compatibility in the future
+            jsonArray.add(new JsonPrimitive("unused"));
+
             return jsonArray;
         }
 
@@ -541,7 +545,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 PartitionKey partitionKey = new PartitionKey();
 
                 JsonArray jsonArray = json.getAsJsonArray();
-                for (int i = 0; i < jsonArray.size(); i++) {
+                for (int i = 0; i < jsonArray.size() - 1; i++) {
                     PrimitiveType type = null;
                     type = context.deserialize(jsonArray.get(i).getAsJsonArray().get(0), PrimitiveType.class);
                     LiteralExpr key = context.deserialize(jsonArray.get(i).getAsJsonArray().get(1), Expr.class);
@@ -572,6 +576,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                     partitionKey.types.add(type);
                     partitionKey.keys.add(key);
                 }
+
+                // ignore the last element
                 return partitionKey;
             }
         }
