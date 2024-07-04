@@ -506,6 +506,8 @@ struct TReportExecStatusParams {
 
   28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
 
+  29: optional i64 txn_id
+  30: optional string label
 }
 
 struct TFeResult {

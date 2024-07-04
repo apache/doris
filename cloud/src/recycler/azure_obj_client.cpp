@@ -45,11 +45,16 @@ template <typename Func>
 ObjectStorageResponse do_azure_client_call(Func f, std::string_view url, std::string_view key) {
     try {
         f();
-    } catch (Azure::Storage::StorageException& e) {
+    } catch (Azure::Core::RequestFailedException& e) {
         auto msg = fmt::format(
                 "Azure request failed because {}, http_code: {}, request_id: {}, url: {}, "
                 "key: {}",
                 e.Message, static_cast<int>(e.StatusCode), e.RequestId, url, key);
+        LOG_WARNING(msg);
+        return {-1, std::move(msg)};
+    } catch (std::exception& e) {
+        auto msg = fmt::format("Azure request failed because {}, url: {}, key: {}", e.what(), url,
+                               key);
         LOG_WARNING(msg);
         return {-1, std::move(msg)};
     }
