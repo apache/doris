@@ -84,22 +84,60 @@ VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(BufferControlBlock* sin
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     _init_profile();
-    if (nullptr == _sinker) {
-        return Status::InternalError("sinker is NULL pointer.");
-    }
+    // TODO: for PointQueryExecutor, the sinker is null, but we still need call init(),
+    // so comment out this check temporarily.
+    // if (nullptr == _sinker) {
+    //     return Status::InternalError("sinker is NULL pointer.");
+    // }
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
+
+    RETURN_IF_ERROR(_set_options(state->query_options().serde_dialect));
     return Status::OK();
 }
 
 template <bool is_binary_format>
 void VMysqlResultWriter<is_binary_format>::_init_profile() {
-    _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
-    _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
-    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
-    _copy_buffer_timer = ADD_CHILD_TIMER(_parent_profile, "CopyBufferTime", "AppendBatchTime");
-    _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
-    _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
+    if (_parent_profile != nullptr) {
+        // for PointQueryExecutor, _parent_profile is null
+        _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
+        _convert_tuple_timer =
+                ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
+        _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
+        _copy_buffer_timer = ADD_CHILD_TIMER(_parent_profile, "CopyBufferTime", "AppendBatchTime");
+        _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
+        _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
+    }
+}
+
+template <bool is_binary_format>
+Status VMysqlResultWriter<is_binary_format>::_set_options(
+        const TSerdeDialect::type& serde_dialect) {
+    switch (serde_dialect) {
+    case TSerdeDialect::DORIS:
+        // eg:
+        //  array: ["abc", "def", "", null]
+        //  map: {"k1":null, "k2":"v3"}
+        _options.nested_string_wrapper = "\"";
+        _options.wrapper_len = 1;
+        _options.map_key_delim = ':';
+        _options.null_format = "null";
+        _options.null_len = 4;
+        break;
+    case TSerdeDialect::PRESTO:
+        // eg:
+        //  array: [abc, def, , NULL]
+        //  map: {k1=NULL, k2=v3}
+        _options.nested_string_wrapper = "";
+        _options.wrapper_len = 0;
+        _options.map_key_delim = '=';
+        _options.null_format = "NULL";
+        _options.null_len = 4;
+        break;
+    default:
+        return Status::InternalError("unknown serde dialect: {}", serde_dialect);
+    }
+    return Status::OK();
 }
 
 template <bool is_binary_format>
@@ -178,7 +216,7 @@ Status VMysqlResultWriter<is_binary_format>::write(Block& input_block) {
             for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
                 RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
                         *(arguments[col_idx].column), row_buffer, row_idx,
-                        arguments[col_idx].is_const));
+                        arguments[col_idx].is_const, _options));
             }
 
             // copy MysqlRowBuffer to Thrift
