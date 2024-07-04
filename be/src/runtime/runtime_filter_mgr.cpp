@@ -476,8 +476,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 if (has_attachment) {
                     rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
                 }
-                rpc_contexts[cur]->cntl->set_timeout_ms(std::min(3600, _state->execution_timeout) *
-                                                        1000);
+                rpc_contexts[cur]->cntl.set_timeout_ms(std::min(3600, _state->execution_timeout) *
+                                                       1000);
                 rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
                 // set fragment-id
                 for (size_t fid = 0; fid < targets[cur].target_fragment_instance_ids.size();
@@ -551,8 +551,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 if (has_attachment) {
                     rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
                 }
-                rpc_contexts[cur]->cntl->set_timeout_ms(std::min(3600, _state->execution_timeout) *
-                                                        1000);
+                rpc_contexts[cur]->cntl.set_timeout_ms(std::min(3600, _state->execution_timeout) *
+                                                       1000);
                 rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
                 // set fragment_instance_id
                 auto request_fragment_instance_id =
