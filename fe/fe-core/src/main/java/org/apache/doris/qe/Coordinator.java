@@ -3025,7 +3025,7 @@ public class Coordinator implements CoordInterface {
             this.fragment = fragment;
         }
 
-        Map<TNetworkAddress, TPipelineFragmentParams> toTPipelineParams(int backendNum) {
+        Map<TNetworkAddress, TPipelineFragmentParams> toThrift(int backendNum) {
             long memLimit = queryOptions.getMemLimit();
             // 2. update memory limit for colocate join
             if (colocateFragmentIds.contains(fragment.getFragmentId().asInt())) {
