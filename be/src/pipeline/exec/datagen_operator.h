@@ -56,7 +56,6 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return true; }
-    bool ignore_data_distribution() const override { return true; }
 
 private:
     friend class DataGenLocalState;

@@ -833,6 +833,7 @@ Status PipelineFragmentContext::_add_local_exchange(
         const std::map<int, int>& shuffle_idx_to_instance_idx,
         const bool ignore_data_distribution) {
     DCHECK(_enable_local_shuffle());
+    LOG(WARNING) << "======2 " << _num_instances;
     if (_num_instances <= 1) {
         return Status::OK();
     }
@@ -840,6 +841,7 @@ Status PipelineFragmentContext::_add_local_exchange(
     if (!cur_pipe->need_to_local_exchange(data_distribution)) {
         return Status::OK();
     }
+    LOG(WARNING) << "======3 " << _num_instances;
     *do_local_exchange = true;
 
     auto& operator_xs = cur_pipe->operator_xs();
@@ -870,6 +872,19 @@ Status PipelineFragmentContext::_plan_local_exchange(
         const std::map<int, int>& shuffle_idx_to_instance_idx) {
     for (int pip_idx = _pipelines.size() - 1; pip_idx >= 0; pip_idx--) {
         _pipelines[pip_idx]->init_data_distribution();
+        LOG(WARNING) << "======1 "
+                     << get_exchange_type_name(_pipelines[pip_idx]
+                                                       ->operator_xs()
+                                                       .front()
+                                                       ->required_data_distribution()
+                                                       .distribution_type)
+                     << " "
+                     << get_exchange_type_name(_pipelines[pip_idx]
+                                                       ->sink_x()
+                                                       ->required_data_distribution()
+                                                       .distribution_type)
+                     << " " << _num_instances;
+        ;
         // Set property if child pipeline is not join operator's child.
         if (!_pipelines[pip_idx]->children().empty()) {
             for (auto& child : _pipelines[pip_idx]->children()) {
@@ -1433,6 +1448,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::DATA_GEN_SCAN_NODE: {
         op.reset(new DataGenSourceOperatorX(pool, tnode, next_operator_id(), descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
+            op->set_ignore_data_distribution();
+        }
         break;
     }
     case TPlanNodeType::SCHEMA_SCAN_NODE: {
