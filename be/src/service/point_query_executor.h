@@ -93,6 +93,8 @@ public:
 
     int64_t mem_size() const;
 
+    RuntimeState* runtime_state() { return _runtime_state; }
+
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
