@@ -270,14 +270,14 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_DELETE)) {
-            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_DELETE)
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
                     .equalsIgnoreCase("true")
                     && !properties.get(PropertyAnalyzer
-                    .PROPERTIES_ENABLE_LIGHT_DELETE).equalsIgnoreCase("false")) {
+                    .PROPERTIES_ENABLE_MOW_LIGHT_DELETE).equalsIgnoreCase("false")) {
                 throw new AnalysisException(
                         "Property "
-                                + PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_DELETE
+                                + PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE
                                 + " should be set to true or false");
             }
             OlapTable table = null;
@@ -285,13 +285,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                 table = (OlapTable) (Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb())
                         .getTableOrAnalysisException(tableName.getTbl()));
             }
-            String enableLightDelete = properties.get(
-                    PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_DELETE);
-            if (!(table == null) && !table.getEnableUniqueKeyMergeOnWrite() && Boolean.getBoolean(
-                    enableLightDelete)) {
+            if (table == null || !table.getEnableUniqueKeyMergeOnWrite()) {
                 throw new AnalysisException(
-                        "enable_light_delete property is "
-                                + "not supported for unique merge-on-read table");
+                        "enable_mow_light_delete property is "
+                                + "only supported for unique merge-on-write table");
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;

@@ -167,7 +167,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         }
 
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
-                && !olapTable.getEnableLightDelete()) {
+                && !olapTable.getEnableMowLightDelete()) {
             new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
                     logicalQuery, Optional.empty()).run(ctx, executor);
             return;
