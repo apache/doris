@@ -58,12 +58,6 @@ public:
 
     RuntimeProfile* profile() { return _profile; }
 
-    void set_eos() {
-        std::lock_guard l(_mutex);
-        _eos = true;
-        _set_ready_for_read();
-    }
-
     void set_dep_by_sender_idx(int sender_idx, Dependency* dep) {
         _dependencies[sender_idx] = dep;
         _block_reading(sender_idx);
@@ -71,7 +65,6 @@ public:
 
 private:
     void _set_ready_for_read(int sender_idx);
-    void _set_ready_for_read();
     void _block_reading(int sender_idx);
 
     const RowDescriptor& _row_desc;
@@ -81,7 +74,6 @@ private:
     std::mutex _mutex;
     bool _eos = false;
     int _cast_sender_count = 0;
-    int _closed_sender_count = 0;
     int64_t _cumulative_mem_size = 0;
 
     RuntimeProfile::Counter* _process_rows = nullptr;

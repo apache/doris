@@ -30,27 +30,29 @@ MultiCastBlock::MultiCastBlock(vectorized::Block* block, int used_count, size_t 
 }
 
 Status MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* block, bool* eos) {
-    std::lock_guard l(_mutex);
-    auto& pos_to_pull = _sender_pos_to_read[sender_idx];
-    if (pos_to_pull != _multi_cast_blocks.end()) {
-        if (pos_to_pull->_used_count == 1) {
-            DCHECK(pos_to_pull == _multi_cast_blocks.begin());
-            pos_to_pull->_block->swap(*block);
-
-            _cumulative_mem_size -= pos_to_pull->_mem_size;
-            pos_to_pull++;
+    {
+        std::lock_guard l(_mutex);
+        auto& pos_to_pull = _sender_pos_to_read[sender_idx];
+        const auto end = _multi_cast_blocks.end();
+        DCHECK(pos_to_pull != end);
+        *block = *pos_to_pull->_block;
+        _cumulative_mem_size -= pos_to_pull->_mem_size;
+        pos_to_pull->_used_count--;
+        const bool use_count = pos_to_pull->_used_count;
+        pos_to_pull++;
+        if (use_count == 0) {
             _multi_cast_blocks.pop_front();
-        } else {
-            pos_to_pull->_block->create_same_struct_block(0)->swap(*block);
-            RETURN_IF_ERROR(vectorized::MutableBlock(block).merge(*pos_to_pull->_block));
-            pos_to_pull->_used_count--;
-            pos_to_pull++;
         }
+        if (pos_to_pull == end) {
+            _block_reading(sender_idx);
+        }
+        *eos = _eos and pos_to_pull == end;
     }
-    *eos = _eos and pos_to_pull == _multi_cast_blocks.end();
-    if (pos_to_pull == _multi_cast_blocks.end()) {
-        _block_reading(sender_idx);
+    const int rows = block->rows();
+    for (int i = 0; i < block->columns(); ++i) {
+        block->get_by_position(i).column = block->get_by_position(i).column->clone_resized(rows);
     }
+
     return Status::OK();
 }
 
@@ -58,28 +60,28 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block
     auto rows = block->rows();
     COUNTER_UPDATE(_process_rows, rows);
 
-    auto block_mem_size = block->allocated_bytes();
-    std::lock_guard l(_mutex);
-    int need_process_count = _cast_sender_count - _closed_sender_count;
-    if (need_process_count == 0) {
-        return Status::EndOfFile("All data streamer is EOF");
-    }
-    // TODO: if the [queue back block rows + block->rows()] < batch_size, better
-    // do merge block. but need check the need_process_count and used_count whether
-    // equal
-    _multi_cast_blocks.emplace_back(block, need_process_count, block_mem_size);
+    const auto block_mem_size = block->allocated_bytes();
     _cumulative_mem_size += block_mem_size;
     COUNTER_SET(_peak_mem_usage, std::max(_cumulative_mem_size, _peak_mem_usage->value()));
-
-    auto end = _multi_cast_blocks.end();
-    end--;
-    for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
-        if (_sender_pos_to_read[i] == _multi_cast_blocks.end()) {
-            _sender_pos_to_read[i] = end;
-            _set_ready_for_read(i);
+    MultiCastBlock multi_cast_block(block, _cast_sender_count, block_mem_size);
+    {
+        std::lock_guard l(_mutex);
+        _multi_cast_blocks.push_back(std::move(multi_cast_block));
+        // last elem
+        auto end = std::prev(_multi_cast_blocks.end());
+        for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
+            if (_sender_pos_to_read[i] == _multi_cast_blocks.end()) {
+                _sender_pos_to_read[i] = end;
+                _set_ready_for_read(i);
+            }
+        }
+        _eos = eos;
+    }
+    if (_eos) {
+        for (auto* read_dep : _dependencies) {
+            read_dep->set_always_ready();
         }
     }
-    _eos = eos;
     return Status::OK();
 }
 
@@ -90,13 +92,6 @@ void MultiCastDataStreamer::_set_ready_for_read(int sender_idx) {
     auto* dep = _dependencies[sender_idx];
     DCHECK(dep);
     dep->set_ready();
-}
-
-void MultiCastDataStreamer::_set_ready_for_read() {
-    for (auto* dep : _dependencies) {
-        DCHECK(dep);
-        dep->set_ready();
-    }
 }
 
 void MultiCastDataStreamer::_block_reading(int sender_idx) {
