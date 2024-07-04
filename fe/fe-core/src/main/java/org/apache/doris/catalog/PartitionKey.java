@@ -528,6 +528,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 typeAndKey.add(context.serialize(keys.get(i)));
                 jsonArray.add(typeAndKey);
             }
+
             return jsonArray;
         }
 
@@ -541,10 +542,35 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
                 JsonArray jsonArray = json.getAsJsonArray();
                 for (int i = 0; i < jsonArray.size(); i++) {
-                    partitionKey.types.add(context.deserialize(jsonArray.get(i).getAsJsonArray().get(0),
-                                           PrimitiveType.class));
-                    partitionKey.keys.add(context.deserialize(jsonArray.get(i).getAsJsonArray().get(1),
-                                          Expr.class));
+                    PrimitiveType type = null;
+                    type = context.deserialize(jsonArray.get(i).getAsJsonArray().get(0), PrimitiveType.class);
+                    LiteralExpr key = context.deserialize(jsonArray.get(i).getAsJsonArray().get(1), Expr.class);
+
+                    if (key instanceof NullLiteral) {
+                        key = NullLiteral.create(Type.fromPrimitiveType(type));
+                        partitionKey.types.add(type);
+                        partitionKey.keys.add(key);
+                        continue;
+                    }
+                    if (key instanceof MaxLiteral) {
+                        key = MaxLiteral.MAX_VALUE;
+                    }
+                    if (type != PrimitiveType.DATETIMEV2) {
+                        key.setType(Type.fromPrimitiveType(type));
+                    }
+                    if (type.isDateV2Type()) {
+                        try {
+                            key.checkValueValid();
+                        } catch (AnalysisException e) {
+                            LOG.warn("Value {} for partition key [type = {}] is invalid! This is a bug exists "
+                                     + "in Doris 1.2.0 and fixed since Doris 1.2.1. You should create this table "
+                                     + "again using Doris 1.2.1+ .", key.getStringValue(), type);
+                            ((DateLiteral) key).setMinValue();
+                        }
+                    }
+
+                    partitionKey.types.add(type);
+                    partitionKey.keys.add(key);
                 }
                 return partitionKey;
             }
