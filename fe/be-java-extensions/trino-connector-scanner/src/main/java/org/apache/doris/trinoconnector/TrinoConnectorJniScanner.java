@@ -341,7 +341,6 @@ public class TrinoConnectorJniScanner extends JniScanner {
     }
 
     private void parseRequiredTypes() {
-        ColumnType[] columnTypes = new ColumnType[fields.length];
         appendDataTimeNs = new long[fields.length];
         trinoTypeList = Lists.newArrayList();
         for (int i = 0; i < fields.length; i++) {
