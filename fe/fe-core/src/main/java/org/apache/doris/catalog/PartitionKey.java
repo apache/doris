@@ -627,7 +627,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         case DATETIMEV2: {
                             String value = typeAndKey.get(1).getAsString();
                             try {
-                                literal = new DateLiteral(value);
+                                literal = new DateLiteral(value, type);
                             } catch (AnalysisException e) {
                                 throw new JsonParseException("DateLiteral deserialize failed: " + e.getMessage());
                             }
