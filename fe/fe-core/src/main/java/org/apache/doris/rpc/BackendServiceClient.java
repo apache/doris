@@ -60,7 +60,7 @@ public class BackendServiceClient {
 
     // Is the underlying channel in a normal state? (That means the RPC call will not fail immediately)
     public boolean isNormalState() {
-        ConnectivityState state = channel.getState(false);
+        ConnectivityState state = channel.getState(true);
         return state == ConnectivityState.CONNECTING
                 || state == ConnectivityState.IDLE
                 || state == ConnectivityState.READY;
@@ -191,7 +191,7 @@ public class BackendServiceClient {
 
 
     public void shutdown() {
-        ConnectivityState state = channel.getState(false);
+        ConnectivityState state = channel.getState(true);
         LOG.warn("shut down backend service client: {}, channel state: {}", address, state);
         if (!channel.isShutdown()) {
             channel.shutdown();
