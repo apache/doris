@@ -69,9 +69,9 @@ public:
 
     void set_file_name(std::string file_name);
 
-    Status create_file_name(TabletSharedPtr tablet, ReaderType reader_type);
+    Status create_file_name(BaseTabletSPtr tablet, ReaderType reader_type);
 
-    Status save_to_file_if_necessary(TabletSharedPtr tablet, ReaderType reader_type);
+    Status save_to_file_if_necessary(BaseTabletSPtr tablet, ReaderType reader_type);
 
     Status save_to_file();
 

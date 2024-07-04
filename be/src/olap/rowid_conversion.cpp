@@ -16,6 +16,9 @@
 // under the License.
 
 #include "olap/rowid_conversion.h"
+
+#include "cloud/config.h"
+#include "io/cache/block_file_cache_factory.h"
 namespace doris {
 RowIdConversion::RowIdConversion() = default;
 RowIdConversion::~RowIdConversion() {
@@ -67,9 +70,21 @@ void RowIdConversion::set_file_name(std::string file_name) {
     _file_name = file_name;
 }
 
-Status RowIdConversion::create_file_name(TabletSharedPtr tablet, ReaderType reader_type) {
+Status RowIdConversion::create_file_name(BaseTabletSPtr tablet, ReaderType reader_type) {
     std::stringstream file_path_ss;
-    file_path_ss << tablet->tablet_path() << "/rowid_conversion_" << tablet->tablet_id();
+    auto tablet_id = tablet->tablet_id();
+    if (config::is_cloud_mode()) {
+        std::vector<std::string> paths = io::FileCacheFactory::instance()->get_base_paths();
+        if (paths.empty()) {
+            return Status::InternalError("fail to create write buffer due to missing cache path");
+        }
+        std::size_t hash_val = std::hash<int64_t> {}(tablet_id);
+        int idx = hash_val % paths.size();
+        file_path_ss << paths[idx] << "/rowid_conversion_" << tablet_id;
+    } else {
+        file_path_ss << static_cast<Tablet*>(tablet.get())->tablet_path() << "/rowid_conversion_"
+                     << tablet_id;
+    }
     if (reader_type == ReaderType::READER_BASE_COMPACTION) {
         file_path_ss << "_base";
     } else if (reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
@@ -88,7 +103,7 @@ Status RowIdConversion::create_file_name(TabletSharedPtr tablet, ReaderType read
     return Status::OK();
 }
 
-Status RowIdConversion::save_to_file_if_necessary(TabletSharedPtr tablet, ReaderType reader_type) {
+Status RowIdConversion::save_to_file_if_necessary(BaseTabletSPtr tablet, ReaderType reader_type) {
 #ifndef BE_TEST
     if (count() > config::rowid_conversion_persistence_threshold_count) {
         RETURN_IF_ERROR(create_file_name(tablet, reader_type));
@@ -163,7 +178,7 @@ int RowIdConversion::get(const RowLocation& src, RowLocation* dst) const {
     if (_read_from_file) {
         size_t bytes_read = 0;
         auto pos = _id_to_pos_map.at(iter->second);
-        uint64_t rows_size = sizeof(uint64_t);
+        const uint64_t rows_size = sizeof(uint64_t);
         uint8_t rows_buf[rows_size];
         auto st = _file_reader->read_at(pos, {rows_buf, rows_size}, &bytes_read);
         if (!st.ok()) {
@@ -176,7 +191,7 @@ int RowIdConversion::get(const RowLocation& src, RowLocation* dst) const {
         if (src.row_id >= rows) {
             return -1;
         }
-        uint32_t record_size = sizeof(uint32_t) * 3;
+        const uint32_t record_size = sizeof(uint32_t) * 3;
         uint8_t record_buf[record_size];
         st = _file_reader->read_at(pos + record_size * src.row_id, {record_buf, record_size},
                                    &bytes_read);
