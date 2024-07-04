@@ -766,6 +766,7 @@ struct ConvertImplGenericToJsonb {
 
         auto tmp_col = ColumnString::create();
         vectorized::DataTypeSerDe::FormatOptions options;
+        options.escape_char = '\\';
         for (size_t i = 0; i < input_rows_count; i++) {
             // convert to string
             tmp_col->clear();
