@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
+import org.apache.doris.thrift.TSerdeDialect;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -269,8 +270,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
-    public static final String ENABLE_BUCKET_SHUFFLE_DOWNGRADE = "enable_bucket_shuffle_downgrade";
-
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
@@ -319,6 +318,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
+    public static final String LEFT_SEMI_OR_ANTI_PROBE_FACTOR = "left_semi_or_anti_probe_factor";
     public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
 
     // percentage of EXEC_MEM_LIMIT
@@ -446,6 +446,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
+    public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
+
     /**
      * use insert stmt as the unified backend for all loads
      */
@@ -507,6 +509,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String AUTO_ANALYZE_END_TIME = "auto_analyze_end_time";
 
     public static final String SQL_DIALECT = "sql_dialect";
+
+    public static final String SERDE_DIALECT = "serde_dialect";
 
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
 
@@ -570,6 +574,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_NEST_REWRITE
             = "enable_materialized_view_nest_rewrite";
 
+    public static final String ENABLE_SYNC_MV_COST_BASED_REWRITE
+            = "enable_sync_mv_cost_based_rewrite";
+
     public static final String MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT
             = "materialized_view_relation_mapping_max_count";
 
@@ -597,6 +604,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
 
     public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
+
+    public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -846,9 +855,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_DOWNGRADE, needForward = true)
-    public boolean enableBucketShuffleDownGrade = false;
 
     /**
      * explode function row count enlarge factor.
@@ -1231,7 +1237,7 @@ public class SessionVariable implements Serializable, Writable {
      * would be coming soon.
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true,
-            fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL)
+            fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     private boolean enableNereidsPlanner = true;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
@@ -1277,6 +1283,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
     private double broadcastRightTableScaleFactor = 0.0;
+
+    @VariableMgr.VarAttr(name = LEFT_SEMI_OR_ANTI_PROBE_FACTOR)
+    private double leftSemiOrAntiProbeFactor = 0.1;
 
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
     private double broadcastRowCountLimit = 30000000;
@@ -1466,9 +1475,9 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableInvertedIndexQuery = true;
 
     // Whether enable query expr with inverted index.
-    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX, needForward = true, description = {
-            "是否启用表达式上使用 inverted index。", "Set whether to use inverted index query for expr."})
-    public boolean enableCommonExpPushDownForInvertedIndex = false;
+    @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN_FOR_INVERTED_INDEX, fuzzy = true, needForward = true,
+            description = {"是否启用表达式上使用 inverted index。", "Set whether to use inverted index query for expr."})
+    public boolean enableCommonExpPushDownForInvertedIndex = true;
 
     // Whether enable pushdown count agg to scan node when using inverted index match.
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_COUNT_ON_INDEX, needForward = true, description = {
@@ -1551,6 +1560,13 @@ public class SessionVariable implements Serializable, Writable {
                     "If the number of partitions exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
     public int numPartitionsInBatchMode = 1024;
+
+    @VariableMgr.VarAttr(
+            name = FETCH_SPLITS_MAX_WAIT_TIME,
+            description = {"batch方式中BE获取splits的最大等待时间",
+                    "The max wait time of getting splits in batch mode."},
+            needForward = true)
+    public long fetchSplitsMaxWaitTime = 4000;
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
@@ -1658,15 +1674,21 @@ public class SessionVariable implements Serializable, Writable {
     public int invertedIndexMaxExpansions = 50;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_SKIP_THRESHOLD,
-                description = {"在倒排索引中如果预估命中量占比总量超过百分比阈值，则跳过索引直接进行匹配。",
-                        "In the inverted index,"
-                        + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
-                        + " then skip the index and proceed directly to matching."})
+            description = {"在倒排索引中如果预估命中量占比总量超过百分比阈值，则跳过索引直接进行匹配。",
+                    "In the inverted index,"
+                            + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
+                            + " then skip the index and proceed directly to matching."})
     public int invertedIndexSkipThreshold = 50;
 
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
     public String sqlDialect = "doris";
+
+    @VariableMgr.VarAttr(name = SERDE_DIALECT, needForward = true, checker = "checkSerdeDialect",
+            description = {"返回给 MySQL 客户端时各数据类型的输出格式方言",
+                    "The output format dialect of each data type returned to the MySQL client."},
+            options = {"doris", "presto", "trino"})
+    public String serdeDialect = "doris";
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
@@ -1807,6 +1829,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否允许嵌套物化视图改写",
                     "Whether enable materialized view nest rewrite"})
     public boolean enableMaterializedViewNestRewrite = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_SYNC_MV_COST_BASED_REWRITE, needForward = true,
+            description = {"是否允许基于代价改写同步物化视图",
+                    "Whether enable cost based rewrite for sync mv"})
+    public boolean enableSyncMvCostBasedRewrite = true;
 
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",
@@ -1968,6 +1995,13 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkExternalAggPartitionBits", fuzzy = true)
     public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
 
+    @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, description = {
+            "在CTAS中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即65533。默认为 true。",
+            "In CTAS (Create Table As Select), if CHAR/VARCHAR columns do not originate from the source table,"
+                    + " whether to set the length of such a column to MAX, which is 65533. The default is true."
+    })
+    public boolean useMaxLengthOfVarcharInCtas = true;
+
     public boolean isEnableJoinSpill() {
         return enableJoinSpill;
     }
@@ -1991,6 +2025,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
+        this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
@@ -2546,10 +2581,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableBucketShuffleJoin;
     }
 
-    public boolean isEnableBucketShuffleDownGrade() {
-        return enableBucketShuffleDownGrade;
-    }
-
     public boolean isEnableOdbcTransaction() {
         return enableOdbcTransaction;
     }
@@ -2706,6 +2737,14 @@ public class SessionVariable implements Serializable, Writable {
         this.broadcastRightTableScaleFactor = broadcastRightTableScaleFactor;
     }
 
+    public double getLeftSemiOrAntiProbeFactor() {
+        return leftSemiOrAntiProbeFactor;
+    }
+
+    public void setLeftSemiOrAntiProbeFactor(double leftSemiOrAntiProbeFactor) {
+        this.leftSemiOrAntiProbeFactor = leftSemiOrAntiProbeFactor;
+    }
+
     public double getBroadcastRowCountLimit() {
         return broadcastRowCountLimit;
     }
@@ -2860,6 +2899,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setNumSplitsInBatchMode(int numPartitionsInBatchMode) {
         this.numPartitionsInBatchMode = numPartitionsInBatchMode;
+    }
+
+    public long getFetchSplitsMaxWaitTime() {
+        return fetchSplitsMaxWaitTime;
+    }
+
+    public void setFetchSplitsMaxWaitTime(long fetchSplitsMaxWaitTime) {
+        this.fetchSplitsMaxWaitTime = fetchSplitsMaxWaitTime;
     }
 
     public boolean isEnableParquetLazyMat() {
@@ -3510,6 +3557,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParallelResultSink(enableParallelResultSink);
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
+        tResult.setSerdeDialect(getSerdeDialect());
         return tResult;
     }
 
@@ -3944,6 +3992,20 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkSerdeDialect(String serdeDialect) {
+        if (StringUtils.isEmpty(serdeDialect)) {
+            LOG.warn("serdeDialect value is empty");
+            throw new UnsupportedOperationException("serdeDialect value is empty");
+        }
+
+        if (!serdeDialect.equalsIgnoreCase("doris") && !serdeDialect.equalsIgnoreCase("presto")
+                && !serdeDialect.equalsIgnoreCase("trino")) {
+            LOG.warn("serdeDialect value is invalid, the invalid value is {}", serdeDialect);
+            throw new UnsupportedOperationException(
+                    "sqlDialect value is invalid, the invalid value is " + serdeDialect);
+        }
+    }
+
     public void checkBatchSize(String batchSize) {
         Long batchSizeValue = Long.valueOf(batchSize);
         if (batchSizeValue < 1 || batchSizeValue > 65535) {
@@ -3990,6 +4052,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewNestRewrite() {
         return enableMaterializedViewNestRewrite;
+    }
+
+    public boolean isEnableSyncMvCostBasedRewrite() {
+        return enableSyncMvCostBasedRewrite;
+    }
+
+    public void setEnableSyncMvCostBasedRewrite(boolean enableSyncMvCostBasedRewrite) {
+        this.enableSyncMvCostBasedRewrite = enableSyncMvCostBasedRewrite;
     }
 
     public int getMaterializedViewRelationMappingMaxCount() {
@@ -4048,5 +4118,17 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getMaxMsgSizeOfResultReceiver() {
         return this.maxMsgSizeOfResultReceiver;
+    }
+
+    private TSerdeDialect getSerdeDialect() {
+        switch (serdeDialect) {
+            case "doris":
+                return TSerdeDialect.DORIS;
+            case "presto":
+            case "trino":
+                return TSerdeDialect.PRESTO;
+            default:
+                throw new IllegalArgumentException("Unknown serde dialect: " + serdeDialect);
+        }
     }
 }

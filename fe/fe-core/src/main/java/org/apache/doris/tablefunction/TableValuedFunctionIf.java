@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Map;
@@ -86,4 +87,8 @@ public abstract class TableValuedFunctionIf {
     public abstract List<Column> getTableColumns() throws AnalysisException;
 
     public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc);
+
+    public void checkAuth(ConnectContext ctx) {
+
+    }
 }
