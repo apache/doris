@@ -118,7 +118,8 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         }
         return st;
     }
-    LOG(INFO) << "lightman 0704 " << "start " << request.alter_version << " end " << start_resp.alter_version();
+    LOG(INFO) << "lightman 0704 "
+              << "start " << request.alter_version << " end " << start_resp.alter_version();
     if (request.alter_version > 1) {
         // [0-1] is a placeholder rowset, no need to convert
         RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, start_resp.alter_version()},

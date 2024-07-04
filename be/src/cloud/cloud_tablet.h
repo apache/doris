@@ -146,9 +146,7 @@ public:
     }
 
     int64_t alter_version() const { return _alter_version; }
-    void set_alter_version(int64_t alter_version) {
-        _alter_version = alter_version;
-    }
+    void set_alter_version(int64_t alter_version) { _alter_version = alter_version; }
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
 
