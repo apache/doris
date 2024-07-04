@@ -742,6 +742,8 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
 fi
 
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
+    # need remove old version hadoop jars if $DORIS_OUTPUT use multiple times, otherwise will cause jar conflict 
+    rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs"
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
@@ -886,4 +888,5 @@ if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
     eval "${DORIS_POST_BUILD_HOOK}"
 fi
 
+cp start_fe.sh output/fe/bin/start_fe.sh
 exit 0
