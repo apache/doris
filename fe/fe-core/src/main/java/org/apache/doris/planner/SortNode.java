@@ -326,12 +326,13 @@ public class SortNode extends PlanNode {
         msg.sort_node.setIsAnalyticSort(isAnalyticSort);
         msg.sort_node.setIsColocate(isColocate);
 
+        boolean isFixedLength = info.getOrderingExprs().stream().allMatch(e -> !e.getType().isStringType()
+                && !e.getType().isCollectionType());
         TSortAlgorithm algorithm;
         if (limit > 0 && limit + offset < 1024 && (useTwoPhaseReadOpt || hasRuntimePredicate
-                || info.getOrderingExprs().stream().allMatch(e -> !e.getType().isStringType()
-                && !e.getType().isCollectionType()))) {
+                || isFixedLength)) {
             algorithm = TSortAlgorithm.HEAP_SORT;
-        } else if (limit > 0 && row_desc.has_varlen_slots() && limit + offset < 256) {
+        } else if (limit > 0 && !isFixedLength && limit + offset < 256) {
             algorithm = TSortAlgorithm.TOPN_SORT;
         } else {
             algorithm = TSortAlgorithm.FULL_SORT;
