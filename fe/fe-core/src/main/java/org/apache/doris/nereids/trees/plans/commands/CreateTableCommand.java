@@ -143,10 +143,12 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                         }
                     }
                 } else {
-                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                            VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
-                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                            CharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                    if (ctx.getSessionVariable().useMaxLengthOfVarcharInCtas) {
+                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                CharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                    }
                 }
             }
             // if the column is an expression, we set it to nullable, otherwise according to the nullable of the slot.
