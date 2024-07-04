@@ -250,7 +250,8 @@ public class EsScanNode extends ExternalScanNode {
                 // Generate on es scan range
                 TEsScanRange esScanRange = new TEsScanRange();
                 esScanRange.setEsHosts(shardAllocations);
-                esScanRange.setIndex(shardRouting.get(0).getIndexName());
+                esScanRange.setIndex(
+                        enableShardScroll ? shardRouting.get(0).getIndexName() : indexState.getIndexName());
                 if (table.getType() != null) {
                     esScanRange.setType(table.getMappingType());
                 }
