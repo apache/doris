@@ -1175,10 +1175,6 @@ DECLARE_mBool(exit_on_exception);
 // Remove predicate that is always true for a segment.
 DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
-// Dir of default timezone files
-DECLARE_String(default_tzfiles_path);
-DECLARE_Bool(use_doris_tzfile);
-
 // the max package bytes be thrift server can receive
 // avoid accepting error or too large package causing OOM,default 20000000(20M)
 DECLARE_Int32(be_thrift_max_pkg_bytes);
