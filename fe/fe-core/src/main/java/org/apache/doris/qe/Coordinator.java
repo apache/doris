@@ -240,6 +240,9 @@ public class Coordinator implements CoordInterface {
     private List<String> deltaUrls;
     private Map<String, String> loadCounters;
     private String trackingUrl;
+    // related txnId and label of group commit
+    private long txnId;
+    private String label;
 
     // for export
     private List<String> exportFiles;
@@ -466,6 +469,14 @@ public class Coordinator implements CoordInterface {
 
     public String getTrackingUrl() {
         return trackingUrl;
+    }
+
+    public long getTxnId() {
+        return txnId;
+    }
+
+    public String getLabel() {
+        return label;
     }
 
     public void setExecMemoryLimit(long execMemoryLimit) {
@@ -2345,6 +2356,12 @@ public class Coordinator implements CoordInterface {
         }
         if (params.isSetTrackingUrl()) {
             trackingUrl = params.getTrackingUrl();
+        }
+        if (params.isSetTxnId()) {
+            txnId = params.getTxnId();
+        }
+        if (params.isSetLabel()) {
+            label = params.getLabel();
         }
         if (params.isSetExportFiles()) {
             updateExportFiles(params.getExportFiles());
