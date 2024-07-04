@@ -18,6 +18,7 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
@@ -81,6 +82,61 @@ private:
     mutable SpinLock _lock;
     std::unordered_map<int /* seg_id */, io::FileWriterPtr> _file_writers;
     bool _closed {false};
+};
+
+// Collect the size of the inverted index files
+class InvertedIndexFilesInfo {
+public:
+    // Get inverted index file size in segment id order.
+    // Return the size of inverted index files from seg_id_offset to the last one.
+    Result<std::vector<InvertedIndexFileSize>> get_inverted_file_size(int seg_id_offset) {
+        std::lock_guard lock(_lock);
+
+        Status st;
+        std::vector<InvertedIndexFileSize> inverted_file_size(_inverted_index_file_size.size());
+        bool succ = std::all_of(
+                _inverted_index_file_size.begin(), _inverted_index_file_size.end(), [&](auto&& it) {
+                    auto&& [seg_id, size] = it;
+
+                    int idx = seg_id - seg_id_offset;
+                    if (idx >= inverted_file_size.size()) [[unlikely]] {
+                        auto err_msg = fmt::format(
+                                "invalid seg_id={} num_inverted_file_writers={} seg_id_offset={}",
+                                seg_id, inverted_file_size.size(), seg_id_offset);
+                        DCHECK(false) << err_msg;
+                        st = Status::InternalError(err_msg);
+                        return false;
+                    }
+
+                    auto& fsize = inverted_file_size[idx];
+                    if (fsize.has_inverted_index_v1_file_size() ||
+                        fsize.has_inverted_index_v2_file_size()) [[unlikely]] {
+                        // File size should not been set
+                        auto err_msg = fmt::format("duplicate seg_id={}", seg_id);
+                        DCHECK(false) << err_msg;
+                        st = Status::InternalError(err_msg);
+                        return false;
+                    }
+
+                    fsize = size;
+                    return true;
+                });
+
+        if (succ) {
+            return inverted_file_size;
+        }
+
+        return ResultError(st);
+    }
+
+    void add_file_size(int seg_id, InvertedIndexFileSize file_size) {
+        std::lock_guard lock(_lock);
+        _inverted_index_file_size.emplace(seg_id, file_size);
+    }
+
+private:
+    std::unordered_map<int /* seg_id */, InvertedIndexFileSize> _inverted_index_file_size;
+    mutable SpinLock _lock;
 };
 
 class BaseBetaRowsetWriter : public RowsetWriter {
@@ -160,6 +216,8 @@ public:
         return _seg_files.get_file_writers();
     }
 
+    InvertedIndexFilesInfo& get_inverted_index_files_info() { return _idx_files_info; }
+
 private:
     void update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
@@ -207,6 +265,9 @@ protected:
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;
+
+    // map<segment_id, inverted_index_file_size>
+    InvertedIndexFilesInfo _idx_files_info;
 };
 
 class SegcompactionWorker;

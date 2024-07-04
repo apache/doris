@@ -233,6 +233,13 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
             _rowset_meta_pb.add_segments_file_size(fsize);
         }
     }
+    if (_rowset_meta_pb.enable_inverted_index_file_size() &&
+        other._rowset_meta_pb.enable_inverted_index_file_size()) {
+        for (auto fsize : other.inverted_index_file_size()) {
+            InvertedIndexFileSize* new_file_size = _rowset_meta_pb.add_inverted_index_file_size();
+            *new_file_size = fsize;
+        }
+    }
     // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
     // Otherwise the schema is stale and lead to wrong data read
     if (tablet_schema()->num_variant_columns() > 0) {
@@ -246,6 +253,33 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     }
     if (rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
         set_rowset_state(RowsetStatePB::COMMITTED);
+    }
+}
+
+InvertedIndexFileSize RowsetMeta::inverted_index_file_size(int seg_id) {
+    return _rowset_meta_pb.enable_inverted_index_file_size()
+                   ? (_rowset_meta_pb.inverted_index_file_size_size() > seg_id
+                              ? _rowset_meta_pb.inverted_index_file_size(seg_id)
+                              : InvertedIndexFileSize())
+                   : InvertedIndexFileSize();
+}
+
+void RowsetMeta::add_inverted_index_file_size(
+        const std::vector<InvertedIndexFileSize>& idx_file_size) {
+    _rowset_meta_pb.set_enable_inverted_index_file_size(true);
+    for (auto fsize : idx_file_size) {
+        InvertedIndexFileSize* new_file_size = _rowset_meta_pb.add_inverted_index_file_size();
+        *new_file_size = fsize;
+    }
+}
+
+void RowsetMeta::update_inverted_index_file_size(
+        const std::vector<InvertedIndexFileSize>& idx_file_size) {
+    _rowset_meta_pb.set_enable_inverted_index_file_size(true);
+    _rowset_meta_pb.clear_inverted_index_file_size();
+    for (auto fsize : idx_file_size) {
+        InvertedIndexFileSize* new_file_size = _rowset_meta_pb.add_inverted_index_file_size();
+        *new_file_size = fsize;
     }
 }
 

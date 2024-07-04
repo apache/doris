@@ -63,3 +63,21 @@ enum FileType {
   SEGMENT_FILE = 1;
   INVERTED_INDEX_FILE = 2;
 }
+
+message InvertedIndexFormatV1FileSize {
+    message IndexInfo {
+        required int64 index_id = 1;
+        required string index_suffix = 2;
+        required int64 index_file_size = 3;
+    }
+    repeated IndexInfo file_size = 1;
+}
+
+message InvertedIndexFormatV2FileSize {
+    required int64 file_size = 1;
+}
+
+message InvertedIndexFileSize {
+    optional InvertedIndexFormatV1FileSize inverted_index_v1_file_size = 1;
+    optional InvertedIndexFormatV2FileSize inverted_index_v2_file_size = 2;
+}

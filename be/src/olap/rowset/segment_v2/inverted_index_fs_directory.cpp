@@ -115,7 +115,7 @@ public:
 
 bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const char* path,
                                           IndexInput*& ret, CLuceneError& error,
-                                          int32_t buffer_size) {
+                                          int32_t buffer_size, int64_t file_size) {
     CND_PRECONDITION(path != nullptr, "path is NULL");
 
     if (buffer_size == -1) {
@@ -127,6 +127,7 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
     reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
                                                           : io::FileCachePolicy::NO_CACHE;
     reader_options.is_doris_table = true;
+    reader_options.file_size = file_size;
     Status st = fs->open_file(path, &h->_reader, &reader_options);
     DBUG_EXECUTE_IF("inverted file read error: index file not found",
                     { st = Status::Error<doris::ErrorCode::NOT_FOUND>("index file not found"); })
@@ -136,17 +137,23 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
         error.set(CL_ERR_IO, "File open io error");
     } else if (st.code() == ErrorCode::PERMISSION_DENIED) {
         error.set(CL_ERR_IO, "File Access denied");
-    } else {
+    } else if (!st.ok()) {
         error.set(CL_ERR_IO, "Could not open file");
     }
 
     //Check if a valid handle was retrieved
     if (st.ok() && h->_reader) {
-        //Store the file length
-        h->_length = h->_reader->size();
-        h->_fpos = 0;
-        ret = _CLNEW FSIndexInput(std::move(h), buffer_size);
-        return true;
+        if (h->_reader->size() == 0) {
+            // may be a empty file
+            error.set(CL_ERR_IO, "Opened File is empty");
+            return false;
+        } else {
+            //Store the file length
+            h->_length = h->_reader->size();
+            h->_fpos = 0;
+            ret = _CLNEW FSIndexInput(std::move(h), buffer_size);
+            return true;
+        }
     }
 
     //delete h->_shared_lock;
@@ -781,12 +788,6 @@ DorisFSDirectory* DorisFSDirectoryFactory::getDirectory(const io::FileSystemSPtr
     if (config::inverted_index_ram_dir_enable && can_use_ram_dir) {
         dir = _CLNEW DorisRAMFSDirectory();
     } else {
-        bool exists = false;
-        LOG_AND_THROW_IF_ERROR(_fs->exists(file, &exists), "Get directory exists IO error");
-        if (!exists) {
-            LOG_AND_THROW_IF_ERROR(_fs->create_directory(file),
-                                   "Get directory create directory IO error");
-        }
         dir = _CLNEW DorisFSDirectory();
     }
     dir->init(_fs, file, lock_factory);

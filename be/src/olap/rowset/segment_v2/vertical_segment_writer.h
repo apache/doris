@@ -99,7 +99,9 @@ public:
     [[nodiscard]] std::string data_dir_path() const {
         return _data_dir == nullptr ? "" : _data_dir->path();
     }
-    [[nodiscard]] size_t inverted_index_file_size() const { return _inverted_index_file_size; }
+    [[nodiscard]] InvertedIndexFileSize get_inverted_index_file_size() const {
+        return _inverted_index_file_size;
+    }
     [[nodiscard]] uint32_t num_rows_written() const { return _num_rows_written; }
 
     // for partial update
@@ -119,6 +121,8 @@ public:
     Slice max_encoded_key();
 
     TabletSchemaSPtr flush_schema() const { return _flush_schema; };
+
+    int64_t get_inverted_index_total_size();
 
     void clear();
 
@@ -171,7 +175,7 @@ private:
     SegmentFooterPB _footer;
     size_t _num_key_columns;
     size_t _num_short_key_columns;
-    size_t _inverted_index_file_size;
+    InvertedIndexFileSize _inverted_index_file_size;
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;

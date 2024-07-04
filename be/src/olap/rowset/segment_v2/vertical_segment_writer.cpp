@@ -1008,13 +1008,6 @@ uint64_t VerticalSegmentWriter::_estimated_remaining_size() {
     return size;
 }
 
-size_t VerticalSegmentWriter::_calculate_inverted_index_file_size() {
-    if (_inverted_index_file_writer != nullptr) {
-        return _inverted_index_file_writer->get_index_file_size();
-    }
-    return 0;
-}
-
 Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_ordinal_index());
@@ -1033,7 +1026,10 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
         RETURN_IF_ERROR(_write_short_key_index());
         *index_size = _file_writer->bytes_appended() - index_start;
     }
-    _inverted_index_file_size = _calculate_inverted_index_file_size();
+
+    if (_inverted_index_file_writer != nullptr) {
+        _inverted_index_file_size = _inverted_index_file_writer->get_index_file_size();
+    }
     // reset all column writers and data_conveter
     clear();
 
@@ -1195,6 +1191,19 @@ void VerticalSegmentWriter::_set_min_key(const Slice& key) {
 void VerticalSegmentWriter::_set_max_key(const Slice& key) {
     _max_key.clear();
     _max_key.append(key.get_data(), key.get_size());
+}
+
+int64_t VerticalSegmentWriter::get_inverted_index_total_size() {
+    int64_t file_size = 0;
+    if (_tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+        const auto& idx_v1_file_size = _inverted_index_file_size.inverted_index_v1_file_size();
+        for (const auto& index_info : idx_v1_file_size.file_size()) {
+            file_size += index_info.index_file_size();
+        }
+    } else {
+        file_size += _inverted_index_file_size.inverted_index_v2_file_size().file_size();
+    }
+    return file_size;
 }
 
 } // namespace segment_v2
