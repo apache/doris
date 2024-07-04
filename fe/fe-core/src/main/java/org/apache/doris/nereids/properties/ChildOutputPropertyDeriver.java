@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -265,38 +266,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 && rightOutputProperty.getDistributionSpec() instanceof DistributionSpecHash) {
             DistributionSpecHash leftHashSpec = (DistributionSpecHash) leftOutputProperty.getDistributionSpec();
             DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightOutputProperty.getDistributionSpec();
-
-            switch (hashJoin.getJoinType()) {
-                case INNER_JOIN:
-                case CROSS_JOIN:
-                    return new PhysicalProperties(DistributionSpecHash.merge(
-                            leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
-                case LEFT_SEMI_JOIN:
-                case LEFT_ANTI_JOIN:
-                case NULL_AWARE_LEFT_ANTI_JOIN:
-                case LEFT_OUTER_JOIN:
-                    if (leftHashSpec.getShuffleType() != ShuffleType.NATURAL
-                            && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
-                        return new PhysicalProperties(DistributionSpecHash.merge(
-                                rightHashSpec, leftHashSpec, rightHashSpec.getShuffleType()));
-                    } else {
-                        return new PhysicalProperties(leftHashSpec);
-                    }
-                case RIGHT_SEMI_JOIN:
-                case RIGHT_ANTI_JOIN:
-                case RIGHT_OUTER_JOIN:
-                    if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
-                        return new PhysicalProperties(rightHashSpec);
-                    } else {
-                        // retain left shuffle type, since coordinator use left most node to schedule fragment
-                        // forbid colocate join, since right table already shuffle
-                        return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
-                                leftHashSpec.getShuffleType()));
-                    }
-                case FULL_OUTER_JOIN:
-                    return PhysicalProperties.createAnyFromHash(leftHashSpec);
-                default:
-                    throw new AnalysisException("unknown join type " + hashJoin.getJoinType());
+            if (SessionVariable.canUseNereidsDistributePlanner()) {
+                return computeShuffleJoinOutputProperties(hashJoin, leftHashSpec, rightHashSpec);
+            } else {
+                return legacyComputeShuffleJoinOutputProperties(hashJoin, leftHashSpec, rightHashSpec);
             }
         }
 
@@ -471,6 +444,115 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         return childrenOutputProperties.get(0);
     }
 
+    private PhysicalProperties computeShuffleJoinOutputProperties(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
+            DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
+
+        ShuffleSide shuffleSide = computeShuffleSide(leftHashSpec, rightHashSpec);
+
+        ShuffleType outputShuffleType = shuffleSide == ShuffleSide.LEFT
+                ? rightHashSpec.getShuffleType() : leftHashSpec.getShuffleType();
+
+        switch (hashJoin.getJoinType()) {
+            case INNER_JOIN:
+                if (shuffleSide == ShuffleSide.LEFT) {
+                    return new PhysicalProperties(DistributionSpecHash.merge(
+                            rightHashSpec, leftHashSpec, outputShuffleType));
+                } else {
+                    return new PhysicalProperties(DistributionSpecHash.merge(
+                            leftHashSpec, rightHashSpec, outputShuffleType));
+                }
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+            case LEFT_OUTER_JOIN:
+                if (shuffleSide == ShuffleSide.LEFT) {
+                    return new PhysicalProperties(
+                            leftHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
+                    );
+                } else {
+                    return new PhysicalProperties(leftHashSpec);
+                }
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+            case RIGHT_OUTER_JOIN:
+                if (shuffleSide == ShuffleSide.RIGHT) {
+                    return new PhysicalProperties(
+                            rightHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
+                    );
+                } else {
+                    return new PhysicalProperties(rightHashSpec);
+                }
+            case FULL_OUTER_JOIN:
+                return PhysicalProperties.createAnyFromHash(leftHashSpec, rightHashSpec);
+            default:
+                throw new AnalysisException("unknown join type " + hashJoin.getJoinType());
+        }
+    }
+
+    private ShuffleSide computeShuffleSide(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
+        ShuffleType leftShuffleType = leftHashSpec.getShuffleType();
+        ShuffleType rightShuffleType = rightHashSpec.getShuffleType();
+        switch (leftShuffleType) {
+            case EXECUTION_BUCKETED:
+                if (rightShuffleType == ShuffleType.EXECUTION_BUCKETED) {
+                    return ShuffleSide.BOTH;
+                }
+                break;
+            case STORAGE_BUCKETED:
+                if (rightShuffleType == ShuffleType.NATURAL) {
+                    // use storage hash to shuffle left to right to do bucket shuffle join
+                    return ShuffleSide.LEFT;
+                }
+                break;
+            case NATURAL:
+                switch (rightShuffleType) {
+                    case NATURAL:
+                        // colocate join
+                        return ShuffleSide.NONE;
+                    case STORAGE_BUCKETED:
+                        // use storage hash to shuffle right to left to do bucket shuffle join
+                        return ShuffleSide.RIGHT;
+                    default:
+                }
+                break;
+            default:
+        }
+        throw new IllegalStateException(
+                "Illegal join with wrong distribution, left: " + leftShuffleType + ", right: " + rightShuffleType);
+    }
+
+    private PhysicalProperties legacyComputeShuffleJoinOutputProperties(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
+            DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
+        switch (hashJoin.getJoinType()) {
+            case INNER_JOIN:
+            case CROSS_JOIN:
+                return new PhysicalProperties(DistributionSpecHash.merge(
+                        leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+            case LEFT_OUTER_JOIN:
+                return new PhysicalProperties(leftHashSpec);
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+            case RIGHT_OUTER_JOIN:
+                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
+                    return new PhysicalProperties(rightHashSpec);
+                } else {
+                    // retain left shuffle type, since coordinator use left most node to schedule fragment
+                    // forbid colocate join, since right table already shuffle
+                    return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
+                            leftHashSpec.getShuffleType()));
+                }
+            case FULL_OUTER_JOIN:
+                return PhysicalProperties.createAnyFromHash(leftHashSpec);
+            default:
+                throw new AnalysisException("unknown join type " + hashJoin.getJoinType());
+        }
+    }
+
     private boolean isSameHashValue(DataType originType, DataType castType) {
         if (originType.isStringLikeType() && (castType.isVarcharType() || castType.isStringType())
                 && (castType.width() >= originType.width() || castType.width() < 0)) {
@@ -478,5 +560,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         } else {
             return false;
         }
+    }
+
+    private enum ShuffleSide {
+        LEFT, RIGHT, BOTH, NONE
     }
 }
