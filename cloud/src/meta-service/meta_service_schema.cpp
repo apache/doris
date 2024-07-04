@@ -213,7 +213,7 @@ void process_dictionary(SchemaCloudDictionary& dict,
 void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
                        Transaction* txn, RowsetMetaCloudPB* rowset_meta) {
     std::stringstream ss;
-    // wrtie dict to rowset meta and update dict
+    // write dict to rowset meta and update dict
     SchemaCloudDictionary dict;
     std::string dict_key = meta_schema_pb_dictionary_key({instance_id, rowset_meta->index_id()});
     ValueBuf dict_val;

@@ -541,6 +541,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
                                      CreateTabletsResponse* response,
                                      ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(create_tablets);
+    std::stringstream ss;
 
     if (request->tablet_metas_size() == 0) {
         msg = "no tablet meta";
@@ -764,9 +765,9 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
+        std::stringstream ss;
         ss << "failed to update tablet meta, err=" << err;
         msg = ss.str();
-        return;
     }
 }
 
@@ -839,9 +840,9 @@ void MetaServiceImpl::update_tablet_schema(::google::protobuf::RpcController* co
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
+        std::stringstream ss;
         ss << "failed to update tablet meta, err=" << err;
         msg = ss.str();
-        return;
     }
 }
 
@@ -1140,9 +1141,9 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
+        std::stringstream ss;
         ss << "failed to save rowset meta, err=" << err;
         msg = ss.str();
-        return;
     }
 }
 
@@ -1230,9 +1231,9 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
+        std::stringstream ss;
         ss << "failed to update rowset meta, err=" << err;
         msg = ss.str();
-        return;
     }
 }
 
@@ -1380,6 +1381,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                                  const GetRowsetRequest* request, GetRowsetResponse* response,
                                  ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_rowset);
+    std::stringstream ss;
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1547,9 +1549,10 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
     }
 }
 
-static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
-                                     std::unique_ptr<Transaction>& txn, std::string& instance_id,
-                                     int64_t table_id, int64_t lock_id, int64_t lock_initiator) {
+static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                                     std::string& instance_id, int64_t table_id, int64_t lock_id,
+                                     int64_t lock_initiator) {
+    std::stringstream ss;
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
     DeleteBitmapUpdateLockPB lock_info;
@@ -1591,13 +1594,13 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
     return true;
 }
 
-static bool process_pending_delete_bitmap(MetaServiceCode& code, std::string& msg,
-                                          std::stringstream& ss, std::unique_ptr<Transaction>& txn,
+static bool process_pending_delete_bitmap(MetaServiceCode& code, std::string& msg, Transaction* txn,
                                           std::string& instance_id, int64_t tablet_id) {
     std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
     std::string pending_val;
     auto err = txn->get(pending_key, &pending_val);
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        std::stringstream ss;
         ss << "failed to get delete bitmap pending info, instance_id=" << instance_id
            << " tablet_id=" << tablet_id << " key=" << hex(pending_key) << " err=" << err;
         msg = ss.str();
@@ -1616,7 +1619,7 @@ static bool process_pending_delete_bitmap(MetaServiceCode& code, std::string& ms
         msg = "failed to parse PendingDeleteBitmapPB";
         return false;
     }
-    for (auto& delete_bitmap_key : pending_info.delete_bitmap_keys()) {
+    for (const auto& delete_bitmap_key : pending_info.delete_bitmap_keys()) {
         // FIXME: Don't expose the implementation details of splitting large value
         // remove large value (>90*1000)
         std::string end_key = delete_bitmap_key;
@@ -1633,6 +1636,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                                            UpdateDeleteBitmapResponse* response,
                                            ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(update_delete_bitmap);
+    std::stringstream ss;
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1662,7 +1666,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     // 1. Check whether the lock expires
-    if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id, request->lock_id(),
+    if (!check_delete_bitmap_lock(code, msg, txn.get(), instance_id, table_id, request->lock_id(),
                                   request->initiator())) {
         LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
                      << " request lock_id=" << request->lock_id()
@@ -1671,7 +1675,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     // 2. Process pending delete bitmap
-    if (!process_pending_delete_bitmap(code, msg, ss, txn, instance_id, tablet_id)) {
+    if (!process_pending_delete_bitmap(code, msg, txn.get(), instance_id, tablet_id)) {
         return;
     }
 
@@ -1727,7 +1731,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                 msg = "failed to init txn";
                 return;
             }
-            if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id,
+            if (!check_delete_bitmap_lock(code, msg, txn.get(), instance_id, table_id,
                                           request->lock_id(), request->initiator())) {
                 LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
                              << " request lock_id=" << request->lock_id()
@@ -1756,6 +1760,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                                         GetDeleteBitmapResponse* response,
                                         ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_delete_bitmap);
+    std::stringstream ss;
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1773,9 +1778,9 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
     RPC_RATE_LIMIT(get_delete_bitmap)
 
     auto tablet_id = request->tablet_id();
-    auto& rowset_ids = request->rowset_ids();
-    auto& begin_versions = request->begin_versions();
-    auto& end_versions = request->end_versions();
+    const auto& rowset_ids = request->rowset_ids();
+    const auto& begin_versions = request->begin_versions();
+    const auto& end_versions = request->end_versions();
     if (rowset_ids.size() != begin_versions.size() || rowset_ids.size() != end_versions.size()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         ss << "rowset and version size not match. "
@@ -1879,6 +1884,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                                                     GetDeleteBitmapUpdateLockResponse* response,
                                                     ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_delete_bitmap_update_lock);
+    std::stringstream ss;
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
