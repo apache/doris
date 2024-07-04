@@ -48,7 +48,8 @@ CloudCumulativeCompaction::CloudCumulativeCompaction(CloudStorageEngine& engine,
 CloudCumulativeCompaction::~CloudCumulativeCompaction() = default;
 
 Status CloudCumulativeCompaction::prepare_compact() {
-    if (_tablet->tablet_state() != TABLET_RUNNING && dynamic_cast<CloudTablet*>(_tablet.get())->alter_version() == -1) {
+    if (_tablet->tablet_state() != TABLET_RUNNING &&
+        dynamic_cast<CloudTablet*>(_tablet.get())->alter_version() == -1) {
         return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
     }
 
