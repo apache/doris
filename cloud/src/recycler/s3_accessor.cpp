@@ -247,7 +247,7 @@ int S3Accessor::init() {
         Aws::Client::ClientConfiguration aws_config;
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
-        if (config::s3_client_http_scheme == "HTTP") {
+        if (config::s3_client_http_scheme == "http") {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
         aws_config.retryStrategy = std::make_shared<Aws::Client::DefaultRetryStrategy>(
