@@ -625,7 +625,7 @@ public class Coordinator implements CoordInterface {
         LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
 
         Map<TNetworkAddress, TPipelineFragmentParams> tExecPlanFragmentParams
-                = ((FragmentExecParams) this.fragmentExecParamsMap.values().toArray()[0]).toTPipelineParams(0);
+                = ((FragmentExecParams) this.fragmentExecParamsMap.values().toArray()[0]).toThrift(0);
         TPipelineFragmentParams fragmentParams = tExecPlanFragmentParams.values().stream().findFirst().get();
         return fragmentParams;
     }
@@ -781,7 +781,7 @@ public class Coordinator implements CoordInterface {
                 // 1. set up exec states
                 int instanceNum = params.instanceExecParams.size();
                 Preconditions.checkState(instanceNum > 0);
-                Map<TNetworkAddress, TPipelineFragmentParams> tParams = params.toTPipelineParams(backendIdx);
+                Map<TNetworkAddress, TPipelineFragmentParams> tParams = params.toThrift(backendIdx);
 
                 boolean needCheckBackendState = false;
                 if (queryOptions.getQueryType() == TQueryType.LOAD && profileFragmentId == 0) {
@@ -1855,8 +1855,8 @@ public class Coordinator implements CoordInterface {
                                 leftMostNode.getNumInstances());
                         boolean forceToLocalShuffle = context != null
                                 && context.getSessionVariable().isForceToLocalShuffle();
-                        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream().allMatch(
-                                scanNode -> scanNode.ignoreStorageDataDistribution(context, addressToBackendID.size()))
+                        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (node.isPresent()
+                                && node.get().ignoreStorageDataDistribution(context, addressToBackendID.size())
                                 && useNereids);
                         if (node.isPresent() && ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
@@ -3026,111 +3026,6 @@ public class Coordinator implements CoordInterface {
 
         public FragmentExecParams(PlanFragment fragment) {
             this.fragment = fragment;
-        }
-
-        List<TExecPlanFragmentParams> toThrift(int backendNum) {
-            List<TExecPlanFragmentParams> paramsList = Lists.newArrayList();
-            Set<SortNode> topnSortNodes = scanNodes.stream()
-                    .filter(scanNode -> scanNode instanceof OlapScanNode)
-                    .flatMap(scanNode -> scanNode.getTopnFilterSortNodes().stream()).collect(Collectors.toSet());
-            topnSortNodes.forEach(SortNode::setHasRuntimePredicate);
-            Set<Integer> topnFilterSources = topnSortNodes.stream().map(
-                    sort -> sort.getId().asInt()).collect(Collectors.toSet());
-            for (int i = 0; i < instanceExecParams.size(); ++i) {
-                final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
-                TExecPlanFragmentParams params = new TExecPlanFragmentParams();
-                params.setIsNereids(context != null ? context.getState().isNereids() : false);
-                params.setProtocolVersion(PaloInternalServiceVersion.V1);
-                params.setFragment(fragment.toThrift());
-                params.setDescTbl(descTable);
-                params.setParams(new TPlanFragmentExecParams());
-                params.params.setQueryId(queryId);
-                params.params.setFragmentInstanceId(instanceExecParam.instanceId);
-
-                Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
-                if (scanRanges == null) {
-                    scanRanges = Maps.newHashMap();
-                }
-                if (!topnFilterSources.isEmpty()) {
-                    // topn_filter_source_node_ids is used by nereids not by legacy planner.
-                    // if there is no topnFilterSources, do not set it.
-                    // topn_filter_source_node_ids=null means legacy planner
-                    params.params.topn_filter_source_node_ids = Lists.newArrayList(topnFilterSources);
-                }
-                params.params.setPerNodeScanRanges(scanRanges);
-                params.params.setPerExchNumSenders(perExchNumSenders);
-
-                if (tWorkloadGroups != null) {
-                    params.setWorkloadGroups(tWorkloadGroups);
-                }
-                params.params.setDestinations(destinations);
-                params.params.setSenderId(i);
-                params.params.setNumSenders(instanceExecParams.size());
-                params.setCoord(coordAddress);
-                params.setCurrentConnectFe(currentConnectFE);
-                params.setBackendNum(backendNum++);
-                params.setQueryGlobals(queryGlobals);
-                params.setQueryOptions(queryOptions);
-                params.params.setSendQueryStatisticsWithEveryBatch(
-                        fragment.isTransferQueryStatisticsWithEveryBatch());
-                params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
-                params.params.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
-                if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
-                    Set<Integer> broadCastRf = assignedRuntimeFilters.stream().filter(RuntimeFilter::isBroadcast)
-                            .map(r -> r.getFilterId().asInt()).collect(Collectors.toSet());
-
-                    for (RuntimeFilter rf : assignedRuntimeFilters) {
-                        if (!ridToTargetParam.containsKey(rf.getFilterId())) {
-                            continue;
-                        }
-                        List<FRuntimeFilterTargetParam> fParams = ridToTargetParam.get(rf.getFilterId());
-                        if (rf.hasRemoteTargets()) {
-                            Map<TNetworkAddress, TRuntimeFilterTargetParamsV2> targetParamsV2 = new HashMap<>();
-                            for (FRuntimeFilterTargetParam targetParam : fParams) {
-                                if (targetParamsV2.containsKey(targetParam.targetFragmentInstanceAddr)) {
-                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
-                                            .target_fragment_instance_ids
-                                            .add(targetParam.targetFragmentInstanceId);
-                                } else {
-                                    targetParamsV2.put(targetParam.targetFragmentInstanceAddr,
-                                            new TRuntimeFilterTargetParamsV2());
-                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
-                                            .target_fragment_instance_addr
-                                            = targetParam.targetFragmentInstanceAddr;
-                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
-                                            .target_fragment_instance_ids
-                                            = new ArrayList<>();
-                                    targetParamsV2.get(targetParam.targetFragmentInstanceAddr)
-                                            .target_fragment_instance_ids
-                                            .add(targetParam.targetFragmentInstanceId);
-                                }
-                            }
-                            params.params.runtime_filter_params.putToRidToTargetParamv2(rf.getFilterId().asInt(),
-                                    new ArrayList<TRuntimeFilterTargetParamsV2>(targetParamsV2.values()));
-                        } else {
-                            List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
-                            for (FRuntimeFilterTargetParam targetParam : fParams) {
-                                targetParams.add(new TRuntimeFilterTargetParams(targetParam.targetFragmentInstanceId,
-                                        targetParam.targetFragmentInstanceAddr));
-                            }
-                            params.params.runtime_filter_params.putToRidToTargetParam(rf.getFilterId().asInt(),
-                                    targetParams);
-                        }
-                    }
-                    for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {
-                        params.params.runtime_filter_params.putToRuntimeFilterBuilderNum(
-                                entry.getKey().asInt(), broadCastRf.contains(entry.getKey().asInt())
-                                        ? 1 : entry.getValue());
-                    }
-                    for (RuntimeFilter rf : assignedRuntimeFilters) {
-                        params.params.runtime_filter_params.putToRidToRuntimeFilter(
-                                rf.getFilterId().asInt(), rf.toThrift());
-                    }
-                }
-                params.setFileScanParams(fileScanRangeParamsMap);
-                paramsList.add(params);
-            }
-            return paramsList;
         }
 
         Map<TNetworkAddress, TPipelineFragmentParams> toTPipelineParams(int backendNum) {
