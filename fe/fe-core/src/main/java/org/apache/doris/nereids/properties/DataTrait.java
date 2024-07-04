@@ -321,10 +321,20 @@ public class DataTrait {
             fdDgBuilder.removeNotContain(outputSlots);
         }
 
-        public void replace(Map<Slot, Slot> replaceMap) {
+        public void replaceUniformBy(Map<Slot, Slot> replaceMap) {
             uniformSet.replace(replaceMap);
+        }
+
+        public void replaceUniqueBy(Map<Slot, Slot> replaceMap) {
             uniqueSet.replace(replaceMap);
+        }
+
+        public void replaceEqualSetBy(Map<Slot, Slot> replaceMap) {
             equalSetBuilder.replace(replaceMap);
+        }
+
+        public void replaceFuncDepsBy(Map<Slot, Slot> replaceMap) {
+            fdDgBuilder.replace(replaceMap);
         }
     }
 
