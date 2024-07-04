@@ -360,9 +360,7 @@ public:
     void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
-    void set_row_column_page_size(long page_size) {
-        _row_column_page_size = page_size;
-    }
+    void set_row_column_page_size(long page_size) { _row_column_page_size = page_size; }
     long row_column_page_size() const { return _row_column_page_size; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
