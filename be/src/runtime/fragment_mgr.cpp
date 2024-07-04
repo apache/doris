@@ -636,9 +636,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << ", use workload group: " << workload_group_ptr->debug_string()
-                          << ", is pipeline: " << ((int)is_pipeline)
-                          << ", enable cgroup soft limit: "
-                          << ((int)config::enable_cgroup_cpu_soft_limit);
+                          << ", is pipeline: " << ((int)is_pipeline);
             } else {
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << " carried group info but can not find group in be";
@@ -869,10 +867,11 @@ void FragmentMgr::cancel_worker() {
             // 1. If query's process uuid is zero, do not cancel
             // 2. If same process uuid, do not cancel
             // 3. If fe has zero process uuid, do not cancel
-            if (running_fes.empty()) {
+            if (running_fes.empty() && !_query_ctx_map.empty()) {
                 LOG_EVERY_N(WARNING, 10)
-                        << "Could not find any running frontends, maybe we are upgrading? "
-                        << "We will not cancel any running queries in this situation.";
+                        << "Could not find any running frontends, maybe we are upgrading or "
+                           "starting? "
+                        << "We will not cancel any outdated queries in this situation.";
             } else {
                 for (const auto& it : _query_ctx_map) {
                     if (auto q_ctx = it.second.lock()) {

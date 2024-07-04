@@ -101,6 +101,14 @@ suite ("test_follower_consistent_auth","p0,auth") {
         sql """refresh MATERIALIZED VIEW ${dbName}.${mtmv_name} auto"""
         sql """grant select_priv on regression_test to ${user}"""
 
+        //cloud-mode
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        }
+
 
         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
             try {

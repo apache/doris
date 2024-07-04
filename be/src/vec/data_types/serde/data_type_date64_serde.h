@@ -62,9 +62,11 @@ public:
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override;
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override;
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
@@ -74,7 +76,7 @@ public:
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const) const;
+                                  int row_idx, bool col_const, const FormatOptions& options) const;
 };
 
 class DataTypeDateTimeSerDe : public DataTypeDate64SerDe {
