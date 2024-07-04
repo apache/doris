@@ -402,7 +402,8 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     if [[ "${STOP}" -ne 1 ]]; then
         if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
             echo "${ICEBERG_DIR}/data does not exist"
-            cd "${ICEBERG_DIR}" && rm -f iceberg_data.zip \
+            cd "${ICEBERG_DIR}" \
+            && rm -f iceberg_data.zip \
             && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data.zip \
             && sudo unzip iceberg_data.zip \
             && sudo mv iceberg_data data \
