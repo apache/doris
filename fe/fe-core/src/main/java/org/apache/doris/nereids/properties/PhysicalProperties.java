@@ -101,6 +101,7 @@ public class PhysicalProperties {
         return new PhysicalProperties(distributionSpecHash);
     }
 
+    /** createAnyFromHash */
     public static PhysicalProperties createAnyFromHash(DistributionSpecHash... childSpecs) {
         for (DistributionSpecHash childSpec : childSpecs) {
             if (childSpec.getShuffleType() == ShuffleType.NATURAL) {
