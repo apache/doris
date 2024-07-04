@@ -344,8 +344,6 @@ public:
         return _query_options.disable_stream_preaggregations;
     }
 
-    bool enable_spill() const { return _query_options.enable_spilling; }
-
     int32_t runtime_filter_wait_time_ms() const {
         return _query_options.runtime_filter_wait_time_ms;
     }
@@ -517,12 +515,6 @@ public:
 
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
 
-    int64_t external_agg_bytes_threshold() const {
-        return _query_options.__isset.external_agg_bytes_threshold
-                       ? _query_options.external_agg_bytes_threshold
-                       : 0;
-    }
-
     inline bool enable_delete_sub_pred_v2() const {
         return _query_options.__isset.enable_delete_sub_predicate_v2 &&
                _query_options.enable_delete_sub_predicate_v2;
@@ -595,9 +587,9 @@ public:
 
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
-            return _query_options.min_revocable_mem;
+            return std::max(_query_options.min_revocable_mem, (int64_t)1);
         }
-        return 0;
+        return 1;
     }
 
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
