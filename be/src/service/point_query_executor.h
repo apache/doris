@@ -93,7 +93,7 @@ public:
 
     int64_t mem_size() const;
 
-    RuntimeState* runtime_state() { return _runtime_state; }
+    RuntimeState* runtime_state() { return _runtime_state.get(); }
 
 private:
     // caching TupleDescriptor, output_expr, etc...
