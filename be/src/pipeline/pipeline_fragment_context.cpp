@@ -455,6 +455,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
                                                            task_runtime_state.get(), this,
                                                            pipeline_id_to_profile[pip_idx].get(),
                                                            get_local_exchange_state(pipeline), i);
+                task_runtime_state->set_task(task.get());
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
                 _tasks[i].emplace_back(std::move(task));
             }
@@ -1603,8 +1604,7 @@ Status PipelineFragmentContext::send_report(bool done) {
         runtime_states.push_back(task_state.get());
     }
 
-    ReportStatusRequest req {true,
-                             exec_status,
+    ReportStatusRequest req {exec_status,
                              runtime_states,
                              _runtime_profile.get(),
                              _runtime_state->load_channel_profile(),

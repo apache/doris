@@ -1143,6 +1143,7 @@ enum TBinlogType {
   MODIFY_PARTITIONS = 11,
   REPLACE_PARTITIONS = 12,
   TRUNCATE_TABLE = 13,
+  RENAME_TABLE = 14,
 }
 
 struct TBinlog {
@@ -1323,6 +1324,7 @@ struct TAutoIncrementRangeResult {
     1: optional Status.TStatus status
     2: optional i64 start
     3: optional i64 length
+    4: optional Types.TNetworkAddress master_address
 }
 
 struct TCreatePartitionRequest {

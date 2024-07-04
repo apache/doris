@@ -233,8 +233,9 @@ Status StorageEngine::_open() {
     auto dirs = get_stores();
     RETURN_IF_ERROR(load_data_dirs(dirs));
 
+    _disk_num = dirs.size();
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
-    _memtable_flush_executor->init(dirs.size());
+    _memtable_flush_executor->init(_disk_num);
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();

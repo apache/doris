@@ -55,7 +55,7 @@ public:
         // send_filter_size may call dependency->sub(), so we call set_dependency firstly for all rf to avoid dependency set_ready repeatedly
         for (auto* runtime_filter : _runtime_filters) {
             if (runtime_filter->need_sync_filter_size()) {
-                RETURN_IF_ERROR(runtime_filter->send_filter_size(hash_table_size));
+                RETURN_IF_ERROR(runtime_filter->send_filter_size(state, hash_table_size));
             }
         }
         return Status::OK();

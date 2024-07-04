@@ -108,7 +108,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
-    _part_type = p._part_type;
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     int local_size = 0;
@@ -193,9 +192,12 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                 std::make_unique<vectorized::OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
         _tablet_sink_tuple_desc = _state->desc_tbl().get_tuple_descriptor(p._tablet_sink_tuple_id);
         _tablet_sink_row_desc = p._pool->add(new RowDescriptor(_tablet_sink_tuple_desc, false));
-        //_block_convertor no need init_autoinc_info here
+        // if _part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
+        // on exchange node rather than on TabletWriter
         _block_convertor =
                 std::make_unique<vectorized::OlapTableBlockConvertor>(_tablet_sink_tuple_desc);
+        _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(),
+                                            _state->batch_size());
         _location = p._pool->add(new OlapTableLocationParam(p._tablet_sink_location));
         _row_distribution.init(
                 {.state = _state,

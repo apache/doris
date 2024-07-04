@@ -871,6 +871,29 @@ TEST(BitmapValueTest, bitmap_union) {
     EXPECT_EQ(3, bitmap3.cardinality());
     bitmap3.fastunion({&bitmap});
     EXPECT_EQ(5, bitmap3.cardinality());
+
+    const auto old_config = config::enable_set_in_bitmap_value;
+    config::enable_set_in_bitmap_value = true;
+    BitmapValue bitmap4; // empty
+
+    BitmapValue bitmap_set1;
+    BitmapValue bitmap_set2;
+    BitmapValue bitmap_set3;
+
+    const int set_data1[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    bitmap_set1.add_many(set_data1, 15);
+
+    const int set_data2[] = {16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30};
+    bitmap_set2.add_many(set_data2, 15);
+
+    const int set_data3[] = {31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45};
+    bitmap_set3.add_many(set_data3, 15);
+
+    bitmap4.fastunion({&bitmap_set1, &bitmap_set2, &bitmap_set3});
+
+    EXPECT_EQ(bitmap4.cardinality(), 45);
+    EXPECT_EQ(bitmap4.get_type_code(), BitmapTypeCode::BITMAP32);
+    config::enable_set_in_bitmap_value = old_config;
 }
 
 TEST(BitmapValueTest, bitmap_intersect) {

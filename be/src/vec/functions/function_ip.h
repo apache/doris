@@ -26,13 +26,16 @@
 
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/format_ip.h"
 #include "vec/common/ipv6_to_binary.h"
+#include "vec/common/unaligned.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -1164,6 +1167,140 @@ public:
         }
 
         return Status::OK();
+    }
+};
+
+class FunctionIPv4ToIPv6 : public IFunction {
+public:
+    static constexpr auto name = "ipv4_to_ipv6";
+    static FunctionPtr create() { return std::make_shared<FunctionIPv4ToIPv6>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeIPv6>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const auto& ipv4_column_with_type_and_name = block.get_by_position(arguments[0]);
+        const auto& [ipv4_column, ipv4_const] =
+                unpack_if_const(ipv4_column_with_type_and_name.column);
+        const auto* ipv4_addr_column = assert_cast<const ColumnIPv4*>(ipv4_column.get());
+        const auto& ipv4_column_data = ipv4_addr_column->get_data();
+        auto col_res = ColumnIPv6::create(input_rows_count, 0);
+        auto& col_res_data = col_res->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto ipv4_idx = index_check_const(i, ipv4_const);
+            map_ipv4_to_ipv6(ipv4_column_data[ipv4_idx],
+                             reinterpret_cast<UInt8*>(&col_res_data[i]));
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    static void map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
+        unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
+        unaligned_store<UInt64>(buf + 8, 0);
+    }
+};
+
+class FunctionCutIPv6 : public IFunction {
+public:
+    static constexpr auto name = "cut_ipv6";
+    static FunctionPtr create() { return std::make_shared<FunctionCutIPv6>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const auto& ipv6_column_with_type_and_name = block.get_by_position(arguments[0]);
+        const auto& bytes_to_cut_for_ipv6_column_with_type_and_name =
+                block.get_by_position(arguments[1]);
+        const auto& bytes_to_cut_for_ipv4_column_with_type_and_name =
+                block.get_by_position(arguments[2]);
+
+        const auto& [ipv6_column, ipv6_const] =
+                unpack_if_const(ipv6_column_with_type_and_name.column);
+        const auto& [bytes_to_cut_for_ipv6_column, bytes_to_cut_for_ipv6_const] =
+                unpack_if_const(bytes_to_cut_for_ipv6_column_with_type_and_name.column);
+        const auto& [bytes_to_cut_for_ipv4_column, bytes_to_cut_for_ipv4_const] =
+                unpack_if_const(bytes_to_cut_for_ipv4_column_with_type_and_name.column);
+
+        const auto* ipv6_addr_column = assert_cast<const ColumnIPv6*>(ipv6_column.get());
+        const auto* to_cut_for_ipv6_bytes_column =
+                assert_cast<const ColumnInt8*>(bytes_to_cut_for_ipv6_column.get());
+        const auto* to_cut_for_ipv4_bytes_column =
+                assert_cast<const ColumnInt8*>(bytes_to_cut_for_ipv4_column.get());
+
+        const auto& ipv6_addr_column_data = ipv6_addr_column->get_data();
+        const auto& to_cut_for_ipv6_bytes_column_data = to_cut_for_ipv6_bytes_column->get_data();
+        const auto& to_cut_for_ipv4_bytes_column_data = to_cut_for_ipv4_bytes_column->get_data();
+
+        auto col_res = ColumnString::create();
+        ColumnString::Chars& chars_res = col_res->get_chars();
+        ColumnString::Offsets& offsets_res = col_res->get_offsets();
+        chars_res.resize(input_rows_count * (IPV6_MAX_TEXT_LENGTH + 1)); // + 1 for ending '\0'
+        offsets_res.resize(input_rows_count);
+        auto* begin = reinterpret_cast<char*>(chars_res.data());
+        auto* pos = begin;
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto ipv6_idx = index_check_const(i, ipv6_const);
+            auto bytes_to_cut_for_ipv6_idx = index_check_const(i, bytes_to_cut_for_ipv6_const);
+            auto bytes_to_cut_for_ipv4_idx = index_check_const(i, bytes_to_cut_for_ipv4_const);
+
+            auto* address = const_cast<unsigned char*>(
+                    reinterpret_cast<const unsigned char*>(&ipv6_addr_column_data[ipv6_idx]));
+            Int8 bytes_to_cut_for_ipv6_count =
+                    to_cut_for_ipv6_bytes_column_data[bytes_to_cut_for_ipv6_idx];
+            Int8 bytes_to_cut_for_ipv4_count =
+                    to_cut_for_ipv4_bytes_column_data[bytes_to_cut_for_ipv4_idx];
+
+            if (bytes_to_cut_for_ipv6_count > IPV6_BINARY_LENGTH) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Illegal value for argument 2 {} of function {}",
+                                bytes_to_cut_for_ipv6_column_with_type_and_name.type->get_name(),
+                                get_name());
+            }
+
+            if (bytes_to_cut_for_ipv4_count > IPV6_BINARY_LENGTH) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Illegal value for argument 3 {} of function {}",
+                                bytes_to_cut_for_ipv4_column_with_type_and_name.type->get_name(),
+                                get_name());
+            }
+
+            UInt8 bytes_to_cut_count = is_ipv4_mapped(address) ? bytes_to_cut_for_ipv4_count
+                                                               : bytes_to_cut_for_ipv6_count;
+            cut_address(address, pos, bytes_to_cut_count);
+            offsets_res[i] = pos - begin;
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    static bool is_ipv4_mapped(const UInt8* address) {
+        return (unaligned_load_little_endian<UInt64>(address + 8) == 0) &&
+               ((unaligned_load_little_endian<UInt64>(address) & 0xFFFFFFFF00000000ULL) ==
+                0x0000FFFF00000000ULL);
+    }
+
+    static void cut_address(unsigned char* address, char*& dst, UInt8 zeroed_tail_bytes_count) {
+        format_ipv6(address, dst, zeroed_tail_bytes_count);
     }
 };
 

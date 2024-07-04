@@ -1582,7 +1582,7 @@ visible_functions = {
         [['esquery'], 'BOOLEAN', ['DATEV2', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['DATETIMEV2', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['TIMEV2', 'VARCHAR'], ''],
-        [['esquery'], 'BOOLEAN', ['ARRAY', 'VARCHAR'], ''],
+        [['esquery'], 'BOOLEAN', ['ARRAY<T>', 'VARCHAR'], '', ['T']],
         [['esquery'], 'BOOLEAN', ['MAP', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['STRING', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['VARIANT', 'VARCHAR'], ''],
@@ -1592,6 +1592,14 @@ visible_functions = {
 
     # String builtin functions
     "String": [
+        [['decode_as_varchar'], 'VARCHAR', ['SMALLINT'], 'DEPEND_ON_ARGUMENT'],
+        [['decode_as_varchar'], 'VARCHAR', ['INT'], 'DEPEND_ON_ARGUMENT'],
+        [['decode_as_varchar'], 'VARCHAR', ['BIGINT'], 'DEPEND_ON_ARGUMENT'],
+        [['decode_as_varchar'], 'VARCHAR', ['LARGEINT'], 'DEPEND_ON_ARGUMENT'],
+        [['encode_as_smallint'], 'SMALLINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['encode_as_int'], 'INT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['encode_as_bigint'], 'BIGINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
+        [['encode_as_largeint'], 'LARGEINT', ['VARCHAR'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['mask'], 'STRING', ['STRING', '...'], ''],
@@ -2121,6 +2129,8 @@ visible_functions = {
         [['to_ipv6_or_default'], 'IPV6', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['to_ipv6_or_null'], 'IPV6', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['to_ipv6_or_null'], 'IPV6', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['ipv4_to_ipv6'], 'IPV6', ['IPV4'], 'DEPEND_ON_ARGUMENT'],
+        [['cut_ipv6'], 'STRING', ['IPV6', 'TINYINT', 'TINYINT'], 'DEPEND_ON_ARGUMENT'],
     ],
 
     "NonNullalbe": [
