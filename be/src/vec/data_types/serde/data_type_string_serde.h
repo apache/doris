@@ -96,7 +96,7 @@ public:
         return Status::OK();
     }
 
-    inline void write_with_escaped_char_to_json(StringRef value, BufferWritable& bw) {
+    inline void write_with_escaped_char_to_json(StringRef value, BufferWritable& bw) const {
         for (char it : value) {
             switch (it) {
             case '\b':
