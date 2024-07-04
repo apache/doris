@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.hive.HiveDatabaseMetadata;
@@ -336,5 +337,10 @@ public class TestHMSCachedClient implements HMSCachedClient {
             throw new RuntimeException("can't found database: " + dbName);
         }
         return tablesList;
+    }
+
+    @Override
+    public void setHadoopAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
+
     }
 }

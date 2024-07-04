@@ -17,20 +17,14 @@
 
 package org.apache.doris.common.security.authentication;
 
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.security.UserGroupInformation;
 
-@EqualsAndHashCode(callSuper = true)
-@Data
-public class KerberosAuthenticationConfig extends AuthenticationConfig {
-    private String kerberosPrincipal;
-    private String kerberosKeytab;
-    private Configuration conf;
+import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 
-    @Override
-    public boolean isValid() {
-        return StringUtils.isNotEmpty(kerberosPrincipal) && StringUtils.isNotEmpty(kerberosKeytab);
-    }
+public interface HadoopAuthenticator {
+
+    UserGroupInformation getUGI() throws IOException;
+
+    <T> T doAs(PrivilegedExceptionAction<T> action) throws Exception;
 }
