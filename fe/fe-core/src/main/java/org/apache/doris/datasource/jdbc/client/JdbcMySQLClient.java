@@ -17,9 +17,7 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
-import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -125,7 +123,7 @@ public class JdbcMySQLClient extends JdbcClient {
     public List<JdbcFieldSchema> getJdbcColumnsInfo(String dbName, String tableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
-        List<JdbcFieldSchema> tableSchema = com.google.common.collect.Lists.newArrayList();
+        List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
         // if isLowerCaseTableNames == true, tableName is lower case
         // but databaseMetaData.getColumns() is case sensitive
         String currentDbName = dbName;
@@ -140,7 +138,6 @@ public class JdbcMySQLClient extends JdbcClient {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
             rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
-            List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, finalDbName, finalTableName);
             Map<String, String> mapFieldtoType = null;
             while (rs.next()) {
                 JdbcFieldSchema field = new JdbcFieldSchema();
@@ -156,7 +153,6 @@ public class JdbcMySQLClient extends JdbcClient {
                     mapFieldtoType = getColumnsDataTypeUseQuery(finalDbName, finalTableName);
                     field.setDataTypeName(mapFieldtoType.get(rs.getString("COLUMN_NAME")));
                 }
-                field.setKey(primaryKeys.contains(field.getColumnName()));
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
                 field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
@@ -169,9 +165,6 @@ public class JdbcMySQLClient extends JdbcClient {
                 field.setAllowNull(rs.getInt("NULLABLE") != 0);
                 field.setRemarks(rs.getString("REMARKS"));
                 field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
-                String isAutoincrement = rs.getString("IS_AUTOINCREMENT");
-                field.setAutoincrement("YES".equalsIgnoreCase(isAutoincrement));
-                field.setDefaultValue(rs.getString("COLUMN_DEF"));
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
@@ -181,47 +174,6 @@ public class JdbcMySQLClient extends JdbcClient {
             close(rs, conn);
         }
         return tableSchema;
-    }
-
-    @Override
-    public List<Column> getColumnsFromJdbc(String dbName, String tableName) {
-        List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(dbName, tableName);
-        List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
-        for (JdbcFieldSchema field : jdbcTableSchema) {
-            DefaultValueExprDef defaultValueExprDef = null;
-            if (field.getDefaultValue() != null) {
-                String colDefaultValue = field.getDefaultValue().toLowerCase();
-                // current_timestamp()
-                if (colDefaultValue.startsWith("current_timestamp")) {
-                    long precision = 0;
-                    if (colDefaultValue.contains("(")) {
-                        String substring = colDefaultValue.substring(18, colDefaultValue.length() - 1).trim();
-                        precision = substring.isEmpty() ? 0 : Long.parseLong(substring);
-                    }
-                    defaultValueExprDef = new DefaultValueExprDef("now", precision);
-                }
-            }
-            dorisTableSchema.add(new Column(field.getColumnName(),
-                    jdbcTypeToDoris(field), field.isKey(), null,
-                    field.isAllowNull(), field.isAutoincrement(), field.getDefaultValue(), field.getRemarks(),
-                    true, defaultValueExprDef, -1, null));
-        }
-        return dorisTableSchema;
-    }
-
-    protected List<String> getPrimaryKeys(DatabaseMetaData databaseMetaData, String catalogName,
-                                          String dbName, String tableName) throws SQLException {
-        ResultSet rs = null;
-        List<String> primaryKeys = Lists.newArrayList();
-
-        rs = databaseMetaData.getPrimaryKeys(dbName, null, tableName);
-        while (rs.next()) {
-            String columnName = rs.getString("COLUMN_NAME");
-            primaryKeys.add(columnName);
-        }
-        rs.close();
-
-        return primaryKeys;
     }
 
     @Override
