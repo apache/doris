@@ -39,7 +39,8 @@ UNIQUE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 1
 PROPERTIES (
 "replication_num" = "1",
-"light_schema_change" = "true"
+"light_schema_change" = "true",
+"enable_unique_key_merge_on_write" = "false"
 );
     """
     sql """
@@ -53,7 +54,8 @@ UNIQUE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 1
 PROPERTIES (
 "replication_num" = "1",
-"light_schema_change" = "true"
+"light_schema_change" = "true",
+"enable_unique_key_merge_on_write" = "false"
 );"""
 
     logger.info("start delete local flink-doris-syncdb.jar....")
