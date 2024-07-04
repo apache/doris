@@ -59,7 +59,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         final boolean isAzureTvf = AzureProperties.checkAzureProviderPropertyExist(properties);
         // Azure could run without region
         if (isAzureTvf) {
-            properties.put(S3Properties.REGION, "REGION");
+            properties.put(S3Properties.REGION, "DUMMY-REGION");
         }
         // 1. analyze common properties
         Map<String, String> otherProps = super.parseCommonProperties(properties);
