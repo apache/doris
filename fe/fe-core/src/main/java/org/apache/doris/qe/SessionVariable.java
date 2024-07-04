@@ -499,6 +499,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
 
+    public static final String ENABLE_AGG_KEY_PARTIAL_UPDATE = "enable_agg_key_partial_update";
+
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
 
@@ -1692,6 +1694,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_AGG_KEY_PARTIAL_UPDATE, needForward = true)
+    public boolean enableAggregateKeyPartialUpdate = false;
 
     @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
             "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
@@ -3415,6 +3420,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableUniqueKeyPartialUpdate(boolean enableUniqueKeyPartialUpdate) {
         this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
+    }
+
+    public boolean isEnableAggregateKeyPartialUpdate() {
+        return enableAggregateKeyPartialUpdate;
+    }
+
+    public void setEnableAggregateKeyPartialUpdate(boolean enableAggregateKeyPartialUpdate) {
+        this.enableAggregateKeyPartialUpdate = enableAggregateKeyPartialUpdate;
     }
 
     public int getLoadStreamPerNode() {

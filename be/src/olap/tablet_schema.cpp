@@ -1539,4 +1539,52 @@ std::string TabletSchema::deterministic_string_serialize(const TabletSchemaPB& s
     return output;
 }
 
+Status TabletSchema::make_full_block(std::shared_ptr<vectorized::Block>& full_block_ptr,
+                                     const vectorized::Block* block, size_t num_rows,
+                                     std::vector<uint32_t>& update_cids,
+                                     std::vector<uint32_t>& missing_cids) {
+    full_block_ptr = std::make_shared<vectorized::Block>(this->create_block());
+    size_t input_id = 0;
+    for (auto i : update_cids) {
+        full_block_ptr->replace_by_position(i, block->get_by_position(input_id++).column);
+    }
+    auto mutable_full_columns = full_block_ptr->mutate_columns();
+    auto old_value_block = create_block_by_cids(missing_cids);
+    CHECK(missing_cids.size() == old_value_block.columns());
+
+    // build default value columns
+    auto default_value_block = old_value_block.clone_empty();
+    auto mutable_default_value_columns = default_value_block.mutate_columns();
+
+    for (auto i = 0; i < missing_cids.size(); ++i) {
+        const auto& missing_column = this->column(missing_cids[i]);
+        if (missing_column.has_default_value()) {
+            auto default_value = this->column(missing_cids[i]).default_value();
+            vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
+                                      default_value.size());
+            RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
+                    rb, mutable_default_value_columns[i].get()));
+        }
+    }
+
+    for (auto idx = 0; idx < num_rows; idx++) {
+        for (auto i = 0; i < missing_cids.size(); ++i) {
+            const auto& tablet_column = this->column(missing_cids[i]);
+            if (tablet_column.is_nullable()) {
+                auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
+                        mutable_full_columns[missing_cids[i]].get());
+                nullable_column->insert_null_elements(1);
+            } else if (tablet_column.has_default_value()) {
+                mutable_full_columns[missing_cids[i]]->insert_from(
+                        *mutable_default_value_columns[i].get(), 0);
+            } else {
+                return Status::InternalError(
+                        "missing column {} is not null but don't have default value",
+                        tablet_column.name());
+            }
+        }
+    }
+    return Status::OK();
+}
+
 } // namespace doris

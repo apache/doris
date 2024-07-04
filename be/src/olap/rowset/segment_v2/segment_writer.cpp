@@ -851,21 +851,41 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
-        !_opts.rowset_ctx->is_transient_rowset_writer) {
+        !_opts.rowset_ctx->is_transient_rowset_writer &&
+        _tablet_schema->keys_type() == UNIQUE_KEYS) {
         RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
         return Status::OK();
     }
-    CHECK(block->columns() >= _column_writers.size())
+    bool is_agg_partial_update = _opts.rowset_ctx->partial_update_info &&
+                                 _opts.rowset_ctx->partial_update_info->is_partial_update &&
+                                 _tablet_schema->keys_type() == AGG_KEYS &&
+                                 _opts.write_type == DataWriteType::TYPE_DIRECT;
+    std::shared_ptr<vectorized::Block> full_block_ptr = nullptr;
+    if (is_agg_partial_update) {
+        if (block->columns() <= _tablet_schema->num_key_columns() ||
+            block->columns() > _tablet_schema->num_columns()) {
+            return Status::InternalError(fmt::format(
+                    "illegal partial update block columns: {}, num key columns: {}, total "
+                    "schema columns: {}",
+                    block->columns(), _tablet_schema->num_key_columns(),
+                    _tablet_schema->num_columns()));
+        }
+        RETURN_IF_ERROR(_tablet_schema->make_full_block(
+                full_block_ptr, block, num_rows, _opts.rowset_ctx->partial_update_info->update_cids,
+                _opts.rowset_ctx->partial_update_info->missing_cids));
+    }
+    const vectorized::Block* full_block = is_agg_partial_update ? full_block_ptr.get() : block;
+    CHECK(full_block->columns() >= _column_writers.size())
             << ", block->columns()=" << block->columns()
             << ", _column_writers.size()=" << _column_writers.size();
     // Row column should be filled here when it's a directly write from memtable
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
+        _serialize_block_to_row_column(*const_cast<vectorized::Block*>(full_block));
     }
 
-    _olap_data_convertor->set_source_content(block, row_pos, num_rows);
+    _olap_data_convertor->set_source_content(full_block, row_pos, num_rows);
 
     // find all row pos for short key indexes
     std::vector<size_t> short_key_pos;

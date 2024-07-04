@@ -482,6 +482,12 @@ public:
 
     void update_tablet_columns(const TabletSchema& tablet_schema,
                                const std::vector<TColumn>& t_columns);
+    // use to make partial block become full block in agg partial update mode,
+    // if the column is nullable, fill it with null firstly,
+    // if the column is not nullable and has default value, fill it with default value
+    Status make_full_block(std::shared_ptr<vectorized::Block>& full_block_ptr,
+                           const vectorized::Block* block, size_t num_rows,
+                           std::vector<uint32_t>& update_cids, std::vector<uint32_t>& missing_cids);
 
     const std::vector<int32_t>& row_columns_uids() const { return _row_store_column_unique_ids; }
 
