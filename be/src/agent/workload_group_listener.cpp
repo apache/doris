@@ -35,16 +35,18 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
         is_set_workload_group_info = true;
 
         // 1 parse topic info to group info
-        WorkloadGroupInfo workload_group_info;
-        Status ret = WorkloadGroupInfo::parse_topic_info(topic_info.workload_group_info,
-                                                         &workload_group_info);
+        WorkloadGroupInfo workload_group_info =
+                WorkloadGroupInfo::parse_topic_info(topic_info.workload_group_info);
         // it means FE has this wg, but may parse failed, so we should not delete it.
         if (workload_group_info.id != 0) {
             current_wg_ids.insert(workload_group_info.id);
         }
-        if (!ret.ok()) {
+        if (!workload_group_info.valid) {
             LOG(INFO) << "[topic_publish_wg]parse topic info failed, wg_id="
-                      << workload_group_info.id << ", reason:" << ret.to_string();
+                      << workload_group_info.id << ", reason: [tworkload_group_info.__isset.id: "
+                      << topic_info.workload_group_info.__isset.id
+                      << ", tworkload_group_info.__isset.version: "
+                      << topic_info.workload_group_info.__isset.version << "]";
             continue;
         }
 

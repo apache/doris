@@ -65,6 +65,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
+import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
@@ -3012,10 +3013,12 @@ public class Coordinator implements CoordInterface {
 
         List<TExecPlanFragmentParams> toThrift(int backendNum) {
             List<TExecPlanFragmentParams> paramsList = Lists.newArrayList();
-            Set<Integer> topnFilterSources = scanNodes.stream()
+            Set<SortNode> topnSortNodes = scanNodes.stream()
                     .filter(scanNode -> scanNode instanceof OlapScanNode)
-                    .flatMap(scanNode -> ((OlapScanNode) scanNode).getTopnFilterSortNodes().stream())
-                    .map(sort -> sort.getId().asInt()).collect(Collectors.toSet());
+                    .flatMap(scanNode -> scanNode.getTopnFilterSortNodes().stream()).collect(Collectors.toSet());
+            topnSortNodes.forEach(SortNode::setHasRuntimePredicate);
+            Set<Integer> topnFilterSources = topnSortNodes.stream().map(
+                    sort -> sort.getId().asInt()).collect(Collectors.toSet());
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 TExecPlanFragmentParams params = new TExecPlanFragmentParams();

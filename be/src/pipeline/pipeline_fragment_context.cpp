@@ -105,6 +105,8 @@
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
+#include "vec/common/sort/heap_sorter.h"
+#include "vec/common/sort/topn_sorter.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
@@ -1333,7 +1335,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::SORT_NODE: {
-        if (_runtime_state->enable_sort_spill()) {
+        const auto should_spill = _runtime_state->enable_sort_spill() &&
+                                  tnode.sort_node.algorithm == TSortAlgorithm::FULL_SORT;
+        if (should_spill) {
             op.reset(new SpillSortSourceOperatorX(pool, tnode, next_operator_id(), descs));
         } else {
             op.reset(new SortSourceOperatorX(pool, tnode, next_operator_id(), descs));
@@ -1348,7 +1352,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        if (_runtime_state->enable_sort_spill()) {
+        if (should_spill) {
             sink.reset(new SpillSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                                   _require_bucket_distribution));
         } else {
