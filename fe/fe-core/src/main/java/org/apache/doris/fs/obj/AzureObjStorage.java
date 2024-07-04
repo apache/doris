@@ -300,10 +300,10 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        S3URI uri = new S3URI(remotePath, isUsePathStyle, forceParsingByStandardUri);
-        String globPath = uri.getKey();
-        LOG.info("try to glob list for azure, remote path {}, orig {}", globPath, remotePath);
         try {
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            String globPath = uri.getKey();
+            LOG.info("try to glob list for azure, remote path {}, orig {}", globPath, remotePath);
             BlobContainerClient client = getClient().getBlobContainerClient(uri.getBucket());
             java.nio.file.Path pathPattern = Paths.get(globPath);
             LOG.info("path pattern {}", pathPattern.toString());
