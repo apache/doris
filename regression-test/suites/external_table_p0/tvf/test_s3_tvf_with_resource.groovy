@@ -194,13 +194,6 @@ suite("test_s3_tvf_with_resource", "p0") {
                        )  where k1 > 100  order by k3,k2,k1;
         """
 
-    //cloud-mode
-    if (isCloudMode()) {
-        def clusters = sql " SHOW CLUSTERS; "
-        assertTrue(!clusters.isEmpty())
-        def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
-    }
     // not have usage priv, can not select tvf with resource
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         test {

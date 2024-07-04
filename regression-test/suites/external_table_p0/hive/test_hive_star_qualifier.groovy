@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_star_qualifier", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_hive_star_qualifier", "p0,external,hive,external_docker,external_docker_hive") {
     String catalog_name = "test_hive_star_qualifier"
 
     def test1 = """select * from ${catalog_name}.multi_catalog.one_partition order by id;"""
@@ -31,32 +31,37 @@ suite("test_hive_star_qualifier", "p2,external,hive,external_remote,external_rem
     def test11 = """select ${catalog_name}.multi_catalog.one_partition.* from multi_catalog.one_partition order by id;"""
     def test12 = """select ${catalog_name}.multi_catalog.one_partition.* from one_partition order by id;"""
 
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        sql """drop catalog if exists ${catalog_name};"""
-        sql """
+        for (String hivePrefix : ["hive2", "hive3"]) {
+            setHivePrefix(hivePrefix)
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+            String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
+            sql """drop catalog if exists ${catalog_name};"""
+            sql """
             create catalog if not exists ${catalog_name} properties (
                 'type'='hms',
                 'hadoop.username' = 'hadoop',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
             );
-        """
-        sql """use ${catalog_name}.multi_catalog"""
-        qt_test1 test1
-        qt_test2 test2
-        qt_test3 test3
-        qt_test4 test4
-        qt_test5 test5
-        qt_test6 test6
-        qt_test7 test7
-        qt_test8 test8
-        qt_test9 test9
-        qt_test10 test10
-        qt_test11 test11
-        qt_test12 test12
-        sql """drop catalog if exists ${catalog_name};"""
+            """
+            sql """use ${catalog_name}.multi_catalog"""
+            qt_test1 test1
+            qt_test2 test2
+            qt_test3 test3
+            qt_test4 test4
+            qt_test5 test5
+            qt_test6 test6
+            qt_test7 test7
+            qt_test8 test8
+            qt_test9 test9
+            qt_test10 test10
+            qt_test11 test11
+            qt_test12 test12
+            sql """drop catalog if exists ${catalog_name};"""
+        }
     }
 }
 
