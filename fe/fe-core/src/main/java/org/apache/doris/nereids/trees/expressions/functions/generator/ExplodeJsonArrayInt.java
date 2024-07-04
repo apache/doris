@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.JsonType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -36,7 +36,7 @@ import java.util.List;
 public class ExplodeJsonArrayInt extends TableGeneratingFunction implements UnaryExpression, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(JsonType.INSTANCE)
     );
 
     /**
