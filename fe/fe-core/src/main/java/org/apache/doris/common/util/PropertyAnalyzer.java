@@ -92,6 +92,10 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TIMEOUT = "timeout";
     public static final String PROPERTIES_COMPRESSION = "compression";
 
+    // row column page size, default 16KB
+    public static final String PROPERTIES_ROW_COLUMN_PAGE_SIZE = "row_column_page_size";
+    public static final long ROW_COLUMN_PAGE_SIZE_DEFAULT_VALUE = 16384;
+
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
@@ -972,6 +976,31 @@ public class PropertyAnalyzer {
         } else {
             throw new AnalysisException("unknown compression type: " + compressionType);
         }
+    }
+
+    public static long alignTo4K(long size) {
+        return (size + 4095) & ~4095;
+    }
+
+    // analyzeRowColumnPageSize will parse the row_column_page_size from properties
+    public static long analyzeRowColumnPageSize(Map<String, String> properties) throws AnalysisException {
+        long rowColumnPageSize = 16384;
+        if (properties != null && properties.containsKey(PROPERTIES_ROW_COLUMN_PAGE_SIZE)) {
+            String rowColumnPageSizeStr = properties.get(PROPERTIES_ROW_COLUMN_PAGE_SIZE);
+            try {
+                rowColumnPageSize = alignTo4K(Long.parseLong(rowColumnPageSizeStr));
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid row column page size: " + rowColumnPageSizeStr);
+            }
+
+            if (rowColumnPageSize <= 0) {
+                throw new AnalysisException("Row column page size should larger than 0.");
+            }
+
+            properties.remove(PROPERTIES_ROW_COLUMN_PAGE_SIZE);
+        }
+
+        return rowColumnPageSize;
     }
 
     // analyzeStorageFormat will parse the storage format from properties

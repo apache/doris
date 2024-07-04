@@ -969,6 +969,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
+    _row_column_page_size = schema.row_column_page_size();
     _schema_version = schema.schema_version();
     // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
     if (!schema.has_inverted_index_storage_format()) {
@@ -1009,6 +1010,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _skip_write_index_on_load = ori_tablet_schema.skip_write_index_on_load();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
+    _row_column_page_size = ori_tablet_schema.row_column_page_size();
 
     // copy from table_schema_param
     _schema_version = version;
@@ -1162,6 +1164,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_sort_col_num(_sort_col_num);
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
+    tablet_schema_pb->set_row_column_page_size(_row_column_page_size);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
 }
@@ -1464,6 +1467,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._disable_auto_compaction != b._disable_auto_compaction) return false;
     if (a._enable_single_replica_compaction != b._enable_single_replica_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
+    if (a._row_column_page_size != b._row_column_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     return true;
 }

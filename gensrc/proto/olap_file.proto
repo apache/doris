@@ -380,6 +380,7 @@ message TabletSchemaPB {
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_idxes = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
+    optional int64 row_column_page_size = 26 [default=16384];
 }
 
 message TabletSchemaCloudPB {
@@ -406,6 +407,7 @@ message TabletSchemaCloudPB {
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_idxes = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
+    optional int64 row_column_page_size = 26 [default=16384];
 
     optional bool is_dynamic_schema = 100 [default=false];
 }

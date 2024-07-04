@@ -263,7 +263,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
 
         if (column.is_row_store_column()) {
             // smaller page size for row store column
-            opts.data_page_size = config::row_column_page_size;
+            opts.data_page_size = _tablet_schema->row_column_page_size();
         }
         std::unique_ptr<ColumnWriter> writer;
         RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));

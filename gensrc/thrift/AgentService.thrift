@@ -45,6 +45,7 @@ struct TTabletSchema {
     17: optional bool enable_single_replica_compaction = false
     18: optional bool skip_write_index_on_load = false
     19: optional list<i32> cluster_key_idxes
+    20: optional i64 row_column_page_size = 16384;
 }
 
 // this enum stands for different storage format in src_backends

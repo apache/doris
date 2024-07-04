@@ -1099,7 +1099,8 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             localTbl.getTimeSeriesCompactionLevelThreshold(),
                             localTbl.storeRowColumn(),
-                            binlogConfig);
+                            binlogConfig,
+                            localTbl.rowColumnPageSize());
 
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
