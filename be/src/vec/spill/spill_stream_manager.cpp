@@ -300,9 +300,15 @@ SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,
 }
 
 bool is_directory_empty(const std::filesystem::path& dir) {
-    return std::filesystem::is_directory(dir) &&
-           std::filesystem::directory_iterator(dir) ==
-                   std::filesystem::end(std::filesystem::directory_iterator {});
+    try {
+        return std::filesystem::is_directory(dir) &&
+               std::filesystem::directory_iterator(dir) ==
+                       std::filesystem::end(std::filesystem::directory_iterator {});
+        // this method is not thread safe, the file referenced by directory_iterator
+        // maybe moved to spill_gc dir during this function call, so need to catch expection
+    } catch (const std::filesystem::filesystem_error&) {
+        return true;
+    }
 }
 
 Status SpillDataDir::init() {
