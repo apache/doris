@@ -2280,7 +2280,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false, description = {
         "Hive行数估算分区采样数",
         "Sample size for hive row count estimation."})
-    public static int hive_stats_partition_sample_size = 3000;
+    public static int hive_stats_partition_sample_size = 30;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "启用Hive分桶表",
