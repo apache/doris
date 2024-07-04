@@ -622,38 +622,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 // get partitionIds and indexIds
                 List<Long> indexIds = new ArrayList<>(olapTable.getCopiedIndexIdToMeta().keySet());
                 List<Long> generatedPartitionIds = new ArrayList<>();
-                if (executeFirstTime && Config.isCloudMode() && !addPartitionClauses.isEmpty()) {
-                    AddPartitionClause addPartitionClause = addPartitionClauses.get(0);
-                    DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
-                    try {
-                        DistributionInfo distributionInfo = distributionDesc
-                                .toDistributionInfo(olapTable.getBaseSchema());
-                        if (distributionDesc == null) {
-                            distributionInfo =  olapTable.getDefaultDistributionInfo()
-                                .toDistributionDesc().toDistributionInfo(olapTable.getBaseSchema());
-                        }
-                        long allPartitionBufferSize = 0;
-                        for (int i = 0; i < addPartitionClauses.size(); i++) {
-                            long bufferSize = InternalCatalog.checkAndGetBufferSize(indexIds.size(),
-                                    distributionInfo.getBucketNum(),
-                                    addPartitionClause.getSingeRangePartitionDesc()
-                                    .getReplicaAlloc().getTotalReplicaNum(),
-                                    db, tableName);
-                            allPartitionBufferSize += bufferSize;
-                        }
-                        MetaIdGenerator.IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv()
-                                .getIdGeneratorBuffer(allPartitionBufferSize);
-                        addPartitionClauses.forEach(p -> generatedPartitionIds.add(idGeneratorBuffer.getNextId()));
-                        // executeFirstTime true
-                        Env.getCurrentInternalCatalog().beforeCreatePartitions(db.getId(), olapTable.getId(),
-                                generatedPartitionIds, indexIds, true);
-                    } catch (Exception e) {
-                        LOG.warn("cloud in prepare step, dbName {}, tableName {}, tableId {} indexId {} exception {}",
-                                db.getFullName(), tableName, olapTable.getId(), indexIds, e.getMessage());
-                        recordCreatePartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
-                        throw new DdlException("cloud in prepare step err");
-                    }
-                }
+                cloudBatchBeforeCreatePartitions(executeFirstTime, addPartitionClauses, olapTable, indexIds,
+                        db, tableName, generatedPartitionIds);
 
                 List<PartitionPersistInfo> partsInfo = new ArrayList<>();
                 for (int i = 0; i < addPartitionClauses.size(); i++) {
@@ -682,55 +652,109 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         }
                     }
                 }
-                List<Long> succeedPartitionIds = partsInfo.stream().map(partitionPersistInfo
-                        -> partitionPersistInfo.getPartition().getId()).collect(Collectors.toList());
-                if (executeFirstTime && Config.isCloudMode() && !addPartitionClauses.isEmpty()) {
-                    try {
-                        // ATTN: failedPids = generatedPartitionIds - succeedPartitionIds,
-                        // means some partitions failed when addPartition, failedPids will be recycled by recycler
-                        if (DebugPointUtil.isEnable("FE.DynamicPartitionScheduler.before.commitCloudPartition")) {
-                            LOG.info("debug point FE.DynamicPartitionScheduler.before.commitCloudPartition, throw e");
-                            // not commit, not log edit
-                            throw new Exception("debug point FE.DynamicPartitionScheduler.before.commitCloudPartition");
-                        }
-                        Env.getCurrentInternalCatalog().afterCreatePartitions(db.getId(), olapTable.getId(),
-                                succeedPartitionIds, indexIds, true);
-                        LOG.info("begin write edit log to add partitions in batch, "
-                                + "numPartitions: {}, db: {}, table: {}, tableId: {}",
-                                partsInfo.size(), db.getFullName(), tableName, olapTable.getId());
-                        // ATTN: here, edit log must after commit cloud partition,
-                        // prevent commit RPC failure from causing data loss
-                        if (DebugPointUtil.isEnable("FE.DynamicPartitionScheduler.before.logEditPartitions")) {
-                            LOG.info("debug point FE.DynamicPartitionScheduler.before.logEditPartitions, throw e");
-                            // committed, but not log edit
-                            throw new Exception("debug point FE.DynamicPartitionScheduler.before.commitCloudPartition");
-                        }
-                        for (int i = 0; i < partsInfo.size(); i++) {
-                            Env.getCurrentEnv().getEditLog().logAddPartition(partsInfo.get(i));
-                            if (DebugPointUtil.isEnable("FE.DynamicPartitionScheduler.in.logEditPartitions")) {
-                                if (i == partsInfo.size() / 2) {
-                                    LOG.info("debug point FE.DynamicPartitionScheduler.in.logEditPartitions, throw e");
-                                    // committed, but log some edit, others failed
-                                    throw new Exception("debug point FE.DynamicPartitionScheduler"
-                                        + ".in.commitCloudPartition");
-                                }
-                            }
-                        }
-                        LOG.info("finish write edit log to add partitions in batch, "
-                                + "numPartitions: {}, db: {}, table: {}, tableId: {}",
-                                partsInfo.size(), db.getFullName(), tableName, olapTable.getId());
-                    } catch (Exception e) {
-                        LOG.warn("cloud in commit step, dbName {}, tableName {}, tableId {} exception {}",
-                                db.getFullName(), tableName, olapTable.getId(), e.getMessage());
-                        recordCreatePartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
-                        throw new DdlException("cloud in commit step err");
-                    }
-                }
+                List<Long> succeedPartitionIds = cloudBatchAfterCreatePartitions(executeFirstTime, partsInfo,
+                        addPartitionClauses, db, olapTable, indexIds, tableName);
                 // cloud mode, check recycle key not remained
                 if (Config.isCloudMode() && executeFirstTime) {
                     Env.getCurrentInternalCatalog().checkCreatePartitions(db.getId(), olapTable.getId(),
                             succeedPartitionIds, indexIds);
                 }
+            }
+        }
+    }
+
+    private List<Long> cloudBatchAfterCreatePartitions(boolean executeFirstTime, List<PartitionPersistInfo> partsInfo,
+                                                       ArrayList<AddPartitionClause> addPartitionClauses, Database db,
+                                                       OlapTable olapTable, List<Long> indexIds,
+                                                       String tableName) throws DdlException {
+        if (Config.isNotCloudMode()) {
+            return new ArrayList<>();
+        }
+        List<Long> succeedPartitionIds = partsInfo.stream().map(partitionPersistInfo
+                -> partitionPersistInfo.getPartition().getId()).collect(Collectors.toList());
+        if (executeFirstTime && !addPartitionClauses.isEmpty()) {
+            try {
+                // ATTN: failedPids = generatedPartitionIds - succeedPartitionIds,
+                // means some partitions failed when addPartition, failedPids will be recycled by recycler
+                if (DebugPointUtil.isEnable("FE.DynamicPartitionScheduler.before.commitCloudPartition")) {
+                    LOG.info("debug point FE.DynamicPartitionScheduler.before.commitCloudPartition, throw e");
+                    // not commit, not log edit
+                    throw new Exception("debug point FE.DynamicPartitionScheduler.before.commitCloudPartition");
+                }
+                Env.getCurrentInternalCatalog().afterCreatePartitions(db.getId(), olapTable.getId(),
+                        succeedPartitionIds, indexIds, true);
+                LOG.info("begin write edit log to add partitions in batch, "
+                        + "numPartitions: {}, db: {}, table: {}, tableId: {}",
+                        partsInfo.size(), db.getFullName(), tableName, olapTable.getId());
+                // ATTN: here, edit log must after commit cloud partition,
+                // prevent commit RPC failure from causing data loss
+                if (DebugPointUtil.isEnable("FE.DynamicPartitionScheduler.before.logEditPartitions")) {
+                    LOG.info("debug point FE.DynamicPartitionScheduler.before.logEditPartitions, throw e");
+                    // committed, but not log edit
+                    throw new Exception("debug point FE.DynamicPartitionScheduler.before.commitCloudPartition");
+                }
+                for (int i = 0; i < partsInfo.size(); i++) {
+                    Env.getCurrentEnv().getEditLog().logAddPartition(partsInfo.get(i));
+                    if (DebugPointUtil.isEnable("FE.DynamicPartitionScheduler.in.logEditPartitions")) {
+                        if (i == partsInfo.size() / 2) {
+                            LOG.info("debug point FE.DynamicPartitionScheduler.in.logEditPartitions, throw e");
+                            // committed, but log some edit, others failed
+                            throw new Exception("debug point FE.DynamicPartitionScheduler"
+                                + ".in.commitCloudPartition");
+                        }
+                    }
+                }
+                LOG.info("finish write edit log to add partitions in batch, "
+                        + "numPartitions: {}, db: {}, table: {}, tableId: {}",
+                        partsInfo.size(), db.getFullName(), tableName, olapTable.getId());
+            } catch (Exception e) {
+                LOG.warn("cloud in commit step, dbName {}, tableName {}, tableId {} exception {}",
+                        db.getFullName(), tableName, olapTable.getId(), e.getMessage());
+                recordCreatePartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
+                throw new DdlException("cloud in commit step err");
+            }
+        }
+        return succeedPartitionIds;
+    }
+
+    private void cloudBatchBeforeCreatePartitions(boolean executeFirstTime,
+                                                  ArrayList<AddPartitionClause> addPartitionClauses,
+                                                  OlapTable olapTable, List<Long> indexIds, Database db,
+                                                  String tableName, List<Long> generatedPartitionIds)
+            throws DdlException {
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+        if (executeFirstTime && !addPartitionClauses.isEmpty()) {
+            AddPartitionClause addPartitionClause = addPartitionClauses.get(0);
+            DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
+            try {
+                DistributionInfo distributionInfo = distributionDesc
+                        .toDistributionInfo(olapTable.getBaseSchema());
+                if (distributionDesc == null) {
+                    distributionInfo =  olapTable.getDefaultDistributionInfo()
+                        .toDistributionDesc().toDistributionInfo(olapTable.getBaseSchema());
+                }
+                long allPartitionBufferSize = 0;
+                for (int i = 0; i < addPartitionClauses.size(); i++) {
+                    long bufferSize = InternalCatalog.checkAndGetBufferSize(indexIds.size(),
+                            distributionInfo.getBucketNum(),
+                            addPartitionClause.getSingeRangePartitionDesc()
+                            .getReplicaAlloc().getTotalReplicaNum(),
+                            db, tableName);
+                    allPartitionBufferSize += bufferSize;
+                }
+                MetaIdGenerator.IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv()
+                        .getIdGeneratorBuffer(allPartitionBufferSize);
+                addPartitionClauses.forEach(p -> generatedPartitionIds.add(idGeneratorBuffer.getNextId()));
+                // executeFirstTime true
+                Env.getCurrentInternalCatalog().beforeCreatePartitions(db.getId(), olapTable.getId(),
+                        generatedPartitionIds, indexIds, true);
+            } catch (Exception e) {
+                LOG.warn("cloud in prepare step, dbName {}, tableName {}, tableId {} indexId {} exception {}",
+                        db.getFullName(), tableName, olapTable.getId(), indexIds, e.getMessage());
+                recordCreatePartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
+                throw new DdlException("cloud in prepare step err");
             }
         }
     }

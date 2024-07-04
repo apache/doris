@@ -283,13 +283,6 @@ private:
             const AlterInstanceRequest* request,
             std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
 
-    using check_create_table_type = std::function<const std::tuple<
-            const ::google::protobuf::RepeatedField<int64_t>, std::string,
-            std::function<std::string(std::string, int64_t)>>(const CheckKVRequest* request)>;
-    void check_create_table(std::string instance_id, const CheckKVRequest* request,
-                            CheckKVResponse* response, MetaServiceCode* code, std::string* msg,
-                            check_create_table_type get_check_info);
-
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;

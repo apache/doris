@@ -25,7 +25,9 @@
 #include "meta_service.h"
 
 namespace doris::cloud {
-
+using check_create_table_type = std::function<const std::tuple<
+        const ::google::protobuf::RepeatedField<int64_t>, std::string,
+        std::function<std::string(std::string, int64_t)>>(const CheckKVRequest* request)>;
 // ATTN: xxx_id MUST NOT be reused
 //
 //              UNKNOWN
@@ -619,18 +621,18 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     }
 }
 
-void MetaServiceImpl::check_create_table(std::string instance_id, const CheckKVRequest* request,
-                                         CheckKVResponse* response, MetaServiceCode* code,
-                                         std::string* msg, check_create_table_type get_check_info) {
+void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
+                        const CheckKVRequest* request, CheckKVResponse* response,
+                        MetaServiceCode* code, std::string* msg,
+                        check_create_table_type get_check_info) {
     std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         *code = cast_as<ErrCategory::READ>(err);
         *msg = "failed to create txn";
         return;
     }
     auto& [keys, hint, key_func] = get_check_info(request);
-
     if (keys.empty()) {
         *code = MetaServiceCode::INVALID_ARGUMENT;
         *msg = "empty keys";
@@ -681,22 +683,25 @@ void MetaServiceImpl::check_kv(::google::protobuf::RpcController* controller,
     RPC_RATE_LIMIT(check_kv);
     switch (request->op()) {
     case CheckKVRequest::CREATE_INDEX_AFTER_FE_COMMIT: {
-        check_create_table(
-                instance_id, request, response, &code, &msg, [](const CheckKVRequest* request) {
-                    return std::make_tuple(request->check_keys().index_ids(), "index",
-                                           [](std::string instance_id, int64_t id) {
-                                               return recycle_index_key({instance_id, id});
-                                           });
-                });
+        check_create_table(instance_id, txn_kv_, request, response, &code, &msg,
+                           [](const CheckKVRequest* request) {
+                               return std::make_tuple(
+                                       request->check_keys().index_ids(), "index",
+                                       [](std::string instance_id, int64_t id) {
+                                           return recycle_index_key({std::move(instance_id), id});
+                                       });
+                           });
         break;
     }
     case CheckKVRequest::CREATE_PARTITION_AFTER_FE_COMMIT: {
         check_create_table(
-                instance_id, request, response, &code, &msg, [](const CheckKVRequest* request) {
-                    return std::make_tuple(request->check_keys().partition_ids(), "partition",
-                                           [](std::string instance_id, int64_t id) {
-                                               return recycle_partition_key({instance_id, id});
-                                           });
+                instance_id, txn_kv_, request, response, &code, &msg,
+                [](const CheckKVRequest* request) {
+                    return std::make_tuple(
+                            request->check_keys().partition_ids(), "partition",
+                            [](std::string instance_id, int64_t id) {
+                                return recycle_partition_key({std::move(instance_id), id});
+                            });
                 });
         break;
     }
