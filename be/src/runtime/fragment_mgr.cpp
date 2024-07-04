@@ -338,6 +338,10 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                     params.__set_tracking_url(
                             to_load_error_http_path(rs->get_error_log_file_path()));
                 }
+                if (rs->wal_id() > 0) {
+                    params.__set_txn_id(rs->wal_id());
+                    params.__set_label(rs->import_label());
+                }
             }
         }
         if (!req.runtime_state->export_output_files().empty()) {
