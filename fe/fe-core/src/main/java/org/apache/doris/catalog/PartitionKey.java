@@ -45,7 +45,6 @@ import com.google.gson.JsonDeserializationContext;
 import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
-import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
 import com.google.gson.annotations.SerializedName;
@@ -64,7 +63,6 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionKey.class);
     @SerializedName("ks")
     private List<LiteralExpr> keys;
-    @SerializedName("hk")
     private List<String> originHiveKeys;
     @SerializedName("ts")
     private List<PrimitiveType> types;
@@ -511,11 +509,11 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     // added by ccr, and we have to follow.
     public static class PartitionKeySerializer
                 implements JsonSerializer<PartitionKey>, JsonDeserializer<PartitionKey> {
+
         @Override
         public JsonElement serialize(PartitionKey partitionKey, java.lang.reflect.Type reflectType,
                                      JsonSerializationContext context) {
-            JsonArray result = new JsonArray();
-
+            // for compatibility
             List<PrimitiveType> types = partitionKey.getTypes();
             List<LiteralExpr> keys = partitionKey.getKeys();
             int count = keys.size();
@@ -523,68 +521,37 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 throw new JsonParseException("Size of keys and types are not equal");
             }
 
+            JsonArray jsonArray = new JsonArray();
             for (int i = 0; i < count; i++) {
                 JsonArray typeAndKey = new JsonArray();
-                PrimitiveType type = types.get(i);
-                if (keys.get(i).isNullLiteral()) {
-                    // save NULL_TYPE as type and real type as key
-                    typeAndKey.add(new JsonPrimitive(PrimitiveType.NULL_TYPE.toString()));
-                    typeAndKey.add(new JsonPrimitive(type.toString()));
-                } else {
-                    typeAndKey.add(new JsonPrimitive(type.toString()));
-
-                    if (keys.get(i) == MaxLiteral.MAX_VALUE) {
-                        typeAndKey.add(new JsonPrimitive("MAX_VALUE"));
-                    } else {
-                        switch (type) {
-                            case TINYINT:
-                            case SMALLINT:
-                            case INT:
-                            case BIGINT: {
-                                IntLiteral key = (IntLiteral) keys.get(i);
-                                typeAndKey.add(new JsonPrimitive(key.getLongValue()));
-                            }
-                                break;
-                            case LARGEINT: {
-                                LargeIntLiteral key = (LargeIntLiteral) keys.get(i);
-                                typeAndKey.add(new JsonPrimitive(key.getRealValue().toString()));
-                            }
-                                break;
-                            case DATE:
-                            case DATETIME:
-                            case DATEV2:
-                            case DATETIMEV2: {
-                                DateLiteral key = (DateLiteral) keys.get(i);
-                                typeAndKey.add(new JsonPrimitive(key.convertToString(type)));
-                            }
-                                break;
-                            case CHAR:
-                            case VARCHAR:
-                            case STRING: {
-                                StringLiteral key = (StringLiteral) keys.get(i);
-                                typeAndKey.add(new JsonPrimitive(key.getValue()));
-                            }
-                                break;
-                            case BOOLEAN: {
-                                BoolLiteral key = (BoolLiteral) keys.get(i);
-                                typeAndKey.add(new JsonPrimitive(key.getValue()));
-                            }
-                                break;
-                            default:
-                                throw new JsonParseException(
-                                        "type[" + type.name() + "] not supported: ");
-                        }
-                    }
-                }
-
-                result.add(typeAndKey);
+                typeAndKey.add(context.serialize(types.get(i)));
+                typeAndKey.add(context.serialize(keys.get(i)));
+                jsonArray.add(typeAndKey);
             }
-
-            return result;
+            return jsonArray;
         }
 
         @Override
         public PartitionKey deserialize(JsonElement json, java.lang.reflect.Type typeOfT,
+                                        JsonDeserializationContext context) throws JsonParseException {
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_140) {
+                return deserializeOld(json, typeOfT, context);
+            } else {
+                PartitionKey partitionKey = new PartitionKey();
+
+                JsonArray jsonArray = json.getAsJsonArray();
+                for (int i = 0; i < jsonArray.size(); i++) {
+                    partitionKey.types.add(context.deserialize(jsonArray.get(i).getAsJsonArray().get(0),
+                                           PrimitiveType.class));
+                    partitionKey.keys.add(context.deserialize(jsonArray.get(i).getAsJsonArray().get(1),
+                                          Expr.class));
+                }
+                return partitionKey;
+            }
+        }
+
+        // can be removed after 3.0.0
+        private PartitionKey deserializeOld(JsonElement json, java.lang.reflect.Type typeOfT,
                                         JsonDeserializationContext context) throws JsonParseException {
             PartitionKey partitionKey = new PartitionKey();
             JsonArray jsonArray = json.getAsJsonArray();
@@ -627,7 +594,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         case DATETIMEV2: {
                             String value = typeAndKey.get(1).getAsString();
                             try {
-                                literal = new DateLiteral(value, type);
+                                literal = new DateLiteral(value, Type.fromPrimitiveType(type));
                             } catch (AnalysisException e) {
                                 throw new JsonParseException("DateLiteral deserialize failed: " + e.getMessage());
                             }
