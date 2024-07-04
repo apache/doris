@@ -875,7 +875,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
 
         int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
-        if (samplePartitionSize < totalPartitionSize) {
+        if (samplePartitionSize != 0 && samplePartitionSize < totalPartitionSize) {
             totalSize = totalSize * totalPartitionSize / samplePartitionSize;
         }
         return totalSize / estimatedRowSize;
