@@ -731,6 +731,8 @@ public class OlapScanNode extends ScanNode {
 
     // Update the visible version of the scan range locations.
     public void updateScanRangeVersions(Map<Long, Long> visibleVersionMap) {
+        LOG.info("query id: {}, selectedPartitionIds: {}, visibleVersionMap: {}",
+                DebugUtil.printId(ConnectContext.get().queryId()), selectedPartitionIds, visibleVersionMap);
         Map<Long, TScanRangeLocations> locationsMap = scanRangeLocations.stream()
                 .collect(Collectors.toMap(loc -> loc.getScanRange().getPaloScanRange().getTabletId(), loc -> loc));
         for (Long partitionId : selectedPartitionIds) {
