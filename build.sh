@@ -888,5 +888,4 @@ if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
     eval "${DORIS_POST_BUILD_HOOK}"
 fi
 
-cp start_fe.sh output/fe/bin/start_fe.sh
 exit 0
