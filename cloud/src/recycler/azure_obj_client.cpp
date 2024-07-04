@@ -52,6 +52,11 @@ ObjectStorageResponse do_azure_client_call(Func f, std::string_view url, std::st
                 e.Message, static_cast<int>(e.StatusCode), e.RequestId, url, key);
         LOG_WARNING(msg);
         return {-1, std::move(msg)};
+    } catch (std::exception& e) {
+        auto msg = fmt::format("Azure request failed because {}, url: {}, key: {}", e.what(), url,
+                               key);
+        LOG_WARNING(msg);
+        return {-1, std::move(msg)};
     }
     return {};
 }
