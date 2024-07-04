@@ -1023,7 +1023,7 @@ public class PropertyAnalyzer {
 
     // analyzeRowColumnPageSize will parse the row_column_page_size from properties
     public static long analyzeRowColumnPageSize(Map<String, String> properties) throws AnalysisException {
-        long rowColumnPageSize = 16384;
+        long rowColumnPageSize = ROW_COLUMN_PAGE_SIZE_DEFAULT_VALUE;
         if (properties != null && properties.containsKey(PROPERTIES_ROW_COLUMN_PAGE_SIZE)) {
             String rowColumnPageSizeStr = properties.get(PROPERTIES_ROW_COLUMN_PAGE_SIZE);
             try {
