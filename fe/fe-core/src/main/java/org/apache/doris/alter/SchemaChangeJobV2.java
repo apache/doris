@@ -293,7 +293,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.storeRowColumn(),
                                     binlogConfig,
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                    objectPool);
+                                    objectPool,
+                                    tbl.rowColumnPageSize());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);

@@ -100,7 +100,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                                                    String storagePolicy,
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
-                                                   boolean isStorageMediumSpecified, List<Integer> clusterKeyIndexes)
+                                                   boolean isStorageMediumSpecified,
+                                                   List<Integer> clusterKeyIndexes, long pageSize)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -169,7 +170,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
-                        tbl.getRowStoreColumnsUniqueIds(rowStoreColumns));
+                        tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                        tbl.rowColumnPageSize());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -216,7 +218,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-            List<Integer> rowStoreColumnUniqueIds) throws DdlException {
+            List<Integer> rowStoreColumnUniqueIds, long pageSize) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -333,6 +335,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             schemaBuilder.addAllRowStoreColumnUniqueIds(rowStoreColumnUniqueIds);
         }
         schemaBuilder.setDisableAutoCompaction(disableAutoCompaction);
+
+        schemaBuilder.setRowColumnPageSize(pageSize);
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);

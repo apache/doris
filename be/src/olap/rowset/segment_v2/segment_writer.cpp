@@ -256,14 +256,14 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
 
 #undef CHECK_FIELD_TYPE
 
-    if (column.is_row_store_column()) {
-        // smaller page size for row store column
-        opts.data_page_size = config::row_column_page_size;
-    }
-    std::unique_ptr<ColumnWriter> writer;
-    RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
-    RETURN_IF_ERROR(writer->init());
-    _column_writers.push_back(std::move(writer));
+        if (column.is_row_store_column()) {
+            // smaller page size for row store column
+            opts.data_page_size = _tablet_schema->row_column_page_size();
+        }
+        std::unique_ptr<ColumnWriter> writer;
+        RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
+        RETURN_IF_ERROR(writer->init());
+        _column_writers.push_back(std::move(writer));
 
     _olap_data_convertor->add_column_data_convertor(column);
     return Status::OK();

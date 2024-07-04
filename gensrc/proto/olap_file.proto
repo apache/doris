@@ -383,6 +383,7 @@ message TabletSchemaPB {
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
+    optional int64 row_column_page_size = 27 [default=16384];
 }
 
 message TabletSchemaCloudPB {
@@ -411,6 +412,7 @@ message TabletSchemaCloudPB {
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
     // column unique ids for row store columns
     repeated int32 row_store_column_unique_ids = 26;
+    optional int64 row_column_page_size = 27 [default=16384];
 
     optional bool is_dynamic_schema = 100 [default=false];
 }

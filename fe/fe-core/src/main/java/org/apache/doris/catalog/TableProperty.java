@@ -102,6 +102,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     private boolean skipWriteIndexOnLoad = false;
 
+    private long rowColumnPageSize = PropertyAnalyzer.ROW_COLUMN_PAGE_SIZE_DEFAULT_VALUE;
+
     private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
 
     private long timeSeriesCompactionGoalSizeMbytes
@@ -265,6 +267,17 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public boolean storeRowColumn() {
         return storeRowColumn;
+    }
+
+    public TableProperty buildRowColumnPageSize() {
+        rowColumnPageSize = Long.parseLong(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ROW_COLUMN_PAGE_SIZE,
+                                        Long.toString(PropertyAnalyzer.ROW_COLUMN_PAGE_SIZE_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long rowColumnPageSize() {
+        return rowColumnPageSize;
     }
 
     public TableProperty buildSkipWriteIndexOnLoad() {
