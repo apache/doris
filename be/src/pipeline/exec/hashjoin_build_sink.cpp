@@ -412,7 +412,7 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
 HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
                                                        const TPlanNode& tnode,
                                                        const DescriptorTbl& descs,
-                                                       bool need_local_merge)
+                                                       bool need_local_merge, bool is_spill)
         : JoinBuildSinkOperatorX(pool, operator_id, tnode, descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
                                                                     : TJoinDistributionType::NONE),
@@ -421,7 +421,8 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
           _partition_exprs(tnode.__isset.distribute_expr_lists && !_is_broadcast_join
                                    ? tnode.distribute_expr_lists[1]
                                    : std::vector<TExpr> {}),
-          _need_local_merge(need_local_merge) {}
+          _need_local_merge(need_local_merge),
+          _is_spill(is_spill) {}
 
 Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     if (_is_broadcast_join) {
@@ -533,7 +534,15 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
             local_state._mem_tracker->consume(in_block->bytes());
             COUNTER_UPDATE(local_state._build_blocks_memory_usage, in_block->bytes());
-            local_state._build_blocks.emplace_back(std::move(*in_block));
+            if (_is_spill) {
+                local_state._build_blocks.emplace_back(std::move(*in_block));
+            } else {
+                SCOPED_TIMER(local_state._build_side_merge_block_timer);
+                RETURN_IF_ERROR(
+                        local_state._build_side_mutable_block.merge_ignore_overflow(*in_block));
+                vectorized::Block temp;
+                std::swap(*in_block, temp);
+            }
         }
     }
 
@@ -544,7 +553,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             column->reserve(local_state._build_side_rows);
         }
 
-        {
+        if (_is_spill) {
             SCOPED_TIMER(local_state._build_side_merge_block_timer);
             for (auto& block : local_state._build_blocks) {
                 RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(block));

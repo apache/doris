@@ -1233,7 +1233,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             auto inner_probe_operator =
                     std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
             auto inner_sink_operator = std::make_shared<HashJoinBuildSinkOperatorX>(
-                    pool, 0, tnode_, descs, _need_local_merge);
+                    pool, 0, tnode_, descs, _need_local_merge, true);
 
             RETURN_IF_ERROR(inner_probe_operator->init(tnode_, _runtime_state.get()));
             RETURN_IF_ERROR(inner_sink_operator->init(tnode_, _runtime_state.get()));

@@ -111,7 +111,8 @@ class HashJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
     HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                               const DescriptorTbl& descs, bool use_global_rf);
+                               const DescriptorTbl& descs, bool use_global_rf,
+                               bool is_spill = false);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
                                      JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::_name);
@@ -173,6 +174,8 @@ private:
     const std::vector<TExpr> _partition_exprs;
 
     const bool _need_local_merge;
+
+    const bool _is_spill;
 };
 
 template <class HashTableContext>
