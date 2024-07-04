@@ -145,7 +145,10 @@ public class InitMaterializationContextHook implements PlannerHook {
             keyCount += column.isKey() ? 1 : 0;
         }
         for (Map.Entry<String, Long> entry : olapTable.getIndexNameToId().entrySet()) {
-            if (entry.getValue() != baseIndexId) {
+            long indexId = entry.getValue();
+            // when doing schema change, a shadow index would be created and put together with mv indexes
+            // we must roll out these unexpected shadow indexes here
+            if (indexId != baseIndexId && !olapTable.isShadowIndex(indexId)) {
                 MaterializedIndexMeta meta = olapTable.getIndexMetaByIndexId(entry.getValue());
                 String createMvSql;
                 if (meta.getDefineStmt() != null) {

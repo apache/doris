@@ -2990,4 +2990,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public long getReplicaCount() {
         return statistics.getReplicaCount();
     }
+
+    public boolean isShadowIndex(long indexId) {
+        String indexName = getIndexNameById(indexId);
+        if (indexName != null && indexName.startsWith(org.apache.doris.alter.SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+            return true;
+        } else {
+            return false;
+        }
+    }
 }
