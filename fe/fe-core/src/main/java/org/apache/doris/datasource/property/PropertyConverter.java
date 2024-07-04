@@ -20,7 +20,6 @@ package org.apache.doris.datasource.property;
 import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
@@ -93,11 +92,6 @@ public class PropertyConverter {
             metaProperties = convertToDLFProperties(props, DLFProperties.getCredential(props));
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
             if (!hasS3Properties(props)) {
-                String type = props.get(CatalogMgr.CATALOG_TYPE_PROP);
-                // paimon do not need old s3 properties
-                if (type != null && type.equalsIgnoreCase(Type.PAIMON.toString())) {
-                    return props;
-                }
                 // checkout env in the end
                 // if meet AWS_XXX properties, convert to s3 properties
                 return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props), true);
@@ -262,13 +256,14 @@ public class PropertyConverter {
         return s3Properties;
     }
 
-    private static String checkRegion(String endpoint, String region, String regionKey) {
+    public static String checkRegion(String endpoint, String region, String regionKey) {
         if (Strings.isNullOrEmpty(region)) {
             region = S3Properties.getRegionOfEndpoint(endpoint);
         }
         if (Strings.isNullOrEmpty(region)) {
-            String errorMsg = String.format("Required property '%s' when region is not in endpoint.", regionKey);
-            Util.logAndThrowRuntimeException(LOG, errorMsg, new IllegalArgumentException(errorMsg));
+            String errorMsg = String.format("No '%s' info found, using SDK default region: us-east-1", regionKey);
+            LOG.warn(errorMsg);
+            return "us-east-1";
         }
         return region;
     }

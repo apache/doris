@@ -42,6 +42,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public class S3Properties extends BaseProperties {
 
@@ -82,6 +83,8 @@ public class S3Properties extends BaseProperties {
             InstanceProfileCredentialsProvider.class.getName(),
             WebIdentityTokenCredentialsProvider.class.getName(),
             IAMInstanceCredentialsProvider.class.getName());
+
+    private static final Pattern IPV4_PORT_PATTERN = Pattern.compile("((?:\\d{1,3}\\.){3}\\d{1,3}:\\d{1,5})");
 
     public static Map<String, String> credentialToMap(CloudCredentialWithEndpoint credential) {
         Map<String, String> resMap = new HashMap<>();
@@ -136,6 +139,10 @@ public class S3Properties extends BaseProperties {
     }
 
     public static String getRegionOfEndpoint(String endpoint) {
+        if (IPV4_PORT_PATTERN.matcher(endpoint).find()) {
+            // if endpoint is like '192.168.0.1:8999', return null region
+            return null;
+        }
         String[] endpointSplit = endpoint.split("\\.");
         if (endpointSplit.length < 2) {
             return null;
