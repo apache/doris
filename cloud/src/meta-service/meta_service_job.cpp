@@ -316,7 +316,8 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
     err = txn->get(job_key, &job_val);
     if (err == TxnErrorCode::TXN_OK) {
         job_pb.ParseFromString(job_val);
-        if (job_pb.has_schema_change() && job_pb.schema_change().id() == schema_change.id()) {
+        if (job_pb.has_schema_change() && job_pb.schema_change().id() == schema_change.id() &&
+            job_pb.schema_change().initiator() == schema_change.initiator()) {
             response->set_alter_version(job_pb.schema_change().alter_version());
             return;
         }

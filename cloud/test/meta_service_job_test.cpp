@@ -63,6 +63,7 @@ void start_compaction_job(MetaService* meta_service, int64_t tablet_id, const st
     if (input_version.first > 0 && input_version.second > 0) {
         compaction->add_input_versions(input_version.first);
         compaction->add_input_versions(input_version.second);
+        compaction->set_judge_input_versions_range(true);
     }
     meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
 };
