@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
@@ -41,6 +42,8 @@ struct TabletWithVersion {
     BaseTabletSPtr tablet;
     int64_t version;
 };
+
+enum CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
 
 // Base class for all tablet classes
 class BaseTablet {
@@ -299,6 +302,7 @@ public:
     std::atomic<int64_t> read_block_count = 0;
     std::atomic<int64_t> write_count = 0;
     std::atomic<int64_t> compaction_count = 0;
+    CompactionStage compaction_stage = CompactionStage::NOT_SCHEDULED;
 };
 
 } /* namespace doris */
