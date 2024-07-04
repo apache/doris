@@ -341,6 +341,8 @@ private:
 
     bool try_reserve_for_ttl(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
+    bool try_reserve_for_ttl_without_lru(size_t size, std::lock_guard<std::mutex>& cache_lock);
+
     FileBlocks split_range_into_cells(const UInt128Wrapper& hash, const CacheContext& context,
                                       size_t offset, size_t size, FileBlock::State state,
                                       std::lock_guard<std::mutex>& cache_lock);
@@ -418,6 +420,7 @@ private:
     LRUQueue _index_queue;
     LRUQueue _normal_queue;
     LRUQueue _disposable_queue;
+    LRUQueue _ttl_queue;
 
     // metrics
     size_t _num_read_blocks = 0;
@@ -425,6 +428,7 @@ private:
     size_t _num_removed_blocks = 0;
     std::shared_ptr<bvar::Status<size_t>> _cur_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_size_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_normal_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_normal_queue_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_index_queue_element_count_metrics;
