@@ -57,6 +57,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -99,6 +100,8 @@ import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -132,6 +135,7 @@ public class IngestionLoadJob extends LoadJob {
     private List<Long> loadTableIds = new ArrayList<>();
 
     @Setter
+    @SerializedName("ests")
     private EtlStatus etlStatus;
 
     private final Map<Long, Set<Long>> tableToLoadPartitions = Maps.newHashMap();
@@ -140,6 +144,7 @@ public class IngestionLoadJob extends LoadJob {
 
     // members below updated when job state changed to loading
     // { tableId.partitionId.indexId.bucket.schemaHash -> (etlFilePath, etlFileSize) }
+    @SerializedName(value = "tm2fi")
     private final Map<String, Pair<String, Long>> tabletMetaToFileInfo = Maps.newHashMap();
 
     private final Map<Long, Integer> indexToSchemaHash = Maps.newHashMap();
@@ -152,7 +157,11 @@ public class IngestionLoadJob extends LoadJob {
 
     private final List<TabletCommitInfo> commitInfos = Lists.newArrayList();
 
+    @SerializedName(value = "hp")
     private final Map<String, String> hadoopProperties = new HashMap<>();
+
+    @SerializedName(value = "i2sv")
+    private final Map<Long, Integer> indexToSchemaVersion = new HashMap<>();
 
     public IngestionLoadJob() {
         super(EtlJobType.INGESTION);
@@ -305,7 +314,9 @@ public class IngestionLoadJob extends LoadJob {
         for (Map.Entry<Long, List<Column>> entry : table.getIndexIdToSchema().entrySet()) {
             long indexId = entry.getKey();
             // todo(liheng): get schema hash and version from materialized index meta directly
-            int schemaHash = table.getSchemaHashByIndexId(indexId);
+            MaterializedIndexMeta indexMeta = table.getIndexMetaByIndexId(indexId);
+            int schemaHash = indexMeta.getSchemaHash();
+            int schemaVersion = indexMeta.getSchemaVersion();
 
             boolean changeAggType = table.getKeysTypeByIndexId(indexId).equals(KeysType.UNIQUE_KEYS)
                     && table.getTableProperty().getEnableUniqueKeyMergeOnWrite();
@@ -344,8 +355,10 @@ public class IngestionLoadJob extends LoadJob {
                     throw new LoadException(errMsg);
             }
 
+            indexToSchemaVersion.put(indexId, schemaVersion);
+
             etlIndexes.add(new EtlJobConfig.EtlIndex(indexId, etlColumns, schemaHash, indexType,
-                    indexId == table.getBaseIndexId()));
+                    indexId == table.getBaseIndexId(), schemaVersion));
         }
 
         return etlIndexes;
@@ -571,6 +584,9 @@ public class IngestionLoadJob extends LoadJob {
                             int schemaVersion = indexMeta.getSchemaVersion();
                             int schemaHash = indexMeta.getSchemaHash();
 
+                            // check schemaHash and schemaVersion whether is changed
+                            checkIndexSchema(indexId, schemaHash, schemaVersion);
+
                             int bucket = 0;
                             for (Tablet tablet : index.getTablets()) {
                                 long tabletId = tablet.getId();
@@ -726,7 +742,6 @@ public class IngestionLoadJob extends LoadJob {
 
     private void unprotectedPrepareLoadingInfos() {
         for (String tabletMetaStr : tabletMetaToFileInfo.keySet()) {
-            LOG.info("tabletMetaStr: {}", tabletMetaStr);
             String[] fileNameArr = tabletMetaStr.split("\\.");
             // tableId.partitionId.indexId.bucket.schemaHash
             Preconditions.checkState(fileNameArr.length == 5);
@@ -1006,7 +1021,7 @@ public class IngestionLoadJob extends LoadJob {
     private void unprotectedLogUpdateStateInfo() {
         IngestionLoadJobStateUpdateInfo info =
                 new IngestionLoadJobStateUpdateInfo(id, state, transactionId, etlStartTimestamp, loadStartTimestamp,
-                        etlStatus, tabletMetaToFileInfo);
+                        etlStatus, tabletMetaToFileInfo, hadoopProperties, indexToSchemaVersion);
         Env.getCurrentEnv().getEditLog().logUpdateLoadJob(info);
     }
 
@@ -1018,14 +1033,22 @@ public class IngestionLoadJob extends LoadJob {
         private EtlStatus etlStatus;
         @SerializedName(value = "tabletMetaToFileInfo")
         private Map<String, Pair<String, Long>> tabletMetaToFileInfo;
+        @SerializedName(value = "hadoopProperties")
+        private Map<String, String> hadoopProperties;
+        @SerializedName(value = "indexToSchemaVersion")
+        private Map<Long, Integer> indexToSchemaVersion;
 
         public IngestionLoadJobStateUpdateInfo(long jobId, JobState state, long transactionId,
                                                long etlStartTimestamp, long loadStartTimestamp, EtlStatus etlStatus,
-                                               Map<String, Pair<String, Long>> tabletMetaToFileInfo) {
+                                               Map<String, Pair<String, Long>> tabletMetaToFileInfo,
+                                               Map<String, String> hadoopProperties,
+                                               Map<Long, Integer> indexToSchemaVersion) {
             super(jobId, state, transactionId, loadStartTimestamp);
             this.etlStartTimestamp = etlStartTimestamp;
             this.etlStatus = etlStatus;
             this.tabletMetaToFileInfo = tabletMetaToFileInfo;
+            this.hadoopProperties = hadoopProperties;
+            this.indexToSchemaVersion = indexToSchemaVersion;
         }
 
         public long getEtlStartTimestamp() {
@@ -1040,16 +1063,30 @@ public class IngestionLoadJob extends LoadJob {
             return tabletMetaToFileInfo;
         }
 
+        public Map<String, String> getHadoopProperties() {
+            return hadoopProperties;
+        }
+
+        public Map<Long, Integer> getIndexToSchemaVersion() {
+            return indexToSchemaVersion;
+        }
     }
 
     @Override
     public void replayUpdateStateInfo(LoadJobStateUpdateInfo info) {
         super.replayUpdateStateInfo(info);
         IngestionLoadJobStateUpdateInfo stateUpdateInfo = (IngestionLoadJobStateUpdateInfo) info;
-        this.etlStartTimestamp = stateUpdateInfo.etlStartTimestamp;
-        this.etlStatus = stateUpdateInfo.etlStatus;
-        this.tabletMetaToFileInfo.clear();
-        this.tabletMetaToFileInfo.putAll(stateUpdateInfo.tabletMetaToFileInfo);
+        this.etlStartTimestamp = stateUpdateInfo.getEtlStartTimestamp();
+        this.etlStatus = stateUpdateInfo.getEtlStatus();
+        if (stateUpdateInfo.getTabletMetaToFileInfo() != null) {
+            this.tabletMetaToFileInfo.putAll(stateUpdateInfo.getTabletMetaToFileInfo());
+        }
+        if (stateUpdateInfo.getHadoopProperties() != null) {
+            this.hadoopProperties.putAll(stateUpdateInfo.getHadoopProperties());
+        }
+        if (stateUpdateInfo.getIndexToSchemaVersion() != null) {
+            this.indexToSchemaVersion.putAll(stateUpdateInfo.getIndexToSchemaVersion());
+        }
         switch (state) {
             case ETL:
                 break;
@@ -1062,4 +1099,40 @@ public class IngestionLoadJob extends LoadJob {
                 break;
         }
     }
+
+    @Override
+    protected void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+        this.etlStartTimestamp = in.readLong();
+        this.etlStatus = new EtlStatus();
+        this.etlStatus.readFields(in);
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String tabletMetaStr = Text.readString(in);
+            Pair<String, Long> fileInfo = Pair.of(Text.readString(in), in.readLong());
+            tabletMetaToFileInfo.put(tabletMetaStr, fileInfo);
+        }
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String propKey = Text.readString(in);
+            String propValue = Text.readString(in);
+            hadoopProperties.put(propKey, propValue);
+        }
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            indexToSchemaVersion.put(in.readLong(), in.readInt());
+        }
+    }
+
+    private void checkIndexSchema(long indexId, int schemaHash, int schemaVersion) throws LoadException {
+        if (indexToSchemaHash.containsKey(indexId) && indexToSchemaHash.get(indexId) == schemaHash
+                && indexToSchemaVersion.containsKey(indexId) && indexToSchemaVersion.get(indexId) == schemaVersion) {
+            return;
+        }
+        throw new LoadException(
+                "schema of index [" + indexId + "] has changed, old schemaHash: " + indexToSchemaHash.get(indexId)
+                        + ", current schemaHash: " + schemaHash + ", old schemaVersion: "
+                        + indexToSchemaVersion.get(indexId) + ", current schemaVersion: " + schemaVersion);
+    }
+
 }

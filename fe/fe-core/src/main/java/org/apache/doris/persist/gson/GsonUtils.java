@@ -179,6 +179,7 @@ import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.BulkLoadJob;
+import org.apache.doris.load.loadv2.IngestionLoadJob;
 import org.apache.doris.load.loadv2.IngestionLoadJob.IngestionLoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.InsertLoadJob;
 import org.apache.doris.load.loadv2.LoadJob;
@@ -573,7 +574,8 @@ public class GsonUtils {
             .registerSubtype(CopyJob.class, CopyJob.class.getSimpleName())
             .registerSubtype(InsertLoadJob.class, InsertLoadJob.class.getSimpleName())
             .registerSubtype(MiniLoadJob.class, MiniLoadJob.class.getSimpleName())
-            .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName());
+            .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName())
+            .registerSubtype(IngestionLoadJob.class, IngestionLoadJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<PartitionItem> partitionItemTypeAdapterFactory
             = RuntimeTypeAdapterFactory.of(PartitionItem.class, "clazz")
