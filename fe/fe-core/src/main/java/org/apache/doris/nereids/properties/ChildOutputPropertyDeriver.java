@@ -275,7 +275,13 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 case LEFT_ANTI_JOIN:
                 case NULL_AWARE_LEFT_ANTI_JOIN:
                 case LEFT_OUTER_JOIN:
-                    return new PhysicalProperties(leftHashSpec);
+                    if (leftHashSpec.getShuffleType() != ShuffleType.NATURAL
+                            && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
+                        return new PhysicalProperties(DistributionSpecHash.merge(
+                                rightHashSpec, leftHashSpec, rightHashSpec.getShuffleType()));
+                    } else {
+                        return new PhysicalProperties(leftHashSpec);
+                    }
                 case RIGHT_SEMI_JOIN:
                 case RIGHT_ANTI_JOIN:
                 case RIGHT_OUTER_JOIN:
