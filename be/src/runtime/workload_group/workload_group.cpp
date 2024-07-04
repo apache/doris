@@ -495,18 +495,30 @@ void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sc
 }
 
 std::string WorkloadGroup::thread_debug_info() {
-    std::vector<int> exec_t_info = _task_sched->thread_debug_info();
-    std::string str = fmt::format("[exec num:{}, real_num:{}, min_num:{}, max_num:{}],",
-                                  exec_t_info[0], exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    std::string str = "";
+    if (_task_sched != nullptr) {
+        std::vector<int> exec_t_info = _task_sched->thread_debug_info();
+        str = fmt::format("[exec num:{}, real_num:{}, min_num:{}, max_num:{}],", exec_t_info[0],
+                          exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    }
 
-    str += fmt::format("[l_scan num:{}, real_num:{}, min_num:{}, max_num{}],", exec_t_info[0],
-                       exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    if (_scan_task_sched != nullptr) {
+        std::vector<int> exec_t_info = _scan_task_sched->thread_debug_info();
+        str += fmt::format("[l_scan num:{}, real_num:{}, min_num:{}, max_num{}],", exec_t_info[0],
+                           exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    }
 
-    str += fmt::format("[r_scan num:{}, real_num:{}, min_num:{}, max_num:{}],", exec_t_info[0],
-                       exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    if (_remote_scan_task_sched != nullptr) {
+        std::vector<int> exec_t_info = _remote_scan_task_sched->thread_debug_info();
+        str += fmt::format("[r_scan num:{}, real_num:{}, min_num:{}, max_num:{}],", exec_t_info[0],
+                           exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    }
 
-    str += fmt::format("[mem_tab_flush num:{}, real_num:{}, min_num:{}, max_num:{}]",
-                       exec_t_info[0], exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    if (_memtable_flush_pool != nullptr) {
+        std::vector<int> exec_t_info = _memtable_flush_pool->debug_info();
+        str += fmt::format("[mem_tab_flush num:{}, real_num:{}, min_num:{}, max_num:{}]",
+                           exec_t_info[0], exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    }
     return str;
 }
 
