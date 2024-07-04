@@ -375,7 +375,7 @@ suite("test_create_view_nereids") {
     sql "drop view if exists test_having"
     sql """create view test_having as
     select sum(a) over(partition by a order by pk) as c1 , a from mal_test_view group by grouping sets((a),(b),(pk,a)) having a>1"""
-    qt_test_having "select * from test_having order by 1"
+    qt_test_having "select * from test_having order by 1,2"
     qt_test_having_sql "show create view test_having"
 
     sql "drop view if exists test_view_complicated;"
