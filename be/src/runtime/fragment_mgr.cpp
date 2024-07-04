@@ -1467,8 +1467,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
 Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
     UniqueId queryid = request->query_id();
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
-    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
     std::shared_ptr<QueryContext> query_ctx;
     {
@@ -1478,11 +1476,15 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _query_ctx_map.find(query_id);
         if (iter == _query_ctx_map.end()) {
-            return Status::InvalidArgument("query-id: {}", queryid.to_string());
+            return Status::EndOfFile("Query context (query-id: {}) not found, maybe finished",
+                                     queryid.to_string());
         }
 
         query_ctx = iter->second;
     }
+
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
     auto merge_status = filter_controller->send_filter_size(request);
     return merge_status;
 }
