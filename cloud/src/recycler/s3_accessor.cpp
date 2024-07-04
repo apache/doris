@@ -230,7 +230,8 @@ int S3Accessor::init() {
     case S3Conf::AZURE: {
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
-        uri_ = fmt::format("https://{}.blob.core.windows.net/{}", conf_.ak, conf_.bucket);
+        uri_ = fmt::format("{}://{}.blob.core.windows.net/{}", config::s3_client_http_scheme,
+                           conf_.ak, conf_.bucket);
         auto container_client =
                 std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri_, cred);
         obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
@@ -246,6 +247,9 @@ int S3Accessor::init() {
         Aws::Client::ClientConfiguration aws_config;
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
+        if (config::s3_client_http_scheme == "HTTP") {
+            aws_config.scheme = Aws::Http::Scheme::HTTP;
+        }
         aws_config.retryStrategy = std::make_shared<Aws::Client::DefaultRetryStrategy>(
                 /*maxRetries = 10, scaleFactor = 25*/);
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
