@@ -2381,7 +2381,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setCompressionType(compressionType);
 
         // get row_column_page_size
-        long rowColumnPageSize = 16384;
+        long rowColumnPageSize = PropertyAnalyzer.ROW_COLUMN_PAGE_SIZE_DEFAULT_VALUE;
         try {
             rowColumnPageSize = PropertyAnalyzer.analyzeRowColumnPageSize(properties);
         } catch (AnalysisException e) {
