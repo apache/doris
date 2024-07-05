@@ -26,6 +26,19 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ListObjectsRequest
 import com.amazonaws.services.s3.model.ObjectListing
 
+import com.azure.core.http.rest.PagedIterable;
+import com.azure.core.http.rest.PagedResponse;
+import com.azure.core.http.rest.Response;
+import com.azure.core.util.Context;
+import com.azure.storage.blob.BlobClient;
+import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.models.BlobItem;
+import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.models.ListBlobsOptions;
+import com.azure.storage.common.StorageSharedKeyCredential;
+
+import java.util.Iterator;
+
 interface ListObjectsFileNames {
     public boolean isEmpty(String tableName, String tableId);
     public Set<String> listObjects(String userName, String userId);
@@ -86,6 +99,69 @@ class AwsListObjectsFileNames implements ListObjectsFileNames {
                 continue
             }
             fileNames.add(split[split.length-1])
+        }
+        return fileNames
+    }
+}
+
+class AzureListObjectsFileNames implements ListObjectsFileNames {
+    private String ak;
+    private String sk;
+    private String endpoint;
+    private String region;
+    private String prefix;
+    private String bucket;
+    private Suite suite;
+    private static String URI_TEMPLATE = "https://%s.blob.core.windows.net/%s"
+    private BlobContainerClient containerClient;
+    public AzureListObjectsFileNames(String ak, String sk, String endpoint, String region, String prefix, String bucket, Suite suite) {
+        this.ak = ak;
+        this.sk = sk;
+        this.endpoint = endpoint;
+        this.region = region;
+        this.prefix = prefix;
+        this.bucket = bucket;
+        this.suite = suite;
+        String uri = String.format(URI_TEMPLATE, this.ak, this.bucket);
+            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(this.ak, this.sk);
+        this.containerClient = new BlobContainerClientBuilder().credential(cred).endpoint(uri).build();
+    }
+
+    public boolean isEmpty(String tableName, String tableId) {
+        PagedIterable<BlobItem> blobs = containerClient.listBlobs(
+            new ListBlobsOptions()
+                .setPrefix("${prefix}/data/${tabletId}/")
+                .setMaxResultsPerPage(1), Duration.ofMinutes(1));
+
+        Iterator<BlobItem> iterator = blobs.iterator();
+        suite.getLogger().info("${prefix}/data/${tabletId}/, objectListing:${blobs.stream().map(BlobItem::getName).toList()}".toString())
+        return !iterator.hasNext();
+    }
+
+    public boolean isEmpty(String userName, String userId, String fileName) {
+        PagedIterable<BlobItem> blobs = containerClient.listBlobs(
+            new ListBlobsOptions()
+                .setPrefix("${prefix}/stage/${userName}/${userId}/${fileName}")
+                .setMaxResultsPerPage(1), Duration.ofMinutes(1));
+
+        Iterator<BlobItem> iterator = blobs.iterator();
+        suite.getLogger().info("${prefix}/stage/${userName}/${userId}/${fileName}, objectListing:${blobs.stream().map(BlobItem::getName).toList()}".toString())
+        return !iterator.hasNext();
+    }
+
+    public Set<String> listObjects(String userName, String userId) {
+        PagedIterable<BlobItem> blobs = containerClient.listBlobs(
+            new ListBlobsOptions()
+                .setPrefix("${prefix}/stage/${userName}/${userId}/"), Duration.ofMinutes(1));
+
+        suite.getLogger().info("${prefix}/stage/${userName}/${userId}/, objectListing:${blobs.stream().map(BlobItem::getName).toList()}".toString())
+        Set<String> fileNames = new HashSet<>();
+        for (BlobItem blobItem : blobs) {
+            String[] split = blobItem.getName().split("/");
+            if (split.length <= 0) {
+                continue;
+            }
+            fileNames.add(split[split.length - 1]);
         }
         return fileNames
     }
