@@ -272,13 +272,14 @@ public class JoinUtils {
             return false;
         }
         return couldColocateJoin((DistributionSpecHash) leftDistributionSpec,
-                (DistributionSpecHash) rightDistributionSpec);
+                (DistributionSpecHash) rightDistributionSpec, join.getHashJoinConjuncts());
     }
 
     /**
      * could do colocate join with left and right child distribution spec.
      */
-    public static boolean couldColocateJoin(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
+    public static boolean couldColocateJoin(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec,
+            List<Expression> conjuncts) {
         if (ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
@@ -300,12 +301,42 @@ public class JoinUtils {
         boolean noNeedCheckColocateGroup = hitSameIndex && (leftTablePartitions.equals(rightTablePartitions))
                 && (leftTablePartitions.size() <= 1);
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
-        if (noNeedCheckColocateGroup
-                || (colocateIndex.isSameGroup(leftTableId, rightTableId)
-                && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
+        if (noNeedCheckColocateGroup) {
             return true;
         }
-        return false;
+        if (!colocateIndex.isSameGroup(leftTableId, rightTableId)
+                || colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId))) {
+            return false;
+        }
+
+        Set<Integer> equalIndices = new HashSet<>();
+        for (Expression expr : conjuncts) {
+            // only simple equal predicate can use colocate join
+            if (!(expr instanceof EqualPredicate)) {
+                return false;
+            }
+            Expression leftChild = ((EqualPredicate) expr).left();
+            Expression rightChild = ((EqualPredicate) expr).right();
+            if (!(leftChild instanceof Slot) || !(rightChild instanceof Slot)) {
+                return false;
+            }
+
+            // on conditions must keep same order as distributed columns
+            Integer leftIndex = leftHashSpec.getExprIdToEquivalenceSet().get(((Slot) leftChild).getExprId());
+            Integer rightIndex = rightHashSpec.getExprIdToEquivalenceSet().get(((Slot) rightChild).getExprId());
+            if (leftIndex != rightIndex) {
+                return false;
+            }
+            if (leftIndex != null) {
+                equalIndices.add(leftIndex);
+            }
+        }
+        // on conditions must contain all distributed columns
+        if (equalIndices.containsAll(leftHashSpec.getExprIdToEquivalenceSet().values())) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {
