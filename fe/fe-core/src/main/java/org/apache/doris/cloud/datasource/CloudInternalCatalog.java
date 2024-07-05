@@ -63,6 +63,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
 
@@ -169,7 +170,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
-                        tbl.getRowStoreColumnsUniqueIds(rowStoreColumns));
+                        tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                        tbl.getInvertedIndexFileStorageFormat());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -216,7 +218,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-            List<Integer> rowStoreColumnUniqueIds) throws DdlException {
+            List<Integer> rowStoreColumnUniqueIds,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -334,6 +337,13 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         schemaBuilder.setDisableAutoCompaction(disableAutoCompaction);
 
+        if (invertedIndexFileStorageFormat != null) {
+            if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
+                schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
+            } else {
+                schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
+            }
+        }
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
         // rowset
