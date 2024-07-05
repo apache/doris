@@ -41,6 +41,13 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth") {
     sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user1}"""
     sql """grant select_priv on regression_test to ${user2}"""
+    if (isCloudMode()) {
+        //grant cluster to user
+        def res = sql_return_maparray "show clusters;"
+        logger.info("show clusters from ${res}")
+        sql """GRANT USAGE_PRIV ON CLUSTER "${res[0].cluster}" TO "${user1}"; """
+        sql """GRANT USAGE_PRIV ON CLUSTER "${res[0].cluster}" TO "${user2}"; """
+    }
 
     sql """CREATE ROLE ${role1}"""
     sql """CREATE ROLE ${role2}"""

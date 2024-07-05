@@ -117,7 +117,7 @@ suite("test_grant_revoke_cluster_stage_to_role", "cloud_auth") {
     """
     result = sql_return_maparray """show grants for '${user1}'"""
     commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv"
-    assertEquals("[$testClusterA: Cluster_usage_priv; $validCluster: Cluster_usage_priv]" as String, result.CloudClusterPrivs as String)
+    assertEquals("[$validCluster: Cluster_usage_priv; $testClusterA: Cluster_usage_priv]" as String, result.CloudClusterPrivs as String)
     def db = context.dbName
 
     sql """
