@@ -1671,6 +1671,8 @@ build_hadoop_libs() {
     echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" >env.sh
     ./build.sh
 
+    rm -rf "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
     cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
