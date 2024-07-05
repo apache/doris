@@ -340,7 +340,6 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setEnableMowLightDelete(enableMowLightDelete);
 
         if (invertedIndexFileStorageFormat != null) {
-            LOG.info("invertedIndexFileStorageFormat:{}", invertedIndexFileStorageFormat);
             if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
             } else {
