@@ -225,7 +225,7 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
     public Expression getFilterExpression() throws AnalysisException {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = getOriginStmt();
-        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseMultiple(sql).get(stmtIdx).first;
         Optional<Expression> wherePredicate = command.getWherePredicate();
         if (!wherePredicate.isPresent()) {
             throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + sql);
