@@ -1550,7 +1550,7 @@ public class Env {
                                 SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
                     }
                 }
-                if (journalVersion <= FeMetaVersion.VERSION_133) {
+                if (journalVersion <= FeMetaVersion.VERSION_129) {
                     VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
                             SessionVariable.ENABLE_MATERIALIZED_VIEW_REWRITE,
                             "true");
