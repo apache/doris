@@ -97,6 +97,9 @@ suite ("mv_ssb_q_1_1") {
 
     qt_select_star "select * from lineorder_flat order by 1,2, P_MFGR;"
 
+    sql "analyze table lineorder_flat with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat
@@ -115,6 +118,18 @@ suite ("mv_ssb_q_1_1") {
                     AND LO_DISCOUNT >= 1 AND LO_DISCOUNT <= 3
                     AND LO_QUANTITY < 25;"""
 
+    sql """set enable_stats=true;"""
+    explain {
+        sql("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
+                FROM lineorder_flat
+                WHERE
+                    LO_ORDERDATE >= 19930101
+                    AND LO_ORDERDATE <= 19931231
+                    AND LO_DISCOUNT >= 1 AND LO_DISCOUNT <= 3
+                    AND LO_QUANTITY < 25;""")
+        contains "(lineorder_q_1_1)"
+    }
+
     sql""" drop materialized view lineorder_q_1_1 on lineorder_flat; """
 
     qt_select """SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
@@ -124,4 +139,5 @@ suite ("mv_ssb_q_1_1") {
                     AND LO_ORDERDATE <= 19931231
                     AND LO_DISCOUNT >= 1 AND LO_DISCOUNT <= 3
                     AND LO_QUANTITY < 25;"""
+
 }

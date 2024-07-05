@@ -47,22 +47,22 @@ public class ExecutableFunctions {
      */
     @ExecFunction(name = "abs", argTypes = {"TINYINT"}, returnType = "SMALLINT")
     public static Expression abs(TinyIntLiteral literal) {
-        return new SmallIntLiteral((byte) Math.abs(literal.getValue()));
+        return new SmallIntLiteral((short) Math.abs(literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"SMALLINT"}, returnType = "INT")
     public static Expression abs(SmallIntLiteral literal) {
-        return new IntegerLiteral((short) Math.abs(literal.getValue()));
+        return new IntegerLiteral(Math.abs(literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"INT"}, returnType = "BIGINT")
     public static Expression abs(IntegerLiteral literal) {
-        return new BigIntLiteral(Math.abs(literal.getValue()));
+        return new BigIntLiteral(Math.abs((long) literal.getValue()));
     }
 
     @ExecFunction(name = "abs", argTypes = {"BIGINT"}, returnType = "LARGEINT")
     public static Expression abs(BigIntLiteral literal) {
-        return new LargeIntLiteral(new BigInteger(Long.toString(Math.abs(literal.getValue()))));
+        return new LargeIntLiteral(BigInteger.valueOf(literal.getValue()).abs());
     }
 
     @ExecFunction(name = "abs", argTypes = {"LARGEINT"}, returnType = "LARGEINT")

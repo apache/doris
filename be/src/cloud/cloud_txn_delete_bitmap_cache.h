@@ -30,7 +30,7 @@
 namespace doris {
 
 // Record transaction related delete bitmaps using a lru cache.
-class CloudTxnDeleteBitmapCache : public LRUCachePolicy {
+class CloudTxnDeleteBitmapCache : public LRUCachePolicyTrackingManual {
 public:
     CloudTxnDeleteBitmapCache(size_t size_in_bytes);
 
@@ -72,9 +72,7 @@ private:
         RowsetIdUnorderedSet rowset_ids;
 
         DeleteBitmapCacheValue(DeleteBitmapPtr delete_bitmap_, const RowsetIdUnorderedSet& ids_)
-                : LRUCacheValueBase(CachePolicy::CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE),
-                  delete_bitmap(std::move(delete_bitmap_)),
-                  rowset_ids(ids_) {}
+                : delete_bitmap(std::move(delete_bitmap_)), rowset_ids(ids_) {}
     };
 
     struct TxnKey {

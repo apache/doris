@@ -540,9 +540,12 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
         _aggregation_name = column.aggregation();
     }
-    if (column.has_result_is_nullable()) {
+
+    if (_type == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
         _result_is_nullable = column.result_is_nullable();
+        _be_exec_version = column.be_exec_version();
     }
+
     if (column.has_visible()) {
         _visible = column.visible();
     }
@@ -550,7 +553,8 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         CHECK(column.children_columns_size() == 1) << "ARRAY type has more than 1 children types.";
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-        CHECK(column.children_columns_size() == 2) << "MAP type has more than 2 children types.";
+        DCHECK(column.children_columns_size() == 2) << "MAP type has more than 2 children types.";
+        LOG(WARNING) << "MAP type has more than 2 children types.";
     }
     for (size_t i = 0; i < column.children_columns_size(); i++) {
         TabletColumn child_column;
@@ -610,6 +614,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         column->set_aggregation(_aggregation_name);
     }
     column->set_result_is_nullable(_result_is_nullable);
+    column->set_be_exec_version(_be_exec_version);
     if (_has_bitmap_index) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
@@ -619,7 +624,8 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         CHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-        CHECK(_sub_columns.size() == 2) << "MAP type has more than 2 children types.";
+        DCHECK(_sub_columns.size() == 2) << "MAP type has more than 2 children types.";
+        LOG(WARNING) << "MAP type has more than 2 children types.";
     }
 
     for (size_t i = 0; i < _sub_columns.size(); i++) {
@@ -657,28 +663,32 @@ bool TabletColumn::is_row_store_column() const {
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
         vectorized::DataTypePtr type) const {
-    auto state_type = assert_cast<const vectorized::DataTypeAggState*>(type.get());
+    const auto* state_type = assert_cast<const vectorized::DataTypeAggState*>(type.get());
     return vectorized::AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);
 }
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
+    vectorized::AggregateFunctionPtr function = nullptr;
+
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
     if (type && type->get_type_as_type_descriptor().type == PrimitiveType::TYPE_AGG_STATE) {
-        return get_aggregate_function_union(type);
+        function = get_aggregate_function_union(type);
+    } else {
+        std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
+        std::string agg_name = origin_name + suffix;
+        std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        function = vectorized::AggregateFunctionSimpleFactory::instance().get(agg_name, {type},
+                                                                              type->is_nullable());
+        if (!function) {
+            LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
+                         << ", column_type=" << type->get_name();
+        }
     }
-
-    std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
-    std::string agg_name = origin_name + suffix;
-    std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-
-    auto function = vectorized::AggregateFunctionSimpleFactory::instance().get(agg_name, {type},
-                                                                               type->is_nullable());
     if (function) {
+        function->set_version(_be_exec_version);
         return function;
     }
-    LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
-                 << ", column_type=" << type->get_name();
     return nullptr;
 }
 

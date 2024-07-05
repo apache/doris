@@ -100,7 +100,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -122,20 +121,26 @@ public class SparkLoadJob extends BulkLoadJob {
 
     // --- members below need persist ---
     // create from resourceDesc when job created
+    @SerializedName(value = "sr")
     private SparkResource sparkResource;
     // members below updated when job state changed to etl
+    @SerializedName(value = "est")
     private long etlStartTimestamp = -1;
     // for spark yarn
+    @SerializedName(value = "appid")
     private String appId = "";
     // spark job outputPath
+    @SerializedName(value = "etlop")
     private String etlOutputPath = "";
     // members below updated when job state changed to loading
     // { tableId.partitionId.indexId.bucket.schemaHash -> (etlFilePath, etlFileSize) }
+    @SerializedName(value = "tm2fi")
     private Map<String, Pair<String, Long>> tabletMetaToFileInfo = Maps.newHashMap();
 
     // --- members below not persist ---
     private ResourceDesc resourceDesc;
     // for spark standalone
+    @SerializedName(value = "slah")
     private SparkLoadAppHandle sparkLoadAppHandle = new SparkLoadAppHandle();
     // for straggler wait long time to commit transaction
     private long quorumFinishTimestamp = -1;
@@ -779,22 +784,6 @@ public class SparkLoadJob extends BulkLoadJob {
                     file.delete();
                 }
             }
-        }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        sparkResource.write(out);
-        sparkLoadAppHandle.write(out);
-        out.writeLong(etlStartTimestamp);
-        Text.writeString(out, appId);
-        Text.writeString(out, etlOutputPath);
-        out.writeInt(tabletMetaToFileInfo.size());
-        for (Map.Entry<String, Pair<String, Long>> entry : tabletMetaToFileInfo.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue().first);
-            out.writeLong(entry.getValue().second);
         }
     }
 

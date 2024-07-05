@@ -66,6 +66,9 @@ public final class GlobalVariable {
     public static final String PARTITION_ANALYZE_BATCH_SIZE = "partition_analyze_batch_size";
     public static final String HUGE_PARTITION_LOWER_BOUND_ROWS = "huge_partition_lower_bound_rows";
 
+    public static final String ENABLE_FETCH_ICEBERG_STATS = "enable_fetch_iceberg_stats";
+
+
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
             + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
@@ -146,7 +149,7 @@ public final class GlobalVariable {
                             + "Getting file list may be a time-consuming operation. "
                             + "If you don't need to estimate the number of rows in the table "
                             + "or it affects performance, you can disable this feature."})
-    public static boolean enable_get_row_count_from_file_list = false;
+    public static boolean enable_get_row_count_from_file_list = true;
 
     @VariableMgr.VarAttr(name = READ_ONLY, flag = VariableMgr.GLOBAL,
             description = {"仅用于兼容MySQL生态，暂无实际意义",
@@ -169,6 +172,12 @@ public final class GlobalVariable {
                 "行数超过该值的分区将跳过自动分区收集",
                 "This defines the lower size bound for large partitions, which will skip auto partition analyze."})
     public static long hugePartitionLowerBoundRows = 100000000L;
+
+    @VariableMgr.VarAttr(name = ENABLE_FETCH_ICEBERG_STATS, flag = VariableMgr.GLOBAL,
+            description = {
+                "当HMS catalog中的Iceberg表没有统计信息时，是否通过Iceberg Api获取统计信息",
+                "Enable fetch stats for HMS Iceberg table when it's not analyzed."})
+    public static boolean enableFetchIcebergStats = false;
 
     // Don't allow creating instance.
     private GlobalVariable() {

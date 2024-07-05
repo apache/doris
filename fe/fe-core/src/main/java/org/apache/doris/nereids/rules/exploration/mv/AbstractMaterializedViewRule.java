@@ -200,7 +200,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             if (queryToViewSlotMapping == null) {
                 materializationContext.recordFailReason(queryStructInfo,
-                        "Query to view slot mapping is null", () -> "");
+                        "Query to view slot mapping is null", () ->
+                                String.format("queryToViewTableMapping relation mapping is %s",
+                                        queryToViewTableMapping));
                 continue;
             }
             SlotMapping viewToQuerySlotMapping = queryToViewSlotMapping.inverse();
@@ -248,9 +250,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 rewrittenPlan = new LogicalFilter<>(Sets.newLinkedHashSet(rewriteCompensatePredicates), mvScan);
             }
+            boolean checkResult = rewriteQueryByViewPreCheck(matchMode, queryStructInfo,
+                    viewStructInfo, viewToQuerySlotMapping, rewrittenPlan, materializationContext);
+            if (!checkResult) {
+                continue;
+            }
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
-                    rewrittenPlan, materializationContext);
+                    rewrittenPlan, materializationContext, cascadesContext);
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
@@ -480,10 +487,28 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
+    * Query rewrite result may output origin plan , this will cause loop.
+    * if return origin plan, need add check hear.
+    */
+    protected boolean rewriteQueryByViewPreCheck(MatchMode matchMode, StructInfo queryStructInfo,
+            StructInfo viewStructInfo, SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan,
+            MaterializationContext materializationContext) {
+        if (materializationContext instanceof SyncMaterializationContext
+                && queryStructInfo.getBottomPlan() instanceof LogicalOlapScan) {
+            LogicalOlapScan olapScan = (LogicalOlapScan) queryStructInfo.getBottomPlan();
+            if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Rewrite query by view, for aggregate or join rewriting should be different inherit class implementation
      */
     protected Plan rewriteQueryByView(MatchMode matchMode, StructInfo queryStructInfo, StructInfo viewStructInfo,
-            SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan, MaterializationContext materializationContext) {
+            SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan, MaterializationContext materializationContext,
+            CascadesContext cascadesContext) {
         return tempRewritedPlan;
     }
 

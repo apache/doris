@@ -131,6 +131,8 @@ public:
 
     int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
 
+    int get_disk_num() { return _disk_num; }
+
 protected:
     void _evict_querying_rowset();
     void _evict_quring_rowset_thread_callback();
@@ -153,6 +155,8 @@ protected:
     scoped_refptr<Thread> _evict_quering_rowset_thread;
 
     int64_t _memory_limitation_bytes_for_schema_change;
+
+    int _disk_num {-1};
 };
 
 class StorageEngine final : public BaseStorageEngine {
@@ -506,7 +510,7 @@ private:
 // lru cache for create tabelt round robin in disks
 // key: partitionId_medium
 // value: index
-class CreateTabletIdxCache : public LRUCachePolicy {
+class CreateTabletIdxCache : public LRUCachePolicyTrackingManual {
 public:
     // get key, delimiter with DELIMITER '-'
     static std::string get_key(int64_t partition_id, TStorageMedium::type medium) {
@@ -520,15 +524,13 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE) {}
-
         int idx = 0;
     };
 
     CreateTabletIdxCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
-                             LRUCacheType::NUMBER,
-                             /*stale_sweep_time_s*/ 30 * 60) {}
+            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE,
+                                           capacity, LRUCacheType::NUMBER,
+                                           /*stale_sweep_time_s*/ 30 * 60) {}
 };
 
 struct DirInfo {

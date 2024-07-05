@@ -186,9 +186,9 @@ LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capa
 }
 
 RowCache::RowCache(int64_t capacity, int num_shards)
-        : LRUCachePolicy(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity,
-                         LRUCacheType::SIZE, config::point_query_row_cache_stale_sweep_time_sec,
-                         num_shards) {}
+        : LRUCachePolicyTrackingManual(
+                  CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity, LRUCacheType::SIZE,
+                  config::point_query_row_cache_stale_sweep_time_sec, num_shards) {}
 
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
@@ -218,8 +218,8 @@ void RowCache::insert(const RowCacheKey& key, const Slice& value) {
     auto* row_cache_value = new RowCacheValue;
     row_cache_value->cache_value = cache_value;
     const std::string& encoded_key = key.encode();
-    auto* handle = LRUCachePolicy::insert(encoded_key, row_cache_value, value.size, value.size,
-                                          CachePriority::NORMAL);
+    auto* handle = LRUCachePolicyTrackingManual::insert(encoded_key, row_cache_value, value.size,
+                                                        value.size, CachePriority::NORMAL);
     // handle will released
     auto tmp = CacheHandle {this, handle};
 }
@@ -432,7 +432,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                     _reusable->get_col_default_values(), _reusable->include_col_uids());
         }
         if (!_reusable->missing_col_uids().empty()) {
-            if (!_reusable->runtime_state().enable_short_circuit_query_access_column_store()) {
+            if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
                 std::string missing_columns;
                 for (int cid : _reusable->missing_col_uids()) {
                     missing_columns += _tablet->tablet_schema()->column_by_uid(cid).name() + ",";
@@ -487,10 +487,10 @@ Status PointQueryExecutor::_lookup_row_data() {
 }
 
 template <typename MysqlWriter>
-Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& block,
-                        PTabletKeyLookupResponse* response) {
+Status serialize_block(RuntimeState* state, MysqlWriter& mysql_writer, vectorized::Block& block,
+                       PTabletKeyLookupResponse* response) {
     block.clear_names();
-    RETURN_IF_ERROR(mysql_writer.write(block));
+    RETURN_IF_ERROR(mysql_writer.write(state, block));
     assert(mysql_writer.results().size() == 1);
     uint8_t* buf = nullptr;
     uint32_t len = 0;
@@ -508,11 +508,15 @@ Status PointQueryExecutor::_output_data() {
         if (_binary_row_format) {
             vectorized::VMysqlResultWriter<true> mysql_writer(nullptr, _reusable->output_exprs(),
                                                               nullptr);
-            RETURN_IF_ERROR(_serialize_block(mysql_writer, *_result_block, _response));
+            RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
+            RETURN_IF_ERROR(serialize_block(_reusable->runtime_state(), mysql_writer,
+                                            *_result_block, _response));
         } else {
             vectorized::VMysqlResultWriter<false> mysql_writer(nullptr, _reusable->output_exprs(),
                                                                nullptr);
-            RETURN_IF_ERROR(_serialize_block(mysql_writer, *_result_block, _response));
+            RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
+            RETURN_IF_ERROR(serialize_block(_reusable->runtime_state(), mysql_writer,
+                                            *_result_block, _response));
         }
         VLOG_DEBUG << "dump block " << _result_block->dump_data();
     } else {

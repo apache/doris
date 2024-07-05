@@ -46,7 +46,6 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/array/function_array_index.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -76,20 +75,8 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(arguments.size() % 2 == 0)
                 << "function: " << get_name() << ", arguments should not be even number";
-
-        DataTypes key_types;
-        DataTypes val_types;
-        for (size_t i = 0; i < arguments.size(); i += 2) {
-            key_types.push_back(arguments[i]);
-            val_types.push_back(arguments[i + 1]);
-        }
-
-        DataTypePtr key_type;
-        DataTypePtr val_type;
-        get_least_supertype(key_types, &key_type);
-        get_least_supertype(val_types, &val_type);
-
-        return std::make_shared<DataTypeMap>(make_nullable(key_type), make_nullable(val_type));
+        return std::make_shared<DataTypeMap>(make_nullable(arguments[0]),
+                                             make_nullable(arguments[1]));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -100,7 +87,7 @@ public:
         size_t num_element = arguments.size();
 
         auto result_col = block.get_by_position(result).type->create_column();
-        auto map_column = typeid_cast<ColumnMap*>(result_col.get());
+        auto* map_column = typeid_cast<ColumnMap*>(result_col.get());
         if (!map_column) {
             return Status::RuntimeError("unsupported types for function {} return {}", get_name(),
                                         block.get_by_position(result).type->get_name());

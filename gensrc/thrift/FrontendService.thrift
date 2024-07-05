@@ -506,6 +506,8 @@ struct TReportExecStatusParams {
 
   28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
 
+  29: optional i64 txn_id
+  30: optional string label
 }
 
 struct TFeResult {
@@ -991,6 +993,7 @@ struct TMetadataTableRequestParams {
   8: optional PlanNodes.TMaterializedViewsMetadataParams materialized_views_metadata_params
   9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
+  11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
 }
 
 struct TSchemaTableRequestParams {
@@ -1142,6 +1145,7 @@ enum TBinlogType {
   MODIFY_PARTITIONS = 11,
   REPLACE_PARTITIONS = 12,
   TRUNCATE_TABLE = 13,
+  RENAME_TABLE = 14,
 }
 
 struct TBinlog {
@@ -1322,6 +1326,7 @@ struct TAutoIncrementRangeResult {
     1: optional Status.TStatus status
     2: optional i64 start
     3: optional i64 length
+    4: optional Types.TNetworkAddress master_address
 }
 
 struct TCreatePartitionRequest {
@@ -1444,6 +1449,7 @@ struct TGetMetaDBMeta {
     1: optional i64 id
     2: optional string name
     3: optional list<TGetMetaTableMeta> tables
+    4: optional list<i64> dropped_partitions
 }
 
 struct TGetMetaResult {

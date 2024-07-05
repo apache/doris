@@ -17,21 +17,15 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.CreateTableAsSelectStmt;
-import org.apache.doris.analysis.CreateTableLikeStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateViewStmt;
-import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NotFallbackInParser;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -324,15 +318,7 @@ public abstract class ConnectProcessor {
         if (mysqlCommand == MysqlCommand.COM_QUERY
                 && ctx.getSessionVariable().isEnableNereidsPlanner()
                 && !ctx.getSessionVariable().enableFallbackToOriginalPlanner
-                && stmts.stream().allMatch(s -> s instanceof QueryStmt
-                || s instanceof InsertStmt
-                || s instanceof UpdateStmt
-                || s instanceof DeleteStmt
-                || s instanceof CreateTableAsSelectStmt
-                || s instanceof CreateTableStmt
-                || s instanceof CreateTableLikeStmt
-                || s instanceof CreateViewStmt
-                || s instanceof AlterViewStmt)) {
+                && stmts.stream().allMatch(s -> s instanceof NotFallbackInParser)) {
             String errMsg;
             Throwable exception = null;
             if (nereidsParseException != null) {
@@ -387,7 +373,13 @@ public abstract class ConnectProcessor {
                         if (i != stmts.size() - 1) {
                             ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
                             if (ctx.getState().getStateType() != MysqlStateType.ERR) {
-                                finalizeCommand();
+                                // here, doris do different with mysql.
+                                // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
+                                // single statement. Doris treat it with multi statement, but only return
+                                // the last statement result.
+                                if (getConnectContext().getCapability().isClientMultiStatements()) {
+                                    finalizeCommand();
+                                }
                             }
                         }
                     } else if (connectType.equals(ConnectType.ARROW_FLIGHT_SQL)) {

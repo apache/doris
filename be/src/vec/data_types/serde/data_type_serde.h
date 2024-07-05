@@ -97,6 +97,7 @@ namespace vectorized {
 class IColumn;
 class Arena;
 class IDataType;
+
 // Deserialize means read from different file format or memory format,
 // for example read from arrow, read from parquet.
 // Serialize means write the column cell or the total column into another
@@ -106,7 +107,6 @@ class IDataType;
 // how many cases or files we has to modify when we add a new type. And also
 // it is very difficult to add a new read file format or write file format because
 // the developer does not know how many datatypes has to deal.
-
 class DataTypeSerDe {
 public:
     // Text serialization/deserialization of data types depend on some settings witch we define
@@ -142,6 +142,24 @@ public:
          * only used for export data
          */
         bool _output_object_data = true;
+
+        /**
+         * The format of null value in nested type, eg:
+         *      NULL
+         *      null
+         */
+        const char* null_format;
+        int null_len;
+
+        /**
+         * The wrapper char for string type in nested type.
+         *  eg, if set to empty, the array<string> will be:
+         *       [abc, def, , hig]
+         *      if set to '"', the array<string> will be:
+         *       ["abc", "def", "", "hig"]
+         */
+        const char* nested_string_wrapper;
+        int wrapper_len;
 
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
@@ -251,10 +269,12 @@ public:
 
     // MySQL serializer and deserializer
     virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                         int row_idx, bool col_const) const = 0;
+                                         int row_idx, bool col_const,
+                                         const FormatOptions& options) const = 0;
 
     virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                         int row_idx, bool col_const) const = 0;
+                                         int row_idx, bool col_const,
+                                         const FormatOptions& options) const = 0;
     // Thrift serializer and deserializer
 
     // JSON serializer and deserializer

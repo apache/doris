@@ -1033,28 +1033,37 @@ Status IRuntimeFilter::publish(bool publish_local) {
 class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
                                                   DummyBrpcCallback<PSendFilterSizeResponse>> {
     std::shared_ptr<pipeline::Dependency> _dependency;
+    IRuntimeFilter* _filter;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
     ENABLE_FACTORY_CREATOR(SyncSizeClosure);
 
     void _process_if_rpc_failed() override {
         ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+        LOG(WARNING) << "sync filter size meet rpc error, filter=" << _filter->debug_string();
         Base::_process_if_rpc_failed();
     }
 
     void _process_if_meet_error_status(const Status& status) override {
         ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
-        Base::_process_if_meet_error_status(status);
+        if (status.is<ErrorCode::END_OF_FILE>()) {
+            // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
+            _filter->set_ignored();
+        } else {
+            LOG(WARNING) << "sync filter size meet error status, filter="
+                         << _filter->debug_string();
+            Base::_process_if_meet_error_status(status);
+        }
     }
 
 public:
     SyncSizeClosure(std::shared_ptr<PSendFilterSizeRequest> req,
                     std::shared_ptr<DummyBrpcCallback<PSendFilterSizeResponse>> callback,
-                    std::shared_ptr<pipeline::Dependency> dependency)
-            : Base(req, callback), _dependency(std::move(dependency)) {}
+                    std::shared_ptr<pipeline::Dependency> dependency, IRuntimeFilter* filter)
+            : Base(req, callback), _dependency(std::move(dependency)), _filter(filter) {}
 };
 
-Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
+Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
     DCHECK(is_producer());
 
     if (_need_local_merge) {
@@ -1094,7 +1103,7 @@ Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
 
     auto request = std::make_shared<PSendFilterSizeRequest>();
     auto callback = DummyBrpcCallback<PSendFilterSizeResponse>::create_shared();
-    auto closure = SyncSizeClosure::create_unique(request, callback, _dependency);
+    auto closure = SyncSizeClosure::create_unique(request, callback, _dependency, this);
     auto* pquery_id = request->mutable_query_id();
     pquery_id->set_hi(_state->query_id.hi());
     pquery_id->set_lo(_state->query_id.lo());
@@ -1105,7 +1114,7 @@ Status IRuntimeFilter::send_filter_size(uint64_t local_filter_size) {
 
     request->set_filter_size(local_filter_size);
     request->set_filter_id(_filter_id);
-    callback->cntl_->set_timeout_ms(wait_time_ms());
+    callback->cntl_->set_timeout_ms(std::min(3600, state->execution_timeout()) * 1000);
 
     stub->send_filter_size(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
                            closure.get());

@@ -106,7 +106,7 @@ public:
 
     ~VTabletWriterV2() override;
 
-    Status write(Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 

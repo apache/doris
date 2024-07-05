@@ -36,6 +36,8 @@ suite ("test_upper_alias") {
         """
 
     sql """insert into test_0401 values('xxx', 'wfsdf', 9.30 );"""
+    sql """insert into test_0401 values('xxx', 'wfsdf', 9.30 );"""
+    sql """insert into test_0401 values('yyy', 'wfsdf', 91.310 );"""
 
     createMV ("""
         create materialized view test_0401_mv as 
@@ -47,7 +49,8 @@ suite ("test_upper_alias") {
         select d_a,d_b from test_0401;
     """)
 
-    sql """insert into test_0401 values('yyy', 'wfsdf', 91.310 );"""
+    sql "analyze table test_0401 with sync;"
+    sql """set enable_stats=false;"""
 
     explain {
         sql("SELECT upper(d_b) AS d_b FROM test_0401 GROUP BY upper(d_b) order by 1;")
@@ -62,8 +65,24 @@ suite ("test_upper_alias") {
     qt_select_mv "SELECT upper(d_b) AS d_bb FROM test_0401 GROUP BY upper(d_b) order by 1;"
 
     explain {
-        sql("SELECT d_a AS d_b FROM test_0401 order by 1;")
+        sql("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;")
         contains "(test_0401_mv2)"
     }
     qt_select_mv "SELECT d_a AS d_b FROM test_0401 order by 1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("SELECT upper(d_b) AS d_b FROM test_0401 GROUP BY upper(d_b) order by 1;")
+        contains "(test_0401_mv)"
+    }
+
+    explain {
+        sql("SELECT upper(d_b) AS d_bb FROM test_0401 GROUP BY upper(d_b) order by 1;")
+        contains "(test_0401_mv)"
+    }
+
+    explain {
+        sql("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;")
+        contains "(test_0401_mv2)"
+    }
 }

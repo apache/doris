@@ -498,6 +498,11 @@ Status PipelineXLocalState<SharedStateArg>::close(RuntimeState* state) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
     _closed = true;
+    // Some kinds of source operators has a 1-1 relationship with a sink operator (such as AnalyticOperator).
+    // We must ensure AnalyticSinkOperator will not be blocked if AnalyticSourceOperator already closed.
+    if (_shared_state && _shared_state->sink_deps.size() == 1) {
+        _shared_state->sink_deps.front()->set_always_ready();
+    }
     return Status::OK();
 }
 

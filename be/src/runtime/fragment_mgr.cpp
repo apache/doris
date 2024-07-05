@@ -243,56 +243,42 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
             params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
         }
-        if (req.is_pipeline_x) {
-            params.__isset.detailed_report = true;
-            DCHECK(!req.runtime_states.empty());
-            const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
-            if (enable_profile) {
-                params.__isset.profile = true;
-                params.__isset.loadChannelProfile = false;
-                for (auto* rs : req.runtime_states) {
-                    DCHECK(req.load_channel_profile);
-                    TDetailedReportParams detailed_param;
-                    rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
-                    // merge all runtime_states.loadChannelProfile to req.load_channel_profile
-                    req.load_channel_profile->update(detailed_param.loadChannelProfile);
-                }
-                req.load_channel_profile->to_thrift(&params.loadChannelProfile);
-            } else {
-                params.__isset.profile = false;
+        params.__isset.detailed_report = true;
+        DCHECK(!req.runtime_states.empty());
+        const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
+        if (enable_profile) {
+            params.__isset.profile = true;
+            params.__isset.loadChannelProfile = false;
+            for (auto* rs : req.runtime_states) {
+                DCHECK(req.load_channel_profile);
+                TDetailedReportParams detailed_param;
+                rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
+                // merge all runtime_states.loadChannelProfile to req.load_channel_profile
+                req.load_channel_profile->update(detailed_param.loadChannelProfile);
             }
+            req.load_channel_profile->to_thrift(&params.loadChannelProfile);
+        } else {
+            params.__isset.profile = false;
+        }
 
-            if (enable_profile) {
-                DCHECK(req.profile != nullptr);
+        if (enable_profile) {
+            DCHECK(req.profile != nullptr);
+            TDetailedReportParams detailed_param;
+            detailed_param.__isset.fragment_instance_id = false;
+            detailed_param.__isset.profile = true;
+            detailed_param.__isset.loadChannelProfile = false;
+            detailed_param.__set_is_fragment_level(true);
+            req.profile->to_thrift(&detailed_param.profile);
+            params.detailed_report.push_back(detailed_param);
+            for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
                 TDetailedReportParams detailed_param;
                 detailed_param.__isset.fragment_instance_id = false;
                 detailed_param.__isset.profile = true;
                 detailed_param.__isset.loadChannelProfile = false;
-                detailed_param.__set_is_fragment_level(true);
-                req.profile->to_thrift(&detailed_param.profile);
-                params.detailed_report.push_back(detailed_param);
-                for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
-                    TDetailedReportParams detailed_param;
-                    detailed_param.__isset.fragment_instance_id = false;
-                    detailed_param.__isset.profile = true;
-                    detailed_param.__isset.loadChannelProfile = false;
-                    pipeline_profile->to_thrift(&detailed_param.profile);
-                    params.detailed_report.push_back(std::move(detailed_param));
-                }
-            }
-        } else {
-            if (req.profile != nullptr) {
-                req.profile->to_thrift(&params.profile);
-                if (req.load_channel_profile) {
-                    req.load_channel_profile->to_thrift(&params.loadChannelProfile);
-                }
-                params.__isset.profile = true;
-                params.__isset.loadChannelProfile = true;
-            } else {
-                params.__isset.profile = false;
+                pipeline_profile->to_thrift(&detailed_param.profile);
+                params.detailed_report.push_back(std::move(detailed_param));
             }
         }
-
         if (!req.runtime_state->output_files().empty()) {
             params.__isset.delta_urls = true;
             for (auto& it : req.runtime_state->output_files()) {
@@ -351,6 +337,10 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 if (!rs->get_error_log_file_path().empty()) {
                     params.__set_tracking_url(
                             to_load_error_http_path(rs->get_error_log_file_path()));
+                }
+                if (rs->wal_id() > 0) {
+                    params.__set_txn_id(rs->wal_id());
+                    params.__set_label(rs->import_label());
                 }
             }
         }
@@ -650,9 +640,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << ", use workload group: " << workload_group_ptr->debug_string()
-                          << ", is pipeline: " << ((int)is_pipeline)
-                          << ", enable cgroup soft limit: "
-                          << ((int)config::enable_cgroup_cpu_soft_limit);
+                          << ", is pipeline: " << ((int)is_pipeline);
             } else {
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << " carried group info but can not find group in be";
@@ -883,10 +871,11 @@ void FragmentMgr::cancel_worker() {
             // 1. If query's process uuid is zero, do not cancel
             // 2. If same process uuid, do not cancel
             // 3. If fe has zero process uuid, do not cancel
-            if (running_fes.empty()) {
+            if (running_fes.empty() && !_query_ctx_map.empty()) {
                 LOG_EVERY_N(WARNING, 10)
-                        << "Could not find any running frontends, maybe we are upgrading? "
-                        << "We will not cancel any running queries in this situation.";
+                        << "Could not find any running frontends, maybe we are upgrading or "
+                           "starting? "
+                        << "We will not cancel any outdated queries in this situation.";
             } else {
                 for (const auto& it : _query_ctx_map) {
                     if (auto q_ctx = it.second.lock()) {
@@ -1096,8 +1085,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
 Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
     UniqueId queryid = request->query_id();
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
-    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
     std::shared_ptr<QueryContext> query_ctx;
     {
@@ -1108,10 +1095,13 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
         if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
-            return Status::InvalidArgument("Query context (query-id: {}) not found",
-                                           queryid.to_string());
+            return Status::EndOfFile("Query context (query-id: {}) not found, maybe finished",
+                                     queryid.to_string());
         }
     }
+
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
     auto merge_status = filter_controller->send_filter_size(request);
     return merge_status;
 }

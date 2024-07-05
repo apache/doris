@@ -96,7 +96,8 @@ suite("test_export_with_s3", "p2") {
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
                 "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                "s3.access_key" = "${ak}",
+                "provider" = "${getS3Provider()}"
             );
         """
 
@@ -108,6 +109,7 @@ suite("test_export_with_s3", "p2") {
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "${format}",
+                "provider" = "${getS3Provider()}",
                 "region" = "${region}"
             );
             """
