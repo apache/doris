@@ -17,8 +17,7 @@
 import groovy.json.JsonOutput
 
 import org.apache.doris.regression.suite.Suite
-import org.apache.doris.regression.util.ListObjectsFileNames
-import org.apache.doris.regression.util.AwsListObjectsFileNames
+import org.apache.doris.regression.util.*
 
 Suite.metaClass.triggerRecycle = { String token, String instanceId /* param */ ->
     // which suite invoke current function?
@@ -51,14 +50,6 @@ Suite.metaClass.triggerRecycle = { String token, String instanceId /* param */ -
 
 logger.info("Added 'triggerRecycle' function to Suite")
 
-def getCorrespondingObjectListUtil = { objInfo, suite ->
-    def provider = objInfo.provider
-    if (provider.equalsIgnoreCase("azure")) {
-        return AzureListObjectsFileNames(objInfo.ak, objInfo.sk, objInfo.endpoint, objInfo.region, objInfo.prefix, objInfo.bucket, suite)
-    }
-    return AwsListObjectsFileNames(objInfo.ak, objInfo.sk, objInfo.endpoint, objInfo.region, objInfo.prefix, objInfo.bucket, suite)
-}
-
 //cloud mode recycler plugin
 Suite.metaClass.checkRecycleTable = { String token, String instanceId, String cloudUniqueId, String tableName, 
         Collection<String> tabletIdList /* param */ ->
@@ -77,9 +68,10 @@ Suite.metaClass.checkRecycleTable = { String token, String instanceId, String cl
     String region = getObjStoreInfoApiResult.result.obj_info[0].region
     String prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
     String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
-    suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
+    String provider = getObjStoreInfoApiResult.result.obj_info[0].provider
+    suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}, provider:${provider}".toString())
 
-    ListObjectsFileNames client = getCorrespondingObjectListUtil(getObjStoreInfoApiResult.result.obj_info[0], suite)
+    ListObjectsFileNames client = ListObjectsFileNamesUtil.getListObjectsFileNames(provider, ak, sk, endpoint, region, prefix, bucket, suite)
 
     assertTrue(tabletIdList.size() > 0)
     for (tabletId : tabletIdList) {
@@ -114,9 +106,10 @@ Suite.metaClass.checkRecycleInternalStage = { String token, String instanceId, S
     String region = getObjStoreInfoApiResult.result.obj_info[0].region
     String prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
     String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
-    suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
+    String provider = getObjStoreInfoApiResult.result.obj_info[0].provider
+    suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}, provider:${provider}".toString())
 
-    ListObjectsFileNames client = getCorrespondingObjectListUtil(getObjStoreInfoApiResult.result.obj_info[0], suite)
+    ListObjectsFileNames client = ListObjectsFileNamesUtil.getListObjectsFileNames(provider, ak, sk, endpoint, region, prefix, bucket, suite)
 
     // for root and admin, userId equal userName
     String userName = suite.context.config.jdbcUser;
@@ -146,9 +139,10 @@ Suite.metaClass.checkRecycleExpiredStageObjects = { String token, String instanc
     String region = getObjStoreInfoApiResult.result.obj_info[0].region
     String prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
     String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
-    suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
+    String provider = getObjStoreInfoApiResult.result.obj_info[0].provider
+    suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}, provider:${provider}".toString())
 
-    ListObjectsFileNames client = getCorrespondingObjectListUtil(getObjStoreInfoApiResult.result.obj_info[0], suite)
+    ListObjectsFileNames client = ListObjectsFileNamesUtil.getListObjectsFileNames(provider, ak, sk, endpoint, region, prefix, bucket, suite)
 
     // for root and admin, userId equal userName
     String userName = suite.context.config.jdbcUser;
