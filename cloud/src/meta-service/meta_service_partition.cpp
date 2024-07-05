@@ -652,12 +652,11 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
         } else {
             // err != TXN_OK, fdb read err
             *code = cast_as<ErrCategory::READ>(err);
-            *msg = "ms read key error";
+            *msg = fmt::format("ms read key error: {}", err);
             return;
         }
     }
-    LOG_INFO("check {} success request={}", hint, request->ShortDebugString());
-    return;
+    LOG_INFO("check {} success key.size={}", hint, keys.size());
 }
 
 void MetaServiceImpl::check_kv(::google::protobuf::RpcController* controller,
@@ -706,7 +705,9 @@ void MetaServiceImpl::check_kv(::google::protobuf::RpcController* controller,
         break;
     }
     default:
-        DCHECK(false);
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "not support op";
+        return;
     };
 }
 
