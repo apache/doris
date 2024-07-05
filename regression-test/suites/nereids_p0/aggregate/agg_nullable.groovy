@@ -650,7 +650,7 @@ suite("agg_nullable") {
         contains "colUniqueId=null, type=DOUBLE, nullable=true"
     }
 
-    // qt_select_covar_samp2 """select covar_samp(kint, kint) from agg_nullable_test group by id;"""
+    qt_select_covar_samp2 """select covar_samp(kint, kint) from agg_nullable_test group by id;"""
     explain {
         sql("verbose select covar_samp(kint, kint) from agg_nullable_test group by id;")
         contains "colUniqueId=null, type=DOUBLE, nullable=false"
@@ -686,7 +686,7 @@ suite("agg_nullable") {
         contains "colUniqueId=null, type=DOUBLE, nullable=true"
     }
 
-    // qt_select_percentile_approx2 """select percentile_approx(kbint, 0.6) from agg_nullable_test group by id;"""
+    qt_select_percentile_approx2 """select percentile_approx(kbint, 0.6) from agg_nullable_test group by id;"""
     explain {
         sql("verbose select percentile_approx(kbint, 0.6) from agg_nullable_test group by id;")
         contains "colUniqueId=null, type=DOUBLE, nullable=false"
@@ -704,7 +704,7 @@ suite("agg_nullable") {
         contains "colUniqueId=null, type=DOUBLE, nullable=true"
     }
 
-    // qt_select_percentile_approx_weighted2 """select percentile_approx_weighted(kint, kbint, 0.6) from agg_nullable_test group by id;"""
+    qt_select_percentile_approx_weighted2 """select percentile_approx_weighted(kint, kbint, 0.6) from agg_nullable_test group by id;"""
     explain {
         sql("verbose select percentile_approx_weighted(kint, kbint, 0.6) from agg_nullable_test group by id;")
         contains "colUniqueId=null, type=DOUBLE, nullable=false"
@@ -794,7 +794,7 @@ suite("agg_nullable") {
         contains "colUniqueId=null, type=DOUBLE, nullable=true"
     }
 
-    // qt_select_stddev_samp2 """select stddev_samp(kint) from agg_nullable_test group by id;"""
+    qt_select_stddev_samp2 """select stddev_samp(kint) from agg_nullable_test group by id;"""
     explain {
         sql("verbose select stddev_samp(kint) from agg_nullable_test group by id;")
         contains "colUniqueId=null, type=DOUBLE, nullable=false"
@@ -920,7 +920,7 @@ suite("agg_nullable") {
         contains "colUniqueId=null, type=DOUBLE, nullable=true"
     }
 
-    // qt_select_variance_samp2 """select variance_samp(kint) from agg_nullable_test group by id;"""
+    qt_select_variance_samp2 """select variance_samp(kint) from agg_nullable_test group by id;"""
     explain {
         sql("verbose select variance_samp(kint) from agg_nullable_test group by id;")
         contains "colUniqueId=null, type=DOUBLE, nullable=false"
@@ -938,7 +938,7 @@ suite("agg_nullable") {
         contains "colUniqueId=null, type=DOUBLE, nullable=true"
     }
 
-    // qt_select_var_samp2 """select var_samp(kint) from agg_nullable_test group by id;"""
+    qt_select_var_samp2 """select var_samp(kint) from agg_nullable_test group by id;"""
     explain {
         sql("verbose select var_samp(kint) from agg_nullable_test group by id;")
         contains "colUniqueId=null, type=DOUBLE, nullable=false"

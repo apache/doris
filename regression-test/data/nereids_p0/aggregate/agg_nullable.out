@@ -266,6 +266,8 @@
 -- !select_covar_samp --
 \N
 
+-- !select_covar_samp2 --
+
 -- !select_covar_samp_n --
 \N
 
@@ -280,11 +282,15 @@
 -- !select_percentile_approx --
 \N
 
+-- !select_percentile_approx2 --
+
 -- !select_percentile_approx_n --
 \N
 
 -- !select_percentile_approx_weighted --
 \N
+
+-- !select_percentile_approx_weighted2 --
 
 -- !select_percentile_approx_weighted_n --
 \N
@@ -323,6 +329,8 @@
 
 -- !select_stddev_samp --
 \N
+
+-- !select_stddev_samp2 --
 
 -- !select_stddev_samp_n --
 \N
@@ -378,11 +386,15 @@
 -- !select_variance_samp --
 \N
 
+-- !select_variance_samp2 --
+
 -- !select_variance_samp_n --
 \N
 
 -- !select_var_samp --
 \N
+
+-- !select_var_samp2 --
 
 -- !select_var_samp_n --
 \N

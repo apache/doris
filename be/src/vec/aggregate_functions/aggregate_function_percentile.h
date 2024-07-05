@@ -159,7 +159,7 @@ public:
     String get_name() const override { return "percentile_approx"; }
 
     DataTypePtr get_return_type() const override {
-        if (version < AGG_FUNCTION_NULLABLE) {
+        if (IAggregateFunction::version < AGG_FUNCTION_NULLABLE) {
             return make_nullable(std::make_shared<DataTypeFloat64>());
         }
         return std::make_shared<DataTypeFloat64>();
@@ -185,7 +185,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        if (version < AGG_FUNCTION_NULLABLE) {
+        if (IAggregateFunction::version < AGG_FUNCTION_NULLABLE) {
             ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
             double result = AggregateFunctionPercentileApprox::data(place).get();
 
@@ -447,7 +447,7 @@ public:
 template <typename T>
 struct PercentileState {
     mutable std::vector<Counts<T>> vec_counts;
-    std::vector<double> vec_quantile {-1};
+    std::vector<double> vec_quantile;
     bool inited_flag = false;
 
     void write(BufferWritable& buf) const {
