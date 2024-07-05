@@ -138,14 +138,10 @@ public class ForeignKeyContext {
 
     private boolean isHiddenConjunct(Expression expression) {
         for (Slot slot : expression.getInputSlots()) {
-            if (slot instanceof SlotReference) {
-                SlotReference slotReference = (SlotReference) slot;
-                if (slotReference.getColumn().isPresent()) {
-                    Column column = slotReference.getColumn().get();
-                    if (column.isDeleteSignColumn() || column.isVersionColumn()) {
-                        return true;
-                    }
-                }
+            if (slot instanceof SlotReference
+                    && ((SlotReference) slot).getColumn().isPresent()
+                    && ((SlotReference) slot).getColumn().get().isDeleteSignColumn()) {
+                return true;
             }
         }
         return false;
