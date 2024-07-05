@@ -16,7 +16,7 @@
 // under the License.
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_stream_load_with_inverted_index_p0", "nonCurrent") {
+suite("test_stream_load_with_inverted_index_p0", "nonConcurrent") {
 
     def set_be_config = { key, value ->
         def backendId_to_backendIP = [:]
@@ -135,10 +135,10 @@ suite("test_stream_load_with_inverted_index_p0", "nonCurrent") {
         }
 
         set_be_config("inverted_index_ram_dir_enable", "true")
-        // test.call("V1")
+        test.call("V1")
         test.call("V2")
         set_be_config("inverted_index_ram_dir_enable", "false")
-        // test.call("V1")
+        test.call("V1")
         test.call("V2")
         set_be_config("inverted_index_ram_dir_enable", "true")
         
