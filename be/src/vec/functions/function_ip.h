@@ -631,15 +631,17 @@ public:
             // make cidr from string
             IPAddressCIDR cidr = parse_ip_with_cidr(
                     context->get_constant_col(1)->column_ptr->get_data_at(0).to_string_view());
-            if (context->get_arg_type(0)->type == PrimitiveType::TYPE_IPV4) {
+            if (context->get_arg_type(0)->type == PrimitiveType::TYPE_IPV4 &&
+                cidr._address.as_v4()) {
                 auto range = apply_cidr_mask(cidr._address.as_v4(), cidr._prefix);
                 state->type = PrimitiveType::TYPE_IPV4;
                 state->min_value = range.first;
                 state->max_value = range.second;
-            } else if (context->get_arg_type(0)->type == PrimitiveType::TYPE_IPV6) {
+            } else if (context->get_arg_type(0)->type == PrimitiveType::TYPE_IPV6 &&
+                       cidr._address.as_v6()) {
                 auto cidr_range_ipv6_col = ColumnIPv6::create(2, 0);
                 auto& cidr_range_ipv6_data = cidr_range_ipv6_col->get_data();
-                apply_cidr_mask(reinterpret_cast<char*>(*cidr._address.as_v6()),
+                apply_cidr_mask(reinterpret_cast<const char*>(cidr._address.as_v6()),
                                 reinterpret_cast<char*>(&cidr_range_ipv6_data[0]),
                                 reinterpret_cast<char*>(&cidr_range_ipv6_data[1]), cidr._prefix);
                 state->type = PrimitiveType::TYPE_IPV6;
@@ -724,6 +726,39 @@ public:
         return Status::OK();
     }
 
+    template <PrimitiveType PT, typename ColumnType>
+    void execute_impl_with_ip(size_t input_rows_count, bool addr_const, bool cidr_const,
+                              const ColumnString* str_cidr_column, const ColumnPtr addr_column,
+                              ColumnUInt8* col_res) const {
+        auto& col_res_data = col_res->get_data();
+        const auto& ip_data = assert_cast<const ColumnType*>(addr_column.get())->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto addr_idx = index_check_const(i, addr_const);
+            auto cidr_idx = index_check_const(i, cidr_const);
+            const auto cidr =
+                    parse_ip_with_cidr(str_cidr_column->get_data_at(cidr_idx).to_string_view());
+            if constexpr (PT == PrimitiveType::TYPE_IPV4) {
+                if (cidr._address.as_v4()) {
+                    col_res_data[i] = match_ipv4_subnet(ip_data[addr_idx], cidr._address.as_v4(),
+                                                        cidr._prefix)
+                                              ? 1
+                                              : 0;
+                } else {
+                    col_res_data[i] = 0;
+                }
+            } else if constexpr (PT == PrimitiveType::TYPE_IPV6) {
+                if (cidr._address.as_v6()) {
+                    col_res_data[i] = match_ipv6_subnet((uint8*)(&ip_data[addr_idx]),
+                                                        cidr._address.as_v6(), cidr._prefix)
+                                              ? 1
+                                              : 0;
+                } else {
+                    col_res_data[i] = 0;
+                }
+            }
+        }
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
@@ -732,21 +767,32 @@ public:
                 unpack_if_const(addr_column_with_type_and_name.column);
         const auto& [cidr_column, cidr_const] =
                 unpack_if_const(cidr_column_with_type_and_name.column);
-        const auto* str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
-        const auto* str_cidr_column = assert_cast<const ColumnString*>(cidr_column.get());
 
         auto col_res = ColumnUInt8::create(input_rows_count, 0);
         auto& col_res_data = col_res->get_data();
 
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto addr_idx = index_check_const(i, addr_const);
-            auto cidr_idx = index_check_const(i, cidr_const);
+        if (is_ipv4(addr_column_with_type_and_name.type)) {
+            execute_impl_with_ip<PrimitiveType::TYPE_IPV4, ColumnIPv4>(
+                    input_rows_count, addr_const, cidr_const,
+                    assert_cast<const ColumnString*>(cidr_column.get()), addr_column, col_res);
+        } else if (is_ipv6(addr_column_with_type_and_name.type)) {
+            execute_impl_with_ip<PrimitiveType::TYPE_IPV6, ColumnIPv6>(
+                    input_rows_count, addr_const, cidr_const,
+                    assert_cast<const ColumnString*>(cidr_column.get()), addr_column, col_res);
+        } else {
+            const auto* str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
+            const auto* str_cidr_column = assert_cast<const ColumnString*>(cidr_column.get());
 
-            const auto addr =
-                    IPAddressVariant(str_addr_column->get_data_at(addr_idx).to_string_view());
-            const auto cidr =
-                    parse_ip_with_cidr(str_cidr_column->get_data_at(cidr_idx).to_string_view());
-            col_res_data[i] = is_address_in_range(addr, cidr) ? 1 : 0;
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto addr_idx = index_check_const(i, addr_const);
+                auto cidr_idx = index_check_const(i, cidr_const);
+
+                const auto addr =
+                        IPAddressVariant(str_addr_column->get_data_at(addr_idx).to_string_view());
+                const auto cidr =
+                        parse_ip_with_cidr(str_cidr_column->get_data_at(cidr_idx).to_string_view());
+                col_res_data[i] = is_address_in_range(addr, cidr) ? 1 : 0;
+            }
         }
 
         block.replace_by_position(result, std::move(col_res));

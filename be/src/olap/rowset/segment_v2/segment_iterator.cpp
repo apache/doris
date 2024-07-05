@@ -1344,8 +1344,9 @@ Status SegmentIterator::_apply_inverted_index() {
             // _common_expr_columns has all column ids from _common_expr_ctxs_push_down
             // if current bitmap is already empty just return
             if (!(expr_ctx->root()->node_type() == TExprNodeType::FUNCTION_CALL &&
-                  expr_ctx->root()->fn().name.function_name ==
-                          vectorized::ArrayContainsAction::name)) {
+                  (expr_ctx->root()->fn().name.function_name ==
+                           vectorized::ArrayContainsAction::name ||
+                   expr_ctx->root()->fn().name.function_name == "is_ip_address_in_range"))) {
                 // now we only support ArrayContains function to evaluate inverted index
                 continue;
             }
