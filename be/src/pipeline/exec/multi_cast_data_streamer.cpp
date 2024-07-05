@@ -26,7 +26,10 @@ namespace doris::pipeline {
 MultiCastBlock::MultiCastBlock(vectorized::Block* block, int used_count, size_t mem_size)
         : _used_count(used_count), _mem_size(mem_size) {
     _block = vectorized::Block::create_unique(block->get_columns_with_type_and_name());
-    block->clear();
+    const auto rows = block->rows();
+    for (int i = 0; i < block->columns(); ++i) {
+        block->get_by_position(i).column = block->get_by_position(i).column->clone_resized(rows);
+    }
 }
 
 Status MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* block, bool* eos) {
@@ -48,7 +51,7 @@ Status MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* blo
         }
         *eos = _eos and pos_to_pull == end;
     }
-    const int rows = block->rows();
+    const auto rows = block->rows();
     for (int i = 0; i < block->columns(); ++i) {
         block->get_by_position(i).column = block->get_by_position(i).column->clone_resized(rows);
     }
