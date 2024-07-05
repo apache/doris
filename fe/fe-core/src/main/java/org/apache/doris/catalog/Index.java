@@ -51,17 +51,17 @@ import java.util.Set;
 public class Index implements Writable {
     public static final int INDEX_ID_INIT_VALUE = -1;
 
-    @SerializedName(value = "indexId")
+    @SerializedName(value = "i", alternate = {"indexId"})
     private long indexId = -1; // -1 for compatibale
-    @SerializedName(value = "indexName")
+    @SerializedName(value = "in", alternate = {"indexName"})
     private String indexName;
-    @SerializedName(value = "columns")
+    @SerializedName(value = "c", alternate = {"columns"})
     private List<String> columns;
-    @SerializedName(value = "indexType")
+    @SerializedName(value = "it", alternate = {"indexType"})
     private IndexDef.IndexType indexType;
-    @SerializedName(value = "properties")
+    @SerializedName(value = "pt", alternate = {"properties"})
     private Map<String, String> properties;
-    @SerializedName(value = "comment")
+    @SerializedName(value = "ct", alternate = {"comment"})
     private String comment;
 
     public Index(long indexId, String indexName, List<String> columns,
