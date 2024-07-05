@@ -30,8 +30,6 @@ import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
-import org.apache.doris.job.scheduler.TaskDispatchEvent;
-import org.apache.doris.job.scheduler.TaskDispatchEventBus;
 import org.apache.doris.job.scheduler.TaskDispatchOperate;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -66,7 +64,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             new Column("SucceedTaskCount", ScalarType.createStringType()),
             new Column("FailedTaskCount", ScalarType.createStringType()),
             new Column("CanceledTaskCount", ScalarType.createStringType())
-            );
+    );
     @SerializedName(value = "jid")
     private Long jobId;
 
@@ -149,7 +147,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
     private CopyOnWriteArrayList<T> runningTasks = new CopyOnWriteArrayList<>();
 
-    private Lock createTaskLock = new ReentrantLock();
+    private Lock taskLock = new ReentrantLock();
 
     @Override
     public void cancelAllTasks() throws JobException {
@@ -195,12 +193,12 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     }
 
     private void notifyEvent(T task, TaskDispatchOperate taskDispatchOperate) {
-        if (jobConfig.getMaxConcurrentTaskNum() <= 0) {
+       /* if (jobConfig.getMaxConcurrentTaskNum() <= 0) {
             return;
         }
         TaskDispatchEvent taskDispatchEvent = new TaskDispatchEvent(task.getTaskId(),
                 task.getTaskGroupId(), taskDispatchOperate);
-        TaskDispatchEventBus.post(taskDispatchEvent);
+        TaskDispatchEventBus.post(taskDispatchEvent);*/
     }
 
     public List<T> queryAllTasks() {
@@ -235,7 +233,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         try {
             //it's better to use tryLock and add timeout limit
-            createTaskLock.lock();
+            taskLock.lock();
             if (!isReadyForScheduling(taskContext)) {
                 log.info("job is not ready for scheduling, job id is {}", jobId);
                 return new ArrayList<>();
@@ -245,7 +243,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             tasks.forEach(task -> log.info("common create task, job id is {}, task id is {}", jobId, task.getTaskId()));
             return tasks;
         } finally {
-            createTaskLock.unlock();
+            taskLock.unlock();
         }
     }
 
@@ -303,7 +301,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         String jsonJob = Text.readString(in);
         AbstractJob job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
         job.runningTasks = new CopyOnWriteArrayList();
-        job.createTaskLock = new ReentrantLock();
+        job.taskLock = new ReentrantLock();
         return job;
     }
 
@@ -322,8 +320,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public void onTaskFail(T task) throws JobException {
         failedTaskCount.incrementAndGet();
-        updateJobStatusIfEnd(false);
         runningTasks.remove(task);
+        updateJobStatusIfEnd(false);
         logUpdateOperation();
         notifyEvent(task, TaskDispatchOperate.DROP_GROUP_TASK);
     }
@@ -331,8 +329,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public void onTaskSuccess(T task) throws JobException {
         succeedTaskCount.incrementAndGet();
-        updateJobStatusIfEnd(true);
         runningTasks.remove(task);
+        updateJobStatusIfEnd(true);
         logUpdateOperation();
         notifyEvent(task, TaskDispatchOperate.EXECUTE_GROUP_NEXT_TASK);
     }
@@ -345,12 +343,18 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         switch (executeType) {
             case ONE_TIME:
+                if (checkHasRunningTask()) {
+                    return;
+                }
                 updateJobStatus(JobStatus.FINISHED);
                 this.finishTimeMs = System.currentTimeMillis();
                 break;
             case INSTANT:
+                if (checkHasRunningTask()) {
+                    return;
+                }
                 this.finishTimeMs = System.currentTimeMillis();
-                if (taskSuccess) {
+                if (failedTaskCount.get() == 0) {
                     updateJobStatus(JobStatus.FINISHED);
                 } else {
                     updateJobStatus(JobStatus.STOPPED);
@@ -367,6 +371,18 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                 break;
             default:
                 break;
+        }
+    }
+
+    private boolean checkHasRunningTask() {
+        taskLock.lock();
+        try {
+            if (CollectionUtils.isEmpty(runningTasks)) {
+                return false;
+            }
+            return true;
+        } finally {
+            taskLock.unlock();
         }
     }
 

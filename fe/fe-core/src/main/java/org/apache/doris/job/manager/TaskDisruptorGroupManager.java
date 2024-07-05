@@ -30,21 +30,17 @@ import org.apache.doris.job.executor.DispatchTaskHandler;
 import org.apache.doris.job.extensions.insert.BatchInsertTask;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
-import org.apache.doris.job.scheduler.TaskDispatchEvent;
 import org.apache.doris.job.task.AbstractTask;
 
-import com.google.common.eventbus.Subscribe;
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventFactory;
 import com.lmax.disruptor.EventTranslatorVararg;
 import com.lmax.disruptor.WorkHandler;
 import lombok.Getter;
-import org.apache.commons.collections.CollectionUtils;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadFactory;
 
 public class TaskDisruptorGroupManager<T extends AbstractTask> {
@@ -72,9 +68,6 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
 
     private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
     private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
-
-    private static final ConcurrentHashMap<Long, ConcurrentLinkedQueue<AbstractTask>> currentTaskMap =
-            new ConcurrentHashMap<>(16);
 
     public void init() {
         registerInsertDisruptor();
@@ -155,17 +148,26 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
 
     public void dispatchInstantTask(AbstractTask task, JobType jobType,
                                     JobExecutionConfiguration jobExecutionConfiguration) {
-        int maxConcurrentTaskNum = jobExecutionConfiguration.getMaxConcurrentTaskNum();
         disruptorMap.get(jobType).publishEvent(task, jobExecutionConfiguration);
-        currentTaskMap.putIfAbsent(task.getTaskGroupId(), new ConcurrentLinkedQueue<>());
-        ConcurrentLinkedQueue<AbstractTask> taskQueue = currentTaskMap.get(task.getTaskGroupId());
-        taskQueue.add(task);
-        if (taskQueue.size() <= maxConcurrentTaskNum) {
-            disruptorMap.get(jobType).publishEvent(task);
-        }
     }
 
-    @Subscribe
+    public void dispatchInstantTasks(List<AbstractTask> task, JobType jobType, long groupId,
+                                     JobExecutionConfiguration jobExecutionConfiguration) {
+       /* int maxConcurrentTaskNum = jobExecutionConfiguration.getMaxConcurrentTaskNum();
+        if(task.size() <= maxConcurrentTaskNum) {
+            task.forEach(t -> dispatchInstantTask(t, jobType, jobExecutionConfiguration));
+            return;
+        }
+        // when task size is larger than maxConcurrentTaskNum, we need to dispatch task one by one
+        currentTaskMap.putIfAbsent(groupId, new ConcurrentLinkedQueue<>());
+        ConcurrentLinkedQueue<AbstractTask> taskQueue = currentTaskMap.get(groupId);
+        taskQueue.addAll(task);
+        if (taskQueue.size() <= maxConcurrentTaskNum) {
+            disruptorMap.get(jobType).publishEvent(task);
+        }*/
+    }
+
+    /*@Subscribe
     public void onTaskDispatchEvent(TaskDispatchEvent event) {
         AbstractTask task = null;
 
@@ -174,6 +176,7 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                 if (null == currentTaskMap.get(event.getGroupId())) {
                     return;
                 }
+                currentTaskMap.get(event.getGroupId()).remove(event.getLastCompletedTaskId());
                 task = currentTaskMap.get(event.getGroupId()).poll();
                 if (currentTaskMap.get(event.getGroupId()).isEmpty()) {
                     currentTaskMap.remove(event.getGroupId());
@@ -193,6 +196,6 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
         if (null != task) {
             disruptorMap.get(event.getJobType()).publishEvent(task);
         }
-    }
+    }*/
 
 }

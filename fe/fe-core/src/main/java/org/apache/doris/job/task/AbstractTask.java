@@ -140,6 +140,9 @@ public abstract class AbstractTask implements Task {
     @Override
     public void cancel() throws JobException {
         try {
+            if (!(status.equals(TaskStatus.RUNNING) || status.equals(TaskStatus.PENDING))) {
+                return;
+            }
             executeCancelLogic();
             status = TaskStatus.CANCELED;
         } catch (Exception e) {

@@ -46,8 +46,11 @@ public class BatchInsertTask extends AbstractInsertTask {
     //do not need to serialize
     private SplitColumnInfo splitColumnInfo;
 
-    @SerializedName("split_range")
     private Range splitRange;
+    @SerializedName("ssp")
+    private Object starts;
+    @SerializedName("esp")
+    private Object ends;
 
     public BatchInsertTask(SplitColumnInfo splitColumnInfo, Range splitRange, String currentDb, String sql,
                            UserIdentity userIdentity) {
@@ -57,6 +60,8 @@ public class BatchInsertTask extends AbstractInsertTask {
         this.currentDb = currentDb;
         this.userIdentity = userIdentity;
         this.labelName = "BatchInsertTask";
+        this.starts = splitRange.getMinimum();
+        this.ends = splitRange.getMaximum();
 
     }
 
@@ -69,7 +74,12 @@ public class BatchInsertTask extends AbstractInsertTask {
     @Override
     public TRow getTvfInfo(String jobName) {
         TRow trow = super.getTvfInfo(jobName);
-        trow.addToColumnValue(new TCell().setStringVal(null == splitRange ? null : splitRange.toString()));
+        if (null == starts || null == ends) {
+            trow.addToColumnValue(new TCell().setStringVal(null));
+            return trow;
+        }
+        String ranges = String.format("[%s,%s]", starts, ends);
+        trow.addToColumnValue(new TCell().setStringVal(ranges));
         return trow;
     }
 }

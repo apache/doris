@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -28,11 +29,11 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.SplitColumnInfo;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDynamicSplit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 
@@ -53,12 +54,43 @@ public class BindDynamicSplit implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                // LogicalDynamicSplit
-                RuleType.BIND_DYNAMIC_SPLIT.build(logicalDynamicSplit().thenApply(ctx -> {
+                //LogicalDynamicSplit -> LogicalFilter -> LogicalCatalogRelation
+                RuleType.BIND_DYNAMIC_SPLIT.build(logicalDynamicSplit(logicalFilter(logicalRelation()))
+                        .thenApply(ctx -> {
 
+                            Plan result = ctx.root.child();
+                            LogicalDynamicSplit<LogicalFilter<LogicalRelation>> logicalDynamicSplit = ctx.root;
+                            LogicalRelation logicalRelation = (LogicalRelation) ((LogicalFilter<?>)
+                                    logicalDynamicSplit.child())
+                                    .child();
+                            return rewritePlan(logicalRelation, result, logicalDynamicSplit);
+                        })),
+                //LogicalDynamicSplit -> LogicalProject -> LogicalFilter -> LogicalCatalogRelation
+                RuleType.BIND_DYNAMIC_SPLIT.build(logicalDynamicSplit(logicalProject(logicalFilter(logicalRelation())))
+                        .thenApply(ctx -> {
+
+                            Plan result = ctx.root.child();
+                            LogicalDynamicSplit logicalDynamicSplit = ctx.root;
+                            LogicalRelation logicalRelation = (LogicalRelation) ((LogicalProject<?>)
+                                    ((LogicalFilter<?>) logicalDynamicSplit.child()).child()).child();
+                            return rewritePlan(logicalRelation, result, logicalDynamicSplit);
+                        })),
+                //LogicalDynamicSplit -> LogicalSubQueryAlias -> LogicalView
+                RuleType.BIND_DYNAMIC_SPLIT.build(logicalDynamicSplit(logicalSubQueryAlias(logicalView()))
+                        .thenApply(ctx -> {
+
+                            Plan result = ctx.root.child();
+                            LogicalDynamicSplit<LogicalSubQueryAlias<LogicalView<Plan>>> logicalDynamicSplit = ctx.root;
+                            LogicalView logicalView = (LogicalView) ((LogicalSubQueryAlias<?>) logicalDynamicSplit
+                                    .child()).child();
+
+                            return rewritePlan(logicalView, result, logicalDynamicSplit);
+                        })),
+                // LogicalDynamicSplit -> LogicalCatalogRelation
+                RuleType.BIND_DYNAMIC_SPLIT.build(logicalDynamicSplit(logicalRelation()).thenApply(ctx -> {
                     Plan result = ctx.root.child();
-                    LogicalDynamicSplit logicalDynamicSplit = ctx.root;
-                    LogicalCatalogRelation logicalCatalogRelation = checkAndReturnCatalogRelation(logicalDynamicSplit);
+                    LogicalDynamicSplit<LogicalRelation> logicalDynamicSplit = ctx.root;
+                    LogicalRelation logicalCatalogRelation = ctx.root.child();
                     if (null == logicalCatalogRelation) {
                         return result;
                     }
@@ -66,96 +98,81 @@ public class BindDynamicSplit implements AnalysisRuleFactory {
                 })));
     }
 
-    private LogicalCatalogRelation checkAndReturnCatalogRelation(LogicalDynamicSplit logicalDynamicSplit) {
-        // LogicalDynamicSplit -> LogicalCatalogRelation
-        if (logicalDynamicSplit.child() instanceof LogicalCatalogRelation) {
-            return (LogicalCatalogRelation) logicalDynamicSplit.child();
+    private LogicalCatalogRelation convertAndCheckLogicalRelation(LogicalRelation logicalRelation) {
+        if (logicalRelation instanceof LogicalCatalogRelation) {
+            return (LogicalCatalogRelation) logicalRelation;
         }
-        //LogicalDynamicSplit -> LogicalFilter -> LogicalCatalogRelation
-        if (logicalDynamicSplit.child() instanceof LogicalFilter) {
-            LogicalFilter logicalFilter = (LogicalFilter) logicalDynamicSplit.child();
-            if (logicalFilter.child() instanceof LogicalCatalogRelation) {
-                return (LogicalCatalogRelation) logicalFilter.child();
-            }
-        }
-
-        //LogicalDynamicSplit -> LogicalProject -> LogicalFilter -> LogicalCatalogRelation
-        if (logicalDynamicSplit.child() instanceof LogicalProject) {
-            if (((LogicalProject<?>) logicalDynamicSplit.child()).child() instanceof LogicalFilter) {
-                LogicalFilter logicalFilter = (LogicalFilter) ((LogicalProject) logicalDynamicSplit.child()).child();
-                if (logicalFilter.child() instanceof LogicalCatalogRelation) {
-                    return (LogicalCatalogRelation) logicalFilter.child();
-                }
-            }
-        }
-        // todo wait view refactor
-        //LogicalDynamicSplit -> LogicalSubQueryAlias -> LogicalView -> LogicalAggregate
-        // -> LogicalFilter -> LogicalCatalogRelation
-        if (logicalDynamicSplit.child() instanceof LogicalSubQueryAlias) {
-            LogicalSubQueryAlias logicalSubQueryAlias = (LogicalSubQueryAlias) logicalDynamicSplit.child();
-            if (logicalSubQueryAlias.child() instanceof LogicalView) {
-                LogicalView logicalView = (LogicalView) logicalSubQueryAlias.child();
-
-                if (logicalView.child() instanceof LogicalAggregate) {
-                    LogicalAggregate logicalAggregate = (LogicalAggregate) logicalView.child();
-                    if (logicalAggregate.child() instanceof LogicalFilter) {
-                        LogicalFilter logicalFilter = (LogicalFilter) logicalAggregate.child();
-                        if (logicalFilter.child() instanceof LogicalCatalogRelation) {
-                            return (LogicalCatalogRelation) logicalFilter.child();
-                        }
-                    }
-                }
-            }
-        }
-        // LogicalDynamicSplit -> LogicalSubQueryAlias -> LogicalView -> LogicalProject -> LogicalCatalogRelation
-        if (logicalDynamicSplit.child() instanceof LogicalSubQueryAlias) {
-            LogicalSubQueryAlias logicalSubQueryAlias = (LogicalSubQueryAlias) logicalDynamicSplit.child();
-            if (logicalSubQueryAlias.child() instanceof LogicalView) {
-                LogicalView logicalView = (LogicalView) logicalSubQueryAlias.child();
-                if (logicalView.child() instanceof LogicalProject) {
-                    LogicalProject logicalProject = (LogicalProject) logicalView.child();
-                    if (logicalProject.child() instanceof LogicalCatalogRelation) {
-                        return (LogicalCatalogRelation) logicalProject.child();
-                    }
-                }
-            }
-        }
-        LOG.warn("The child of LogicalDynamicSplit is not LogicalCatalogRelation, but {}",
-                logicalDynamicSplit.child().getClass().getSimpleName());
         return null;
     }
 
-    private Plan rewritePlan(LogicalCatalogRelation catalogRelation, Plan result,
+    private Plan rewritePlan(LogicalView logicalView, Plan result,
                              LogicalDynamicSplit logicalDynamicSplit) {
         Range range = logicalDynamicSplit.getRange();
         SplitColumnInfo splitColumnInfo = logicalDynamicSplit.getSplitColumnInfo();
         String splitColumnName = splitColumnInfo.getColumnName();
         TableName splitTable = splitColumnInfo.getTableNameInfo().transferToTableName();
-        TableIf table = catalogRelation.getTable();
-
-        if (!table.getName().equals(splitTable.getTbl())) {
-            return catalogRelation;
+        View view = logicalView.getView();
+        logicalDynamicSplit.setReplaced(Boolean.TRUE);
+        if (!view.getName().equalsIgnoreCase(splitTable.getTbl())) {
+            return result;
         }
-        if (!table.getDatabase().getFullName().equals(splitTable.getDb())) {
-            return catalogRelation;
+        if (!view.getDatabase().getFullName().equals(splitTable.getDb())) {
+            return result;
         }
-        if (!table.getDatabase().getCatalog().getName().equals(splitTable.getCtl())) {
-            return catalogRelation;
+        if (!view.getDatabase().getCatalog().getName().equals(splitTable.getCtl())) {
+            return result;
         }
-        SlotReference slotReference = null;
-        for (Slot slot : catalogRelation.getOutputSet()) {
-            if (slot.getName().equalsIgnoreCase(splitColumnName)) {
-                slotReference = (SlotReference) slot;
-            }
-        }
+        SlotReference slotReference = getSlotReference(logicalView.getOutput(), splitColumnName);
         if (null == slotReference) {
-            LOG.warn("Can not find the split column {} in the table {}", splitColumnName, table.getName());
-            return catalogRelation;
+            logicalDynamicSplit.setReplaced(Boolean.FALSE);
+            LOG.warn("Can not find the split column {} in the table {}", splitColumnName, splitColumnName);
+            return result;
         }
         GreaterThanEqual greaterThanEqual = new GreaterThanEqual(slotReference,
                 Literal.of(range.getMinimum()));
         LessThanEqual lessThanEqual = new LessThanEqual(slotReference, Literal.of(range.getMaximum()));
+        LogicalFilter logicalFilter = new LogicalFilter<>(ImmutableSet.of(greaterThanEqual, lessThanEqual),
+                logicalView);
+        result = result.rewriteUp(node -> {
+            if (node instanceof LogicalView) {
+                return logicalFilter;
+            }
+            return node;
+        });
+        return result;
+    }
+
+    private Plan rewritePlan(LogicalRelation logicalRelation, Plan result,
+                             LogicalDynamicSplit logicalDynamicSplit) {
+        LogicalCatalogRelation catalogRelation = convertAndCheckLogicalRelation(logicalRelation);
+        if (null == catalogRelation) {
+            return result;
+        }
+        Range range = logicalDynamicSplit.getRange();
+        SplitColumnInfo splitColumnInfo = logicalDynamicSplit.getSplitColumnInfo();
+        String splitColumnName = splitColumnInfo.getColumnName();
+        TableName splitTable = splitColumnInfo.getTableNameInfo().transferToTableName();
+        TableIf table = catalogRelation.getTable();
         logicalDynamicSplit.setReplaced(Boolean.TRUE);
+        if (!table.getName().equals(splitTable.getTbl())) {
+            return result;
+        }
+        if (!table.getDatabase().getFullName().equals(splitTable.getDb())) {
+            return result;
+        }
+        if (!table.getDatabase().getCatalog().getName().equals(splitTable.getCtl())) {
+            return result;
+        }
+        SlotReference slotReference = getSlotReference(catalogRelation.getOutput(), splitColumnName);
+        if (null == slotReference) {
+            logicalDynamicSplit.setReplaced(Boolean.FALSE);
+            LOG.warn("Can not find the split column {} in the table {}", splitColumnName, table.getName());
+            return result;
+        }
+        GreaterThanEqual greaterThanEqual = new GreaterThanEqual(slotReference,
+                Literal.of(range.getMinimum()));
+        LessThanEqual lessThanEqual = new LessThanEqual(slotReference, Literal.of(range.getMaximum()));
+
         LogicalFilter logicalFilter = new LogicalFilter<>(ImmutableSet.of(greaterThanEqual, lessThanEqual),
                 catalogRelation);
         result = result.rewriteUp(node -> {
@@ -166,5 +183,14 @@ public class BindDynamicSplit implements AnalysisRuleFactory {
         });
 
         return result;
+    }
+
+    private SlotReference getSlotReference(List<Slot> outputs, String splitColumnName) {
+        for (Slot slot : outputs) {
+            if (slot.getName().equalsIgnoreCase(splitColumnName)) {
+                return (SlotReference) slot;
+            }
+        }
+        return null;
     }
 }

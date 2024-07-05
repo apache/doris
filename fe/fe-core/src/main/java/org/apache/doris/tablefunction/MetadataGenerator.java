@@ -932,6 +932,7 @@ public class MetadataGenerator {
                     continue;
                 }
             }
+            //todo if is batch job, check load privilege?
             List<AbstractTask> tasks = job.queryAllTasks();
             for (AbstractTask task : tasks) {
                 TRow tvfInfo = task.getTvfInfo(job.getJobName());

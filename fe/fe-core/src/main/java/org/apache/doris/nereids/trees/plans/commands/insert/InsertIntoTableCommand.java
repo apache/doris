@@ -254,7 +254,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 throw new AnalysisException("insert into command only support [olap, hive, iceberg] table");
             }
             if (null != dynamicSplitReplacedSet && dynamicSplitReplacedSet.stream().anyMatch(status -> !status.get())) {
-                throw new AnalysisException("dynamic split not replaced, please check the query plan. Sql");
+                throw new AnalysisException("dynamic split not replaced, please check the query plan. job id :"
+                        + jobId);
             }
             if (!needBeginTransaction) {
                 targetTableIf.readUnlock();

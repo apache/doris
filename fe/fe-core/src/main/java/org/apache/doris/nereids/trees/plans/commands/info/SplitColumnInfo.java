@@ -47,6 +47,7 @@ public class SplitColumnInfo implements Writable {
 
     /**
      * Constructor for SplitColumnInfo
+     *
      * @param parts List of strings containing the parts of the split column info eg. [ctl,db, tbl, col]
      */
     public SplitColumnInfo(List<String> parts) {
@@ -69,9 +70,15 @@ public class SplitColumnInfo implements Writable {
                 .getCatalogOrAnalysisException(tableNameInfo.getCtl())
                 .getDbOrAnalysisException(tableNameInfo.getDb())
                 .getTableOrAnalysisException(tableNameInfo.getTbl());
-        Column column = table.getColumn(columnName);
+
+        Column column = table.getFullSchema().stream().filter(c -> c.getName().equalsIgnoreCase(columnName))
+                .findFirst().orElse(null);
         if (null == column) {
             throw new IllegalArgumentException(columnName + " is not a column in table " + tableNameInfo.getTbl());
+        }
+        if (!column.getDataType().isIntegerType()) {
+            throw new IllegalArgumentException(columnName + " is not an integer type column in table "
+                    + tableNameInfo.getTbl());
         }
     }
 

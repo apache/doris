@@ -182,7 +182,7 @@ public class AbstractInsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(getJobId() + LABEL_SPLITTER + getTaskId()));
         trow.addToColumnValue(new TCell().setStringVal(getStatus().name()));
         trow.addToColumnValue(new TCell().setStringVal(sql));
-        trow.addToColumnValue(new TCell().setStringVal(null == failMsg ? "" : failMsg.getMsg()));
+        trow.addToColumnValue(new TCell().setStringVal(null == getErrMsg() ? "" : getErrMsg()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(null == getFinishTimeMs() ? ""
                 : TimeUtils.longToTimeString(getFinishTimeMs())));

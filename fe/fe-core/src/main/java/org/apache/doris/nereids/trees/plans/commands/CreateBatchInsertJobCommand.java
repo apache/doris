@@ -52,6 +52,7 @@ public class CreateBatchInsertJobCommand extends Command implements ForwardWithS
         batchInsertJobInfo.analyze(ctx, executor);
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         jobExecutionConfiguration.setExecuteType(JobExecuteType.INSTANT);
+        jobExecutionConfiguration.setMaxConcurrentTaskNum(1);
         long jobId = Env.getCurrentEnv().getNextId();
         long currentDbId = ctx.getCurrentDbId();
         String currentDbName = ctx.getCurrentCatalog().getDbOrAnalysisException(currentDbId).getFullName();
