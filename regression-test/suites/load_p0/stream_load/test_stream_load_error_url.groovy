@@ -68,6 +68,103 @@ suite("test_stream_load_error_url", "p0") {
                 log.info("error result: " + out)
                 assertTrue(out.contains("actual column number in csv file is  more than  schema column number.actual number"))
                 log.info("url: " + json.ErrorURL)
+                if (isCloudMode()) {
+                    assertTrue(json.ErrorURL.contains("X-Amz-Signature="))
+                }
+            }
+        }
+    } finally {
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+    }
+
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                `time` DATETIME(6) NULL,
+                `__docid` VARCHAR(64) NULL,
+                `__source` TEXT NULL COMMENT 'hidden',
+                `message` TEXT NULL,
+                `__namespace` TEXT NULL COMMENT 'hidden',
+                `source` TEXT NULL,
+                `service` TEXT NULL,
+                `container_host` TEXT NULL,
+                `endpoint` TEXT NULL,
+                `env` TEXT NULL,
+                `http_host` TEXT NULL,
+                `http_method` TEXT NULL,
+                `http_route` TEXT NULL,
+                `http_status_code` TEXT NULL,
+                `http_url` TEXT NULL,
+                `operation` TEXT NULL,
+                `project` TEXT NULL,
+                `source_type` TEXT NULL,
+                `status` TEXT NULL,
+                `span_type` TEXT NULL,
+                `parent_id` TEXT NULL,
+                `resource` TEXT NULL,
+                `span_id` TEXT NULL,
+                `trace_id` TEXT NULL,
+                `sample_rate` DOUBLE NULL,
+                `date` BIGINT NULL,
+                `create_time` BIGINT NULL,
+                `priority` BIGINT NULL,
+                `duration` BIGINT NULL,
+                `start` BIGINT NULL,
+                `var` TEXT NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`time`, `__docid`)
+            COMMENT 'default'
+            PARTITION BY RANGE(`time`)
+            (PARTITION p20240625 VALUES [('2024-06-25 00:00:00'), ('2024-06-26 00:00:00')),
+            PARTITION p20240626 VALUES [('2024-06-26 00:00:00'), ('2024-06-27 00:00:00')))
+            DISTRIBUTED BY RANDOM BUCKETS AUTO
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "min_load_replica_num" = "-1",
+            "is_being_synced" = "false",
+            "dynamic_partition.enable" = "true",
+            "dynamic_partition.time_unit" = "DAY",
+            "dynamic_partition.time_zone" = "Asia/Shanghai",
+            "dynamic_partition.start" = "-100000",
+            "dynamic_partition.end" = "1",
+            "dynamic_partition.prefix" = "p",
+            "dynamic_partition.replication_allocation" = "tag.location.default: 1",
+            "dynamic_partition.buckets" = "10",
+            "dynamic_partition.create_history_partition" = "false",
+            "dynamic_partition.history_partition_num" = "16",
+            "dynamic_partition.hot_partition_num" = "0",
+            "dynamic_partition.reserved_history_periods" = "NULL",
+            "dynamic_partition.storage_policy" = "",
+            "storage_medium" = "hdd",
+            "storage_format" = "V2",
+            "inverted_index_storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false",
+            "enable_single_replica_compaction" = "false",
+            "group_commit_interval_ms" = "10000",
+            "group_commit_data_bytes" = "134217728"
+            );
+        """
+
+        streamLoad {
+            table "${tableName}"
+            set 'column_separator', '|'
+            set 'columns', '`time`,`__docid`,`__source`,`message`,`__namespace`,`source`,`service`,`container_host`,`endpoint`,`env`,`http_host`,`http_method`,`http_route`,`http_status_code`,`http_url`,`operation`,`project`,`source_type`,`status`,`span_type`,`parent_id`,`resource`,`span_id`,`trace_id`,`sample_rate`,`date`,`create_time`,`priority`,`duration`,`start`,`var`'
+            file 'test_error_url_1.csv'
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("fail", json.Status.toLowerCase())
+                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
+                def (code, out, err) = curl("GET", json.ErrorURL)
+                log.info("error result: " + out)
+                assertTrue(out.contains("no partition for this tuple"))
+                log.info("url: " + json.ErrorURL)
             }
         }
     } finally {

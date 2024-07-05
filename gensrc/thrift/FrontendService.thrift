@@ -506,6 +506,8 @@ struct TReportExecStatusParams {
 
   28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
 
+  29: optional i64 txn_id
+  30: optional string label
 }
 
 struct TFeResult {
@@ -517,11 +519,25 @@ struct TFeResult {
     1001: optional bool noAuth
 }
 
+enum TSubTxnType {
+    INSERT = 0,
+    DELETE = 1
+}
+
+struct TSubTxnInfo {
+    1: optional i64 sub_txn_id
+    2: optional i64 table_id
+    3: optional list<Types.TTabletCommitInfo> tablet_commit_infos
+    4: optional TSubTxnType sub_txn_type
+}
+
 struct TTxnLoadInfo {
     1: optional string label
     2: optional i64 dbId
     3: optional i64 txnId
     4: optional i64 timeoutTimestamp
+    5: optional i64 allSubTxnNum
+    6: optional list<TSubTxnInfo> subTxnInfos
 }
 
 struct TMasterOpRequest {
@@ -977,6 +993,7 @@ struct TMetadataTableRequestParams {
   8: optional PlanNodes.TMaterializedViewsMetadataParams materialized_views_metadata_params
   9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
+  11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
 }
 
 struct TSchemaTableRequestParams {
@@ -1128,6 +1145,7 @@ enum TBinlogType {
   MODIFY_PARTITIONS = 11,
   REPLACE_PARTITIONS = 12,
   TRUNCATE_TABLE = 13,
+  RENAME_TABLE = 14,
 }
 
 struct TBinlog {
@@ -1292,6 +1310,10 @@ struct TInvalidateFollowerStatsCacheRequest {
     1: optional string key;
 }
 
+struct TUpdateFollowerPartitionStatsCacheRequest {
+    1: optional string key;
+}
+
 struct TAutoIncrementRangeRequest {
     1: optional i64 db_id;
     2: optional i64 table_id;
@@ -1304,6 +1326,7 @@ struct TAutoIncrementRangeResult {
     1: optional Status.TStatus status
     2: optional i64 start
     3: optional i64 length
+    4: optional Types.TNetworkAddress master_address
 }
 
 struct TCreatePartitionRequest {
@@ -1426,6 +1449,7 @@ struct TGetMetaDBMeta {
     1: optional i64 id
     2: optional string name
     3: optional list<TGetMetaTableMeta> tables
+    4: optional list<i64> dropped_partitions
 }
 
 struct TGetMetaResult {
@@ -1600,4 +1624,5 @@ service FrontendService {
     Status.TStatus syncQueryColumns(1: TSyncQueryColumns request)
 
     TFetchSplitBatchResult fetchSplitBatch(1: TFetchSplitBatchRequest request)
+    Status.TStatus updatePartitionStatsCache(1: TUpdateFollowerPartitionStatsCacheRequest request)
 }

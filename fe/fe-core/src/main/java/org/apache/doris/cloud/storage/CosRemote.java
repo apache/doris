@@ -56,7 +56,7 @@ public class CosRemote extends DefaultRemote {
         clientConfig.setRegion(new Region(obj.getRegion()));
         clientConfig.setHttpProtocol(HttpProtocol.https);
         COSClient cosClient = new COSClient(cred, clientConfig);
-        Date expirationDate = new Date(System.currentTimeMillis() + 60 * 60 * 1000);
+        Date expirationDate = new Date(System.currentTimeMillis() + SESSION_EXPIRE_SECOND);
         URL url = cosClient.generatePresignedUrl(obj.getBucket(),
                 normalizePrefix(fileName), expirationDate, HttpMethodName.PUT,
                 new HashMap<String, String>(), new HashMap<String, String>());

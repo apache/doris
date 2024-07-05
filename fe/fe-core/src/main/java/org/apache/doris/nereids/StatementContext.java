@@ -18,7 +18,6 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Id;
@@ -64,7 +63,6 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -131,22 +129,13 @@ public class StatementContext implements Closeable {
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
-    // Root Slot -> Paths -> Sub-column Slots
-    private final Map<Slot, Map<List<String>, SlotReference>> subColumnSlotRefMap
-            = Maps.newHashMap();
-
-    // Map from rewritten slot to original expr
-    private final Map<Slot, Expression> subColumnOriginalExprMap = Maps.newHashMap();
-
-    // Map from original expr to rewritten slot
-    private final Map<Expression, Slot> originalExprToRewrittenSubColumn = Maps.newHashMap();
 
     // Map slot to its relation, currently used in SlotReference to find its original
     // Relation for example LogicalOlapScan
     private final Map<Slot, Relation> slotToRelation = Maps.newHashMap();
 
     // the columns in Plan.getExpressions(), such as columns in join condition or filter condition, group by expression
-    private final Set<Column> keyColumns = Sets.newHashSet();
+    private final Set<SlotReference> keySlots = Sets.newHashSet();
     private BitSet disableRules;
 
     // table locks
@@ -265,56 +254,8 @@ public class StatementContext implements Closeable {
         return Optional.ofNullable(sqlCacheContext);
     }
 
-    public Set<SlotReference> getAllPathsSlots() {
-        Set<SlotReference> allSlotReferences = Sets.newHashSet();
-        for (Map<List<String>, SlotReference> slotReferenceMap : subColumnSlotRefMap.values()) {
-            allSlotReferences.addAll(slotReferenceMap.values());
-        }
-        return allSlotReferences;
-    }
-
-    public Expression getOriginalExpr(SlotReference rewriteSlot) {
-        return subColumnOriginalExprMap.getOrDefault(rewriteSlot, null);
-    }
-
-    public Slot getRewrittenSlotRefByOriginalExpr(Expression originalExpr) {
-        return originalExprToRewrittenSubColumn.getOrDefault(originalExpr, null);
-    }
-
-    /**
-     * Add a slot ref attached with paths in context to avoid duplicated slot
-     */
-    public void addPathSlotRef(Slot root, List<String> paths, SlotReference slotRef, Expression originalExpr) {
-        subColumnSlotRefMap.computeIfAbsent(root, k -> Maps.newTreeMap((lst1, lst2) -> {
-            Iterator<String> it1 = lst1.iterator();
-            Iterator<String> it2 = lst2.iterator();
-            while (it1.hasNext() && it2.hasNext()) {
-                int result = it1.next().compareTo(it2.next());
-                if (result != 0) {
-                    return result;
-                }
-            }
-            return Integer.compare(lst1.size(), lst2.size());
-        }));
-        subColumnSlotRefMap.get(root).put(paths, slotRef);
-        subColumnOriginalExprMap.put(slotRef, originalExpr);
-        originalExprToRewrittenSubColumn.put(originalExpr, slotRef);
-    }
-
-    public SlotReference getPathSlot(Slot root, List<String> paths) {
-        Map<List<String>, SlotReference> pathsSlotsMap = subColumnSlotRefMap.getOrDefault(root, null);
-        if (pathsSlotsMap == null) {
-            return null;
-        }
-        return pathsSlotsMap.getOrDefault(paths, null);
-    }
-
     public void addSlotToRelation(Slot slot, Relation relation) {
         slotToRelation.put(slot, relation);
-    }
-
-    public Relation getRelationBySlot(Slot slot) {
-        return slotToRelation.getOrDefault(slot, null);
     }
 
     public boolean isDpHyp() {
@@ -575,12 +516,12 @@ public class StatementContext implements Closeable {
         }
     }
 
-    public void addKeyColumn(Column column) {
-        keyColumns.add(column);
+    public void addKeySlot(SlotReference slot) {
+        keySlots.add(slot);
     }
 
-    public boolean isKeyColumn(Column column) {
-        return keyColumns.contains(column);
+    public boolean isKeySlot(SlotReference slot) {
+        return keySlots.contains(slot);
     }
 
     /** Get table id with lazy */

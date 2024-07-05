@@ -26,6 +26,7 @@
 #include "common/compiler_util.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "util/debug_points.h"
@@ -34,28 +35,14 @@
 namespace doris {
 
 Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
-                                 std::shared_ptr<vectorized::Block> block, bool write_wal) {
+                                 std::shared_ptr<vectorized::Block> block, bool write_wal,
+                                 UniqueId& load_id) {
     std::unique_lock l(mutex);
     RETURN_IF_ERROR(status);
     auto start = std::chrono::steady_clock::now();
     DBUG_EXECUTE_IF("LoadBlockQueue.add_block.back_pressure_time_out", {
         start = std::chrono::steady_clock::now() - std::chrono::milliseconds(120000);
     });
-    while (!runtime_state->is_cancelled() && status.ok() &&
-           _all_block_queues_bytes->load(std::memory_order_relaxed) >=
-                   config::group_commit_queue_mem_limit) {
-        _put_cond.wait_for(l,
-                           std::chrono::milliseconds(LoadBlockQueue::MEM_BACK_PRESSURE_WAIT_TIME));
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - start);
-        if (duration.count() > LoadBlockQueue::MEM_BACK_PRESSURE_WAIT_TIMEOUT) {
-            return Status::TimedOut<false>(
-                    "Wal memory back pressure wait too much time! Load block queue txn id: {}, "
-                    "label: {}, instance id: {}, consumed memory: {}",
-                    txn_id, label, load_instance_id.to_string(),
-                    _all_block_queues_bytes->load(std::memory_order_relaxed));
-        }
-    }
     if (UNLIKELY(runtime_state->is_cancelled())) {
         return runtime_state->cancel_reason();
     }
@@ -68,8 +55,8 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
             _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
             std::stringstream ss;
             ss << "[";
-            for (const auto& id : _load_ids) {
-                ss << id.to_string() << ", ";
+            for (const auto& id : _load_ids_to_write_dep) {
+                ss << id.first.to_string() << ", ";
             }
             ss << "]";
             VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::add_block). "
@@ -91,6 +78,12 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
                 return st;
             }
         }
+        if (!runtime_state->is_cancelled() && status.ok() &&
+            _all_block_queues_bytes->load(std::memory_order_relaxed) >=
+                    config::group_commit_queue_mem_limit) {
+            DCHECK(_load_ids_to_write_dep.find(load_id) != _load_ids_to_write_dep.end());
+            _load_ids_to_write_dep[load_id]->block();
+        }
     }
     if (!_need_commit) {
         if (_data_bytes >= _group_commit_data_bytes) {
@@ -107,12 +100,15 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
             _need_commit = true;
         }
     }
-    _get_cond.notify_all();
+    for (auto read_dep : _read_deps) {
+        read_dep->set_ready();
+    }
     return Status::OK();
 }
 
 Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block* block,
-                                 bool* find_block, bool* eos) {
+                                 bool* find_block, bool* eos,
+                                 std::shared_ptr<pipeline::Dependency> get_block_dep) {
     *find_block = false;
     *eos = false;
     std::unique_lock l(mutex);
@@ -123,33 +119,32 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
             _need_commit = true;
         }
     }
-    while (!runtime_state->is_cancelled() && status.ok() && _block_queue.empty() &&
-           (!_need_commit || (_need_commit && !_load_ids.empty()))) {
-        auto left_milliseconds = _group_commit_interval_ms;
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::steady_clock::now() - _start_time)
-                                .count();
-        if (!_need_commit) {
-            left_milliseconds = _group_commit_interval_ms - duration;
-            if (left_milliseconds <= 0) {
-                _need_commit = true;
-                break;
-            }
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - _start_time)
+                            .count();
+    if (!runtime_state->is_cancelled() && status.ok() && _block_queue.empty() && !_need_commit) {
+        if (_group_commit_interval_ms - duration <= 0) {
+            _need_commit = true;
         } else {
-            if (duration >= 10 * _group_commit_interval_ms) {
-                std::stringstream ss;
-                ss << "[";
-                for (auto& id : _load_ids) {
-                    ss << id.to_string() << ", ";
-                }
-                ss << "]";
-                LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
-                          << ", label=" << label << ", instance_id=" << load_instance_id
-                          << ", duration=" << duration << ", load_ids=" << ss.str()
-                          << ", runtime_state=" << runtime_state;
-            }
+            get_block_dep->block();
+            return Status::OK();
         }
-        _get_cond.wait_for(l, std::chrono::milliseconds(std::min(left_milliseconds, 10000L)));
+    } else if (!runtime_state->is_cancelled() && status.ok() && _block_queue.empty() &&
+               _need_commit && !_load_ids_to_write_dep.empty()) {
+        if (duration >= 10 * _group_commit_interval_ms) {
+            std::stringstream ss;
+            ss << "[";
+            for (auto& id : _load_ids_to_write_dep) {
+                ss << id.first.to_string() << ", ";
+            }
+            ss << "]";
+            LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
+                      << ", label=" << label << ", instance_id=" << load_instance_id
+                      << ", duration=" << duration << ", load_ids=" << ss.str()
+                      << ", runtime_state=" << runtime_state;
+        }
+        get_block_dep->block();
+        return Status::OK();
     }
     if (runtime_state->is_cancelled()) {
         auto st = runtime_state->cancel_reason();
@@ -165,8 +160,8 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
         _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
         std::stringstream ss;
         ss << "[";
-        for (const auto& id : _load_ids) {
-            ss << id.to_string() << ", ";
+        for (const auto& id : _load_ids_to_write_dep) {
+            ss << id.first.to_string() << ", ";
         }
         ss << "]";
         VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::get_block). "
@@ -181,30 +176,40 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
                    << ", the block is " << block->dump_data() << ", the block column size is "
                    << block->columns_bytes();
     }
-    if (_block_queue.empty() && _need_commit && _load_ids.empty()) {
+    if (_block_queue.empty() && _need_commit && _load_ids_to_write_dep.empty()) {
         *eos = true;
     } else {
         *eos = false;
     }
-    _put_cond.notify_all();
+    if (_all_block_queues_bytes->load(std::memory_order_relaxed) <
+        config::group_commit_queue_mem_limit) {
+        for (auto& id : _load_ids_to_write_dep) {
+            id.second->set_ready();
+        }
+    }
     return Status::OK();
 }
 
 void LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
     std::unique_lock l(mutex);
-    if (_load_ids.find(load_id) != _load_ids.end()) {
-        _load_ids.erase(load_id);
-        _get_cond.notify_all();
+    if (_load_ids_to_write_dep.find(load_id) != _load_ids_to_write_dep.end()) {
+        _load_ids_to_write_dep[load_id]->set_always_ready();
+        _load_ids_to_write_dep.erase(load_id);
+        for (auto read_dep : _read_deps) {
+            read_dep->set_ready();
+        }
     }
 }
 
-Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
+Status LoadBlockQueue::add_load_id(const UniqueId& load_id,
+                                   const std::shared_ptr<pipeline::Dependency> put_block_dep) {
     std::unique_lock l(mutex);
     if (_need_commit) {
         return Status::InternalError<false>("block queue is set need commit, id=" +
                                             load_instance_id.to_string());
     }
-    _load_ids.emplace(load_id);
+    _load_ids_to_write_dep[load_id] = put_block_dep;
+    group_commit_load_count.fetch_add(1);
     return Status::OK();
 }
 
@@ -225,8 +230,8 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
         _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
         std::stringstream ss;
         ss << "[";
-        for (const auto& id : _load_ids) {
-            ss << id.to_string() << ", ";
+        for (const auto& id : _load_ids_to_write_dep) {
+            ss << id.first.to_string() << ", ";
         }
         ss << "]";
         VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::_cancel_without_block). "
@@ -242,66 +247,77 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
                    << block_data.block->columns_bytes();
         _block_queue.pop_front();
     }
+    for (auto& id : _load_ids_to_write_dep) {
+        id.second->set_always_ready();
+    }
 }
 
 Status GroupCommitTable::get_first_block_load_queue(
         int64_t table_id, int64_t base_schema_version, const UniqueId& load_id,
         std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
-        std::shared_ptr<MemTrackerLimiter> mem_tracker) {
+        std::shared_ptr<MemTrackerLimiter> mem_tracker,
+        std::shared_ptr<pipeline::Dependency> create_plan_dep,
+        std::shared_ptr<pipeline::Dependency> put_block_dep, std::string& label, int64_t& txn_id) {
     DCHECK(table_id == _table_id);
-    {
-        std::unique_lock l(_lock);
-        for (int i = 0; i < 3; i++) {
-            bool is_schema_version_match = true;
-            for (const auto& [_, inner_block_queue] : _load_block_queues) {
-                if (!inner_block_queue->need_commit()) {
-                    if (base_schema_version == inner_block_queue->schema_version) {
-                        if (inner_block_queue->add_load_id(load_id).ok()) {
-                            load_block_queue = inner_block_queue;
-                            return Status::OK();
-                        }
-                    } else if (base_schema_version < inner_block_queue->schema_version) {
-                        is_schema_version_match = false;
+    std::unique_lock l(_lock);
+    auto try_to_get_matched_queue = [&]() -> Status {
+        for (const auto& [_, inner_block_queue] : _load_block_queues) {
+            if (!inner_block_queue->need_commit()) {
+                if (base_schema_version == inner_block_queue->schema_version) {
+                    if (inner_block_queue->add_load_id(load_id, put_block_dep).ok()) {
+                        load_block_queue = inner_block_queue;
+                        label = inner_block_queue->label;
+                        txn_id = inner_block_queue->txn_id;
+                        return Status::OK();
                     }
+                } else {
+                    return Status::DataQualityError<false>(
+                            "schema version not match, maybe a schema change is in process. "
+                            "Please retry this load manually.");
                 }
             }
-            if (!is_schema_version_match) {
-                return Status::DataQualityError<false>(
-                        "schema version not match, maybe a schema change is in process. Please "
-                        "retry this load manually.");
-            }
-            if (!_is_creating_plan_fragment) {
-                _is_creating_plan_fragment = true;
-                RETURN_IF_ERROR(_thread_pool->submit_func([&] {
-                    auto st = _create_group_commit_load(be_exe_version, mem_tracker);
-                    if (!st.ok()) {
-                        LOG(WARNING) << "create group commit load error, st=" << st.to_string();
-                        std::unique_lock l(_lock);
-                        _is_creating_plan_fragment = false;
-                        _cv.notify_all();
-                    }
-                }));
-            }
-            _cv.wait_for(l, std::chrono::seconds(4));
         }
+        return Status::InternalError<false>("can not get a block queue for table_id: " +
+                                            std::to_string(_table_id));
+    };
+
+    if (try_to_get_matched_queue().ok()) {
+        return Status::OK();
     }
-    return Status::InternalError<false>("can not get a block queue for table_id: " +
-                                        std::to_string(_table_id));
+    create_plan_dep->block();
+    _create_plan_deps.push_back(create_plan_dep);
+    if (!_is_creating_plan_fragment) {
+        _is_creating_plan_fragment = true;
+        RETURN_IF_ERROR(_thread_pool->submit_func([&, be_exe_version, mem_tracker,
+                                                   dep = create_plan_dep] {
+            Defer defer {[&, dep = dep]() {
+                std::unique_lock l(_lock);
+                for (auto it : _create_plan_deps) {
+                    it->set_ready();
+                }
+                std::vector<std::shared_ptr<pipeline::Dependency>> {}.swap(_create_plan_deps);
+                _is_creating_plan_fragment = false;
+            }};
+            auto st = _create_group_commit_load(be_exe_version, mem_tracker);
+            if (!st.ok()) {
+                LOG(WARNING) << "create group commit load error, st=" << st.to_string();
+            }
+        }));
+    }
+    return try_to_get_matched_queue();
 }
 
 Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
                                                    std::shared_ptr<MemTrackerLimiter> mem_tracker) {
     Status st = Status::OK();
-    TStreamLoadPutRequest request;
-    UniqueId load_id = UniqueId::gen_uid();
-    TUniqueId tload_id;
-    bool is_pipeline = true;
     TStreamLoadPutResult result;
     std::string label;
     int64_t txn_id;
     TUniqueId instance_id;
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
+        UniqueId load_id = UniqueId::gen_uid();
+        TUniqueId tload_id;
         tload_id.__set_hi(load_id.hi);
         tload_id.__set_lo(load_id.lo);
         std::regex reg("-");
@@ -309,6 +325,7 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
         std::stringstream ss;
         ss << "insert into doris_internal_table_id(" << _table_id << ") WITH LABEL " << label
            << " select * from group_commit(\"table_id\"=\"" << _table_id << "\")";
+        TStreamLoadPutRequest request;
         request.__set_load_sql(ss.str());
         request.__set_loadId(tload_id);
         request.__set_label(label);
@@ -334,53 +351,36 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
             return st;
         }
         st = Status::create<false>(result.status);
+        if (st.ok() && !result.__isset.pipeline_params) {
+            st = Status::InternalError("Non-pipeline is disabled!");
+        }
         if (!st.ok()) {
             LOG(WARNING) << "create group commit load error, st=" << st.to_string();
             return st;
         }
         auto schema_version = result.base_schema_version;
-        is_pipeline = result.__isset.pipeline_params;
-        auto& params = result.params;
         auto& pipeline_params = result.pipeline_params;
-        if (!is_pipeline) {
-            DCHECK(params.fragment.output_sink.olap_table_sink.db_id == _db_id);
-            txn_id = params.txn_conf.txn_id;
-            instance_id = params.params.fragment_instance_id;
-        } else {
-            DCHECK(pipeline_params.fragment.output_sink.olap_table_sink.db_id == _db_id);
-            txn_id = pipeline_params.txn_conf.txn_id;
-            DCHECK(pipeline_params.local_params.size() == 1);
-            instance_id = pipeline_params.local_params[0].fragment_instance_id;
-        }
+        DCHECK(pipeline_params.fragment.output_sink.olap_table_sink.db_id == _db_id);
+        txn_id = pipeline_params.txn_conf.txn_id;
+        DCHECK(pipeline_params.local_params.size() == 1);
+        instance_id = pipeline_params.local_params[0].fragment_instance_id;
         VLOG_DEBUG << "create plan fragment, db_id=" << _db_id << ", table=" << _table_id
                    << ", schema version=" << schema_version << ", label=" << label
-                   << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
-                   << ", is_pipeline=" << is_pipeline;
+                   << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id);
         {
             auto load_block_queue = std::make_shared<LoadBlockQueue>(
                     instance_id, label, txn_id, schema_version, _all_block_queues_bytes,
                     result.wait_internal_group_commit_finish, result.group_commit_interval_ms,
                     result.group_commit_data_bytes);
             std::unique_lock l(_lock);
-            //create wal
-            if (!is_pipeline) {
-                RETURN_IF_ERROR(load_block_queue->create_wal(
-                        _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                        params.fragment.output_sink.olap_table_sink.schema.slot_descs,
-                        be_exe_version));
-            } else {
-                RETURN_IF_ERROR(load_block_queue->create_wal(
-                        _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                        pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
-                        be_exe_version));
-            }
+            RETURN_IF_ERROR(load_block_queue->create_wal(
+                    _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
+                    pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
+                    be_exe_version));
             _load_block_queues.emplace(instance_id, load_block_queue);
-            _is_creating_plan_fragment = false;
-            _cv.notify_all();
         }
     }
-    st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, result.params,
-                             result.pipeline_params);
+    st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, result.pipeline_params);
     if (!st.ok()) {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
         auto finish_st = _finish_group_commit_load(_db_id, _table_id, label, txn_id, instance_id,
@@ -459,8 +459,10 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
             {
                 std::unique_lock l2(load_block_queue->mutex);
                 load_block_queue->process_finish = true;
+                for (auto dep : load_block_queue->dependencies) {
+                    dep->set_always_ready();
+                }
             }
-            load_block_queue->internal_group_commit_finish_cv.notify_all();
         }
         _load_block_queues.erase(instance_id);
     }
@@ -512,8 +514,6 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
 
 Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
                                              const std::string& label, int64_t txn_id,
-                                             bool is_pipeline,
-                                             const TExecPlanFragmentParams& params,
                                              const TPipelineFragmentParams& pipeline_params) {
     auto finish_cb = [db_id, table_id, label, txn_id, this](RuntimeState* state, Status* status) {
         DCHECK(state);
@@ -524,15 +524,12 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
                          << ", st=" << finish_st.to_string();
         }
     };
-    if (is_pipeline) {
-        return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, finish_cb);
-    } else {
-        return _exec_env->fragment_mgr()->exec_plan_fragment(params, finish_cb);
-    }
+    return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, finish_cb);
 }
 
 Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,
-                                              std::shared_ptr<LoadBlockQueue>& load_block_queue) {
+                                              std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                              std::shared_ptr<pipeline::Dependency> get_block_dep) {
     std::unique_lock l(_lock);
     auto it = _load_block_queues.find(instance_id);
     if (it == _load_block_queues.end()) {
@@ -540,6 +537,7 @@ Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,
                                      " not found");
     }
     load_block_queue = it->second;
+    load_block_queue->append_read_dependency(get_block_dep);
     return Status::OK();
 }
 
@@ -560,12 +558,12 @@ void GroupCommitMgr::stop() {
     LOG(INFO) << "GroupCommitMgr is stopped";
 }
 
-Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_id,
-                                                  int64_t base_schema_version,
-                                                  const UniqueId& load_id,
-                                                  std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                                  int be_exe_version,
-                                                  std::shared_ptr<MemTrackerLimiter> mem_tracker) {
+Status GroupCommitMgr::get_first_block_load_queue(
+        int64_t db_id, int64_t table_id, int64_t base_schema_version, const UniqueId& load_id,
+        std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
+        std::shared_ptr<MemTrackerLimiter> mem_tracker,
+        std::shared_ptr<pipeline::Dependency> create_plan_dep,
+        std::shared_ptr<pipeline::Dependency> put_block_dep, std::string& label, int64_t& txn_id) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard wlock(_lock);
@@ -577,12 +575,14 @@ Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_i
         group_commit_table = _table_map[table_id];
     }
     RETURN_IF_ERROR(group_commit_table->get_first_block_load_queue(
-            table_id, base_schema_version, load_id, load_block_queue, be_exe_version, mem_tracker));
+            table_id, base_schema_version, load_id, load_block_queue, be_exe_version, mem_tracker,
+            create_plan_dep, put_block_dep, label, txn_id));
     return Status::OK();
 }
 
 Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
-                                            std::shared_ptr<LoadBlockQueue>& load_block_queue) {
+                                            std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                            std::shared_ptr<pipeline::Dependency> get_block_dep) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -593,7 +593,7 @@ Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& i
         }
         group_commit_table = it->second;
     }
-    return group_commit_table->get_load_block_queue(instance_id, load_block_queue);
+    return group_commit_table->get_load_block_queue(instance_id, load_block_queue, get_block_dep);
 }
 
 Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
@@ -614,6 +614,20 @@ Status LoadBlockQueue::close_wal() {
         RETURN_IF_ERROR(_v_wal_writer->close());
     }
     return Status::OK();
+}
+
+void LoadBlockQueue::append_dependency(std::shared_ptr<pipeline::Dependency> finish_dep) {
+    std::lock_guard<std::mutex> lock(mutex);
+    // If not finished, dependencies should be blocked.
+    if (!process_finish) {
+        finish_dep->block();
+        dependencies.push_back(finish_dep);
+    }
+}
+
+void LoadBlockQueue::append_read_dependency(std::shared_ptr<pipeline::Dependency> read_dep) {
+    std::lock_guard<std::mutex> lock(mutex);
+    _read_deps.push_back(read_dep);
 }
 
 bool LoadBlockQueue::has_enough_wal_disk_space(size_t estimated_wal_bytes) {

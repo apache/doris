@@ -214,6 +214,8 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
+    // if partition_type is TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
+    // on exchange node rather than on TabletWriter
     _block_convertor->init_autoinc_info(
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
             _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),
@@ -373,7 +375,7 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
     return Status::OK();
 }
 
-Status VTabletWriterV2::write(Block& input_block) {
+Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -416,17 +418,21 @@ Status VTabletWriterV2::write(Block& input_block) {
 
     // For each tablet, send its input_rows from block to delta writer
     for (const auto& [tablet_id, rows] : rows_for_tablet) {
-        Streams streams;
-        RETURN_IF_ERROR(_select_streams(tablet_id, rows.partition_id, rows.index_id, streams));
-        RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows, streams));
+        RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows));
     }
 
     return Status::OK();
 }
 
 Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
-                                        const Rows& rows, const Streams& streams) {
+                                        const Rows& rows) {
     auto delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
+        Streams streams;
+        auto st = _select_streams(tablet_id, rows.partition_id, rows.index_id, streams);
+        if (!st.ok()) [[unlikely]] {
+            LOG(WARNING) << st << ", load_id=" << print_id(_load_id);
+            return std::unique_ptr<DeltaWriterV2>(nullptr);
+        }
         WriteRequest req {
                 .tablet_id = tablet_id,
                 .txn_id = _txn_id,
@@ -498,7 +504,7 @@ Status VTabletWriterV2::_send_new_partition_batch() {
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
-        RETURN_IF_ERROR(this->write(tmp_block));
+        RETURN_IF_ERROR(this->write(_state, tmp_block));
         _row_distribution._batching_block->set_mutable_columns(
                 tmp_block.mutate_columns()); // Recovery back
         _row_distribution._batching_block->clear_column_data();

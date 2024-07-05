@@ -117,7 +117,6 @@ public class GroupCommitPlanner {
                         TFileCompressType.PLAIN);
             }
         }
-        tRequest.query_options.setEnablePipelineEngine(true);
         List<TScanRangeParams> scanRangeParams = tRequest.local_params.get(0).per_node_scan_ranges.values().stream()
                 .flatMap(Collection::stream).collect(Collectors.toList());
         Preconditions.checkState(scanRangeParams.size() == 1);

@@ -236,6 +236,9 @@ public class TestHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {}
+
+    @Override
     public void createTable(TableMetadata tbl, boolean ignoreIfExists) {
         String dbName = tbl.getDbName();
         String tbName = tbl.getTableName();

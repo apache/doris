@@ -58,7 +58,7 @@ suite("test_mtmv_n_replicas") {
     while (n > 0) {
         n = n - 1
         sleep(1000)
-        def result = sql_return_maparray """ select * from ${dbName}.${mvName} """
+        def result = sql_return_maparray """ select * from ${dbName}.${mvName} order by id"""
         logger.info("result: ${result}")
         if (result.size() == 2) {
             // [score:22, name:aaa, id:1], [score:24, name:aaa, id:2]

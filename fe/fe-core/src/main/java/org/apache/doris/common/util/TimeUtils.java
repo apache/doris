@@ -53,7 +53,7 @@ import java.util.regex.Pattern;
 
 // TODO(dhc) add nanosecond timer for coordinator's root profile
 public class TimeUtils {
-    public static final String UTC_TIME_ZONE = "Europe/London"; // This is just a Country to represent UTC offset +00:00
+    public static final String UTC_TIME_ZONE = "UTC"; // This is just a Country to represent UTC offset +00:00
     public static final String DEFAULT_TIME_ZONE = "Asia/Shanghai";
     public static final ZoneId TIME_ZONE;
     public static final ImmutableMap<String, String> timeZoneAliasMap;
@@ -86,8 +86,6 @@ public class TimeUtils {
     public static Date MAX_DATETIME = null;
 
     static {
-        TIME_ZONE = ZoneId.of("UTC+8");
-
         Map<String, String> timeZoneMap = Maps.newHashMap();
         timeZoneMap.putAll(ZoneId.SHORT_IDS);
 
@@ -98,7 +96,7 @@ public class TimeUtils {
         timeZoneMap.put("GMT", UTC_TIME_ZONE);
 
         timeZoneAliasMap = ImmutableMap.copyOf(timeZoneMap);
-
+        TIME_ZONE = getSystemTimeZone().toZoneId();
         DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         DATE_FORMAT.withZone(TIME_ZONE);
 
@@ -146,6 +144,10 @@ public class TimeUtils {
             timezone = VariableMgr.getDefaultSessionVariable().getTimeZone();
         }
         return TimeZone.getTimeZone(ZoneId.of(timezone, timeZoneAliasMap));
+    }
+
+    public static TimeZone getUTCTimeZone() {
+        return TimeZone.getTimeZone(UTC_TIME_ZONE);
     }
 
     // return the time zone of current system

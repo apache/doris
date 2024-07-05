@@ -90,6 +90,7 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/functions/array/function_array_index.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -321,16 +322,13 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     }
 
     RETURN_IF_ERROR(init_iterators());
-    if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
-        _is_char_type.resize(_schema->columns().size(), false);
-        _vec_init_char_column_id();
-    }
 
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
     }
 
     _storage_name_and_type.resize(_schema->columns().size());
+    auto storage_format = _opts.tablet_schema->get_inverted_index_storage_format();
     for (int i = 0; i < _schema->columns().size(); ++i) {
         const Field* col = _schema->column(i);
         if (col) {
@@ -340,9 +338,62 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             if (storage_type == nullptr) {
                 storage_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
             }
-            _storage_name_and_type[i] = std::make_pair(col->name(), storage_type);
+            // Currently, when writing a lucene index, the field of the document is column_name, and the column name is
+            // bound to the index field. Since version 1.2, the data file storage has been changed from column_name to
+            // column_unique_id, allowing the column name to be changed. Due to current limitations, previous inverted
+            // index data cannot be used after Doris changes the column name. Column names also support Unicode
+            // characters, which may cause other problems with indexing in non-ASCII characters.
+            // After consideration, it was decided to change the field name from column_name to column_unique_id in
+            // format V2, while format V1 continues to use column_name.
+            std::string field_name;
+            if (storage_format == InvertedIndexStorageFormatPB::V1) {
+                field_name = col->name();
+            } else {
+                if (col->is_extracted_column()) {
+                    // variant sub col
+                    // field_name format: parent_unique_id.sub_col_name
+                    field_name = std::to_string(col->parent_unique_id()) + "." + col->name();
+                } else {
+                    field_name = std::to_string(col->unique_id());
+                }
+            }
+            _storage_name_and_type[i] = std::make_pair(field_name, storage_type);
         }
     }
+
+    // find columns that definitely require reading data, such as functions that are not pushed down.
+    {
+        std::set<std::string> push_down_preds;
+        for (auto* pred : _col_predicates) {
+            if (!_check_apply_by_inverted_index(pred)) {
+                //column predicate, like column predicate etc. always need read data
+                auto cid = pred->column_id();
+                _need_read_data_indices[cid] = true;
+                continue;
+            }
+            push_down_preds.insert(_gen_predicate_result_sign(pred));
+        }
+        for (auto* pred : _col_preds_except_leafnode_of_andnode) {
+            if (!_check_apply_by_inverted_index(pred)) {
+                //column predicate, like column predicate etc. always need read data
+                auto cid = pred->column_id();
+                _need_read_data_indices[cid] = true;
+                continue;
+            }
+            push_down_preds.insert(_gen_predicate_result_sign(pred));
+        }
+        for (auto& preds_in_remaining_vconjuct : _column_pred_in_remaining_vconjunct) {
+            const auto& column_name = preds_in_remaining_vconjuct.first;
+            for (auto& pred_info : preds_in_remaining_vconjuct.second) {
+                auto column_sign = _gen_predicate_result_sign(&pred_info);
+                if (!push_down_preds.contains(column_sign)) {
+                    auto cid = _opts.tablet_schema->field_index(column_name);
+                    _need_read_data_indices[cid] = true;
+                }
+            }
+        }
+    }
+
     return Status::OK();
 }
 
@@ -515,6 +566,13 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 }
             }
             _col_preds_except_leafnode_of_andnode.clear();
+            // 1. if all conditions in the compound hit the inverted index and there are no other expr to handle.
+            // 2. then there is no need to generate index_result_column.
+            if (_enable_common_expr_pushdown && _remaining_conjunct_roots.empty()) {
+                for (auto& iter : _rowid_result_for_index) {
+                    iter.second.first = false;
+                }
+            }
         }
         _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     }
@@ -984,7 +1042,7 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predica
 
     std::string col_name = column_desc->name();
 
-    if (column_desc->path() != nullptr) {
+    if (column_desc->path() != nullptr && !_storage_name_and_type.empty()) {
         const static std::string pattern = "(CAST {}(Nullable(Variant)) TO {})";
         // indicate a subcolumn access for variant, using the expression pattern as pred result sign name
         col_name = fmt::format(pattern, col_name,
@@ -1001,7 +1059,7 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predica
 std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* predicate_info) {
     auto column_desc = _schema->column(_schema->column_id(predicate_info->column_id));
     std::string col_name = predicate_info->column_name;
-    if (column_desc->path() != nullptr) {
+    if (column_desc->path() != nullptr && !_storage_name_and_type.empty()) {
         const static std::string pattern = "(CAST {}(Nullable(Variant)) TO {})";
         // indicate a subcolumn access for variant, using the expression pattern as pred result sign name
         col_name = fmt::format(pattern, col_name,
@@ -1073,6 +1131,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
 
         if (need_remaining_after_evaluate) {
             remaining_predicates.emplace_back(pred);
+            _need_read_data_indices[pred->column_id()] = true;
             return Status::OK();
         }
 
@@ -1140,6 +1199,9 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_no_need_read_data_opt) {
+        return true;
+    }
     // only support DUP_KEYS and UNIQUE_KEYS with MOW
     if (!((_opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
            (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -1267,7 +1329,8 @@ Status SegmentIterator::_apply_inverted_index() {
     if (_opts.runtime_state &&
         _opts.runtime_state->enable_common_expr_pushdown_for_inverted_index()) {
         // support expr to evaluate inverted index
-        std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair, InvertedIndexIterator*>>
+        std::unordered_map<ColumnId,
+                           std::pair<vectorized::IndexFieldNameAndTypePair, InvertedIndexIterator*>>
                 iter_map;
         for (auto col_id : _common_expr_columns_for_index) {
             auto tablet_col_id = _schema->column_id(col_id);
@@ -1280,6 +1343,12 @@ Status SegmentIterator::_apply_inverted_index() {
             // _inverted_index_iterators has all column ids which has inverted index
             // _common_expr_columns has all column ids from _common_expr_ctxs_push_down
             // if current bitmap is already empty just return
+            if (!(expr_ctx->root()->node_type() == TExprNodeType::FUNCTION_CALL &&
+                  expr_ctx->root()->fn().name.function_name ==
+                          vectorized::ArrayContainsAction::name)) {
+                // now we only support ArrayContains function to evaluate inverted index
+                continue;
+            }
             if (_row_bitmap.isEmpty()) {
                 break;
             }
@@ -1815,19 +1884,23 @@ bool SegmentIterator::_has_char_type(const Field& column_desc) {
     }
 };
 
-void SegmentIterator::_vec_init_char_column_id() {
+void SegmentIterator::_vec_init_char_column_id(vectorized::Block* block) {
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         const Field* column_desc = _schema->column(cid);
 
-        if (_has_char_type(*column_desc)) {
-            _char_type_idx.emplace_back(i);
-            if (i != 0) {
-                _char_type_idx_no_0.emplace_back(i);
+        // The additional deleted filter condition will be in the materialized column at the end of the block.
+        // After _output_column_by_sel_idx, it will be erased, so we do not need to shrink it.
+        if (i < block->columns()) {
+            if (_has_char_type(*column_desc)) {
+                _char_type_idx.emplace_back(i);
+                if (i != 0) {
+                    _char_type_idx_no_0.emplace_back(i);
+                }
             }
-        }
-        if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-            _is_char_type[cid] = true;
+            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                _is_char_type[cid] = true;
+            }
         }
     }
 }
@@ -2264,6 +2337,10 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
         _current_return_columns.resize(_schema->columns().size());
         _converted_column_ids.resize(_schema->columns().size(), 0);
+        if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
+            _is_char_type.resize(_schema->columns().size(), false);
+            _vec_init_char_column_id(block);
+        }
         for (size_t i = 0; i < _schema->num_column_ids(); i++) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);
@@ -2342,6 +2419,15 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         block->clear_column_data();
         return Status::EndOfFile("no more data in segment");
     }
+
+    DBUG_EXECUTE_IF("segment_iterator._rowid_result_for_index", {
+        for (auto& iter : _rowid_result_for_index) {
+            if (iter.second.first) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "_rowid_result_for_index exists true");
+            }
+        }
+    })
 
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
         if (_non_predicate_columns.empty()) {
@@ -2754,6 +2840,9 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
 
 bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
                                              size_t nrows_read) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_no_need_read_data_opt) {
+        return false;
+    }
     if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
         return false;
     }
@@ -2780,6 +2869,9 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
 
     // If the key is present in expr, data needs to be read.
     if (cids.contains(cid)) {
+        return false;
+    }
+    if (_column_pred_in_remaining_vconjunct.contains(_opts.tablet_schema->column(cid).name())) {
         return false;
     }
 

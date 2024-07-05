@@ -151,7 +151,7 @@ public:
 
     void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                              vectorized::SimplifiedScanScheduler** scan_sched,
-                             ThreadPool** non_pipe_thread_pool,
+                             ThreadPool** memtable_flush_pool,
                              vectorized::SimplifiedScanScheduler** remote_scan_sched);
 
     void try_stop_schedulers();
@@ -161,12 +161,16 @@ public:
         return _query_ctxs;
     }
 
+    std::string thread_debug_info();
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
     int64_t _version;
-    int64_t _memory_limit;                      // bytes
+    int64_t _memory_limit; // bytes
+    // `_weighted_mem_used` is a rough memory usage in this group,
+    // because we can only get a precise memory usage by MemTracker which is not include page cache.
     std::atomic_int64_t _weighted_mem_used = 0; // bytes
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
@@ -185,35 +189,35 @@ private:
     std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctxs;
 
     std::shared_mutex _task_sched_lock;
-    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl = nullptr;
+    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
     std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
-    std::unique_ptr<ThreadPool> _non_pipe_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _memtable_flush_pool {nullptr};
 };
 
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 
 struct WorkloadGroupInfo {
-    uint64_t id;
-    std::string name;
-    uint64_t cpu_share;
-    int64_t memory_limit;
-    bool enable_memory_overcommit;
-    int64_t version;
-    int cpu_hard_limit;
-    bool enable_cpu_hard_limit;
-    int scan_thread_num;
-    int max_remote_scan_thread_num;
-    int min_remote_scan_thread_num;
-    int spill_low_watermark;
-    int spill_high_watermark;
+    const uint64_t id = 0;
+    const std::string name;
+    const uint64_t cpu_share = 0;
+    const int64_t memory_limit = 0;
+    const bool enable_memory_overcommit = false;
+    const int64_t version = 0;
+    const int cpu_hard_limit = 0;
+    const bool enable_cpu_hard_limit = false;
+    const int scan_thread_num = 0;
+    const int max_remote_scan_thread_num = 0;
+    const int min_remote_scan_thread_num = 0;
+    const int spill_low_watermark = 0;
+    const int spill_high_watermark = 0;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;
+    const bool valid = true;
 
-    static Status parse_topic_info(const TWorkloadGroupInfo& tworkload_group_info,
-                                   WorkloadGroupInfo* workload_group_info);
+    static WorkloadGroupInfo parse_topic_info(const TWorkloadGroupInfo& tworkload_group_info);
 };
 
 } // namespace doris

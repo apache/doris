@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
@@ -269,13 +270,39 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)
+                    .equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer
+                    .PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                        "Property "
+                                + PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
+                                + " should be set to true or false");
+            }
+            OlapTable table = null;
+            if (tableName != null) {
+                table = (OlapTable) (Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb())
+                        .getTableOrAnalysisException(tableName.getTbl()));
+            }
+            String enableMowDeleteOnDeletePredicate = properties.get(
+                    PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE);
+            if (!(table == null) && !table.getEnableUniqueKeyMergeOnWrite() && Boolean.getBoolean(
+                    enableMowDeleteOnDeletePredicate)) {
+                throw new AnalysisException(
+                        "enable_mow_delete_on_delete_predicate property is "
+                                + "not supported for unique merge-on-read table");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("true")
                     && !properties.get(PropertyAnalyzer
-                                            .PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("false")) {
+                    .PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("false")) {
                 throw new AnalysisException(
-                    "Property "
-                        + PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION + " should be set to true or false");
+                        "Property "
+                                + PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION
+                                + " should be set to true or false");
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
@@ -318,6 +345,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             throw new AnalysisException("You can not modify storage vault id");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
             throw new AnalysisException("You can not modify estimate partition size");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
+            // do nothing, will be analyzed when creating alter job
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS)) {
+            // do nothing, will be analyzed when creating alter job
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
@@ -345,6 +376,11 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
     @Override
     public boolean allowOpMTMV() {
         return true;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
     }
 
     @Override

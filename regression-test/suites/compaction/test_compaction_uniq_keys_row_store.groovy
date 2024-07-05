@@ -36,8 +36,6 @@ suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
         stmt.setInt(8, sex)
     }
 
-    sql "set global enable_server_side_prepared_statement = true"
-
     try {
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -96,6 +94,26 @@ suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
                 setPrepareStmtArgs stmt, 4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.28', '2017-10-01 11:11:11.18', 'Beijing', 10, 1
                 qe_point_select stmt
             }
+
+            def result2 = connect(user=user, password=password, url=url) {
+                def stmt = prepareStatement """ SELECT datetimev2_1,datetime_val1,datetime_val2,max_dwell_time FROM ${tableName} t where user_id = ? and date = ? and datev2 = ? and datetimev2_1 = ? and datetimev2_2 = ? and city = ? and age = ? and sex = ?; """
+                setPrepareStmtArgs stmt, 1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.21', '2017-10-01 11:11:11.11', 'Beijing', 10, 1
+                qe_point_select stmt
+                setPrepareStmtArgs stmt, 1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.22', '2017-10-01 11:11:11.12', 'Beijing', 10, 1
+                qe_point_select stmt
+                setPrepareStmtArgs stmt, 2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.23', '2017-10-01 11:11:11.13', 'Beijing', 10, 1
+                qe_point_select stmt
+                setPrepareStmtArgs stmt, 2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.24', '2017-10-01 11:11:11.14', 'Beijing', 10, 1
+                qe_point_select stmt
+                setPrepareStmtArgs stmt, 3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.25', '2017-10-01 11:11:11.15', 'Beijing', 10, 1
+                qe_point_select stmt
+                setPrepareStmtArgs stmt, 3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.26', '2017-10-01 11:11:11.16', 'Beijing', 10, 1
+                qe_point_select stmt
+                setPrepareStmtArgs stmt, 3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.27', '2017-10-01 11:11:11.17', 'Beijing', 10, 1
+                qe_point_select stmt
+                setPrepareStmtArgs stmt, 4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.28', '2017-10-01 11:11:11.18', 'Beijing', 10, 1
+                qe_point_select stmt
+            }
         }
 
         def user = context.config.jdbcUser
@@ -121,7 +139,11 @@ suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            PROPERTIES ( "replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "light_schema_change" = "true", "store_row_column" = "true" );
+            PROPERTIES ( "replication_num" = "1",
+                    "enable_unique_key_merge_on_write" = "true",
+                    "light_schema_change" = "true",
+                    "store_row_column" = "true"
+            );
         """
 
         sql """ INSERT INTO ${tableName} VALUES
@@ -155,6 +177,7 @@ suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
         sql """ INSERT INTO ${tableName} VALUES
              (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.028', '2017-10-01 11:11:11.018', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
             """
+        qt_sql_row_size "select sum(length(__DORIS_ROW_STORE_COL__)) from regression_test_serving_p0.compaction_uniq_keys_row_store_regression_test"
         //TabletId,ReplicaIdBackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
@@ -210,8 +233,8 @@ suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
         }
         assert (rowCount < 8 * replicaNum)
         checkValue()
+        qt_sql_row_size "select sum(length(__DORIS_ROW_STORE_COL__)) from regression_test_serving_p0.compaction_uniq_keys_row_store_regression_test"
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
-    sql "set global enable_server_side_prepared_statement = false"
 }

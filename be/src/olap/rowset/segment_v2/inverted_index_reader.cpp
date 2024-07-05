@@ -164,7 +164,7 @@ void InvertedIndexReader::get_analyse_result(std::vector<std::string>& analyse_r
                                              bool drop_duplicates) {
     analyse_result.clear();
 
-    std::wstring field_ws = std::wstring(field_name.begin(), field_name.end());
+    std::wstring field_ws = StringUtil::string_to_wstring(field_name);
     std::unique_ptr<lucene::analysis::TokenStream> token_stream(
             analyzer->tokenStream(field_ws.c_str(), reader));
 
@@ -193,15 +193,13 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
     bool owned_dir = false;
     try {
         // try to get query bitmap result from cache and return immediately on cache hit
-        auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
+        auto index_file_key = _inverted_index_file_reader->get_index_file_cache_key(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {
                 index_file_key, "", InvertedIndexQueryType::UNKNOWN_QUERY, "null_bitmap"};
         auto* cache = InvertedIndexQueryCache::instance();
         if (cache->lookup(cache_key, cache_handle)) {
             return Status::OK();
         }
-
-        RETURN_IF_ERROR(check_file_exist(index_file_key));
 
         if (!dir) {
             // TODO: ugly code here, try to refact.
@@ -242,7 +240,7 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
 
 Status InvertedIndexReader::handle_searcher_cache(
         InvertedIndexCacheHandle* inverted_index_cache_handle, OlapReaderStatistics* stats) {
-    auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
+    auto index_file_key = _inverted_index_file_reader->get_index_file_cache_key(&_index_meta);
     InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
     if (InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
                                                        inverted_index_cache_handle)) {
@@ -252,7 +250,7 @@ Status InvertedIndexReader::handle_searcher_cache(
         auto mem_tracker = std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         IndexSearcherPtr searcher;
-        RETURN_IF_ERROR(check_file_exist(index_file_key));
+
         auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
         // try to reuse index_searcher's directory to read null_bitmap to cache
         // to avoid open directory additionally for null_bitmap
@@ -286,17 +284,6 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     return Status::OK();
 };
 
-Status InvertedIndexReader::check_file_exist(const std::string& index_file_key) {
-    bool exists = false;
-    RETURN_IF_ERROR(_inverted_index_file_reader->index_file_exist(&_index_meta, &exists));
-    if (!exists) {
-        LOG(WARNING) << "inverted index: " << index_file_key << " not exist.";
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "inverted index input file {} not found", index_file_key);
-    }
-    return Status::OK();
-}
-
 Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                                          std::unique_ptr<InvertedIndexIterator>* iterator) {
     *iterator = InvertedIndexIterator::create_unique(stats, runtime_state, shared_from_this());
@@ -316,7 +303,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
     try {
         InvertedIndexQueryInfo query_info;
         InvertedIndexQueryCache::CacheKey cache_key;
-        auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
+        auto index_file_key = _inverted_index_file_reader->get_index_file_cache_key(&_index_meta);
 
         if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
             cache_key = {index_file_key, column_name, query_type, search_str};
@@ -353,7 +340,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         }
 
         std::unique_ptr<lucene::search::Query> query;
-        query_info.field_name = std::wstring(column_name.begin(), column_name.end());
+        query_info.field_name = StringUtil::string_to_wstring(column_name);
 
         if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
@@ -375,7 +362,6 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         if (cache_status.ok()) {
             return Status::OK();
         }
-        stats->inverted_index_query_cache_miss++;
         FulltextIndexSearcherPtr* searcher_ptr = nullptr;
 
         InvertedIndexCacheHandle inverted_index_cache_handle;
@@ -464,7 +450,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
-    std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
+    std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
     std::wstring search_str_ws = StringUtil::string_to_wstring(search_str);
     // unique_ptr with custom deleter
     std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
@@ -472,7 +458,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
             [](lucene::index::Term* term) { _CLDECDELETE(term); }};
     std::unique_ptr<lucene::search::Query> query;
 
-    auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
+    auto index_file_key = _inverted_index_file_reader->get_index_file_cache_key(&_index_meta);
 
     // try to get query bitmap result from cache and return immediately on cache hit
     InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
@@ -722,7 +708,7 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
         std::string query_str;
         _value_key_coder->full_encode_ascending(query_value, &query_str);
 
-        auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
+        auto index_file_key = _inverted_index_file_reader->get_index_file_cache_key(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
                                                      query_str};
         auto* cache = InvertedIndexQueryCache::instance();
@@ -762,7 +748,7 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, RuntimeState* runtime_
         std::string query_str;
         _value_key_coder->full_encode_ascending(query_value, &query_str);
 
-        auto index_file_key = _inverted_index_file_reader->get_index_file_key(&_index_meta);
+        auto index_file_key = _inverted_index_file_reader->get_index_file_cache_key(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
                                                      query_str};
         auto* cache = InvertedIndexQueryCache::instance();

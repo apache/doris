@@ -17,6 +17,8 @@
 
 #include "vec/functions/match.h"
 
+#include <hs/hs.h>
+
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_points.h"
@@ -348,7 +350,7 @@ Status FunctionMatchPhrasePrefix::execute_match(
     std::vector<std::string> query_tokens;
     doris::segment_v2::InvertedIndexReader::get_analyse_result(
             query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
-            doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+            doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
 
     if (query_tokens.empty()) {
         VLOG_DEBUG << fmt::format(
@@ -360,9 +362,8 @@ Status FunctionMatchPhrasePrefix::execute_match(
 
     int32_t current_src_array_offset = 0;
     for (size_t i = 0; i < input_rows_count; i++) {
-        std::vector<std::string> data_tokens =
-                analyse_data_token(column_name, inverted_index_ctx, string_col, i, array_offsets,
-                                   current_src_array_offset);
+        auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+                                              array_offsets, current_src_array_offset);
 
         for (size_t j = 0; j < data_tokens.size() - query_tokens.size() + 1; j++) {
             if (data_tokens[j] == query_tokens[0] || query_tokens.size() == 1) {
@@ -389,6 +390,89 @@ Status FunctionMatchPhrasePrefix::execute_match(
             }
         }
     }
+
+    return Status::OK();
+}
+
+Status FunctionMatchRegexp::execute_match(const std::string& column_name,
+                                          const std::string& match_query_str,
+                                          size_t input_rows_count, const ColumnString* string_col,
+                                          InvertedIndexCtx* inverted_index_ctx,
+                                          const ColumnArray::Offsets64* array_offsets,
+                                          ColumnUInt8::Container& result) const {
+    DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchRegexp not support execute_match");
+    })
+
+    doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
+    if (inverted_index_ctx) {
+        parser_type = inverted_index_ctx->parser_type;
+    }
+    VLOG_DEBUG << "begin to run FunctionMatchRegexp::execute_match, parser_type: "
+               << inverted_index_parser_type_to_string(parser_type);
+
+    if (match_query_str.empty()) {
+        VLOG_DEBUG << fmt::format(
+                "token parser result is empty for query, "
+                "please check your query: '{}' and index parser: '{}'",
+                match_query_str, inverted_index_parser_type_to_string(parser_type));
+        return Status::OK();
+    }
+
+    const std::string& pattern = match_query_str;
+
+    hs_database_t* database = nullptr;
+    hs_compile_error_t* compile_err = nullptr;
+    hs_scratch_t* scratch = nullptr;
+
+    if (hs_compile(pattern.data(), HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
+                   HS_MODE_BLOCK, nullptr, &database, &compile_err) != HS_SUCCESS) {
+        LOG(ERROR) << "hyperscan compilation failed: " << compile_err->message;
+        hs_free_compile_error(compile_err);
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                std::string("hyperscan compilation failed:") + compile_err->message);
+    }
+
+    if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {
+        LOG(ERROR) << "hyperscan could not allocate scratch space.";
+        hs_free_database(database);
+        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                "hyperscan could not allocate scratch space.");
+    }
+
+    auto on_match = [](unsigned int id, unsigned long long from, unsigned long long to,
+                       unsigned int flags, void* context) -> int {
+        *((bool*)context) = true;
+        return 0;
+    };
+
+    try {
+        auto current_src_array_offset = 0;
+        for (int i = 0; i < input_rows_count; i++) {
+            std::vector<std::string> data_tokens =
+                    analyse_data_token(column_name, inverted_index_ctx, string_col, i,
+                                       array_offsets, current_src_array_offset);
+
+            for (auto& input : data_tokens) {
+                bool is_match = false;
+                if (hs_scan(database, input.data(), input.size(), 0, scratch, on_match,
+                            (void*)&is_match) != HS_SUCCESS) {
+                    LOG(ERROR) << "hyperscan match failed: " << input;
+                    break;
+                }
+
+                if (is_match) {
+                    result[i] = true;
+                    break;
+                }
+            }
+        }
+    }
+    _CLFINALLY({
+        hs_free_scratch(scratch);
+        hs_free_database(database);
+    })
 
     return Status::OK();
 }

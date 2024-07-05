@@ -99,7 +99,8 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
     if (p._is_top_sink) {
         // create sender
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), p._buf_size, &_sender, state->execution_timeout()));
+                state->fragment_instance_id(), p._buf_size, &_sender, state->execution_timeout(),
+                state->batch_size()));
         // create writer
         _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),
@@ -175,7 +176,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
         // close sender, this is normal path end
         if (_sender) {
             _sender->update_return_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
-            RETURN_IF_ERROR(_sender->close(final_status));
+            RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status));
         }
         state->exec_env()->result_mgr()->cancel_at_time(
                 time(nullptr) + config::result_buffer_cancelled_interval_time,

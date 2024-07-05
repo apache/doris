@@ -31,8 +31,8 @@
 namespace doris {
 
 CloudTxnDeleteBitmapCache::CloudTxnDeleteBitmapCache(size_t size_in_bytes)
-        : LRUCachePolicy(CachePolicy::CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE, size_in_bytes,
-                         LRUCacheType::SIZE, 86400, 4),
+        : LRUCachePolicyTrackingManual(CachePolicy::CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE,
+                                       size_in_bytes, LRUCacheType::SIZE, 86400, 4),
           _stop_latch(1) {}
 
 CloudTxnDeleteBitmapCache::~CloudTxnDeleteBitmapCache() {

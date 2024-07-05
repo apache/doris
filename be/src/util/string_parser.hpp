@@ -279,6 +279,11 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
         [[fallthrough]];
     case '+':
         ++i;
+        // only one '+'/'-' char, so could return failure directly
+        if (UNLIKELY(len == 1)) {
+            *result = PARSE_FAILURE;
+            return 0;
+        }
     }
 
     // This is the fast path where the string cannot overflow.

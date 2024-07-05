@@ -9,6 +9,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
+    "test_iot_auto_detect_concurrent," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
@@ -21,3 +22,4 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
 
 max_failure_num = 50
 
+s3Provider = "COS"

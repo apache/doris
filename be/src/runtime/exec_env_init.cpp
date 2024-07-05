@@ -211,7 +211,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
-    TimezoneUtils::load_timezone_names();
     TimezoneUtils::load_timezones_to_cache();
 
     static_cast<void>(ThreadPoolBuilder("SendBatchThreadPool")
@@ -267,7 +266,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
-    _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
+    _runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
     _file_cache_factory = new io::FileCacheFactory();
     init_file_cache_factory();
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
@@ -515,8 +514,8 @@ Status ExecEnv::_init_mem_env() {
     // SegmentLoader caches segments in rowset granularity. So the size of
     // opened files will greater than segment_cache_capacity.
     int64_t segment_cache_capacity = config::segment_cache_capacity;
-    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 2 / 5) {
-        segment_cache_capacity = fd_number * 2 / 5;
+    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 1 / 5) {
+        segment_cache_capacity = fd_number * 1 / 5;
     }
 
     int64_t segment_cache_mem_limit =
@@ -526,8 +525,8 @@ Status ExecEnv::_init_mem_env() {
             min(segment_cache_mem_limit, segment_cache_capacity *
                                                  config::estimated_num_columns_per_segment *
                                                  config::estimated_mem_per_column_reader);
-    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit);
-    LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
+    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit, segment_cache_capacity);
+    LOG(INFO) << "segment_cache_capacity <= fd_number * 1 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity
               << " min_segment_cache_mem_limit " << min_segment_cache_mem_limit;
 

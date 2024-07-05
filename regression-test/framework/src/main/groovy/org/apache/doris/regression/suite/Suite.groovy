@@ -301,7 +301,7 @@ class Suite implements GroovyInterceptable {
             // wait be report
             Thread.sleep(5000)
             def url = String.format(
-                    "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
+                    "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
                     fe.host, fe.queryPort)
             def conn = DriverManager.getConnection(url, user, password)
             def sql = "CREATE DATABASE IF NOT EXISTS " + context.dbName
@@ -454,6 +454,31 @@ class Suite implements GroovyInterceptable {
             result = DataUtils.sortByToString(result)
         }
         return result
+    }
+
+    def target_sql_return_maparray(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute ${isOrder ? "order_" : ""}target_sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeToList(context.getTargetConnection(this), sqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+
+        // get all column names as list
+        List<String> columnNames = new ArrayList<>()
+        for (int i = 0; i < meta.getColumnCount(); i++) {
+            columnNames.add(meta.getColumnName(i + 1))
+        }
+
+        // add result to res map list, each row is a map with key is column name
+        List<Map<String, Object>> res = new ArrayList<>()
+        for (int i = 0; i < result.size(); i++) {
+            Map<String, Object> row = new HashMap<>()
+            for (int j = 0; j < columnNames.size(); j++) {
+                row.put(columnNames.get(j), result.get(i).get(j))
+            }
+            res.add(row)
+        }
+        return res
     }
 
     List<List<String>> sql_meta(String sqlStr, boolean isOrder = false) {
@@ -614,7 +639,7 @@ class Suite implements GroovyInterceptable {
         }
         if (cleanOperator==true){
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
-            quickTest("", """ SELECT * FROM ${tbName}  """)
+            quickTest("", """ SELECT * FROM ${tbName}  """, true)
             sql """ DROP TABLE  ${tbName} """
         }
     }
@@ -630,9 +655,15 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null) {
-        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${fieldName}"
-        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${fieldName}"
+    void checkTableData(String tbName1 = null, String tbName2 = null, String fieldName = null, String orderByFieldName = null) {
+        String orderByName = ""
+        if (ObjectUtils.isEmpty(orderByFieldName)){
+            orderByName = fieldName;
+        }else {
+            orderByName = orderByFieldName;
+        }
+        def tb1Result = sql "select ${fieldName} FROM ${tbName1} order by ${orderByName}"
+        def tb2Result = sql "select ${fieldName} FROM ${tbName2} order by ${orderByName}"
         List<Object> tbData1 = new ArrayList<Object>();
         for (List<Object> items:tb1Result){
             tbData1.add(items.get(0))
@@ -646,6 +677,12 @@ class Suite implements GroovyInterceptable {
                 throw new RuntimeException("tbData should be same")
             }
         }
+    }
+
+    String getRandomBoolean() {
+        Random random = new Random()
+        boolean randomBoolean = random.nextBoolean()
+        return randomBoolean ? "true" : "false"
     }
 
     void expectExceptionLike(Closure userFunction, String errorMessage = null) {
@@ -759,6 +796,11 @@ class Suite implements GroovyInterceptable {
 
     String getS3Url() {
         String s3BucketName = context.config.otherConfigs.get("s3BucketName");
+        if (context.config.otherConfigs.get("s3Provider") == "AZURE") {
+            String accountName = context.config.otherConfigs.get("ak");
+            String s3Url = "http://${accountName}.blob.core.windows.net/${s3BucketName}"
+            return s3Url
+        }
         String s3Endpoint = context.config.otherConfigs.get("s3Endpoint");
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
@@ -850,7 +892,7 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
-    void sshExec(String username, String host, String cmd) {
+    void sshExec(String username, String host, String cmd, boolean alert=true) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
         logger.info("Execute: ${cmds}".toString())
@@ -858,8 +900,10 @@ class Suite implements GroovyInterceptable {
         def errMsg = new StringBuilder()
         def msg = new StringBuilder()
         p.waitForProcessOutput(msg, errMsg)
-        assert errMsg.length() == 0: "error occurred!" + errMsg
-        assert p.exitValue() == 0
+        if (alert) {
+            assert errMsg.length() == 0: "error occurred!\n" + errMsg
+            assert p.exitValue() == 0
+        }
     }
 
     List<String> getFrontendIpHttpPort() {
@@ -873,21 +917,6 @@ class Suite implements GroovyInterceptable {
             backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
         }
         return;
-    }
-
-    String getProvider() {
-        String s3Endpoint = context.config.otherConfigs.get("s3Endpoint")
-        return getProvider(s3Endpoint)
-    }
-
-    String getProvider(String endpoint) {
-        def providers = ["cos", "oss", "s3", "obs", "bos"]
-        for (final def provider in providers) {
-            if (endpoint.containsIgnoreCase(provider)) {
-                return provider
-            }
-        }
-        return ""
     }
 
     int getTotalLine(String filePath) {
@@ -1762,6 +1791,26 @@ class Suite implements GroovyInterceptable {
                 last_start_version = start_version
                 last_end_version = end_version
             }
+        }
+    }
+
+    def scp_udf_file_to_all_be = { udf_file_path ->
+        if (!new File(udf_file_path).isAbsolute()) {
+            udf_file_path = new File(udf_file_path).getAbsolutePath()
+        }
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+        if(backendId_to_backendIP.size() == 1) {
+            logger.info("Only one backend, skip scp udf file")
+            return
+        }
+
+        def udf_file_dir = new File(udf_file_path).parent
+        backendId_to_backendIP.values().each { be_ip ->
+            sshExec("root", be_ip, "ssh-keygen -f '/root/.ssh/known_hosts' -R \"${be_ip}\"", false)
+            sshExec("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"", false)
+            scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }
 }

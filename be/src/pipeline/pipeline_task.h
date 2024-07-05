@@ -132,9 +132,8 @@ public:
 
     DataSinkOperatorXPtr sink() const { return _sink; }
 
-    OperatorXPtr source() const { return _source; }
-
     int task_id() const { return _index; };
+    bool is_finalized() const { return _finalized; }
 
     void clear_blocking_state() {
         // We use a lock to assure all dependencies are not deconstructed here.
@@ -177,6 +176,12 @@ public:
     void set_core_id(int core_id) { this->_core_id = core_id; }
     int get_core_id() const { return this->_core_id; }
 
+    /**
+     * Return true if:
+     * 1. `enable_force_spill` is true which forces this task to spill data.
+     * 2. Or memory consumption reaches the high water mark of current workload group (80% of memory limitation by default) and revocable_mem_bytes is bigger than min_revocable_mem_bytes.
+     * 3. Or memory consumption is higher than the low water mark of current workload group (50% of memory limitation by default) and `query_weighted_consumption >= query_weighted_limit` and revocable memory is big enough.
+     */
     static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
 
     void put_in_runnable_queue() {
@@ -277,8 +282,8 @@ private:
     MonotonicStopWatch _pipeline_task_watcher;
 
     OperatorXs _operators; // left is _source, right is _root
-    OperatorXPtr _source;
-    OperatorXPtr _root;
+    OperatorXBase* _source;
+    OperatorXBase* _root;
     DataSinkOperatorXPtr _sink;
 
     // `_read_dependencies` is stored as same order as `_operators`

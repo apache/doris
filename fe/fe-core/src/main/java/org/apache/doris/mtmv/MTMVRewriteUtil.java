@@ -62,8 +62,8 @@ public class MTMVRewriteUtil {
             return res;
         }
         // check mv is normal
-        if (!(mtmv.getStatus().getState() == MTMVState.NORMAL
-                && mtmv.getStatus().getRefreshState() == MTMVRefreshState.SUCCESS)) {
+        if (mtmv.getStatus().getState() != MTMVState.NORMAL
+                || mtmv.getStatus().getRefreshState() == MTMVRefreshState.INIT) {
             return res;
         }
         Map<String, Set<String>> partitionMappings = null;

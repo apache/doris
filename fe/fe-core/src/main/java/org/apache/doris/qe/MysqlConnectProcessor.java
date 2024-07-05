@@ -24,6 +24,7 @@ import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.MysqlChannel;
@@ -120,7 +121,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                         continue;
                     }
                     LiteralExpr l = prepareStmt.placeholders().get(i).createLiteralFromType();
-                    l.setupParamFromBinary(packetBuf);
+                    boolean isUnsigned = prepareStmt.placeholders().get(i).isUnsigned();
+                    l.setupParamFromBinary(packetBuf, isUnsigned);
                     realValueExprs.add(l);
                 }
             }
@@ -167,8 +169,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                         LOG.debug("code {}", typeCode);
                         // assign type to placeholders
                         typedPlaceholders.add(
-                                prepareCommand.getPlaceholders().get(i)
-                                        .withNewMysqlColType(MysqlColType.fromCode(typeCode)));
+                                prepareCommand.getPlaceholders().get(i).withNewMysqlColType(typeCode));
                     }
                     // rewrite with new prepared statment with type info in placeholders
                     prepCtx.command = prepareCommand.withPlaceholders(typedPlaceholders);
@@ -183,7 +184,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                         continue;
                     }
                     MysqlColType type = prepareCommand.getPlaceholders().get(i).getMysqlColType();
-                    Literal l = Literal.getLiteralByMysqlType(type, packetBuf);
+                    boolean isUnsigned = prepareCommand.getPlaceholders().get(i).isUnsigned();
+                    Literal l = Literal.getLiteralByMysqlType(type, isUnsigned, packetBuf);
                     statementContext.getIdToPlaceholderRealExpr().put(exprId, l);
                 }
             }
@@ -211,7 +213,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     // process COM_EXECUTE, parse binary row data
     // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
     private void handleExecute() {
-        // debugPacket();
+        if (LOG.isDebugEnabled()) {
+            debugPacket();
+        }
         packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
         // parse stmt_id, flags, params
         int stmtId = packetBuf.getInt();
@@ -244,7 +248,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
     }
 
     // Process COM_QUERY statement,
-    private void handleQuery(MysqlCommand mysqlCommand) {
+    private void handleQuery(MysqlCommand mysqlCommand) throws ConnectionException {
         // convert statement to Java string
         byte[] bytes = packetBuf.array();
         int ending = packetBuf.limit() - 1;
@@ -306,7 +310,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
     }
 
-    private void handleFieldList() {
+    private void handleFieldList() throws ConnectionException {
         String tableName = new String(MysqlProto.readNulTerminateString(packetBuf), StandardCharsets.UTF_8);
         handleFieldList(tableName);
     }
