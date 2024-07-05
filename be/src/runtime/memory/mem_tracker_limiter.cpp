@@ -338,7 +338,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
 #else
     snapshot.label = "VmRSS(process resident memory)"; // from /proc VmRSS VmHWM
 #endif
-    snapshot.limit = -1;
+    snapshot.limit = MemInfo::mem_limit();
     snapshot.cur_consumption = PerfCounters::get_vm_rss();
     snapshot.peak_consumption = PerfCounters::get_vm_hwm();
     (*snapshots).emplace_back(snapshot);

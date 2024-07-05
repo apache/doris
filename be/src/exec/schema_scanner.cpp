@@ -28,6 +28,7 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_backend_memory_tracker.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
@@ -232,6 +233,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaUserScanner::create_unique();
     case TSchemaTableType::SCH_WORKLOAD_POLICY:
         return SchemaWorkloadSchedulePolicyScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_MEMORY_TRACKER:
+        return SchemaBackendMemoryTracker::create_unique();
     case TSchemaTableType::SCH_TABLE_OPTIONS:
         return SchemaTableOptionsScanner::create_unique();
     case TSchemaTableType::SCH_WORKLOAD_GROUP_PRIVILEGES:

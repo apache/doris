@@ -194,6 +194,7 @@ bca	2022-11-02	2022-11-02	8012	vivo
 -- !information_schema --
 active_queries
 backend_active_tasks
+backend_memory_tracker
 character_sets
 collations
 column_privileges
