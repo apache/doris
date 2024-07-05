@@ -318,17 +318,21 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    String get_ccr_body(String table) {
+    String get_ccr_body(String table, String db = null) {
+        if (db == null) {
+            db = context.dbName
+        }
+
         Gson gson = new Gson()
 
-        Map<String, String> srcSpec = context.getSrcSpec()
+        Map<String, String> srcSpec = context.getSrcSpec(db)
         srcSpec.put("table", table)
 
-        Map<String, String> destSpec = context.getDestSpec()
+        Map<String, String> destSpec = context.getDestSpec(db)
         destSpec.put("table", table)
 
         Map<String, Object> body = Maps.newHashMap()
-        body.put("name", context.suiteName + "_" + context.dbName + "_" + table)
+        body.put("name", context.suiteName + "_" + db + "_" + table)
         body.put("src", srcSpec)
         body.put("dest", destSpec)
 
