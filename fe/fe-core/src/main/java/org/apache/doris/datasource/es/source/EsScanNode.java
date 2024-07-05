@@ -28,7 +28,6 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FederationBackendPolicy;
@@ -43,6 +42,7 @@ import org.apache.doris.datasource.es.QueryBuilders.QueryBuilder;
 import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RangePartitionPrunerV2;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
@@ -220,8 +220,10 @@ public class EsScanNode extends ExternalScanNode {
                     String.join(",", unPartitionedIndices), String.join(",", partitionedIndices));
         }
         List<TScanRangeLocations> result = Lists.newArrayList();
-        boolean enableShardScroll = Config.enable_es_shard_scroll;
+        boolean enableShardScroll = isEnableESShardScroll();
         for (EsShardPartitions indexState : selectedIndex) {
+            // When disabling shard scroll, only use the first shard routing.
+            // Because we only need plan a single scan range.
             List<List<EsShardRouting>> shardRoutings = enableShardScroll
                     ? new ArrayList<>(indexState.getShardRoutings().values()) :
                     Collections.singletonList(indexState.getShardRoutings().get(0));
@@ -238,6 +240,8 @@ public class EsScanNode extends ExternalScanNode {
                 FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
                 backendPolicy.init(preLocations);
                 TScanRangeLocations locations = new TScanRangeLocations();
+                // When disabling shard scroll, only use the first backend.
+                // Because we only need plan a single query to one backend.
                 int numBackends = enableShardScroll ? backendPolicy.numBackends() : 1;
                 for (int i = 0; i < numBackends; ++i) {
                     TScanRangeLocation location = new TScanRangeLocation();
@@ -250,11 +254,17 @@ public class EsScanNode extends ExternalScanNode {
                 // Generate on es scan range
                 TEsScanRange esScanRange = new TEsScanRange();
                 esScanRange.setEsHosts(shardAllocations);
+                // When disabling shard scroll, use the index state's index name to prevent the index aliases from
+                // being expanded.
+                // eg: index alias `log-20240501` may point to multiple indices,
+                // such as `log-20240501-1`/`log-20240501-2`.
+                // When we plan a single query, we should use the index alias instead of the real indices names.
                 esScanRange.setIndex(
                         enableShardScroll ? shardRouting.get(0).getIndexName() : indexState.getIndexName());
                 if (table.getType() != null) {
                     esScanRange.setType(table.getMappingType());
                 }
+                // When disabling shard scroll, set shard id to -1 to disable shard preference in query option.
                 esScanRange.setShardId(enableShardScroll ? shardRouting.get(0).getShardId() : -1);
                 // Scan range
                 TScanRange scanRange = new TScanRange();
@@ -276,6 +286,11 @@ public class EsScanNode extends ExternalScanNode {
             }
         }
         return result;
+    }
+
+    private boolean isEnableESShardScroll() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext != null && connectContext.getSessionVariable().isEnableESShardScroll();
     }
 
     /**

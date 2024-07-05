@@ -94,6 +94,8 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         return Status::InternalError("fail to set CURLOPT_NOSIGNAL");
     }
     // set fail on error
+    // When this option is set to `1L` (enabled), libcurl will return an error directly 
+    // when encountering HTTP error codes (>= 400), without reading the body of the error response.
     if (set_fail_on_error) {
         code = curl_easy_setopt(_curl, CURLOPT_FAILONERROR, 1L);
         if (code != CURLE_OK) {
