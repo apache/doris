@@ -1421,6 +1421,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
         } else if (JoinUtils.shouldBucketShuffleJoin(physicalHashJoin)) {
             hashJoinNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+            hashJoinNode.setHashType(((DistributionSpecHash) physicalHashJoin.left()
+                    .getPhysicalProperties().getDistributionSpec()).getShuffleFunction());
         } else {
             hashJoinNode.setDistributionMode(DistributionMode.PARTITIONED);
         }

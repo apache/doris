@@ -231,7 +231,8 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
     }
 }
 
-void ColumnString::update_murmurs_with_value(int32_t* __restrict hashes, doris::PrimitiveType type,
+template <typename T>
+void ColumnStr<T>::update_murmurs_with_value(int32_t* __restrict hashes, doris::PrimitiveType type,
                                              int32_t rows, uint32_t offset,
                                              const uint8_t* __restrict null_data) const {
     auto s = rows;

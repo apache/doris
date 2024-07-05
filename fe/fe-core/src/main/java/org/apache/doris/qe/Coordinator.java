@@ -2651,6 +2651,7 @@ public class Coordinator implements CoordInterface {
                 fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashMap<>());
                 fragmentIdBucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
                 fragmentIdToBuckendIdBucketCountMap.put(scanNode.getFragmentId(), new HashMap<>());
+                scanNode.getFragment().setBucketNum(bucketNum);
             }
             Map<Integer, TNetworkAddress> bucketSeqToAddress
                     = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());

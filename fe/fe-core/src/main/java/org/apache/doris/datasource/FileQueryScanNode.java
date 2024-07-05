@@ -441,6 +441,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             isSparkBucketedHiveTable = ((HMSExternalTable) targetTable).isSparkBucketedTable();
             if (isSparkBucketedHiveTable) {
                 bucketNum = HiveBucketUtil.getBucketNumberFromPath(fileSplit.getPath().getName()).getAsInt();
+                if (!bucketSeq2locations.containsKey(bucketNum)) {
+                    bucketSeq2locations.put(bucketNum, curLocations);
+                }
+                curLocations = bucketSeq2locations.get(bucketNum).get(0);
             }
         }
 
@@ -477,13 +481,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         curLocations.addToLocations(location);
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
+            LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}, bucketNum: {}",
                     curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(),
                     fileSplit.getStart(), fileSplit.getLength(),
-                    Joiner.on("|").join(fileSplit.getHosts()));
-        }
-        if (isSparkBucketedHiveTable) {
-            bucketSeq2locations.put(bucketNum, curLocations);
+                    Joiner.on("|").join(fileSplit.getHosts()), bucketNum);
         }
 
         return curLocations;

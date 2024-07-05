@@ -815,7 +815,7 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
 }
 
 struct DataDistribution {
-    DataDistribution(ExchangeType type) : distribution_type(type) {}
+    DataDistribution(ExchangeType type) : distribution_type(type), hash_type(THashType::CRC32) {}
     DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
             : distribution_type(type), partition_exprs(partition_exprs_) {}
     DataDistribution(const DataDistribution& other) = default;
@@ -823,6 +823,7 @@ struct DataDistribution {
     DataDistribution& operator=(const DataDistribution& other) = default;
     ExchangeType distribution_type;
     std::vector<TExpr> partition_exprs;
+    THashType::type hash_type;
 };
 
 class ExchangerBase;

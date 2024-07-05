@@ -118,8 +118,8 @@ Status Murmur32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
 }
 
 template <typename ChannelIds>
-int32_t Murmur32HashPartitioner<ChannelIds>::_get_default_seed() {
-    return static_cast<int32_t>(HashUtil::SPARK_MURMUR_32_SEED);
+int32_t Murmur32HashPartitioner<ChannelIds>::_get_default_seed() const {
+    return reinterpret_cast<int32_t>(HashUtil::SPARK_MURMUR_32_SEED);
 }
 
 template class Partitioner<size_t, pipeline::LocalExchangeChannelIds>;

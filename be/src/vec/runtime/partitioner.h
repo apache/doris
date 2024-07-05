@@ -94,8 +94,8 @@ protected:
     virtual void _do_hash(const ColumnPtr& column, HashValueType* __restrict result,
                           int idx) const = 0;
 
-    HashValueType _get_default_seed() {
-        return 0;
+    HashValueType _get_default_seed() const {
+        return reinterpret_cast<HashValueType>(0);
     }
 
     VExprContextSPtrs _partition_expr_ctxs;
@@ -146,7 +146,7 @@ public:
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
-    int32_t _get_default_seed() override;
+    int32_t _get_default_seed() const;
 
 private:
     void _do_hash(const ColumnPtr& column, int32_t* __restrict result, int idx) const override;
