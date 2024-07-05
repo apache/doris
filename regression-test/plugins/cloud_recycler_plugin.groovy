@@ -51,6 +51,13 @@ Suite.metaClass.triggerRecycle = { String token, String instanceId /* param */ -
 
 logger.info("Added 'triggerRecycle' function to Suite")
 
+def getCorrespondingObjectListUtil = { objInfo, suite ->
+    def provider = objInfo.provider
+    if (provider.equalsIgnoreCase("azure")) {
+        return AzureListObjectsFileNames(objInfo.ak, objInfo.sk, objInfo.endpoint, objInfo.region, objInfo.prefix, objInfo.bucket, suite)
+    }
+    return AwsListObjectsFileNames(objInfo.ak, objInfo.sk, objInfo.endpoint, objInfo.region, objInfo.prefix, objInfo.bucket, suite)
+}
 
 //cloud mode recycler plugin
 Suite.metaClass.checkRecycleTable = { String token, String instanceId, String cloudUniqueId, String tableName, 
@@ -72,7 +79,7 @@ Suite.metaClass.checkRecycleTable = { String token, String instanceId, String cl
     String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
     suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
 
-    ListObjectsFileNames client = new AwsListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
+    ListObjectsFileNames client = getCorrespondingObjectListUtil(getObjStoreInfoApiResult.result.obj_info[0], suite)
 
     assertTrue(tabletIdList.size() > 0)
     for (tabletId : tabletIdList) {
@@ -109,7 +116,7 @@ Suite.metaClass.checkRecycleInternalStage = { String token, String instanceId, S
     String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
     suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
 
-    ListObjectsFileNames client = new AwsListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
+    ListObjectsFileNames client = getCorrespondingObjectListUtil(getObjStoreInfoApiResult.result.obj_info[0], suite)
 
     // for root and admin, userId equal userName
     String userName = suite.context.config.jdbcUser;
@@ -141,7 +148,7 @@ Suite.metaClass.checkRecycleExpiredStageObjects = { String token, String instanc
     String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
     suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
 
-    ListObjectsFileNames client = new AwsListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
+    ListObjectsFileNames client = getCorrespondingObjectListUtil(getObjStoreInfoApiResult.result.obj_info[0], suite)
 
     // for root and admin, userId equal userName
     String userName = suite.context.config.jdbcUser;
