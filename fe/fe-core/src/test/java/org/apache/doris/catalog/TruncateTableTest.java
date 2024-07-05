@@ -53,7 +53,7 @@ public class TruncateTableTest {
 
     @BeforeClass
     public static void setup() throws Exception {
-        Config.disable_balance = false;
+        Config.disable_balance = true;
         Config.enable_debug_points = true;
         UtFrameUtils.createDorisCluster(runningDir);
         connectContext = UtFrameUtils.createDefaultCtx();
