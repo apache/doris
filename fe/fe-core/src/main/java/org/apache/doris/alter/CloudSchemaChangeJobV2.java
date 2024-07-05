@@ -112,16 +112,17 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
             return;
         }
 
-        if (Env.isCheckpointThread()) {
-            return;
-        }
-
         List<Long> shadowIdxList = indexIdMap.keySet().stream().collect(Collectors.toList());
         dropIndex(shadowIdxList);
     }
 
     @Override
     protected void postProcessOriginIndex() {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip drop origin indexes in checking compatibility mode");
+            return;
+        }
+
         List<Long> originIdxList = indexIdMap.values().stream().collect(Collectors.toList());
         dropIndex(originIdxList);
     }

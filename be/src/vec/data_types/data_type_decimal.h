@@ -288,16 +288,6 @@ public:
         return x % get_scale_multiplier();
     }
 
-    T max_whole_value() const { return get_scale_multiplier(max_precision() - scale) - T(1); }
-
-    bool can_store_whole(T x) const {
-        T max = max_whole_value();
-        if (x > max || x < T(-max)) {
-            return false;
-        }
-        return true;
-    }
-
     /// @returns multiplier for U to become T with correct scale
     template <typename U>
     T scale_factor_for(const DataTypeDecimal<U>& x, bool) const {
@@ -388,19 +378,19 @@ const DataTypeDecimal<T>* check_decimal(const IDataType& data_type) {
 }
 
 inline UInt32 get_decimal_scale(const IDataType& data_type, UInt32 default_value = 0) {
-    if (auto* decimal_type = check_decimal<Decimal32>(data_type)) {
+    if (const auto* decimal_type = check_decimal<Decimal32>(data_type)) {
         return decimal_type->get_scale();
     }
-    if (auto* decimal_type = check_decimal<Decimal64>(data_type)) {
+    if (const auto* decimal_type = check_decimal<Decimal64>(data_type)) {
         return decimal_type->get_scale();
     }
-    if (auto* decimal_type = check_decimal<Decimal128V2>(data_type)) {
+    if (const auto* decimal_type = check_decimal<Decimal128V2>(data_type)) {
         return decimal_type->get_scale();
     }
-    if (auto* decimal_type = check_decimal<Decimal128V3>(data_type)) {
+    if (const auto* decimal_type = check_decimal<Decimal128V3>(data_type)) {
         return decimal_type->get_scale();
     }
-    if (auto* decimal_type = check_decimal<Decimal256>(data_type)) {
+    if (const auto* decimal_type = check_decimal<Decimal256>(data_type)) {
         return decimal_type->get_scale();
     }
     return default_value;
