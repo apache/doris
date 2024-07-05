@@ -246,7 +246,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
     protected void runAfterCatalogReady() {
         ImmutableMap<Long, Backend> backends;
         try {
-            backends = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster();
+            backends = Env.getCurrentSystemInfo().getAllBackendsWithIdByAllCluster();
         } catch (AnalysisException e) {
             LOG.warn("Failed to load backends from system info", e);
             return;

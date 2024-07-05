@@ -111,7 +111,7 @@ public class HeartbeatMgr extends MasterDaemon {
         // send backend heartbeat
         List<Backend> bes;
         try {
-            bes = nodeMgr.getBackendsByCurrentCluster();
+            bes = nodeMgr.getAllBackendsWithIdByAllCluster().values().asList();
         } catch (UserException e) {
             LOG.warn("can not get backends", e);
             return;
