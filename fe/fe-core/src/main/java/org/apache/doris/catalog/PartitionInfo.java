@@ -161,6 +161,16 @@ public class PartitionInfo implements Writable {
         return item;
     }
 
+    // Get the unique string of the partition range.
+    public String getPartitionRangeString(long partitionId) {
+        String partitionRange = "";
+        if (getType() == PartitionType.RANGE || getType() == PartitionType.LIST) {
+            PartitionItem item = getItem(partitionId);
+            partitionRange = item.getItemsString();
+        }
+        return partitionRange;
+    }
+
     public PartitionItem getItemOrAnalysisException(long partitionId) throws AnalysisException {
         PartitionItem item = idToItem.get(partitionId);
         if (item == null) {
