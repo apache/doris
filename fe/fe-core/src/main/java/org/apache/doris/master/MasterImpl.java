@@ -400,8 +400,8 @@ public class MasterImpl {
                     Replica replica = findRelatedReplica(olapTable, partition,
                             backendId, tabletId, tabletMeta.getIndexId());
                     if (replica != null) {
-                        pushTask.countDownLatch(backendId, pushTabletId);
                         deleteJob.addFinishedReplica(partitionId, pushTabletId, replica);
+                        pushTask.countDownLatch(backendId, pushTabletId);
                     }
                 }
             } else if (pushTask.getPushType() == TPushType.LOAD_V2) {
