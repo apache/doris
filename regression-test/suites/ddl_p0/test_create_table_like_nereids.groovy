@@ -74,4 +74,28 @@ suite("test_create_table_like_nereids") {
     sql "drop table if exists table_like_with_partial_roll_up_exists"
     sql """CREATE TABLE if not exists table_like_with_partial_roll_up_exists
     LIKE mal_test_create_table_like with rollup (ru1);"""
+
+    sql "drop table if exists test_create_table_like_char_255"
+    sql """
+        CREATE TABLE test_create_table_like_char_255
+        (
+        `id` INT NOT NULL,
+        `name` CHAR(255)
+        )
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
+        PROPERTIES (
+        "replication_num" = "3",
+        "light_schema_change" = "true"
+        );
+    """
+    sql "drop table if exists new_char_255"
+    qt_test_char_255 """
+        create table new_char_255 like test_create_table_like_char_255;
+    """
+    def res1 = sql "show create table new_char_255"
+    mustContain(res1[0][1], "CHARACTER(255)")
+
+    sql "insert into new_char_255 values(123,'abcdddddd')"
+    qt_select "select * from new_char_255"
 }
