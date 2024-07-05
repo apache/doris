@@ -1340,6 +1340,10 @@ DECLARE_Int64(min_row_group_size);
 
 DECLARE_mBool(enable_parquet_page_index);
 
+// Wheather to ignore not found file in external teble(eg, hive)
+// Default is true, if set to false, the not found file will result in query failure.
+DECLARE_mBool(ignore_not_found_file_in_external_table);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

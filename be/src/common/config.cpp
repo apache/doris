@@ -1255,6 +1255,8 @@ DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
 // filter wrong data.
 DEFINE_mBool(enable_parquet_page_index, "true");
 
+DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
