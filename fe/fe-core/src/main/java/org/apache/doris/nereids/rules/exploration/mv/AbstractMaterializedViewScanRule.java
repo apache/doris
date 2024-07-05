@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 /**
  * This is responsible for single table rewriting according to different pattern
  * */
-public abstract class MaterializedViewScanRule extends AbstractMaterializedViewRule {
+public abstract class AbstractMaterializedViewScanRule extends AbstractMaterializedViewRule {
 
     @Override
     protected Plan rewriteQueryByView(MatchMode matchMode,
