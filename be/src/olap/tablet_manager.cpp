@@ -721,7 +721,7 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
+        const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction, uint32_t* score,
         const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
                 all_cumulative_compaction_policies) {
     int64_t now_ms = UnixMillis();
@@ -746,7 +746,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
             return;
         }
 
-        auto search = tablet_submitted_compaction.find(tablet_ptr->tablet_id());
+        auto search = tablet_submitted_compaction.find(tablet_ptr);
         if (search != tablet_submitted_compaction.end()) {
             return;
         }

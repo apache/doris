@@ -1348,9 +1348,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
@@ -1372,9 +1372,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj2.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
@@ -1396,9 +1396,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj3.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
