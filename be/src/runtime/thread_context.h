@@ -450,9 +450,9 @@ public:
     ~ScopedAllocatorTagger() { doris::allocator_working = false; }
 };
 
-void allocator_detect(size_t size) {
+inline void allocator_detect(size_t size) {
 #ifndef NDEBUG
-    if (size >= config::debug_max_memory_size_by_native_allocator) {
+    if (size >= config::debug_max_memory_size_by_native_allocator_bytes) {
         DCHECK(doris::allocator_working == true);
     }
 #endif
