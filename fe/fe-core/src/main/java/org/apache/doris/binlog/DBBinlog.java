@@ -325,6 +325,7 @@ public class DBBinlog {
         return tombstone;
     }
 
+    // remove expired binlogs and dropped partitions, used in disable db binlog gc.
     private void removeExpiredMetaData(long largestExpiredCommitSeq) {
         lock.writeLock().lock();
         try {
@@ -353,6 +354,7 @@ public class DBBinlog {
                 }
             }
 
+            gcDroppedPartitions(largestExpiredCommitSeq);
             if (lastCommitSeq != -1) {
                 dummy.setCommitSeq(lastCommitSeq);
             }
@@ -363,6 +365,8 @@ public class DBBinlog {
         }
     }
 
+    // Get last expired binlog, and gc expired binlogs/timestamps/dropped
+    // partitions, used in enable db binlog gc.
     private TBinlog getLastExpiredBinlog(BinlogComparator checker) {
         TBinlog lastExpiredBinlog = null;
 
@@ -481,7 +485,6 @@ public class DBBinlog {
         lock.readLock().lock();
         try {
             tableBinlogs = Lists.newArrayList(tableBinlogMap.values());
-            gcDroppedPartitions(tombstone.getCommitSeq());
         } finally {
             lock.readLock().unlock();
         }
