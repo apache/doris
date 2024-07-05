@@ -10,7 +10,7 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
---------------------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 c_custkey->[o_custkey]
+--------------------hashJoin[RIGHT_OUTER_JOIN shuffleBucket] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 c_custkey->[o_custkey]
 ----------------------PhysicalProject
 ------------------------filter(( not (o_comment like '%special%requests%')))
 --------------------------PhysicalOlapScan[orders] apply RFs: RF0

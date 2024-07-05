@@ -10,13 +10,13 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=()
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
+--------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF2 l_orderkey->[o_orderkey]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[orders] apply RFs: RF2
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
+----------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
 ------------------------------PhysicalProject

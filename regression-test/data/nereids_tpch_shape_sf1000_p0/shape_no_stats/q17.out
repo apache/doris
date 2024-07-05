@@ -10,7 +10,7 @@ PhysicalResultSink
 --------------PhysicalWindow
 ----------------PhysicalQuickSort[LOCAL_SORT]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
+--------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
 ----------------------PhysicalProject
