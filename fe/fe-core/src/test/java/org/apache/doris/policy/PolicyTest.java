@@ -341,7 +341,7 @@ public class PolicyTest extends TestWithFeService {
         FilterType filterType = FilterType.PERMISSIVE;
         Expr wherePredicate = null;
 
-        Policy rowPolicy = new RowPolicy(10000, policyName, dbId, user, null, originStmt, tableId, filterType,
+        Policy rowPolicy = new RowPolicy(10000, policyName, dbId, user, null, originStmt, 0, tableId, filterType,
                 wherePredicate);
 
         ByteArrayOutputStream emptyOutputStream = new ByteArrayOutputStream();

@@ -102,6 +102,8 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
      **/
     @SerializedName(value = "originStmt")
     private String originStmt;
+    @SerializedName(value = "stmtIdx")
+    private int stmtIdx;
 
     private Expr wherePredicate = null;
 
@@ -123,7 +125,7 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
      * @param wherePredicate where predicate
      */
     public RowPolicy(long policyId, final String policyName, long dbId, UserIdentity user, String roleName,
-            String originStmt,
+            String originStmt, int stmtIdx,
             final long tableId, final FilterType filterType, final Expr wherePredicate) {
         super(policyId, PolicyTypeEnum.ROW, policyName);
         this.user = user;
@@ -132,12 +134,13 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
         this.tableId = tableId;
         this.filterType = filterType;
         this.originStmt = originStmt;
+        this.stmtIdx = stmtIdx;
         this.wherePredicate = wherePredicate;
     }
 
     public RowPolicy(long policyId, final String policyName, String ctlName, String dbName, String tableName,
             UserIdentity user, String roleName,
-            String originStmt, final FilterType filterType, final Expr wherePredicate) {
+            String originStmt, int stmtIdx, final FilterType filterType, final Expr wherePredicate) {
         super(policyId, PolicyTypeEnum.ROW, policyName);
         this.user = user;
         this.roleName = roleName;
@@ -146,6 +149,7 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
         this.tableName = tableName;
         this.filterType = filterType;
         this.originStmt = originStmt;
+        this.stmtIdx = stmtIdx;
         this.wherePredicate = wherePredicate;
     }
 
@@ -166,16 +170,19 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
         try {
             SqlScanner input = new SqlScanner(new StringReader(originStmt), 0L);
             SqlParser parser = new SqlParser(input);
-            CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.getFirstStmt(parser);
+            CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.getStmt(parser, stmtIdx);
             wherePredicate = stmt.getWherePredicate();
         } catch (Exception e) {
-            throw new IOException("table policy parse originStmt error", e);
+            String errorMsg = String.format("table policy parse originStmt error, originStmt: %s, stmtIdx: %s.",
+                    originStmt, stmtIdx);
+            throw new IOException(errorMsg, e);
         }
     }
 
     @Override
     public RowPolicy clone() {
         return new RowPolicy(this.id, this.policyName, this.dbId, this.user, this.roleName, this.originStmt,
+                this.stmtIdx,
                 this.tableId,
                 this.filterType, this.wherePredicate);
     }
@@ -218,7 +225,7 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
     public Expression getFilterExpression() throws AnalysisException {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = getOriginStmt();
-        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseMultiple(sql).get(stmtIdx).first;
         Optional<Expression> wherePredicate = command.getWherePredicate();
         if (!wherePredicate.isPresent()) {
             throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + sql);
