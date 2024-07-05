@@ -271,7 +271,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     /**
      * Collect the nodes that satisfied the predicate firstly.
      */
-    default <T> List<T> collectFirst(Predicate<TreeNode<NODE_TYPE>> predicate) {
+    default <T> Optional<T> collectFirst(Predicate<TreeNode<NODE_TYPE>> predicate) {
         List<TreeNode<NODE_TYPE>> result = new ArrayList<>();
         foreach(node -> {
             if (result.isEmpty() && predicate.test(node)) {
@@ -279,7 +279,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
             }
             return !result.isEmpty();
         });
-        return (List<T>) ImmutableList.copyOf(result);
+        return result.isEmpty() ? Optional.empty() : Optional.of((T) result.get(0));
     }
 
     /**
