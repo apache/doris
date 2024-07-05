@@ -3400,9 +3400,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             olapTable.checkNormalStateForAlter();
             // check partitions
             for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
-                Partition partition = copiedTbl.getPartition(entry.getValue());
+                Partition partition = olapTable.getPartition(entry.getValue());
                 if (partition == null || !partition.getName().equalsIgnoreCase(entry.getKey())) {
-                    throw new DdlException("Partition [" + entry.getKey() + "] is changed");
+                    throw new DdlException("Partition [" + entry.getKey() + "] is changed"
+                            + " during truncating table, please retry");
                 }
             }
 
