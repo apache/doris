@@ -25,7 +25,6 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -1466,12 +1465,9 @@ public class DatabaseTransactionMgr {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
-                String partitionRange = "";
-                if (tblPartitionInfo.getType() == PartitionType.RANGE
-                        || tblPartitionInfo.getType() == PartitionType.LIST) {
-                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
-                }
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange, -1, -1,
+                String partitionRange = tblPartitionInfo.getPartitionRangeString(partitionId);
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(
+                        partitionId, partitionRange, -1, -1,
                         table.isTemporaryPartition(partitionId));
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
@@ -1489,11 +1485,7 @@ public class DatabaseTransactionMgr {
 
     private PartitionCommitInfo generatePartitionCommitInfo(OlapTable table, long partitionId, long partitionVersion) {
         PartitionInfo tblPartitionInfo = table.getPartitionInfo();
-        String partitionRange = "";
-        if (tblPartitionInfo.getType() == PartitionType.RANGE
-                || tblPartitionInfo.getType() == PartitionType.LIST) {
-            partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
-        }
+        String partitionRange = tblPartitionInfo.getPartitionRangeString(partitionId);
         return new PartitionCommitInfo(partitionId, partitionRange,
                 partitionVersion, System.currentTimeMillis() /* use as partition visible time */,
                 table.isTemporaryPartition(partitionId));
