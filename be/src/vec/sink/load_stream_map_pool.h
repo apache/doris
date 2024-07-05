@@ -112,7 +112,7 @@ private:
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
 
     std::mutex _tablets_to_commit_mutex;
-    std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_to_commit;
+    std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_to_commit;
     std::unordered_map<int64_t, int32_t> _segments_for_tablet;
 };
 
