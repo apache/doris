@@ -364,6 +364,31 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
+    def target_sql_return_maparray(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute ${isOrder ? "order_" : ""}target_sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeToList(context.getTargetConnection(this), sqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+
+        // get all column names as list
+        List<String> columnNames = new ArrayList<>()
+        for (int i = 0; i < meta.getColumnCount(); i++) {
+            columnNames.add(meta.getColumnName(i + 1))
+        }
+
+        // add result to res map list, each row is a map with key is column name
+        List<Map<String, Object>> res = new ArrayList<>()
+        for (int i = 0; i < result.size(); i++) {
+            Map<String, Object> row = new HashMap<>()
+            for (int j = 0; j < columnNames.size(); j++) {
+                row.put(columnNames.get(j), result.get(i).get(j))
+            }
+            res.add(row)
+        }
+        return res
+    }
+
     List<List<String>> sql_meta(String sqlStr, boolean isOrder = false) {
         logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
         def (tmp, rsmd) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
