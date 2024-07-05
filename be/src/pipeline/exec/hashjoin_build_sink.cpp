@@ -540,8 +540,12 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     if (local_state._should_build_hash_table && eos) {
         DCHECK(!local_state._build_side_mutable_block.empty());
 
-        for (auto& column : local_state._build_side_mutable_block.mutable_columns()) {
-            column->reserve(local_state._build_side_rows);
+        try {
+            for (auto& column : local_state._build_side_mutable_block.mutable_columns()) {
+                column->reserve(local_state._build_side_rows);
+            }
+        } catch (Exception& e) {
+            return e.to_status();
         }
 
         {
