@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF0 l_orderkey->[o_orderkey]
+----------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF0 l_orderkey->[o_orderkey]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[orders] apply RFs: RF0
 ------------------PhysicalProject

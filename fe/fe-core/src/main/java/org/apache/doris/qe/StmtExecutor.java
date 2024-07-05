@@ -1735,7 +1735,7 @@ public class StmtExecutor {
                 String originStmt = parsedStmt.getOrigStmt().originStmt;
                 NereidsSqlCacheManager sqlCacheManager = context.getEnv().getSqlCacheManager();
                 if (cacheResult != null) {
-                    sqlCacheManager.tryAddCache(context, originStmt, cacheAnalyzer, false);
+                    sqlCacheManager.tryAddBeCache(context, originStmt, cacheAnalyzer);
                 }
             }
         }
@@ -1962,11 +1962,7 @@ public class StmtExecutor {
                 Cache cache = cacheAnalyzer.getCache();
                 if (cache instanceof SqlCache && !cache.isDisableCache() && planner instanceof NereidsPlanner) {
                     String originStmt = parsedStmt.getOrigStmt().originStmt;
-                    LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
-                    boolean currentMissParseSqlFromSqlCache = !(logicalPlanAdapter.getLogicalPlan()
-                            instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache);
-                    context.getEnv().getSqlCacheManager().tryAddCache(
-                            context, originStmt, cacheAnalyzer, currentMissParseSqlFromSqlCache);
+                    context.getEnv().getSqlCacheManager().tryAddBeCache(context, originStmt, cacheAnalyzer);
                 }
             }
             if (!isSendFields) {

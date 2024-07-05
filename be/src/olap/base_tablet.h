@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "olap/iterators.h"
 #include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
@@ -302,7 +303,11 @@ public:
     std::atomic<int64_t> read_block_count = 0;
     std::atomic<int64_t> write_count = 0;
     std::atomic<int64_t> compaction_count = 0;
+
     CompactionStage compaction_stage = CompactionStage::NOT_SCHEDULED;
+    std::mutex sample_info_lock;
+    std::vector<CompactionSampleInfo> sample_infos;
+    Status last_compaction_status = Status::OK();
 };
 
 } /* namespace doris */

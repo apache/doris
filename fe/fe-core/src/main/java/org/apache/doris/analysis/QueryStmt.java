@@ -54,7 +54,8 @@ import java.util.stream.Collectors;
  * Used for sharing members/methods and some of the analysis code, in particular the
  * analysis of the ORDER BY and LIMIT clauses.
  */
-public abstract class QueryStmt extends StatementBase implements Queriable {
+@Deprecated
+public abstract class QueryStmt extends StatementBase implements Queriable, NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(QueryStmt.class);
 
     /////////////////////////////////////////

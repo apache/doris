@@ -113,11 +113,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -175,11 +174,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -192,11 +190,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -209,11 +206,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalOlapScan[t1]
+------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -225,12 +221,10 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalProject
---------------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+--------------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -242,11 +236,10 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------hashJoin[LEFT_SEMI_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -486,11 +479,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -568,11 +560,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -590,11 +581,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -612,11 +602,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalOlapScan[t1]
+------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -633,12 +622,10 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalProject
---------------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+--------------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -655,11 +642,10 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------hashJoin[LEFT_SEMI_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -934,11 +920,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -1016,11 +1001,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -1038,11 +1022,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -1060,11 +1043,10 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalOlapScan[t1]
+------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -1081,12 +1063,10 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalProject
---------------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+--------------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 
@@ -1103,11 +1083,10 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------hashJoin[LEFT_SEMI_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalOlapScan[t3]
 

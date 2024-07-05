@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_upgrade_downgrade_compatibility_auth","p0,auth") {
+suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
 
     sql """ADMIN SET FRONTEND CONFIG ('experimental_enable_workload_group' = 'true');"""
     sql """set experimental_enable_pipeline_engine = true;"""
