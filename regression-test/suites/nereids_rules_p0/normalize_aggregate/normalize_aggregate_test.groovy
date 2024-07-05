@@ -23,4 +23,8 @@ suite("normalize_aggregate") {
     qt_test_upper_project_projections_rewrite2 """
     SELECT - + AVG ( DISTINCT - col0 ) * - col0 FROM
     normalize_aggregate_tab WHERE + - col0 IS NULL GROUP BY col0 HAVING NULL IS NULL;"""
+
+    qt_test_lambda """
+        select count(array_filter(i -> (i > 0.99), array(1, 2, 3)))
+    """
 }
