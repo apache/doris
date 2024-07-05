@@ -17,14 +17,8 @@
 import groovy.json.JsonOutput
 
 import org.apache.doris.regression.suite.Suite
-
-import com.amazonaws.auth.AWSStaticCredentialsProvider
-import com.amazonaws.auth.BasicAWSCredentials
-import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
-import com.amazonaws.services.s3.AmazonS3
-import com.amazonaws.services.s3.AmazonS3ClientBuilder
-import com.amazonaws.services.s3.model.ListObjectsRequest
-import com.amazonaws.services.s3.model.ObjectListing
+import org.apache.doris.regression.util.ListObjectsFileNames
+import org.apache.doris.regression.util.AwsListObjectsFileNames
 
 Suite.metaClass.triggerRecycle = { String token, String instanceId /* param */ ->
     // which suite invoke current function?
@@ -78,19 +72,16 @@ Suite.metaClass.checkRecycleTable = { String token, String instanceId, String cl
     String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
     suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
 
-    def credentials = new BasicAWSCredentials(ak, sk)
-    def endpointConfiguration = new EndpointConfiguration(endpoint, region)
-    def s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
-            .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+    ListObjectsFileNames client = new AwsListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
 
     assertTrue(tabletIdList.size() > 0)
     for (tabletId : tabletIdList) {
         suite.getLogger().info("tableName: ${tableName}, tabletId:${tabletId}");
-        def objectListing = s3Client.listObjects(
-            new ListObjectsRequest().withMaxKeys(1).withBucketName(bucket).withPrefix("${prefix}/data/${tabletId}/"))
+        // def objectListing = s3Client.listObjects(
+        //     new ListObjectsRequest().withMaxKeys(1).withBucketName(bucket).withPrefix("${prefix}/data/${tabletId}/"))
 
         suite.getLogger().info("tableName: ${tableName}, tabletId:${tabletId}, objectListing:${objectListing.getObjectSummaries()}".toString())
-        if (!objectListing.getObjectSummaries().isEmpty()) {
+        if (!client.isEmpty(tableName, tabletId)) {
             return false;
         }
     }
@@ -118,21 +109,13 @@ Suite.metaClass.checkRecycleInternalStage = { String token, String instanceId, S
     String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
     suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
 
-    def credentials = new BasicAWSCredentials(ak, sk)
-    def endpointConfiguration = new EndpointConfiguration(endpoint, region)
-    def s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
-            .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+    ListObjectsFileNames client = new AwsListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
 
     // for root and admin, userId equal userName
     String userName = suite.context.config.jdbcUser;
     String userId = suite.context.config.jdbcUser;
-    def objectListing = s3Client.listObjects(
-        new ListObjectsRequest().withMaxKeys(1)
-            .withBucketName(bucket)
-            .withPrefix("${prefix}/stage/${userName}/${userId}/${fileName}"))
 
-    suite.getLogger().info("${prefix}/stage/${userName}/${userId}/${fileName}, objectListing:${objectListing.getObjectSummaries()}".toString())
-    if (!objectListing.getObjectSummaries().isEmpty()) {
+    if (!client.isEmpty(userName, userId, fileName)) {
         return false;
     }
 
@@ -158,28 +141,13 @@ Suite.metaClass.checkRecycleExpiredStageObjects = { String token, String instanc
     String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
     suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
 
-    def credentials = new BasicAWSCredentials(ak, sk)
-    def endpointConfiguration = new EndpointConfiguration(endpoint, region)
-    def s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
-            .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+    ListObjectsFileNames client = new AwsListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
 
     // for root and admin, userId equal userName
     String userName = suite.context.config.jdbcUser;
     String userId = suite.context.config.jdbcUser;
-    def objectListing = s3Client.listObjects(
-            new ListObjectsRequest()
-                    .withBucketName(bucket)
-                    .withPrefix("${prefix}/stage/${userName}/${userId}/"))
 
-    suite.getLogger().info("${prefix}/stage/${userName}/${userId}/, objectListing:${objectListing.getObjectSummaries()}".toString())
-    Set<String> fileNames = new HashSet<>()
-    for (def os: objectListing.getObjectSummaries()) {
-        def split = os.key.split("/")
-        if (split.length <= 0 ) {
-            continue
-        }
-        fileNames.add(split[split.length-1])
-    }
+    Set<String> fileNames = client.listObjects(userName, userId)
     for(def f : nonExistFileNames) {
         if (fileNames.contains(f)) {
             return false
