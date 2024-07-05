@@ -90,7 +90,9 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_min_max) {
+                                   : state->query_options().enable_parquet_filter_by_min_max),
+          _enable_page_index(state == nullptr ? true
+                                              : state->query_options().enable_parquet_page_index) {
     _init_profile();
     _init_system_properties();
     _init_file_description();
@@ -106,7 +108,9 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(
                   state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_min_max) {
+                                   : state->query_options().enable_parquet_filter_by_min_max),
+          _enable_page_index(state == nullptr ? true
+                                              : state->query_options().enable_parquet_page_index) {
     _init_system_properties();
     _init_file_description();
 }
@@ -751,7 +755,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         return Status::OK();
     }
     PageIndex page_index;
-    if (!config::enable_parquet_page_index || !_has_page_index(row_group.columns, page_index)) {
+    if (!config::enable_parquet_page_index || !_enable_page_index ||
+        !_has_page_index(row_group.columns, page_index)) {
         read_whole_row_group();
         return Status::OK();
     }

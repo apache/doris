@@ -463,6 +463,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
 
+    public static final String ENABLE_PARQUET_PAGE_INDEX = "ebable_parquet_page_index";
+
     public static final String INLINE_CTE_REFERENCED_THRESHOLD = "inline_cte_referenced_threshold";
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
@@ -1601,6 +1603,14 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcFilterByMinMax = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_PAGE_INDEX,
+            description = {"控制 parquet reader 是否启用 page index 跳过 page header。默认为 true。",
+                    "Controls whether to skip page header by page index in parquet reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableParquetPageIndex = true;
 
     @VariableMgr.VarAttr(
             name = EXTERNAL_TABLE_ANALYZE_PART_NUM,
@@ -2941,6 +2951,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableOrcFilterByMinMax = enableOrcFilterByMinMax;
     }
 
+    public boolean isEnableParquetPageIndex() {
+        return enableParquetPageIndex;
+    }
+
+    public void setEnableParquetPageIndex(boolean enableParquetPageIndex) {
+        this.enableParquetPageIndex = enableParquetPageIndex;
+    }
+
     public String getSqlDialect() {
         return sqlDialect;
     }
@@ -3527,6 +3545,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
+        tResult.setEnableParquetPageIndex(enableParquetPageIndex);
 
         tResult.setEnableDeleteSubPredicateV2(enableDeleteSubPredicateV2);
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
