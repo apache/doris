@@ -154,7 +154,7 @@ docker_required_variables_env() {
 
 get_doris_fe_args() {
     declare -g MASTER_FE_IP CURRENT_FE_IP CURRENT_NODE_NAME MASTER_FE_EDIT_PORT MASTER_NODE_NAME CURRENT_FE_EDIT_PORT PRIORITY_NETWORKS CURRENT_FE_IS_MASTER FE_HOSTS_MSG BE_HOSTS_MSG
-    if [ $RUN_TYPE == "ELECTION" ]; then
+    if [[ $RUN_TYPE == "ELECTION" ]]; then
         local feServerArray=($(echo "${FE_SERVERS}" | awk '{gsub (/,/," "); print $0}'))
         for i in "${feServerArray[@]}"; do
             val=${i}
@@ -262,7 +262,7 @@ get_doris_fe_args() {
         doris_note "CURRENT_NODE_NAME = ${CURRENT_NODE_NAME}"
         doris_note "CURRENT_FE = ${CURRENT_FE_IP}:${CURRENT_FE_EDIT_PORT}"
 
-    elif [ $RUN_TYPE == "ASSIGN" ]; then
+    elif [[ $RUN_TYPE == "ASSIGN" ]]; then
         MASTER_FE_IP=${FE_MASTER_IP}
         check_arg "MASTER_FE_IP" $MASTER_FE_IP
         MASTER_FE_EDIT_PORT=${FE_MASTER_PORT}
@@ -426,7 +426,7 @@ _main() {
     else
         docker_setup_env
         get_doris_fe_args
-        if [ -z "$DATABASE_ALREADY_EXISTS"]; then
+        if [[ -z "$DATABASE_ALREADY_EXISTS" ]]; then
             if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
                 doris_note "start add_priority_networks"
                 add_priority_networks $PRIORITY_NETWORKS
