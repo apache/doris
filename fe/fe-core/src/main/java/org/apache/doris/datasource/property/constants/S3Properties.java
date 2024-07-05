@@ -135,15 +135,18 @@ public class S3Properties extends BaseProperties {
         }
         String endpoint = props.get(Env.ENDPOINT);
         String region = props.getOrDefault(Env.REGION, S3Properties.getRegionOfEndpoint(endpoint));
+        props.putIfAbsent(Env.REGION, PropertyConverter.checkRegion(endpoint, region, Env.REGION));
         return new CloudCredentialWithEndpoint(endpoint, region, credential);
     }
 
     public static String getRegionOfEndpoint(String endpoint) {
         if (IPV4_PORT_PATTERN.matcher(endpoint).find()) {
-            // if endpoint is like '192.168.0.1:8999', return null region
+            // if endpoint contains '192.168.0.1:8999', return null region
             return null;
         }
-        String[] endpointSplit = endpoint.split("\\.");
+        String[] endpointSplit = endpoint.replace("http://", "")
+                .replace("https://", "")
+                .split("\\.");
         if (endpointSplit.length < 2) {
             return null;
         }
