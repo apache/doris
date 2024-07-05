@@ -75,7 +75,6 @@ Status BRpcService::start(int port, int num_threads) {
     if (num_threads != -1) {
         options.num_threads = num_threads;
     }
-    options.idle_timeout_sec = 10;
 
     if (config::enable_https) {
         auto sslOptions = options.mutable_ssl_options();
