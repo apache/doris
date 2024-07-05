@@ -532,14 +532,14 @@ public class TableProperty implements Writable {
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
     }
 
-    public void setEnableDeleteOnDeletePredicate(boolean enable) {
-        properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE, Boolean.toString(enable));
+    public void setEnableMowLightDelete(boolean enable) {
+        properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE, Boolean.toString(enable));
     }
 
-    public boolean getEnableDelteOnDeletePredicate() {
+    public boolean getEnableMowLightDelete() {
         return Boolean.parseBoolean(properties.getOrDefault(
-                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE,
-                Boolean.toString(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE_DEFAULT_VALUE)));
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE,
+                Boolean.toString(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE)));
     }
 
     public void setSequenceMapCol(String colName) {
