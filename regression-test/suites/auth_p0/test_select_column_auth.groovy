@@ -25,11 +25,20 @@ suite("test_select_column_auth","p0,auth") {
     String view_name = 'test_select_column_auth_view'
     String rollup_name = 'test_select_column_auth_rollup'
     String catalog_name = 'test_select_column_auth_catalog'
+
     try_sql("drop user ${user}")
     try_sql """drop table if exists ${dbName}.${tableName}"""
     sql """drop database if exists ${dbName}"""
 
     sql """create user '${user}' IDENTIFIED by '${pwd}'"""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+    }
 
     sql """create database ${dbName}"""
     sql """
