@@ -20,6 +20,10 @@ set -eo pipefail
 shopt -s nullglob
 
 # Obtain necessary and basic information to complete initialization
+# log dir
+LOG_DIR="/opt/apache-doris/be/log"
+# log name and datetime
+LOG_FILE="${LOG_DIR}/init_be_$(date '+%Y%m%d_%H%M%S').log"
 
 # logging functions
 # usage: doris_[note|warn|error] $log_meg
@@ -61,95 +65,171 @@ docker_setup_env() {
 
 # Check the variables required for startup
 docker_required_variables_env() {
-  declare -g RUN_TYPE
-  if [[ -n "$FE_SERVERS" && -n "$BE_ADDR" ]]; then
-      RUN_TYPE="ELECTION"
-      if [[ $FE_SERVERS =~ ^.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}(,.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4})*$ || $FE_SERVERS =~ ^.+:([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
-          doris_warn "FE_SERVERS" $FE_SERVERS
-      else
-          doris_error "FE_SERVERS rule error！example: \$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT[,\$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT]..."
-      fi
-      if [[ $BE_ADDR =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}$ || $BE_ADDR =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:):[1-6]{0,1}[0-9]{1,4}$ ]]; then
-        doris_warn "BE_ADDR" $BE_ADDR
-      else
-        doris_error "BE_ADDR rule error！example: \$BE_IP:\$HEARTBEAT_SERVICE_PORT"
-      fi
-      export RUN_TYPE=${RUN_TYPE}
-      return
-  fi
+    declare -g RUN_TYPE
 
-  if [[ -n "$FE_MASTER_IP"  && -n "$BE_IP" && -n "$BE_PORT" ]]; then
-      RUN_TYPE="ASSIGN"
-      if [[ $FE_MASTER_IP =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}$ || $FE_MASTER_IP =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
-          doris_warn "FE_MASTER_IP" $FE_MASTER_IP
-      else
-          doris_error "FE_MASTER_IP rule error！example: \$FE_MASTER_IP"
-      fi
-      if [[ $BE_IP =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}$ || $BE_IP =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
-          doris_warn "BE_IP" $BE_IP
-      else
-          doris_error "BE_IP rule error！example: \$BE_IP"
-      fi
-      if [[ $BE_PORT =~ ^[1-6]{0,1}[0-9]{1,4}$ ]]; then
-          doris_warn "BE_PORT" $BE_PORT
-      else
-          doris_error "BE_PORT rule error！example: \$BE_PORT."
-      fi
-      export RUN_TYPE=${RUN_TYPE}
-      return
-  fi
+    if [[ -n "$FE_SERVERS" && -n "$BE_SERVERS" && -n "$BE_ADDR" && -n "$FQDN" ]]; then
+        RUN_TYPE="FQDN"
+        if [[ $FE_SERVERS =~ ^[a-zA-Z].+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}(,[a-zA-Z].+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4})*$ || $FE_SERVERS =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
+            doris_warn "FE_SERVERS" $FE_SERVERS
+        else
+            doris_error "FE_SERVERS rule error！example: \$FE_NODE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT[,\$FE_NODE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT]... AND FE_NAME Ruler is '[a-zA-Z].+'!"
+        fi
+        if [[ $BE_SERVERS =~ ^[a-zA-Z].+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}(,[a-zA-Z].+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3})*$ || $FE_SERVERS =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
+            doris_warn "BE_SERVERS" $BE_SERVERS
+        else
+            doris_error "BE_SERVERS rule error！example: \$BE_NODE_NAME:\$BE_HOST_IP[,\$BE_NODE_NAME:\$BE_HOST_IP:]... AND BE_NODE_NAME Ruler is '[a-zA-Z].+'!"
+        fi
+        if [[ $BE_ADDR =~ ^[a-zA-Z].+:[1-6]{0,1}[0-9]{1,4}$ || $BE_ADDR =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:):[1-6]{0,1}[0-9]{1,4}$ ]]; then
+            doris_warn "BE_ADDR" $BE_ADDR
+        else
+            doris_error "BE_ADDR rule error！example: \$BE_NAME:\$HEARTBEAT_SERVICE_PORT, the be_name ruler is [a-zA-Z]+\w+"
+        fi
+        export RUN_TYPE=${RUN_TYPE}
+        return
+    fi
 
-  doris_error EOF "
+    if [[ -n "$FE_SERVERS" && -n "$BE_ADDR" ]]; then
+        RUN_TYPE="ELECTION"
+        if [[ $FE_SERVERS =~ ^.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}(,.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4})*$ || $FE_SERVERS =~ ^.+:([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
+            doris_warn "FE_SERVERS" $FE_SERVERS
+        else
+            doris_error "FE_SERVERS rule error！example: \$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT[,\$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT]..."
+        fi
+        if [[ $BE_ADDR =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}$ || $BE_ADDR =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:):[1-6]{0,1}[0-9]{1,4}$ ]]; then
+            doris_warn "BE_ADDR" $BE_ADDR
+        else
+            doris_error "BE_ADDR rule error！example: \$BE_IP:\$HEARTBEAT_SERVICE_PORT"
+        fi
+        export RUN_TYPE=${RUN_TYPE}
+        return
+    fi
+
+    if [[ -n "$FE_MASTER_IP"  && -n "$BE_IP" && -n "$BE_PORT" ]]; then
+        RUN_TYPE="ASSIGN"
+        if [[ $FE_MASTER_IP =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}$ || $FE_MASTER_IP =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
+            doris_warn "FE_MASTER_IP" $FE_MASTER_IP
+        else
+            doris_error "FE_MASTER_IP rule error！example: \$FE_MASTER_IP"
+        fi
+        if [[ $BE_IP =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}$ || $BE_IP =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
+            doris_warn "BE_IP" $BE_IP
+        else
+            doris_error "BE_IP rule error！example: \$BE_IP"
+        fi
+        if [[ $BE_PORT =~ ^[1-6]{0,1}[0-9]{1,4}$ ]]; then
+            doris_warn "BE_PORT" $BE_PORT
+        else
+            doris_error "BE_PORT rule error！example: \$BE_PORT."
+        fi
+        export RUN_TYPE=${RUN_TYPE}
+        return
+    fi
+
+    doris_error EOF "
                Note that you did not configure the required parameters!
                plan 1:
                FE_SERVERS & BE_ADDR
                plan 2:
+               FE_SERVERS & FE_SERVERS & BE_ADDR & FQDN
+               plan 2:
                FE_MASTER_IP & FE_MASTER_PORT & BE_IP & BE_PORT"
-              EOF
+            EOF
 }
 
 get_doris_args() {
-  declare -g MASTER_FE_IP CURRENT_BE_IP CURRENT_BE_PORT PRIORITY_NETWORKS
-  if [ $RUN_TYPE == "ELECTION" ]; then
-      local feServerArray=($(echo "${FE_SERVERS}" | awk '{gsub (/,/," "); print $0}'))
-      for i in "${feServerArray[@]}"; do
-        val=${i}
-        val=${val// /}
-        tmpFeName=$(echo "${val}" | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
-        tmpFeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
-        tmpFeEditLogPort=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$3}')
-        check_arg "TMP_FE_NAME" $tmpFeName
-        feIpArray[$tmpFeName]=${tmpFeIp}
-      done
+    declare -g MASTER_FE_IP CURRENT_BE_IP CURRENT_BE_PORT PRIORITY_NETWORKS
+    if [ $RUN_TYPE == "ELECTION" ]; then
+        local feServerArray=($(echo "${FE_SERVERS}" | awk '{gsub (/,/," "); print $0}'))
+        for i in "${feServerArray[@]}"; do
+            val=${i}
+            val=${val// /}
+            tmpFeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
+            check_arg "TMP_FE_IP" $tmpFeIp
+            feIpArray+=("$tmpFeIp")
+        done
 
-      FE_MASTER_IP=${feIpArray[1]}
-      check_arg "FE_MASTER_IP" $FE_MASTER_IP
-      BE_IP=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$1}')
-      check_arg "BE_IP" $BE_IP
-      BE_PORT=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$2}')
-      check_arg "BE_PORT" $BE_PORT
+        FE_MASTER_IP=${feIpArray[0]}
+        check_arg "FE_MASTER_IP" $FE_MASTER_IP
+        BE_IP=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$1}')
+        check_arg "BE_IP" $BE_IP
+        BE_PORT=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$2}')
+        check_arg "BE_PORT" $BE_PORT
 
-  elif [ $RUN_TYPE == "ASSIGN" ]; then
-      check_arg "FE_MASTER_IP" $FE_MASTER_IP
-      check_arg "BE_IP" $BE_IP
-      check_arg "BE_PORT" $BE_PORT
-  fi
+    elif [[ $RUN_TYPE == "FQDN" ]]; then
+        local feServerArray=($(echo "${FE_SERVERS}" | awk '{gsub (/,/," "); print $0}'))
+        local beServerArray=($(echo "${BE_SERVERS}" | awk '{gsub (/,/," "); print $0}'))
+        feIpArray=()
+        feNameArray=()
+        beIpArray=()
+        beNameArray=()
+        for ((i=0; i<${#feServerArray[@]}; i++)); do
+            val=${feServerArray[i]}
+            val=${val// /}
+            tmpFeName=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$1}')
+            tmpFeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
+            check_arg "TMP_FE_NAME" $tmpFeName
+            feNameArray+=("$tmpFeName")
+            check_arg "TMP_FE_IP" $tmpFeIp
+            feIpArray+=("$tmpFeIp")
+            FE_HOSTS_MSG+=$(printf "%s\t%s" $tmpFeIp $tmpFeName)
+            if [ $i -lt $((${#feServerArray[@]}-1)) ]; then
+                FE_HOSTS_MSG+='\n'
+            fi
+        done
+        for ((i=0; i<${#beServerArray[@]}; i++)); do
+            val=${beServerArray[i]}
+            val=${val// /}
+            tmpBeName=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$1}')
+            tmpBeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
+            check_arg "TMP_BE_NAME" $tmpBeName
+            beNameArray+=("$tmpBeName")
+            check_arg "TMP_BE_IP" $tmpBeIp
+            beIpArray+=("$tmpBeIp")
+            BE_HOSTS_MSG+=$(printf "%s\t%s" $tmpBeIp $tmpBeName)
+            if [ $i -lt $((${#beServerArray[@]}-1)) ]; then
+                BE_HOSTS_MSG+='\n'
+            fi
+        done
 
-  PRIORITY_NETWORKS=$(echo "${BE_IP}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
-  check_arg "PRIORITY_NETWORKS" $PRIORITY_NETWORKS
+        MASTER_NODE_NAME=${feNameArray[0]}
+        check_arg "MASTER_NODE_NAME" $MASTER_NODE_NAME
+        BE_NAME=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$1}')
+        check_arg "CURRENT_NODE_NAME" $BE_NAME
+        BE_PORT=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$2}')
+        check_arg "BE_PORT" $BE_PORT
 
-  # export be args
-  export MASTER_FE_IP=${FE_MASTER_IP}
-  export CURRENT_BE_IP=${BE_IP}
-  export CURRENT_BE_PORT=${BE_PORT}
-  export PRIORITY_NETWORKS=${PRIORITY_NETWORKS}
+        # Print arrays with desired format
+        doris_note "FE_HOSTS_MSG = [\n${FE_HOSTS_MSG}\n]"
+        doris_note "BE_HOSTS_MSG = [\n${BE_HOSTS_MSG}\n]"
 
-  doris_note "MASTER_FE_IP ${MASTER_FE_IP}"
-  doris_note "CURRENT_BE_IP ${CURRENT_BE_IP}"
-  doris_note "CURRENT_BE_PORT ${CURRENT_BE_PORT}"
-  doris_note "PRIORITY_NETWORKS ${PRIORITY_NETWORKS}"
+    elif [ $RUN_TYPE == "ASSIGN" ]; then
+        check_arg "FE_MASTER_IP" $FE_MASTER_IP
+        check_arg "BE_IP" $BE_IP
+        check_arg "BE_PORT" $BE_PORT
+    fi
 
-  check_be_status true
+    # export be args
+    export RUN_TYPE=${RUN_TYPE}
+    export FE_HOSTS_MSG=${FE_HOSTS_MSG}
+    export BE_HOSTS_MSG=${BE_HOSTS_MSG}
+    export MASTER_FE_IP=${FE_MASTER_IP}
+    export CURRENT_BE_IP=${BE_IP}
+    export MASTER_NODE_NAME=${MASTER_NODE_NAME}
+    export CURRENT_NODE_NAME=${BE_NAME}
+    export CURRENT_BE_PORT=${BE_PORT}
+    export PRIORITY_NETWORKS=${PRIORITY_NETWORKS}
+
+    doris_note "MASTER_FE_IP: ${MASTER_FE_IP}"
+    doris_note "CURRENT_BE_IP: ${CURRENT_BE_IP}"
+    doris_note "MASTER_NODE_NAME: ${MASTER_NODE_NAME}"
+    doris_note "CURRENT_NODE_NAME: ${CURRENT_NODE_NAME}"
+    doris_note "CURRENT_BE_PORT: ${CURRENT_BE_PORT}"
+    doris_note "PRIORITY_NETWORKS: ${PRIORITY_NETWORKS}"
+
+    # check be start
+    if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
+        check_be_status true
+    fi
 }
 
 # Execute sql script, passed via stdin
@@ -158,33 +238,45 @@ get_doris_args() {
 #    ie: docker_process_sql --database=mydb <my-file.sql
 docker_process_sql() {
     set +e
-    mysql -uroot -P9030 -h${MASTER_FE_IP} --comments "$@" 2>&1
+    if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
+        mysql -uroot -P9030 -h${MASTER_FE_IP} --comments "$@" 2>/dev/null
+    elif [[ $RUN_TYPE == "FQDN" ]]; then
+        mysql -uroot -P9030 -h${MASTER_NODE_NAME} --comments "$@" 2>/dev/null
+    fi
 }
 
 check_be_status() {
   set +e
   for i in {1..300}; do
     if [[ $1 == true ]]; then
-      docker_process_sql <<<"show frontends" | grep "[[:space:]]${MASTER_FE_IP}[[:space:]]"
+        if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
+            docker_process_sql <<<"show frontends" | grep "[[:space:]]${MASTER_FE_IP}[[:space:]]"
+        elif [[ $RUN_TYPE == "FQDN" ]]; then
+            docker_process_sql <<<"show frontends" | grep "[[:space:]]${MASTER_NODE_NAME}[[:space:]]"
+        fi
     else
-      docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]" | grep "[[:space:]]true[[:space:]]"
+        if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
+            docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]" | grep "[[:space:]]true[[:space:]]"
+        elif [[ $RUN_TYPE == "FQDN" ]]; then
+            docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_NODE_NAME}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]" | grep "[[:space:]]true[[:space:]]"
+        fi
     fi
     be_join_status=$?
     if [[ "${be_join_status}" == 0 ]]; then
-      if [[ $1 == true ]]; then
-        doris_note "MASTER FE is started!"
-      else
-        doris_note "EntryPoint Check - Verify that BE is registered to FE successfully"
-        BE_ALREADY_EXISTS=true
-      fi
-      return
+        if [[ $1 == true ]]; then
+            doris_note "MASTER FE is started!"
+        else
+            doris_note "EntryPoint Check - Verify that BE is registered to FE successfully"
+            BE_ALREADY_EXISTS=true
+        fi
+        return
     fi
     if [[ $(( $i % 20 )) == 1 ]]; then
-      if [[ $1 == true ]]; then
-        doris_note "MASTER FE is not started. retry."
-      else
-        doris_note "BE is not register. retry."
-      fi
+        if [[ $1 == true ]]; then
+            doris_note "MASTER FE is not started. retry."
+        else
+            doris_note "BE is not register. retry."
+        fi
     fi
     sleep 1
   done
@@ -253,7 +345,7 @@ _main() {
     # Start Doris BE
     {
         set +e
-        bash init_be.sh 2>/dev/null
+        bash init_be.sh  > "$LOG_FILE" 2>&1
     } &
     # check BE started status
     check_be_status
