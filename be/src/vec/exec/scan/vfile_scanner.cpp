@@ -135,6 +135,8 @@ Status VFileScanner::prepare(
     _convert_to_output_block_timer =
             ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
     _empty_file_counter = ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
+    _not_found_file_counter =
+            ADD_COUNTER(_local_state->scanner_profile(), "NotFoundFileNum", TUnit::UNIT);
     _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
     _has_fully_rf_file_counter =
             ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
@@ -283,9 +285,9 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
             // And the file may already be removed from storage.
             // Just ignore not found files.
             Status st = _get_next_reader();
-            if (st.is<ErrorCode::NOT_FOUND>()) {
+            if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
                 _cur_reader_eof = true;
-                COUNTER_UPDATE(_empty_file_counter, 1);
+                COUNTER_UPDATE(_not_found_file_counter, 1);
                 continue;
             } else if (!st) {
                 return st;
