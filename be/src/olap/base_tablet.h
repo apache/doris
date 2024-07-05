@@ -22,8 +22,8 @@
 #include <string>
 
 #include "common/status.h"
-#include "olap/olap_common.h"
 #include "olap/iterators.h"
+#include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
@@ -44,7 +44,7 @@ struct TabletWithVersion {
     int64_t version;
 };
 
-enum CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
+enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
 
 // Base class for all tablet classes
 class BaseTablet {
