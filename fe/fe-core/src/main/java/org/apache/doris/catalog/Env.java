@@ -3463,6 +3463,10 @@ public class Env {
             sb.append(olapTable.getCompressionType()).append("\"");
         }
 
+            // row column page size
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ROW_COLUMN_PAGE_SIZE).append("\" = \"");
+        sb.append(olapTable.rowColumnPageSize()).append("\"");
+
         // estimate_partition_size
         if (!olapTable.getEstimatePartitionSize().equals("")) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE).append("\" = \"");
