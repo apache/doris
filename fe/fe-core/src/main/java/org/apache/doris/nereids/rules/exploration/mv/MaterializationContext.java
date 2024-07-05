@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
@@ -119,32 +118,31 @@ public abstract class MaterializationContext {
                 this.exprToScanExprMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
             }
         }
-        this.planOutputShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(originalPlanOutput,
-                originalPlan, new BitSet());
-        // materialization output expression shuttle, this will be used to expression rewrite
-        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(
-                this.planOutputShuttledExpressions,
-                scanPlanOutput);
         // Construct materialization struct info, catch exception which may cause planner roll back
-        if (structInfo == null) {
-            Optional<StructInfo> structInfoOptional = constructStructInfo(plan, cascadesContext, new BitSet());
-            if (!structInfoOptional.isPresent()) {
-                this.available = false;
-            }
-            this.structInfo = structInfoOptional.orElseGet(() -> null);
-        } else {
-            this.structInfo = structInfo;
+        this.structInfo = structInfo == null
+                ? constructStructInfo(plan, originalPlan, cascadesContext, new BitSet()).orElseGet(() -> null)
+                : structInfo;
+        this.available = this.structInfo != null;
+        if (available) {
+            this.planOutputShuttledExpressions = this.structInfo.getPlanOutputShuttledExpressions();
+            // materialization output expression shuttle, this will be used to expression rewrite
+            this.shuttledExprToScanExprMapping = ExpressionMapping.generate(
+                    this.planOutputShuttledExpressions,
+                    scanPlanOutput);
         }
     }
 
     /**
      * Construct materialized view Struct info
+     * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
+     * @param originalPlan original plan, the output is right
      */
-    public static Optional<StructInfo> constructStructInfo(Plan plan, CascadesContext cascadesContext,
-            BitSet expectedTableBitSet) {
+    public static Optional<StructInfo> constructStructInfo(Plan plan, Plan originalPlan,
+            CascadesContext cascadesContext, BitSet expectedTableBitSet) {
         List<StructInfo> viewStructInfos;
         try {
-            viewStructInfos = MaterializedViewUtils.extractStructInfo(plan, cascadesContext, expectedTableBitSet);
+            viewStructInfos = MaterializedViewUtils.extractStructInfo(plan, originalPlan,
+                    cascadesContext, expectedTableBitSet);
             if (viewStructInfos.size() > 1) {
                 // view struct info should only have one, log error and use the first struct info
                 LOG.warn(String.format("view strut info is more than one, materialization plan is %s",
