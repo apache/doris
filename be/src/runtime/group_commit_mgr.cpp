@@ -257,7 +257,7 @@ Status GroupCommitTable::get_first_block_load_queue(
         std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
         std::shared_ptr<MemTrackerLimiter> mem_tracker,
         std::shared_ptr<pipeline::Dependency> create_plan_dep,
-        std::shared_ptr<pipeline::Dependency> put_block_dep) {
+        std::shared_ptr<pipeline::Dependency> put_block_dep, std::string& label, int64_t& txn_id) {
     DCHECK(table_id == _table_id);
     std::unique_lock l(_lock);
     auto try_to_get_matched_queue = [&]() -> Status {
@@ -266,6 +266,8 @@ Status GroupCommitTable::get_first_block_load_queue(
                 if (base_schema_version == inner_block_queue->schema_version) {
                     if (inner_block_queue->add_load_id(load_id, put_block_dep).ok()) {
                         load_block_queue = inner_block_queue;
+                        label = inner_block_queue->label;
+                        txn_id = inner_block_queue->txn_id;
                         return Status::OK();
                     }
                 } else {
@@ -561,7 +563,7 @@ Status GroupCommitMgr::get_first_block_load_queue(
         std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
         std::shared_ptr<MemTrackerLimiter> mem_tracker,
         std::shared_ptr<pipeline::Dependency> create_plan_dep,
-        std::shared_ptr<pipeline::Dependency> put_block_dep) {
+        std::shared_ptr<pipeline::Dependency> put_block_dep, std::string& label, int64_t& txn_id) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard wlock(_lock);
@@ -574,7 +576,7 @@ Status GroupCommitMgr::get_first_block_load_queue(
     }
     RETURN_IF_ERROR(group_commit_table->get_first_block_load_queue(
             table_id, base_schema_version, load_id, load_block_queue, be_exe_version, mem_tracker,
-            create_plan_dep, put_block_dep));
+            create_plan_dep, put_block_dep, label, txn_id));
     return Status::OK();
 }
 

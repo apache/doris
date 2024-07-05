@@ -1327,6 +1327,8 @@ DEFINE_mBool(enable_parquet_page_index, "true");
 // If native memory allocator allocates more memory than this value, an exception will be thrown.
 DEFINE_Int64(debug_max_memory_size_by_native_allocator_bytes, "1048576")
 
+DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

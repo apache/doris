@@ -108,7 +108,7 @@ public class MTMVCache {
             return childContext.getRewritePlan();
         }, mvPlan, originPlan);
         // Construct structInfo once for use later
-        Optional<StructInfo> structInfoOptional = MaterializationContext.constructStructInfo(mvPlan,
+        Optional<StructInfo> structInfoOptional = MaterializationContext.constructStructInfo(mvPlan, originPlan,
                 planner.getCascadesContext(),
                 new BitSet());
         return new MTMVCache(mvPlan, originPlan, planner.getCascadesContext().getMemo().getRoot().getStatistics(),
