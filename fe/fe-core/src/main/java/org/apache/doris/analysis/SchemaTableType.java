@@ -78,7 +78,10 @@ public enum SchemaTableType {
     SCH_WORKLOAD_POLICY("WORKLOAD_POLICY", "WORKLOAD_POLICY",
             TSchemaTableType.SCH_WORKLOAD_POLICY),
     SCH_TABLE_OPTIONS("TABLE_OPTIONS", "TABLE_OPTIONS",
-            TSchemaTableType.SCH_TABLE_OPTIONS);
+            TSchemaTableType.SCH_TABLE_OPTIONS),
+
+    SCH_BACKEND_MEMORY_TRACKER("BACKEND_MEMORY_TRACKER", "BACKEND_MEMORY_TRACKER",
+            TSchemaTableType.SCH_BACKEND_MEMORY_TRACKER);
 
     private static final String dbName = "INFORMATION_SCHEMA";
     private static SelectList fullSelectLists;
