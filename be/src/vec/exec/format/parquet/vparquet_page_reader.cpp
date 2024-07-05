@@ -44,12 +44,14 @@ std::unique_ptr<PageReader> create_page_reader(io::BufferedStreamReader* reader,
                                                io::IOContext* io_ctx, uint64_t offset,
                                                uint64_t length, int64_t num_values,
                                                const tparquet::OffsetIndex* offset_index) {
-    if (offset_index) {
-        return std::make_unique<PageReaderWithOffsetIndex>(reader, io_ctx, offset, length,
-                                                           num_values, offset_index);
-    } else {
-        return std::make_unique<PageReader>(reader, io_ctx, offset, length);
-    }
+    return std::make_unique<PageReader>(reader, io_ctx, offset, length);
+    // TODO: fix bug: out of bounds
+    // if (offset_index) {
+    //     return std::make_unique<PageReaderWithOffsetIndex>(reader, io_ctx, offset, length,
+    //                                                        num_values, offset_index);
+    // } else {
+    //     return std::make_unique<PageReader>(reader, io_ctx, offset, length);
+    // }
 }
 
 PageReader::PageReader(io::BufferedStreamReader* reader, io::IOContext* io_ctx, uint64_t offset,
