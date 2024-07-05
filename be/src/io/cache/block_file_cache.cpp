@@ -752,7 +752,8 @@ const BlockFileCache::LRUQueue& BlockFileCache::get_queue(FileCacheType type) co
     return _normal_queue;
 }
 
-bool BlockFileCache::try_reserve_for_ttl_without_lru(size_t size, std::lock_guard<std::mutex>& cache_lock) {
+bool BlockFileCache::try_reserve_for_ttl_without_lru(size_t size,
+                                                     std::lock_guard<std::mutex>& cache_lock) {
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
     auto limit = config::max_ttl_cache_ratio * _capacity;
@@ -853,17 +854,29 @@ bool BlockFileCache::try_reserve_for_ttl(size_t size, std::lock_guard<std::mutex
             FileBlockSPtr file_block = cell->file_block;
             if (file_block) {
                 std::lock_guard block_lock(file_block->_mutex);
-                remove(file_block, cache_lock, block_lock);   // 维护 time_to_hash &  hash_to_map
+                auto hash = cell->file_block->get_hash_value();
+                remove(file_block, cache_lock, block_lock);
+                if (_files.find(hash) == _files.end()) {
+                    if (auto iter = _key_to_time.find(hash);
+                        _key_to_time.find(hash) != _key_to_time.end()) {
+                        auto _time_to_key_iter = _time_to_key.equal_range(iter->second);
+                        while (_time_to_key_iter.first != _time_to_key_iter.second) {
+                            if (_time_to_key_iter.first->second == hash) {
+                                _time_to_key_iter.first =
+                                        _time_to_key.erase(_time_to_key_iter.first);
+                                break;
+                            }
+                            _time_to_key_iter.first++;
+                        }
+                        _key_to_time.erase(hash);
+                    }
+                }
             }
         };
 
         std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
 
-        if (is_overflow(removed_size, size, cur_cache_size)) {
-            return false;
-        } else {
-            return true;
-        }
+        return !is_overflow(removed_size, size, cur_cache_size);
     } else {
         return false;
     }
@@ -1540,8 +1553,7 @@ void BlockFileCache::run_background_operation() {
                                                _index_queue.get_capacity(cache_lock) -
                                                _normal_queue.get_capacity(cache_lock) -
                                                _disposable_queue.get_capacity(cache_lock));
-        _cur_ttl_cache_lru_queue_size_metrics->set_value(
-                _ttl_queue.get_capacity(cache_lock));
+        _cur_ttl_cache_lru_queue_size_metrics->set_value(_ttl_queue.get_capacity(cache_lock));
         _cur_normal_queue_cache_size_metrics->set_value(_normal_queue.get_capacity(cache_lock));
         _cur_normal_queue_element_count_metrics->set_value(
                 _normal_queue.get_elements_num(cache_lock));
