@@ -66,6 +66,7 @@ docker_required_variables_env() {
     declare -g RUN_TYPE
     if [ -n "$RECOVERY" ]; then
         doris_warn "The Frontend MetaData Will Recovery."
+        return
     fi
     if [ -n "$BUILD_TYPE" ]; then
         RUN_TYPE="K8S"
