@@ -741,6 +741,8 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
 fi
 
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
+    # need remove old version hadoop jars if $DORIS_OUTPUT been used multiple times, otherwise will cause jar conflict
+    rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs"
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
@@ -865,6 +867,7 @@ fi
 
 if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     rm -rf "${DORIS_HOME}/output/ms"
+    rm -rf "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_HOME}/cloud/output/lib"
     fi
