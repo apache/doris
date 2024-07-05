@@ -213,23 +213,26 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 for (Tablet shadowTablet : shadowIdx.getTablets()) {
                     OlapFile.TabletMetaCloudPB.Builder builder =
                             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                                .createTabletMetaBuilder(tableId, shadowIdxId,
-                                partitionId, shadowTablet, tbl.getPartitionInfo().getTabletType(partitionId),
-                                shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
-                                bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(), tbl.getCompressionType(),
-                                tbl.getStoragePolicy(), tbl.isInMemory(), true,
-                                tbl.getName(), tbl.getTTLSeconds(),
-                                tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                                shadowSchemaVersion, tbl.getCompactionPolicy(),
-                                tbl.getTimeSeriesCompactionGoalSizeMbytes(),
-                                tbl.getTimeSeriesCompactionFileCountThreshold(),
-                                tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
-                                tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                                tbl.getTimeSeriesCompactionLevelThreshold(),
-                                tbl.disableAutoCompaction(),
-                                tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                tbl.getInvertedIndexFileStorageFormat(),
-                                tbl.rowStorePageSize());
+                                    .createTabletMetaBuilder(tableId, shadowIdxId,
+                                            partitionId, shadowTablet,
+                                            tbl.getPartitionInfo().getTabletType(partitionId),
+                                            shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
+                                            bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(),
+                                            tbl.getCompressionType(),
+                                            tbl.getStoragePolicy(), tbl.isInMemory(), true,
+                                            tbl.getName(), tbl.getTTLSeconds(),
+                                            tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
+                                            shadowSchemaVersion, tbl.getCompactionPolicy(),
+                                            tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                                            tbl.getTimeSeriesCompactionFileCountThreshold(),
+                                            tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                            tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                            tbl.getTimeSeriesCompactionLevelThreshold(),
+                                            tbl.disableAutoCompaction(),
+                                            tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                                            tbl.getEnableMowLightDelete(),
+                                            tbl.getInvertedIndexFileStorageFormat(),
+                                            tbl.rowStorePageSize());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

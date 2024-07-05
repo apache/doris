@@ -3600,9 +3600,9 @@ public class Env {
 
         // enable delete on delete predicate
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
                     .append("\" = \"");
-            sb.append(olapTable.getEnableDeleteOnDeletePredicate()).append("\"");
+            sb.append(olapTable.getEnableMowLightDelete()).append("\"");
         }
 
         // enable duplicate without keys by default
