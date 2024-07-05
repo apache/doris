@@ -74,7 +74,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(OlapInsertExecutor.class);
     protected long txnId = INVALID_TXN_ID;
-    private TransactionStatus txnStatus = TransactionStatus.ABORTED;
+    protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
     /**
      * constructor
@@ -274,11 +274,14 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             errMsg = "Record info of insert load with error " + e.getMessage();
         }
 
+        setReturnInfo();
+    }
+
+    protected void setReturnInfo() {
         // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
         // {'label':'my_label1', 'status':'visible', 'txnId':'123' 'err':'error messages'}
         StringBuilder sb = new StringBuilder();
-        sb.append("{'label':'").append(labelName).append("', 'status':'")
-                .append(ctx.isTxnModel() ? TransactionStatus.PREPARE.name() : txnStatus.name());
+        sb.append("{'label':'").append(labelName).append("', 'status':'").append(txnStatus.name());
         sb.append("', 'txnId':'").append(txnId).append("'");
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             sb.append("', 'rows':'").append(loadedRows).append("'");
