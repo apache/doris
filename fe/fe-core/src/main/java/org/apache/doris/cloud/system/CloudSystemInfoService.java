@@ -24,6 +24,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -368,24 +369,22 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
-    public List<Backend> getBackendsByCurrentCluster() throws UserException {
+    public List<Backend> getBackendsByCurrentCluster() throws AnalysisException {
         ConnectContext ctx = ConnectContext.get();
         if (ctx == null) {
-            throw new UserException("connect context is null");
+            throw new AnalysisException("connect context is null");
         }
 
         String cluster = ctx.getCurrentCloudCluster();
         if (Strings.isNullOrEmpty(cluster)) {
-            throw new UserException("cluster name is empty");
+            throw new AnalysisException("cluster name is empty");
         }
-
-        //((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
 
         return getBackendsByClusterName(cluster);
     }
 
     @Override
-    public ImmutableMap<Long, Backend> getBackendsWithIdByCurrentCluster() throws UserException {
+    public ImmutableMap<Long, Backend> getBackendsWithIdByCurrentCluster() throws AnalysisException {
         List<Backend> backends = getBackendsByCurrentCluster();
         Map<Long, Backend> idToBackend = Maps.newHashMap();
         for (Backend be : backends) {
@@ -821,24 +820,5 @@ public class CloudSystemInfoService extends SystemInfoService {
         if (hasAutoStart) {
             LOG.info("auto start cluster {}, start cost {} ms", clusterName, stopWatch.getTime());
         }
-    }
-
-    public ImmutableMap<Long, Backend> getIdToBackend() {
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            LOG.warn("cloud mode cant get ConnectContext");
-            return ImmutableMap.of();
-        }
-        String cloudClusterName = context.getCloudCluster();
-        if (Strings.isNullOrEmpty(cloudClusterName)) {
-            LOG.warn("cloud mode cant get CloudClusterName");
-            return ImmutableMap.of();
-        }
-        return ImmutableMap.copyOf(getBackendsByClusterName(cloudClusterName)
-                .stream().collect(Collectors.toMap(Backend::getId, b -> b)));
-    }
-
-    public ImmutableMap<Long, Backend> getAllBackendsMap() {
-        return getIdToBackend();
     }
 }

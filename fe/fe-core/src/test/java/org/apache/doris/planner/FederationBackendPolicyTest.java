@@ -359,7 +359,7 @@ public class FederationBackendPolicyTest {
             String localHost;
             for (int j = 0; j < localHostNum; ++j) {
                 do {
-                    localHost = service.getAllBackends().get(random.nextInt(service.getAllBackends().size())).getHost();
+                    localHost = service.getBackendsByCurrentCluster().get(random.nextInt(service.getBackendsByCurrentCluster().size())).getHost();
                 } while (!localHosts.add(localHost));
                 totalLocalHosts.add(localHost);
             }
@@ -482,7 +482,7 @@ public class FederationBackendPolicyTest {
             String localHost;
             for (int j = 0; j < localHostNum; ++j) {
                 do {
-                    localHost = service.getAllBackends().get(random.nextInt(service.getAllBackends().size())).getHost();
+                    localHost = service.getBackendsByCurrentCluster().get(random.nextInt(service.getBackendsByCurrentCluster().size())).getHost();
                 } while (!localHosts.add(localHost));
                 totalLocalHosts.add(localHost);
             }

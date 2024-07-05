@@ -3887,7 +3887,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setStatus(new TStatus(TStatusCode.OK));
 
             final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-            List<Backend> backends = systemInfoService.getAllBackends();
+            List<Backend> backends = systemInfoService.getBackendsByCurrentCluster();
 
             for (Backend backend : backends) {
                 TBackend tBackend = new TBackend();

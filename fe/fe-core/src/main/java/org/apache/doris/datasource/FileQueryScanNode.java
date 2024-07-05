@@ -285,7 +285,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
                 TScanRangeLocation location = new TScanRangeLocation();
                 long backendId = ConnectContext.get().getBackendId();
-                Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
+                Backend backend = Env.getCurrentSystemInfo().getBackendsWithIdByCurrentCluster().get(backendId);
                 location.setBackendId(backendId);
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);

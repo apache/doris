@@ -20,6 +20,7 @@ package org.apache.doris.common.publish;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.BackendService;
@@ -62,8 +63,8 @@ public class ClusterStatePublisher {
         return INSTANCE;
     }
 
-    public void publish(ClusterStateUpdate state, Listener listener, int timeoutMs) {
-        Collection<Backend> nodesToPublish = clusterInfoService.getIdToBackend().values();
+    public void publish(ClusterStateUpdate state, Listener listener, int timeoutMs) throws UserException {
+        Collection<Backend> nodesToPublish = clusterInfoService.getBackendsWithIdByCurrentCluster().values();
         AckResponseHandler handler = new AckResponseHandler(nodesToPublish, listener);
         for (Backend node : nodesToPublish) {
             executor.submit(new PublishWorker(state, node, handler));
