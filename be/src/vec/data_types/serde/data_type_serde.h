@@ -216,7 +216,19 @@ public:
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                        int* num_deserialized,
                                                        const FormatOptions& options) const = 0;
-
+    // deserialize fixed values
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                              int* num_deserialized,
+                                              const FormatOptions& options) const {
+        Status st = deserialize_one_cell_from_json(column, slice, options);
+        if (!st.ok()) {
+            *num_deserialized = 0;
+            return st;
+        }
+        column.insert_many_from(column, column.size() - 1, rows - 1);
+        *num_deserialized = rows;
+        return Status::OK();
+    }
     virtual Status deserialize_one_cell_from_hive_text(
             IColumn& column, Slice& slice, const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const {
