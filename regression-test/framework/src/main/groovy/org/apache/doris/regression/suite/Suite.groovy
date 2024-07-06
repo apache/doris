@@ -42,6 +42,7 @@ import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
+import org.junit.jupiter.api.Assertions
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
