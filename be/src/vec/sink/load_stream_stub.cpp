@@ -207,6 +207,11 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
 Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                                    int64_t segment_id, uint64_t offset, std::span<const Slice> data,
                                    bool segment_eos, FileType file_type) {
+    DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
+        if (segment_id != 0) {
+            return Status::OK();
+        }
+    });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -225,6 +230,11 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
 Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                                    int64_t segment_id, const SegmentStatistics& segment_stat,
                                    TabletSchemaSPtr flush_schema) {
+    DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
+        if (segment_id != 0) {
+            return Status::OK();
+        }
+    });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
