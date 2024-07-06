@@ -255,6 +255,9 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         sql "desc large_tablets"
         sql """set max_fetch_remote_schema_tablet_count = 2048"""
         qt_sql15 "desc large_tablets"
+
+        sql "truncate table large_tablets"
+        sql "desc large_tablets"
     } finally {
         // reset flags
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
