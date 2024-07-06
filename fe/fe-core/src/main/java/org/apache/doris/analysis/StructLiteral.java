@@ -131,7 +131,7 @@ public class StructLiteral extends LiteralExpr {
     @Override
     public String getStringValueForStreamLoad(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(getStringLiteralForComplexType(v,options)));
+        children.forEach(v -> list.add(getStringLiteralForComplexType(v, options)));
         return "{" + StringUtils.join(list, ", ") + "}";
     }
 

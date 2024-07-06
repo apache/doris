@@ -38,6 +38,7 @@ public class DecimalLiteralTest {
         DecimalLiteral literal = new DecimalLiteral(decimal);
         String s = literal.getStringValueInFe(FormatOptions.getDefault());
         Assert.assertEquals("-123456789123456789.123456789", s);
+        Assert.assertEquals("-123456789123456789.123456789", literal.getStringValueInFe(FormatOptions.getForPresto()));
     }
 
     @Test

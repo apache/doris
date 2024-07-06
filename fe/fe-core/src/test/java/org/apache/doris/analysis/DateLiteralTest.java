@@ -37,6 +37,7 @@ public class DateLiteralTest {
         DateLiteral literal = new DateLiteral("1997-10-07", Type.DATE);
         String s = literal.getStringValueInFe(FormatOptions.getDefault());
         Assert.assertEquals(s, "1997-10-07");
+        Assert.assertEquals(literal.getStringValueInFe(FormatOptions.getForPresto()), "1997-10-07");
     }
 
     @Test

@@ -32,9 +32,11 @@ public class FloatLiteralTest {
                 FloatLiteral.getDefaultTimeType(Type.TIME));
         String s = literal.getStringValueInFe(FormatOptions.getDefault());
         Assert.assertEquals("11:22:33", s);
+        Assert.assertEquals("11:22:33", literal.getStringValueInFe(FormatOptions.getForPresto()));
 
         FloatLiteral literal1 = new FloatLiteral(11.22);
         String s1 = literal1.getStringValueInFe(FormatOptions.getDefault());
         Assert.assertEquals("11.22", s1);
+        Assert.assertEquals("11.22", literal1.getStringValueInFe(FormatOptions.getForPresto()));
     }
 }
