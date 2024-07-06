@@ -23,7 +23,7 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
     }
 
     String hivePrefix = "hive2";
-    String catalog_name = "test_${hivePrefix}_serde_prop"
+    String catalog_name = "test_${hivePrefix}_external_sql_block_rule";
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
 
@@ -36,20 +36,42 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
         );"""
 
     sql "use ${catalog_name}.`default`";
-    qt_sql01 """select * from parquet_partition_table order by l_linenumber limit 10;"""
+    qt_sql01 """select * from parquet_partition_table order by l_linenumber,l_orderkey limit 10;"""
 
     sql """drop sql_block_rule if exists external_hive_partition"""
     sql """create sql_block_rule external_hive_partition properties("partition_num" = "3", "global" = "false");"""
+    sql """drop sql_block_rule if exists external_hive_partition2"""
+    sql """create sql_block_rule external_hive_partition2 properties("tablet_num" = "3", "global" = "false");"""
+    sql """drop sql_block_rule if exists external_hive_partition3"""
+    sql """create sql_block_rule external_hive_partition3 properties("cardinality" = "3", "global" = "false");"""
+    // create 3 users
     sql """drop user if exists external_block_user1"""
     sql """create user external_block_user1;"""
     sql """SET PROPERTY FOR 'external_block_user1' 'sql_block_rules' = 'external_hive_partition';"""
     sql """grant all on *.*.* to external_block_user1;"""
+
+    sql """drop user if exists external_block_user2"""
+    sql """create user external_block_user2;"""
+    sql """SET PROPERTY FOR 'external_block_user2' 'sql_block_rules' = 'external_hive_partition2';"""
+    sql """grant all on *.*.* to external_block_user2;"""
+
+    sql """drop user if exists external_block_user3"""
+    sql """create user external_block_user3;"""
+    sql """SET PROPERTY FOR 'external_block_user3' 'sql_block_rules' = 'external_hive_partition3';"""
+    sql """grant all on *.*.* to external_block_user3;"""
 
     // login as external_block_user1 
     def result1 = connect(user = 'external_block_user1', password = '', url = context.config.jdbcUrl) {
         test {
             sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
             exception """sql hits sql block rule: external_hive_partition, reach partition_num : 3"""
+        }
+    }
+    // login as external_block_user2
+    def result2 = connect(user = 'external_block_user2', password = '', url = context.config.jdbcUrl) {
+        test {
+            sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
+            exception """sql hits sql block rule: external_hive_partition2, reach tablet_num : 3"""
         }
     }
 }
