@@ -2635,7 +2635,7 @@ public class Config extends ConfigBase {
                     + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
                     + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."
     })
-    public static boolean enable_mow_delete_on_predicate = false;
+    public static boolean enable_mow_light_delete = false;
 
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",

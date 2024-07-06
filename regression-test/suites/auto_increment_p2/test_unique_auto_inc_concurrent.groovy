@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_unique_table_auto_inc_concurrent") {
+suite("test_unique_auto_inc_concurrent", "p2") {
     
     def table1 = "test_unique_table_auto_inc_concurrent"
     sql "drop table if exists ${table1}"
