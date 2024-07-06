@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,11 +30,11 @@ public class FloatLiteralTest {
     public void testGetStringInFe() throws AnalysisException {
         FloatLiteral literal = new FloatLiteral((double) (11 * 3600 + 22 * 60 + 33),
                 FloatLiteral.getDefaultTimeType(Type.TIME));
-        String s = literal.getStringValueInFe();
+        String s = literal.getStringValueInFe(FormatOptions.getDefault());
         Assert.assertEquals("11:22:33", s);
 
         FloatLiteral literal1 = new FloatLiteral(11.22);
-        String s1 = literal1.getStringValueInFe();
+        String s1 = literal1.getStringValueInFe(FormatOptions.getDefault());
         Assert.assertEquals("11.22", s1);
     }
 }
