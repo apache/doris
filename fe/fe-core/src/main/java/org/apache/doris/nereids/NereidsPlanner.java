@@ -629,15 +629,15 @@ public class NereidsPlanner extends Planner {
     }
 
     private void setFormatOptions() {
-        ConnectContext ctx = cascadesContext.getConnectContext();
+        ConnectContext ctx = statementContext.getConnectContext();
         SessionVariable sessionVariable = ctx.getSessionVariable();
         switch (sessionVariable.serdeDialect) {
             case "presto":
             case "trino":
-                cascadesContext.getStatementContext().setFormatOptions(FormatOptions.getForPresto());
+                statementContext.setFormatOptions(FormatOptions.getForPresto());
                 break;
             case "doris":
-                cascadesContext.getStatementContext().setFormatOptions(FormatOptions.getDefault());
+                statementContext.setFormatOptions(FormatOptions.getDefault());
                 break;
             default:
                 throw new AnalysisException("Unsupported serde dialect: " + sessionVariable.serdeDialect);
