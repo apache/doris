@@ -27,7 +27,12 @@ namespace doris::pipeline {
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();
-        _load_block_queue->remove_load_id(_parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
+        [[maybe_unused]] auto st = _load_block_queue->remove_load_id(
+                _parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
+    } else {
+        _state->exec_env()->group_commit_mgr()->remove_load_id(
+                _parent->cast<GroupCommitBlockSinkOperatorX>()._table_id,
+                _parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
     }
 }
 
@@ -221,7 +226,7 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
         if (dp->param<int64_t>("table_id", -1) == _table_id) {
             if (_load_block_queue) {
                 _remove_estimated_wal_bytes();
-                _load_block_queue->remove_load_id(p._load_id);
+                [[maybe_unused]] auto st = _load_block_queue->remove_load_id(p._load_id);
             }
             if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
                         std ::chrono ::seconds(60)) == std ::future_status ::ready) {
@@ -304,7 +309,7 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
                 RETURN_IF_ERROR(local_state._add_blocks(state, true));
             }
             local_state._remove_estimated_wal_bytes();
-            local_state._load_block_queue->remove_load_id(_load_id);
+            [[maybe_unused]] auto st = local_state._load_block_queue->remove_load_id(_load_id);
         }
         return Status::OK();
     };
