@@ -17,10 +17,17 @@
 
 package org.apache.doris.common;
 
+/**
+ * Format options for formatting literals in FE.
+ * This is mainly for optional compatibility for Presto/Trino.
+ * User can use different session variable "serde_dialect" to choose different format options.
+ * This behavior same as in BE. see FormatOptions in be/src/vec/data_types/serde/data_type_serde.h
+ */
 public class FormatOptions {
-    private String nestedStringWrapper = "\"";
-    private String mapKeyDelim = ":";
-    private String nullFormat = "null";
+
+    private String nestedStringWrapper;
+    private String mapKeyDelim;
+    private String nullFormat;
 
     public FormatOptions(String nestedStringWrapper, String mapKeyDelim, String nullFormat) {
         this.nestedStringWrapper = nestedStringWrapper;
