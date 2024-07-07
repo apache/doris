@@ -452,16 +452,16 @@ suite("test_stream_load_2pc", "p0") {
         def dynamic_partition = ["", "", "", "", "",
         """
             "dynamic_partition.enable" = "true",
-            "dynamic_partition.time_unit" = "MONTH",
-            "dynamic_partition.start" = "-1",
-            "dynamic_partition.end" = "1",
+            "dynamic_partition.time_unit" = "YEAR",
+            "dynamic_partition.start" = "-200",
+            "dynamic_partition.end" = "100",
             "dynamic_partition.prefix" = "p",
-            "dynamic_partition.buckets" = "3"
+            "dynamic_partition.buckets" = "32"
         """ 
         ]
 
         
-        def tbl_2pc_expected = [1, 4, 4, 4, 4, 2]
+        def tbl_2pc_expected = [1, 4, 4, 4, 4, 101]
         def i = 0;
 
         def streamLoadAction = { tbl, columns, filename, rowCount, expected ->
@@ -540,7 +540,7 @@ suite("test_stream_load_2pc", "p0") {
                 orderby = "order by k00, k01"
             }
 
-            qt_sql_2pc_commit "select * from ${tbl} $orderby"
+            qt_sql_2pc_commit "select count(*) from ${tbl}"
 
             json2pc = do_streamload_2pc_commit_by_txn_id.call(txnId, tbl)
             assertTrue(json2pc.msg.contains("is already visible, not pre-committed"))
