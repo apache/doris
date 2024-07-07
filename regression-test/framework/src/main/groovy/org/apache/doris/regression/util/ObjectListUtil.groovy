@@ -173,8 +173,8 @@ class ListObjectsFileNamesUtil {
 
     public static ListObjectsFileNames getListObjectsFileNames(String provider, String ak, String sk, String endpoint, String region, String prefix, String bucket, Suite suite) {
         if (provider.equalsIgnoreCase("azure")) {
-            return AzureListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
+            return new AzureListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
         }
-        return AwsListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
+        return new AwsListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
     }
 }
