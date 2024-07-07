@@ -113,6 +113,11 @@ Status InvertedIndexFileWriter::close() {
     if (_indices_dirs.empty()) {
         return Status::OK();
     }
+    DBUG_EXECUTE_IF("inverted_index_storage_format_must_be_v2", {
+        if (_storage_format != InvertedIndexStorageFormatPB::V2) {
+            _CLTHROWA(CL_ERR_IO, "inverted index storage format must be v2");
+        }
+    })
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         try {
             _file_size = write_v1();
