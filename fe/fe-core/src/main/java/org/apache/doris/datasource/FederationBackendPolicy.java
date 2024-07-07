@@ -26,6 +26,7 @@ import org.apache.doris.common.IndexedPriorityQueue;
 import org.apache.doris.common.ResettableRandomizedIterator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ConsistentHash;
+import org.apache.doris.datasource.hive.HiveBucketUtil;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
@@ -81,6 +82,7 @@ public class FederationBackendPolicy {
     private Map<Backend, Long> assignedWeightPerBackend = Maps.newHashMap();
 
     protected ConsistentHash<Split, Backend> consistentHash;
+    protected ConsistentHash<Integer, Backend> consistentBucketHash;
 
     private int nextBe = 0;
     private boolean initialized = false;
@@ -195,6 +197,8 @@ public class FederationBackendPolicy {
         backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
         try {
             consistentHash = consistentHashCache.get(new HashCacheKey(backends));
+            consistentBucketHash = new ConsistentHash<>(Hashing.murmur3_128(), new BucketHash(),
+                    new BackendHash(), backends, Config.split_assigner_virtual_node_number);
         } catch (ExecutionException e) {
             throw new UserException("failed to get consistent hash", e);
         }
@@ -209,6 +213,20 @@ public class FederationBackendPolicy {
     @VisibleForTesting
     public void setEnableSplitsRedistribution(boolean enableSplitsRedistribution) {
         this.enableSplitsRedistribution = enableSplitsRedistribution;
+    }
+
+    public Multimap<Backend, Split> computeBucketAwareScanRangeAssignmentWith(List<Split> splits) throws UserException {
+        ListMultimap<Backend, Split> assignment = ArrayListMultimap.create();
+        int bucketNum = 0;
+        for (Split split : splits) {
+            FileSplit fileSplit = (FileSplit) split;
+            bucketNum = HiveBucketUtil.getBucketNumberFromPath(fileSplit.getPath().getName()).getAsInt();
+
+            List<Backend> candidateNodes = consistentBucketHash.getNode(bucketNum, 1);
+            assignment.put(candidateNodes.get(0), split);
+        }
+
+        return assignment;
     }
 
     /**
@@ -243,6 +261,7 @@ public class FederationBackendPolicy {
                     Optional<Backend> chosenNode = candidateNodes.stream()
                             .min(Comparator.comparingLong(ownerNode -> assignedWeightPerBackend.get(ownerNode)));
 
+                    //ToDo(Nitin): group assignment based on the bucketId
                     if (chosenNode.isPresent()) {
                         Backend selectedBackend = chosenNode.get();
                         assignment.put(selectedBackend, split);
@@ -498,6 +517,13 @@ public class FederationBackendPolicy {
             primitiveSink.putBytes(split.getPathString().getBytes(StandardCharsets.UTF_8));
             primitiveSink.putLong(split.getStart());
             primitiveSink.putLong(split.getLength());
+        }
+    }
+
+    private static class BucketHash implements Funnel<Integer> {
+        @Override
+        public void funnel(Integer bucketId, PrimitiveSink primitiveSink) {
+            primitiveSink.putLong(bucketId);
         }
     }
 }

@@ -36,7 +36,7 @@ Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* sta
         std::vector<int> result(result_size);
 
         _hash_vals.resize(rows);
-        std::fill(_hash_vals.begin(), _hash_vals.end(), 0);
+        std::fill(_hash_vals.begin(), _hash_vals.end(), _get_default_seed());
         auto* __restrict hashes = _hash_vals.data();
         {
             SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
@@ -72,6 +72,13 @@ void XXHashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column, uint64_t* 
 }
 
 template <typename ChannelIds>
+void Murmur32HashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column,
+                                                   int32_t* __restrict result, int idx) const {
+    column->update_murmurs_with_value(result, Base::_partition_expr_ctxs[idx]->root()->type().type,
+                                      column->size());
+}
+
+template <typename ChannelIds>
 Status XXHashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                             std::unique_ptr<PartitionerBase>& partitioner) {
     auto* new_partitioner = new XXHashPartitioner(Base::_partition_count);
@@ -97,6 +104,24 @@ Status Crc32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
     return Status::OK();
 }
 
+template <typename ChannelIds>
+Status Murmur32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
+                                                  std::unique_ptr<PartitionerBase>& partitioner) {
+    auto* new_partitioner = new Murmur32HashPartitioner(Base::_partition_count);
+    partitioner.reset(new_partitioner);
+    new_partitioner->_partition_expr_ctxs.resize(Base::_partition_expr_ctxs.size());
+    for (size_t i = 0; i < Base::_partition_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(Base::_partition_expr_ctxs[i]->clone(
+                state, new_partitioner->_partition_expr_ctxs[i]));
+    }
+    return Status::OK();
+}
+
+template <typename ChannelIds>
+int32_t Murmur32HashPartitioner<ChannelIds>::_get_default_seed() const {
+    return reinterpret_cast<int32_t>(HashUtil::SPARK_MURMUR_32_SEED);
+}
+
 template class Partitioner<size_t, pipeline::LocalExchangeChannelIds>;
 template class XXHashPartitioner<pipeline::LocalExchangeChannelIds>;
 template class Partitioner<size_t, ShuffleChannelIds>;
@@ -104,5 +129,8 @@ template class XXHashPartitioner<ShuffleChannelIds>;
 template class Partitioner<uint32_t, ShuffleChannelIds>;
 template class Crc32HashPartitioner<ShuffleChannelIds>;
 template class Crc32HashPartitioner<SpillPartitionChannelIds>;
+template class Crc32HashPartitioner<pipeline::LocalExchangeChannelIds>;
+template class Murmur32HashPartitioner<ShufflePModChannelIds>;
+template class Murmur32HashPartitioner<pipeline::LocalExchangeChannelIds>;
 
 } // namespace doris::vectorized

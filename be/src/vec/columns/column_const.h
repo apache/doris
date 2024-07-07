@@ -196,6 +196,11 @@ public:
         get_data_column_ptr()->update_crc_with_value(start, end, hash, nullptr);
     }
 
+    void update_murmur_with_value(size_t start, size_t end, int32_t& hash,
+                                  const uint8_t* __restrict null_data) const override {
+        get_data_column_ptr()->update_murmur_with_value(start, end, hash, nullptr);
+    }
+
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                      const uint8_t* null_map) const override {
         data->serialize_vec_with_null_map(keys, num_rows, null_map);
@@ -212,6 +217,10 @@ public:
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
+
+    void update_murmurs_with_value(int32_t* __restrict hashes, PrimitiveType type, int32_t rows,
+                                   uint32_t offset = 0,
+                                   const uint8_t* __restrict null_data = nullptr) const override;
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;

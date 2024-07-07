@@ -396,6 +396,8 @@ PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(
                                                                     descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
                                                                     : TJoinDistributionType::NONE),
+          _hash_type(tnode.hash_join_node.__isset.__isset.hash_type ? tnode.hash_join_node.hash_type
+                                                                    : THashType::CRC32),
           _distribution_partition_exprs(tnode.__isset.distribute_expr_lists
                                                 ? tnode.distribute_expr_lists[1]
                                                 : std::vector<TExpr> {}),

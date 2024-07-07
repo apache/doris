@@ -105,6 +105,13 @@ struct ShuffleChannelIds {
     }
 };
 
+struct ShufflePModChannelIds {
+    template <typename HashValueType>
+    HashValueType operator()(HashValueType l, int32_t r) {
+        return (l % r + r) % r;
+    }
+};
+
 template <typename Parent>
 class Channel {
 public:

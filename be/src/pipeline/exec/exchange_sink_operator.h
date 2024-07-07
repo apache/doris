@@ -196,6 +196,7 @@ private:
     std::vector<vectorized::RowPartTabletIds> _row_part_tablet_ids;
     int64_t _number_input_rows = 0;
     TPartitionType::type _part_type;
+    THashType::type _hash_type;
 
     // for external table sink hash partition
     std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
@@ -242,6 +243,7 @@ private:
     const RowDescriptor& _row_desc;
 
     TPartitionType::type _part_type;
+    THashType::type _hash_type;
 
     // serialized batches for broadcasting; we need two so we can write
     // one while the other one is still being sent

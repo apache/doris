@@ -94,6 +94,10 @@ protected:
     virtual void _do_hash(const ColumnPtr& column, HashValueType* __restrict result,
                           int idx) const = 0;
 
+    HashValueType _get_default_seed() const {
+        return reinterpret_cast<HashValueType>(0);
+    }
+
     VExprContextSPtrs _partition_expr_ctxs;
     mutable std::vector<HashValueType> _hash_vals;
 };
@@ -130,6 +134,22 @@ struct SpillPartitionChannelIds {
     HashValueType operator()(HashValueType l, size_t r) {
         return ((l >> 16) | (l << 16)) % r;
     }
+};
+
+template <typename ChannelIds>
+class Murmur32HashPartitioner final : public Partitioner<int32_t, ChannelIds> {
+public:
+    using Base = Partitioner<int32_t, ChannelIds>;
+    Murmur32HashPartitioner(int partition_count)
+            : Partitioner<int32_t, ChannelIds>(partition_count) {}
+    ~Murmur32HashPartitioner() override = default;
+
+    Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
+
+    int32_t _get_default_seed() const;
+
+private:
+    void _do_hash(const ColumnPtr& column, int32_t* __restrict result, int idx) const override;
 };
 
 } // namespace vectorized

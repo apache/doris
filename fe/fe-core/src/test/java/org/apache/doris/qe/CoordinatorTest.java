@@ -41,6 +41,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.THashType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -175,7 +176,7 @@ public class CoordinatorTest extends Coordinator {
                         new ArrayList<>());
 
         hashJoinNode.setFragment(new PlanFragment(new PlanFragmentId(-1), hashJoinNode,
-                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs)));
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs, THashType.CRC32)));
 
         // hash join node is not bucket shuffle join
         Assert.assertEquals(false,
@@ -183,13 +184,13 @@ public class CoordinatorTest extends Coordinator {
 
         // the fragment id is different from hash join node
         hashJoinNode.setFragment(new PlanFragment(new PlanFragmentId(-2), hashJoinNode,
-                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs)));
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs, THashType.CRC32)));
         hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
         Assert.assertEquals(false,
                 Deencapsulation.invoke(bucketShuffleJoinController, "isBucketShuffleJoin", -1, hashJoinNode));
 
         hashJoinNode.setFragment(new PlanFragment(new PlanFragmentId(-1), hashJoinNode,
-                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs)));
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, testJoinexprs, THashType.CRC32)));
         Assert.assertEquals(true,
                 Deencapsulation.invoke(bucketShuffleJoinController, "isBucketShuffleJoin", -1, hashJoinNode));
 

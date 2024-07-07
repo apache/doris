@@ -78,6 +78,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
     _part_type = p._part_type;
+    _hash_type = p._hash_type;
     std::map<int64_t, int64_t> fragment_id_to_channel_index;
     for (int i = 0; i < p._dests.size(); ++i) {
         const auto& fragment_instance_id = p._dests[i].fragment_instance_id;
@@ -108,6 +109,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
+    _part_type = p._part_type;
+    _hash_type = p._hash_type;
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     int local_size = 0;
@@ -172,12 +175,20 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = channel_shared_ptrs.size();
-        _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                channel_shared_ptrs.size()));
+        if (_hash_type == THashType::SPARK_MURMUR32) {
+            _partitioner.reset(new vectorized::Murmur32HashPartitioner<vectorized::ShufflePModChannelIds>(
+                    channel_shared_ptrs.size()));
+            _profile->add_info_string("Partitioner",
+                                      fmt::format("Murmur32HashPartitioner({})", _partition_count));
+        } else {
+            _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
+                    channel_shared_ptrs.size()));
+            _profile->add_info_string("Partitioner",
+                                      fmt::format("Crc32HashPartitioner({})", _partition_count));
+        }
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
-        _profile->add_info_string("Partitioner",
-                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
+
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         _partition_count = channels.size();
         _profile->add_info_string("Partitioner",
@@ -291,6 +302,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _texprs(sink.output_partition.partition_exprs),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),
+          _hash_type(sink.output_partition.hash_type),
           _dests(destinations),
           _dest_node_id(sink.dest_node_id),
           _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc),
@@ -309,6 +321,9 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::TABLE_SINK_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED);
+    DCHECK(sink.output_partition.hash_type == THashType::CRC32 ||
+           sink.output_partition.hash_type == THashType::XXHASH64 ||
+           sink.output_partition.hash_type == THashType::SPARK_MURMUR32);
     _name = "ExchangeSinkOperatorX";
     _pool = std::make_shared<ObjectPool>();
 }
