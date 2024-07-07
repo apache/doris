@@ -541,7 +541,6 @@ suite("test_stream_load_2pc", "p0") {
             }
 
             qt_sql_2pc_commit "select count(*) from ${tbl}"
-
             json2pc = do_streamload_2pc_commit_by_txn_id.call(txnId, tbl)
             assertTrue(json2pc.msg.contains("is already visible, not pre-committed"))
         }
