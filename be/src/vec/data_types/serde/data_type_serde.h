@@ -216,7 +216,7 @@ public:
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                        int* num_deserialized,
                                                        const FormatOptions& options) const = 0;
-    // deserialize fixed values
+    // deserialize fixed values.Repeatedly insert the value row times into the column.
     Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
                                               int* num_deserialized,
                                               const FormatOptions& options) const {
