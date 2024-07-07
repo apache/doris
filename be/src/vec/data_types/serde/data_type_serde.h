@@ -225,7 +225,11 @@ public:
             *num_deserialized = 0;
             return st;
         }
-        column.insert_many_from(column, column.size() - 1, rows - 1);
+        //If you try to simplify this operation by using `column.insert_many_from(column, column.size() - 1, rows - 1);`
+        // you are likely to get incorrect data results.
+        MutableColumnPtr dum_col = column.clone_empty();
+        dum_col->insert_from(column, column.size() - 1);
+        column.insert_many_from(*dum_col.get(), 0, rows - 1);
         *num_deserialized = rows;
         return Status::OK();
     }
