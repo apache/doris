@@ -480,15 +480,18 @@ std::pair<size_t, size_t> LRUFileCache::try_merge() {
 
 std::vector<std::vector<size_t>> LRUFileCache::find_continuous_cells(
         const FileBlocksByOffset& segments) {
+    // vector<vector<offset>>, continuous file segments
     std::vector<std::vector<size_t>> merged_blocks;
     std::vector<size_t> continuous_blocks;
     size_t end_offset;
     size_t merged_size = 0;
     for (auto& [offset, cell] : segments) {
         if (cell.file_block->cache_type() != CacheType::NORMAL) {
+            // Only try to merge the normal segments
             break;
         }
         if (cell.releasable()) {
+            // The segment file is not reading currently
             if (continuous_blocks.empty()) {
                 continuous_blocks.push_back(offset);
                 end_offset = offset + cell.size();
@@ -566,9 +569,11 @@ std::pair<size_t, size_t> LRUFileCache::merge_continuous_cells(
                 while (remaining_size > 0) {
                     size_t bytes_read = std::min(buffer_size, remaining_size);
                     Slice data(buffer, bytes_read);
+                    // read the origin segment file
                     if (!cell.file_block->read_at(data, cell_offset)) {
                         break;
                     }
+                    // merge into the destination file
                     if (!merged_cell.file_block->append(data)) {
                         break;
                     }
@@ -585,6 +590,8 @@ std::pair<size_t, size_t> LRUFileCache::merge_continuous_cells(
                 for (auto& offset : offsets) {
                     FileBlockCell& cell = offset_cells.at(offset);
                     offsets_info << offset << " ";
+                    // delete the origin segment file
+                    // get the file block to prevent the reading operation
                     std::lock_guard<std::mutex> lc(cell.file_block->_mutex);
                     remove(cell.file_block, l, lc);
                 }

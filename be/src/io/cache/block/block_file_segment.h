@@ -110,6 +110,7 @@ public:
 
     State wait();
 
+    /// Write the cached data asynchronously
     Status async_write(std::shared_ptr<char[]> buffer, size_t offset, size_t length);
 
     // append data to cache file

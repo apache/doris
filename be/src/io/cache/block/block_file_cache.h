@@ -117,10 +117,14 @@ public:
 
     virtual size_t try_release() = 0;
 
+    /// Merge continuous small segment files into a larger one
+    /// Return the number of origin segment files and the merged files
     virtual std::pair<size_t, size_t> try_merge() = 0;
 
     std::string get_path_in_local_cache(const Key& key, size_t offset, CacheType type) const;
 
+    /// Get the destination file that small segment files merge into
+    /// The file is suffixed by '_merged' and will be rename as normal offset name after merging
     std::string get_merged_path(const Key& key, size_t offset) const;
 
     std::string get_path_in_local_cache(const Key& key) const;
