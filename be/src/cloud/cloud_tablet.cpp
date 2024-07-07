@@ -227,6 +227,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                             {
                                                     .expiration_time = expiration_time,
                                             },
+                                    .download_done {},
                             });
                 }
 #endif

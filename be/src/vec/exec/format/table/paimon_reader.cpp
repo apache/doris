@@ -45,6 +45,7 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range) {
             .system_type = _params.file_type,
             .properties = _params.properties,
             .hdfs_params = _params.hdfs_params,
+            .broker_addresses {},
     };
     if (range.__isset.file_type) {
         // for compatibility

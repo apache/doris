@@ -351,6 +351,7 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
                     .region = info.region(),
                     .ak = info.ak(),
                     .sk = info.sk(),
+                    .token {},
                     .bucket = info.bucket(),
                     .provider = io::ObjStorageType::AWS,
             },
