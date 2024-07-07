@@ -124,8 +124,11 @@ class AzureListObjectsFileNames implements ListObjectsFileNames {
         this.bucket = bucket;
         this.suite = suite;
         String uri = String.format(URI_TEMPLATE, this.ak, this.bucket);
-            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(this.ak, this.sk);
-        this.containerClient = new BlobContainerClientBuilder().credential(cred).endpoint(uri).build();
+        StorageSharedKeyCredential cred = new StorageSharedKeyCredential(this.ak, this.sk);
+        BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
+        builder.credential(cred);
+        builder.endpoint(uri);
+        this.containerClient = builder.buildClient();
     }
 
     public boolean isEmpty(String tableName, String tableId) {
