@@ -41,7 +41,7 @@ import com.azure.storage.common.StorageSharedKeyCredential;
 import java.util.Iterator;
 
 interface ListObjectsFileNames {
-    public boolean isEmpty(String tableName, String tableId);
+    public boolean isEmpty(String tableName, String tabletId);
     public Set<String> listObjects(String userName, String userId);
 };
 
@@ -68,7 +68,7 @@ class AwsListObjectsFileNames implements ListObjectsFileNames {
                 .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
     }
 
-    public boolean isEmpty(String tableName, String tableId) {
+    public boolean isEmpty(String tableName, String tabletId) {
         def objectListing = s3Client.listObjects(
             new ListObjectsRequest().withMaxKeys(1).withBucketName(bucket).withPrefix("${prefix}/data/${tabletId}/"))
 
@@ -131,7 +131,7 @@ class AzureListObjectsFileNames implements ListObjectsFileNames {
         this.containerClient = builder.buildClient();
     }
 
-    public boolean isEmpty(String tableName, String tableId) {
+    public boolean isEmpty(String tableName, String tabletId) {
         PagedIterable<BlobItem> blobs = containerClient.listBlobs(
             new ListBlobsOptions()
                 .setPrefix("${prefix}/data/${tabletId}/")
