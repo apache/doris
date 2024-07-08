@@ -2982,6 +2982,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         List<Partition> newPartitions = Lists.newArrayList();
         // tabletIdSet to save all newly created tablet ids.
         Set<Long> tabletIdSet = Sets.newHashSet();
+        Runnable failedCleanCallback = () -> {
+            for (Long tabletId : tabletIdSet) {
+                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+            }
+        };
         try {
             long bufferSize = IdGeneratorUtil.getBufferSizeForTruncateTable(copiedTbl, origPartitions.values());
             IdGeneratorBuffer idGeneratorBuffer =
@@ -3017,9 +3022,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         } catch (DdlException e) {
             // create partition failed, remove all newly created tablets
-            for (Long tabletId : tabletIdSet) {
-                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
-            }
+            failedCleanCallback.run();
             throw e;
         }
         Preconditions.checkState(origPartitions.size() == newPartitions.size());
@@ -3027,15 +3030,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         // all partitions are created successfully, try to replace the old partitions.
         // before replacing, we need to check again.
         // Things may be changed outside the table lock.
-        olapTable = (OlapTable) db.getTableOrDdlException(copiedTbl.getId());
-        olapTable.writeLockOrDdlException();
+        boolean hasWriteLock = false;
         try {
+            olapTable = (OlapTable) db.getTableOrDdlException(copiedTbl.getId());
+            olapTable.writeLockOrDdlException();
+            hasWriteLock = true;
             olapTable.checkNormalStateForAlter();
             // check partitions
             for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
-                Partition partition = copiedTbl.getPartition(entry.getValue());
+                Partition partition = olapTable.getPartition(entry.getValue());
                 if (partition == null || !partition.getName().equalsIgnoreCase(entry.getKey())) {
-                    throw new DdlException("Partition [" + entry.getKey() + "] is changed");
+                    throw new DdlException("Partition [" + entry.getKey() + "] is changed"
+                            + " during truncating table, please retry");
                 }
             }
 
@@ -3079,6 +3085,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 }
             }
+            if (DebugPointUtil.isEnable("InternalCatalog.truncateTable.metaChanged")) {
+                metaChanged = true;
+                LOG.warn("debug set truncate table meta changed");
+            }
 
             if (metaChanged) {
                 throw new DdlException("Table[" + copiedTbl.getName() + "]'s meta has been changed. try again.");
@@ -3093,8 +3103,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                             newPartitions,
                             truncateEntireTable, truncateTableStmt.toSqlWithoutTable());
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
+        } catch (DdlException e) {
+            failedCleanCallback.run();
+            throw e;
         } finally {
-            olapTable.writeUnlock();
+            if (hasWriteLock) {
+                olapTable.writeUnlock();
+            }
         }
         if (truncateEntireTable) {
             // Drop the whole table stats after truncate the entire table
