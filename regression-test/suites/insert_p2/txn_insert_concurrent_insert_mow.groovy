@@ -21,9 +21,8 @@ import java.sql.Statement
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CompletableFuture
 
-// test partial columns update
-suite("txn_insert_concurrent_insert_update") {
-    def tableName = "txn_insert_concurrent_insert_update"
+suite("txn_insert_concurrent_insert_mow") {
+    def tableName = "txn_insert_concurrent_insert_mow"
     List<String> errors = new ArrayList<>()
 
     for (int i = 0; i < 3; i++) {
@@ -56,6 +55,10 @@ suite("txn_insert_concurrent_insert_update") {
             )
         """
 
+        if (i < 2) {
+            continue
+        }
+
         for (def file_name : ["lineitem.csv.split00.gz", "lineitem.csv.split01.gz"]) {
             streamLoad {
                 table table_name
@@ -87,62 +90,32 @@ suite("txn_insert_concurrent_insert_update") {
      * 1. insert into ${tableName}_0 select * from ${tableName}_2; (6001215 rows)
      * 2. insert into ${tableName}_0 select * from ${tableName}_2 L_ORDERKEY < 2000000; (2000495 rows)
      * 3. insert into ${tableName}_1 select * from ${tableName}_2 where L_ORDERKEY < 3000000; (2999666 rows)
-     * 4. update ${tableName}_0 set L_QUANTITY = L_QUANTITY + 10 where L_ORDERKEY < 1000000;
-     " 5. update ${tableName}_0 set ${tableName}_0.L_QUANTITY = 100 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000 and L_ORDERKEY < 3000000);
-     " 6. delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);
-     " 7. delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);
      *
      * suppose there is 'threadNum' concurrency, the rows of each table should be:
-     * t0: insert from t1: unknown, depend on the commit order
-     *     insert from t2: 6001215
-     *     update from t1: [2000000, ) -> + 10, maybe overwrite by insert
-     *     update from t2: [3000000, 4000000) -> 100, maybe overwrite by insert
-     *     delete from t1: the first sub txn, will insert again
-     *     delete from t2: the first sub txn, will insert again
+     * t0: from t2: 6001215
+     *     from t1: unknown, depend on the commit order
      * t1: from t2: 2999666
      */
     def sqls = [
-            "insert into ${tableName}_0(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY + 10 from ${tableName}_2 where L_ORDERKEY < 1000000;",
-            "insert into ${tableName}_0(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_EXTENDEDPRICE) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_EXTENDEDPRICE + 20 from ${tableName}_2 where L_ORDERKEY >= 1000000 and L_ORDERKEY < 2000000;",
-            "insert into ${tableName}_0(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_DISCOUNT) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_DISCOUNT + 30 from ${tableName}_2 where L_ORDERKEY >= 2000000 and L_ORDERKEY < 3000000;",
-            "insert into ${tableName}_0(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_TAX) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_TAX + 40 from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000;",
-            "insert into ${tableName}_0(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY  from ${tableName}_2 where L_ORDERKEY >= 4000000 and L_ORDERKEY < 5000000;",
-            "insert into ${tableName}_0(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY  from ${tableName}_2 where L_ORDERKEY >= 5000000 and L_ORDERKEY < 6000000;",
-            "insert into ${tableName}_0(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY  from ${tableName}_2 where L_ORDERKEY >= 6000000;",
-            "insert into ${tableName}_1(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY  from ${tableName}_2 where L_ORDERKEY < 1000000;",
-            "insert into ${tableName}_1(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY  from ${tableName}_2 where L_ORDERKEY >= 1000000 and L_ORDERKEY < 2000000;",
-            "insert into ${tableName}_1(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY from ${tableName}_2 where L_ORDERKEY >= 2000000 and L_ORDERKEY < 3000000;",
-            "insert into ${tableName}_0(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY  from ${tableName}_1 where L_ORDERKEY < 1000000;",
-            "insert into ${tableName}_0(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY) " +
-                    "select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER, L_QUANTITY  from ${tableName}_1 where L_ORDERKEY >= 1000000 and L_ORDERKEY < 2000000;",
-            "update ${tableName}_0 set L_QUANTITY = L_QUANTITY + 10 where L_ORDERKEY < 1000000;",
-            "update ${tableName}_0 set ${tableName}_0.L_QUANTITY = 100 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000 and L_ORDERKEY < 3000000);",
-            // "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);",
-            // "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);",
+            "insert into ${tableName}_0 select * from ${tableName}_2 where L_ORDERKEY < 1000000;",
+            "insert into ${tableName}_0 select * from ${tableName}_2 where L_ORDERKEY >= 1000000 and L_ORDERKEY < 2000000;",
+            "insert into ${tableName}_0 select * from ${tableName}_2 where L_ORDERKEY >= 2000000 and L_ORDERKEY < 3000000;",
+            "insert into ${tableName}_0 select * from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000;",
+            "insert into ${tableName}_0 select * from ${tableName}_2 where L_ORDERKEY >= 4000000 and L_ORDERKEY < 5000000;",
+            "insert into ${tableName}_0 select * from ${tableName}_2 where L_ORDERKEY >= 5000000 and L_ORDERKEY < 6000000;",
+            "insert into ${tableName}_0 select * from ${tableName}_2 where L_ORDERKEY >= 6000000;",
+            "insert into ${tableName}_1 select * from ${tableName}_2 where L_ORDERKEY < 1000000;",
+            "insert into ${tableName}_1 select * from ${tableName}_2 where L_ORDERKEY >= 1000000 and L_ORDERKEY < 2000000;",
+            "insert into ${tableName}_1 select * from ${tableName}_2 where L_ORDERKEY >= 2000000 and L_ORDERKEY < 3000000;",
+            "insert into ${tableName}_0 select * from ${tableName}_1 where L_ORDERKEY < 1000000;",
+            "insert into ${tableName}_0 select * from ${tableName}_1 where L_ORDERKEY >= 1000000 and L_ORDERKEY < 2000000;"
     ]
     def txn_insert = { ->
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement stmt = conn.createStatement()) {
-            // set session variable and begin
-            def pre_sqls = ["set enable_unique_key_partial_update = true", "begin",
-                "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);",
-                "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);"
-            ]
-            for (def pre_sql : pre_sqls) {
-                logger.info("execute sql: " + pre_sql)
-                stmt.execute(pre_sql)
-            }
+            // begin
+            logger.info("execute sql: begin")
+            stmt.execute("begin")
             // insert
             List<Integer> list = new ArrayList()
             for (int i = 0; i < sqls.size(); i++) {
@@ -155,11 +128,10 @@ suite("txn_insert_concurrent_insert_update") {
                 logger.info("execute sql: " + sql)
                 stmt.execute(sql)
             }
-            def post_sqls = ["commit", """ select count() from ${tableName}_0 """, """ select count() from ${tableName}_1 """]
-            for (def post_sql : post_sqls) {
-                logger.info("execute sql: " + post_sql)
-                stmt.execute(post_sql)
-            }
+            // commit
+            logger.info("execute sql: commit")
+            stmt.execute("commit")
+            logger.info("finish txn insert")
         } catch (Throwable e) {
             logger.error("txn insert failed", e)
             errors.add("txn insert failed " + e.getMessage())
@@ -178,11 +150,11 @@ suite("txn_insert_concurrent_insert_update") {
 
     logger.info("error num: " + errors.size() + ", errors: " + errors)
 
-    def t0_row_count = 6001215 // 2000495 or 5000226
+    def t0_row_count = 6001215
     def result = sql """ select count() from ${tableName}_0 """
-    logger.info("${tableName}_0 row count: ${result}, expected >= ${t0_row_count}")
+    logger.info("${tableName}_0 row count: ${result}, expected: ${t0_row_count}")
 
-    def t1_row_count = 6001215
+    def t1_row_count = 2999666
     def result2 = sql """ select count() from ${tableName}_1 """
     logger.info("${tableName}_1 row count: ${result2}, expected: ${t1_row_count}")
 
@@ -195,7 +167,7 @@ suite("txn_insert_concurrent_insert_update") {
         }
     }
 
-    assertTrue(result[0][0] >= t0_row_count)
+    assertEquals(t0_row_count, result[0][0])
     assertEquals(t1_row_count, result2[0][0])
     assertEquals(0, errors.size())
     result = sql """ select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER,count(*) a from ${tableName}_0 group by L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER having a > 1; """
