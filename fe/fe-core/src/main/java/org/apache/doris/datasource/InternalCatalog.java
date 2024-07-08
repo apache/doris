@@ -1001,7 +1001,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         return true;
     }
 
-    public void dropTable(Database db, long tableId, boolean isForceDrop,
+    private void dropTable(Database db, long tableId, boolean isForceDrop,
                           Long recycleTime) throws MetaNotFoundException {
         Table table = db.getTableOrMetaException(tableId);
         db.writeLock();
@@ -2804,6 +2804,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         // if failed in any step, use this set to do clear things
         Set<Long> tabletIdSet = new HashSet<>();
         // create partition
+        boolean editlogCreateTable = false;
+        boolean editlogColocateAddTable = false;
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 if (properties != null && !properties.isEmpty()) {
@@ -2935,11 +2937,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!result.first) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
-            if (DebugPointUtil.isEnable("FE.createOlapTable.exception")) {
-                LOG.info("debug point FE.createOlapTable.exception, throw e");
-                // not commit, not log edit
-                throw new DdlException("debug point FE.createOlapTable.exception");
-            }
+
+            // if table not exists, then db.createTableWithLock will write an editlog.
+            editlogCreateTable = !result.second;
 
             if (result.second) {
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
@@ -2960,6 +2960,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId,
                             backendsPerBucketSeq);
                     Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
+                    editlogColocateAddTable = true;
                 }
                 LOG.info("successfully create table[{};{}]", tableName, tableId);
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
@@ -2970,17 +2971,30 @@ public class InternalCatalog implements CatalogIf<Database> {
                         .createOrUpdateRuntimeInfo(tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME,
                                 TimeUtils.getCurrentFormatTime());
             }
+
+            if (DebugPointUtil.isEnable("FE.createOlapTable.exception")) {
+                LOG.info("debug point FE.createOlapTable.exception, throw e");
+                throw new DdlException("debug point FE.createOlapTable.exception");
+            }
         } catch (DdlException e) {
             LOG.warn("create table failed {} - {}", tabletIdSet, e.getMessage());
             for (Long tabletId : tabletIdSet) {
                 Env.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
-            // only remove from memory, because we have not persist it
             if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
+                GroupId groupId = Env.getCurrentColocateIndex().getGroup(tableId);
                 Env.getCurrentColocateIndex().removeTable(tableId);
+                if (editlogColocateAddTable) {
+                    ColocatePersistInfo info = ColocatePersistInfo.createForRemoveTable(groupId, tableId);
+                    Env.getCurrentEnv().getEditLog().logColocateRemoveTable(info);
+                }
             }
             try {
                 dropTable(db, tableId, true, 0L);
+                if (editlogCreateTable) {
+                    DropInfo info = new DropInfo(db.getId(), tableId, olapTable.getName(), -1L, true, 0L);
+                    Env.getCurrentEnv().getEditLog().logDropTable(info);
+                }
             } catch (Exception ex) {
                 LOG.warn("drop table", ex);
             }
