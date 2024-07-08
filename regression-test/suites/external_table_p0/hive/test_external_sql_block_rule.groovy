@@ -74,5 +74,12 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
             exception """sql hits sql block rule: external_hive_partition2, reach tablet_num : 3"""
         }
     }
+    // login as external_block_user3
+    def result3 = connect(user = 'external_block_user3', password = '', url = context.config.jdbcUrl) {
+        test {
+            sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
+            exception """sql hits sql block rule: external_hive_partition3, reach cardinality : 3"""
+        }
+    }
 }
 
