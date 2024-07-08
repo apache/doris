@@ -149,9 +149,9 @@ public class Statistics {
     }
 
     public double dataSizeFactor(List<Slot> slots) {
-        double lowerBound = 0.03;
-        double upperBound = 0.07;
-        return Math.min(Math.max(computeTupleSize(slots) / K_BYTES, lowerBound), upperBound);
+        double lowerBound = 30;
+        double upperBound = 70;
+        return Math.min(Math.max(computeTupleSize(slots), lowerBound), upperBound);
     }
 
     @Override
