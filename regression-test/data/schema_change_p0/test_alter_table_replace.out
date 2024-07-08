@@ -24,3 +24,16 @@
 2	2017-02-01	Beijing	10	1	1	31	19	\N	\N
 3	2017-03-01	Beijing	10	1	1	31	21	\N	\N
 
+-- !before_recover --
+-7	2017-01-01	Beijing	10	1	1	30	20	\N	\N
+-8	2017-02-01	Beijing	10	1	1	31	19	\N	\N
+-9	2017-03-01	Beijing	10	1	1	31	21	\N	\N
+
+-- !after_recover --
+7	2017-01-01	Beijing	10	1	1	30	20	\N	\N
+8	2017-02-01	Beijing	10	1	1	31	19	\N	\N
+9	2017-03-01	Beijing	10	1	1	31	21	\N	\N
+
+-- !replace_p_force --
+-7	2017-01-01	Beijing	10	1	1	30	20	\N	\N
+
