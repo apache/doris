@@ -105,10 +105,6 @@ register_be_to_fe() {
         return
       fi
     fi
-    check_be_status
-    if [[ $IS_BE_JOIN_STATUS == "true" ]]; then
-        return
-    fi
     for i in {1..300}; do
       if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
           SQL="alter system add backend '${CURRENT_BE_IP}:${CURRENT_BE_PORT}';"
@@ -124,10 +120,13 @@ register_be_to_fe() {
         doris_note "BE successfully registered to FE！"
         is_fe_start=true
         return
+      else
+        check_be_status
+        if [[ $IS_BE_JOIN_STATUS == "true" ]]; then
+          return
+        fi
       fi
       if [[ $(( $i % 20 )) == 1 ]]; then
-        SQL="show backends;"
-        doris_note "Executing SQL: $SQL"
         doris_note "Register BE to FE is failed. retry."
       fi
       sleep 1
@@ -142,14 +141,14 @@ check_be_status() {
     declare -g IS_FE_START_STATUS IS_BE_JOIN_STATUS
     IS_FE_START_STATUS=false
     IS_BE_JOIN_STATUS=false
-    for i in {1..300}; do
+    for i in {1..100}; do
       if [[ $(($i % 20)) == 1 ]]; then
         doris_warn "start check be register status~"
       fi
       if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
-        docker_process_sql <<<"show backends;" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
+        docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
       elif [[ $RUN_TYPE == "FQDN" ]]; then
-        docker_process_sql <<<"show backends;" | grep "[[:space:]]${CURRENT_NODE_NAME}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
+        docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_NODE_NAME}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
       fi
       be_join_status=$?
       if [[ "${be_join_status}" == 0 ]]; then
