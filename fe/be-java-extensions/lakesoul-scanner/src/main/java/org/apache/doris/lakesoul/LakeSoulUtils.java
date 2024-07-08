@@ -23,7 +23,8 @@ public class LakeSoulUtils {
     public static String SCHEMA_JSON = "table_schema";
     public static String PARTITION_DESC = "partition_descs";
     public static String REQUIRED_FIELDS = "required_fields";
-
+    public static String OPTIONS = "options";
+    public static String SUBSTRAIT_PREDICATE = "substrait_predicate";
     public static String LIST_DELIM = ";";
     public static String PARTITIONS_KV_DELIM = "=";
 }

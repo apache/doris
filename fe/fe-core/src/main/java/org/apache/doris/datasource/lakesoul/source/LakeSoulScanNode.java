@@ -17,6 +17,12 @@
 
 package org.apache.doris.datasource.lakesoul.source;
 
+import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
+import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
+import io.substrait.proto.Plan;
+import lombok.SneakyThrows;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -25,6 +31,7 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
+import org.apache.doris.datasource.lakesoul.LakeSoulUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -42,7 +49,10 @@ import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 import com.google.common.collect.Lists;
 import com.lakesoul.shaded.com.alibaba.fastjson.JSON;
 import com.lakesoul.shaded.com.alibaba.fastjson.JSONObject;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,19 +62,42 @@ import java.util.stream.Collectors;
 
 public class LakeSoulScanNode extends FileQueryScanNode {
 
-    protected final LakeSoulExternalTable lakeSoulExternalTable;
+    private static final Logger LOG = LogManager.getLogger(LakeSoulScanNode.class);
+    protected LakeSoulExternalTable lakeSoulExternalTable;
 
-    protected final TableInfo table;
+    String tableName;
+
+    String location;
+
+    String partitions;
+
+    Schema tableArrowSchema;
+
+    Schema partitionArrowSchema;
 
     public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "planNodeName", StatisticalType.LAKESOUL_SCAN_NODE, needCheckColumnPriv);
+    }
+
+    @Override
+    protected void doInitialize() throws UserException {
+        super.doInitialize();
         lakeSoulExternalTable = (LakeSoulExternalTable) desc.getTable();
-        table = lakeSoulExternalTable.getLakeSoulTableInfo();
+        TableInfo tableInfo = lakeSoulExternalTable.getLakeSoulTableInfo();
+        location = tableInfo.getTablePath();
+        tableName = tableInfo.getTableName();
+        partitions = tableInfo.getPartitions();
+        try {
+            tableArrowSchema = Schema.fromJSON(tableInfo.getTableSchema());
+            List<Field> partitionFields = DBUtil.parseTableInfoPartitions(partitions).rangeKeys.stream().map(tableArrowSchema::findField).collect(Collectors.toList());
+            partitionArrowSchema = new Schema(partitionFields);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     protected TFileType getLocationType() throws UserException {
-        String location = table.getTablePath();
         return getLocationType(location);
     }
 
@@ -81,12 +114,12 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
     @Override
     protected List<String> getPathPartitionKeys() throws UserException {
-        return new ArrayList<>(DBUtil.parseTableInfoPartitions(table.getPartitions()).rangeKeys);
+        return new ArrayList<>(DBUtil.parseTableInfoPartitions(partitions).rangeKeys);
     }
 
     @Override
     protected TableIf getTargetTable() throws UserException {
-        return lakeSoulExternalTable;
+        return desc.getTable();
     }
 
     @Override
@@ -94,8 +127,10 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         return lakeSoulExternalTable.getHadoopProperties();
     }
 
+    @SneakyThrows
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        LOG.info("{}", rangeDesc);
         if (split instanceof LakeSoulSplit) {
             setLakeSoulParams(rangeDesc, (LakeSoulSplit) split);
         }
@@ -111,13 +146,21 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setLakeSoulParams(TFileRangeDesc rangeDesc, LakeSoulSplit lakeSoulSplit) {
+    public void setLakeSoulParams(TFileRangeDesc rangeDesc, LakeSoulSplit lakeSoulSplit) throws IOException {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(lakeSoulSplit.getTableFormatType().value());
         TLakeSoulFileDesc fileDesc = new TLakeSoulFileDesc();
         fileDesc.setFilePaths(lakeSoulSplit.getPaths());
         fileDesc.setPrimaryKeys(lakeSoulSplit.getPrimaryKeys());
         fileDesc.setTableSchema(lakeSoulSplit.getTableSchema());
+
+        JSONObject options = new JSONObject();
+        Plan predicate = LakeSoulUtils.getPushPredicate(conjuncts, tableName, tableArrowSchema, partitionArrowSchema);
+        if (predicate != null) {
+            options.put("substrait_predicate", SubstraitUtil.encodeBase64String(predicate));
+        }
+        fileDesc.setOptions(JSON.toJSONString(options));
+
         fileDesc.setPartitionDescs(lakeSoulSplit.getPartitionDesc()
                 .entrySet().stream().map(entry ->
                         String.format("%s=%s", entry.getKey(), entry.getValue())).collect(Collectors.toList()));
@@ -126,24 +169,39 @@ public class LakeSoulScanNode extends FileQueryScanNode {
     }
 
     public List<Split> getSplits() throws UserException {
+        LOG.info("getSplits with columnFilters={}", columnFilters);
+        LOG.info("getSplits with columnNameToRange={}", columnNameToRange);
+        LOG.info("getSplits with conjuncts={}", conjuncts);
+
+        List<PartitionInfo> allPartitionInfo = lakeSoulExternalTable.listPartitionInfo();
+        LOG.info("allPartitionInfo={}", allPartitionInfo);
+        List<PartitionInfo> filteredPartitionInfo = allPartitionInfo;
+        try {
+            filteredPartitionInfo = LakeSoulUtils.applyPartitionFilters(allPartitionInfo, tableName, partitionArrowSchema, columnNameToRange);
+        } catch (IOException e) {
+            throw new UserException(e);
+        }
+        LOG.info("filteredPartitionInfo={}", filteredPartitionInfo);
+        DataFileInfo[] dataFileInfos = DataOperation.getTableDataInfo(filteredPartitionInfo);
+
         List<Split> splits = new ArrayList<>();
         Map<String, Map<Integer, List<String>>> splitByRangeAndHashPartition = new LinkedHashMap<>();
-        TableInfo tif = table;
-        DataFileInfo[] dfinfos = DataOperation.getTableDataInfo(table.getTableId());
-        for (DataFileInfo pif : dfinfos) {
-            if (isExistHashPartition(tif) && pif.file_bucket_id() != -1) {
-                splitByRangeAndHashPartition.computeIfAbsent(pif.range_partitions(), k -> new LinkedHashMap<>())
-                        .computeIfAbsent(pif.file_bucket_id(), v -> new ArrayList<>())
-                        .add(pif.path());
+        TableInfo tableInfo = lakeSoulExternalTable.getLakeSoulTableInfo();
+
+        for (DataFileInfo fileInfo : dataFileInfos) {
+            if (isExistHashPartition(tableInfo) && fileInfo.file_bucket_id() != -1) {
+                splitByRangeAndHashPartition.computeIfAbsent(fileInfo.range_partitions(), k -> new LinkedHashMap<>())
+                        .computeIfAbsent(fileInfo.file_bucket_id(), v -> new ArrayList<>())
+                        .add(fileInfo.path());
             } else {
-                splitByRangeAndHashPartition.computeIfAbsent(pif.range_partitions(), k -> new LinkedHashMap<>())
+                splitByRangeAndHashPartition.computeIfAbsent(fileInfo.range_partitions(), k -> new LinkedHashMap<>())
                         .computeIfAbsent(-1, v -> new ArrayList<>())
-                        .add(pif.path());
+                        .add(fileInfo.path());
             }
         }
         List<String> pkKeys = null;
-        if (!table.getPartitions().equals(";")) {
-            pkKeys = Lists.newArrayList(table.getPartitions().split(";")[1].split(","));
+        if (!tableInfo.getPartitions().equals(";")) {
+            pkKeys = Lists.newArrayList(tableInfo.getPartitions().split(";")[1].split(","));
         }
 
         for (Map.Entry<String, Map<Integer, List<String>>> entry : splitByRangeAndHashPartition.entrySet()) {
@@ -161,7 +219,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
                         split.getValue(),
                         pkKeys,
                         rangeDesc,
-                        table.getTableSchema(),
+                        tableInfo.getTableSchema(),
                         0, 0, 0,
                         new String[0], null);
                 lakeSoulSplit.setTableFormatType(TableFormatType.LAKESOUL);

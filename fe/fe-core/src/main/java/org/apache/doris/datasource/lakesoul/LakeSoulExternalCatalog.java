@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.lakesoul;
 
+import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -27,6 +28,8 @@ import com.dmetasoul.lakesoul.meta.DBManager;
 import com.dmetasoul.lakesoul.meta.DBUtil;
 import com.dmetasoul.lakesoul.meta.entity.TableInfo;
 import com.google.common.collect.Lists;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.s3a.Constants;
 
 import java.util.List;
 import java.util.Map;
@@ -92,5 +95,17 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
         makeSureInitialized();
         return dbManager.getTableInfoByNameAndNamespace(tblName, dbName);
     }
+
+    public List<PartitionInfo> listPartitionInfo(String tableId) {
+        makeSureInitialized();
+        return dbManager.getAllPartitionInfo(tableId);
+    }
+
+    protected void initS3Param(Configuration conf) {
+        Map<String, String> properties = catalogProperty.getHadoopProperties();
+        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
+    }
+
+
 }
 
