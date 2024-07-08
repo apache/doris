@@ -291,6 +291,10 @@ public class MTMV extends OlapTable {
         return cache;
     }
 
+    public MTMVCache getCache() {
+        return cache;
+    }
+
     public Map<String, String> getMvProperties() {
         readMvLock();
         try {

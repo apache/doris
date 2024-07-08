@@ -116,12 +116,7 @@ DEFINE_mInt32(max_fill_rate, "2");
 
 DEFINE_mInt32(double_resize_threshold, "23");
 
-// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
-// actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
-// with large memory larger than 16G.
-// Turn up max. On machines with more than 16G memory, more memory buffers will be reserved for Full GC.
-// Turn down max. will use as much memory as possible.
-DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
+DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "6871947673");
 
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 DEFINE_mString(process_minor_gc_size, "10%");
@@ -568,6 +563,7 @@ DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
 DEFINE_mBool(enable_je_purge_dirty_pages, "true");
+DEFINE_mString(je_dirty_pages_mem_limit_percent, "5%");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
@@ -1169,12 +1165,12 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
 
+DEFINE_mBool(enable_be_proc_monitor, "false");
+DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
+
 DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
-
-// Dir of default timezone files
-DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
@@ -1326,6 +1322,8 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 // This is only for debug purpose, in case sometimes the page index
 // filter wrong data.
 DEFINE_mBool(enable_parquet_page_index, "true");
+
+DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 
 // clang-format off
 #ifdef BE_TEST
