@@ -3225,7 +3225,7 @@ public class StmtExecutor {
             Map<String, String> properties = new HashMap<>();
             properties.put("use_temp_partition_name", "false");
             ops.add(new ReplacePartitionClause(new PartitionNames(false, partitionNames),
-                    new PartitionNames(true, tempPartitionName), properties));
+                    new PartitionNames(true, tempPartitionName), true, properties));
             parsedStmt = new AlterTableStmt(targetTableName, ops);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
