@@ -1248,6 +1248,8 @@ DECLARE_mBool(exit_on_exception);
 
 // cgroup
 DECLARE_mString(doris_cgroup_cpu_path);
+DECLARE_mBool(enable_be_proc_monitor);
+DECLARE_mInt32(be_proc_monitor_interval_ms);
 
 DECLARE_mBool(enable_workload_group_memory_gc);
 

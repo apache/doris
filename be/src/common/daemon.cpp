@@ -48,6 +48,7 @@
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "runtime/be_proc_monitor.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -399,6 +400,13 @@ void Daemon::wg_mem_used_refresh_thread() {
     }
 }
 
+void Daemon::be_proc_monitor_thread() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(config::be_proc_monitor_interval_ms))) {
+        LOG(INFO) << "log be thread num, " << BeProcMonitor::get_be_thread_info();
+    }
+}
+
 void Daemon::start() {
     Status st;
     st = Thread::create(
@@ -435,6 +443,12 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "wg_mem_refresh_thread", [this]() { this->wg_mem_used_refresh_thread(); },
             &_threads.emplace_back());
+
+    if (config::enable_be_proc_monitor) {
+        st = Thread::create(
+                "Daemon", "be_proc_monitor_thread", [this]() { this->be_proc_monitor_thread(); },
+                &_threads.emplace_back());
+    }
     CHECK(st.ok()) << st;
 }
 
