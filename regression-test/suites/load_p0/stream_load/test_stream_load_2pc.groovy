@@ -318,8 +318,8 @@ suite("test_stream_load_2pc", "p0") {
         """
         "dynamic_partition.enable" = "true",
         "dynamic_partition.time_unit" = "YEAR",
-        "dynamic_partition.start" = "-300",
-        "dynamic_partition.end" = "100",
+        "dynamic_partition.start" = "-10",
+        "dynamic_partition.end" = "10",
         "dynamic_partition.prefix" = "p",
         "dynamic_partition.buckets" = "32",
         "dynamic_partition.create_history_partition" = "true"
@@ -453,15 +453,15 @@ suite("test_stream_load_2pc", "p0") {
         """
             "dynamic_partition.enable" = "true",
             "dynamic_partition.time_unit" = "YEAR",
-            "dynamic_partition.start" = "-200",
-            "dynamic_partition.end" = "100",
+            "dynamic_partition.start" = "-10",
+            "dynamic_partition.end" = "5",
             "dynamic_partition.prefix" = "p",
             "dynamic_partition.buckets" = "32"
         """ 
         ]
 
         
-        def tbl_2pc_expected = [1, 4, 4, 4, 4, 101]
+        def tbl_2pc_expected = [1, 4, 4, 4, 4, 6]
         def i = 0;
 
         def streamLoadAction = { tbl, columns, filename, rowCount, expected ->
@@ -562,7 +562,7 @@ suite("test_stream_load_2pc", "p0") {
             }
             return create + "\n" + partition + "\nDISTRIBUTED BY HASH(k01) BUCKETS 32\n"+ "PROPERTIES($property $dynamic)"
         }
-        def expected = [1, 3, 3, 5, 401] 
+        def expected = [1, 3, 3, 5, 21] 
         // we recreate table for each partition, then load data with stream load and check the result
         for (i = 0; i < tables.size(); ++i) {
             def j = 0
