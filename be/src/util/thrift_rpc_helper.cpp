@@ -66,7 +66,7 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
     Status status;
     ClientConnection<T> client(_s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
     if (!status.ok()) {
-        LOG(WARNING) << "Connect frontend failed, address=" << address << ", status=" << status;
+        LOG(WARNING) << "Connect frontend failed, address=" << ip << ":" << port << ", status=" << status;
         return status;
     }
     try {
@@ -75,11 +75,11 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
         } catch (apache::thrift::transport::TTransportException& e) {
 #ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "retrying call frontend service after "
-                         << config::thrift_client_retry_interval_ms << " ms, address=" << address
+                         << config::thrift_client_retry_interval_ms << " ms, address=" << ip << ":" << port
                          << ", reason=" << e.what();
 #else
             std::cerr << "retrying call frontend service after "
-                      << config::thrift_client_retry_interval_ms << " ms, address=" << address
+                      << config::thrift_client_retry_interval_ms << " ms, address=" << ip << ":" << port
                       << ", reason=" << e.what() << std::endl;
 #endif
             std::this_thread::sleep_for(
@@ -87,10 +87,10 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
             status = client.reopen(timeout_ms);
             if (!status.ok()) {
 #ifndef ADDRESS_SANITIZER
-                LOG(WARNING) << "client reopen failed. address=" << address
+                LOG(WARNING) << "client reopen failed. address=" << ip << ":" << port
                              << ", status=" << status;
 #else
-                std::cerr << "client reopen failed. address=" << address << ", status=" << status
+                std::cerr << "client reopen failed. address=" << ip << ":" << port << ", status=" << status
                           << std::endl;
 #endif
                 return status;
@@ -99,10 +99,10 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
         }
     } catch (apache::thrift::TException& e) {
 #ifndef ADDRESS_SANITIZER
-        LOG(WARNING) << "call frontend service failed, address=" << address
+        LOG(WARNING) << "call frontend service failed, address=" << ip << ":" << port
                      << ", reason=" << e.what();
 #else
-        std::cerr << "call frontend service failed, address=" << address << ", reason=" << e.what()
+        std::cerr << "call frontend service failed, address=" << ip << ":" << port << ", reason=" << e.what()
                   << std::endl;
 #endif
         std::this_thread::sleep_for(
