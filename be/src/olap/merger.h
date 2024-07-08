@@ -23,10 +23,10 @@
 
 #include "common/status.h"
 #include "io/io_common.h"
+#include "olap/iterators.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
-#include "olap/iterators.h"
 
 namespace doris {
 class KeyBoundsPB;

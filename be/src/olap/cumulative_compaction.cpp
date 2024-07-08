@@ -127,9 +127,9 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
 
     size_t compaction_score = 0;
     _tablet->cumulative_compaction_policy()->pick_input_rowsets(
-            _tablet.get(), candidate_rowsets, max_score,
-            config::cumulative_compaction_min_deltas, &_input_rowsets, &_last_delete_version,
-            &compaction_score, allow_delete_in_cumu_compaction());
+            _tablet.get(), candidate_rowsets, max_score, config::cumulative_compaction_min_deltas,
+            &_input_rowsets, &_last_delete_version, &compaction_score,
+            allow_delete_in_cumu_compaction());
 
     // Cumulative compaction will process with at least 1 rowset.
     // So when there is no rowset being chosen, we should return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>():

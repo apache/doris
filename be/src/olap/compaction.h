@@ -108,7 +108,6 @@ private:
     int64_t merge_way_num();
 
 protected:
-
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
