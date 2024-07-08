@@ -108,8 +108,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final double DEFAULT_MAX_FILTER_RATIO = 1.0;
 
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
-    public static final long DEFAULT_MAX_BATCH_ROWS = 200000;
-    public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
+    public static final long DEFAULT_MAX_BATCH_ROWS = 20000000;
+    public static final long DEFAULT_MAX_BATCH_SIZE = 1024 * 1024 * 1024; // 1GB
     public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
     public static final boolean DEFAULT_STRICT_MODE = false; // default is false
     public static final int DEFAULT_SEND_BATCH_PARALLELISM = 1;
