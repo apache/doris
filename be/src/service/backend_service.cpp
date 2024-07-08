@@ -815,8 +815,7 @@ void BaseBackendService::open_scanner(TScanOpenResult& result_, const TScanOpenP
     p_context->last_access_time = time(nullptr);
     if (params.__isset.keep_alive_min) {
         p_context->keep_alive_sec = params.keep_alive_min * 60;
-    }
-    else if (params.__isset.keep_alive_sec) {
+    } else if (params.__isset.keep_alive_sec) {
         p_context->keep_alive_sec = params.keep_alive_sec;
     } else {
         p_context->keep_alive_sec = 5 * 60;
