@@ -1019,7 +1019,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         if (tabletStatus == TabletStatus.REPLICA_MISSING
                 || tabletStatus == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE
                 || tabletStatus == TabletStatus.COLOCATE_MISMATCH
-                || tabletStatus == TabletStatus.REPLICA_MISSING_FOR_TAG) {
+                || tabletStatus == TabletStatus.REPLICA_MISSING_FOR_TAG
+                || tabletStatus == TabletStatus.DISK_MIGRATION) {
             replica = new Replica(
                     Env.getCurrentEnv().getNextId(), destBackendId,
                     -1 /* version */, schemaHash,

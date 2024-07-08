@@ -1213,6 +1213,14 @@ public class EditLog {
                     ((CloudEnv) env).replayUpdateCloudReplica(info);
                     break;
                 }
+                case OperationType.OP_DISK_DECOMMISSION: {
+                    Env.getCurrentSystemInfo().replayDecommissionDisk((DecommissionDiskInfo) journal.getData());
+                    break;
+                }
+                case OperationType.OP_DISK_RECOMMISSION: {
+                    Env.getCurrentSystemInfo().replayRecommissionDisk((RecommissionDiskInfo) journal.getData());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -2097,6 +2105,14 @@ public class EditLog {
 
     public void logMetaIdMappingsLog(MetaIdMappingsLog log) {
         logEdit(OperationType.OP_ADD_META_ID_MAPPINGS, log);
+    }
+
+    public void logDecommissionDisk(DecommissionDiskInfo log) {
+        logEdit(OperationType.OP_DISK_DECOMMISSION, log);
+    }
+
+    public void logRecommissionDisk(RecommissionDiskInfo log) {
+        logEdit(OperationType.OP_DISK_RECOMMISSION, log);
     }
 
     public String getNotReadyReason() {

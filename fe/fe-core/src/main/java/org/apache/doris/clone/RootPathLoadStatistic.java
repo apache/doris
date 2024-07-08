@@ -113,7 +113,7 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
     }
 
     public BalanceStatus isFit(long tabletSize, boolean isSupplement) {
-        if (diskState == DiskState.OFFLINE) {
+        if (diskState != DiskState.ONLINE) {
             return new BalanceStatus(ErrCode.COMMON_ERROR,
                     toString() + " does not fit tablet with size: " + tabletSize + ", offline");
         }

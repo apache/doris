@@ -295,6 +295,9 @@ public class BackendLoadStatistic {
         long totalCapacity = 0;
         long totalUsedCapacity = 0;
         for (RootPathLoadStatistic pathStat : pathStatistics) {
+            if (pathStat.getDiskState() != DiskState.ONLINE) {
+                continue;
+            }
             if (pathStat.getStorageMedium() == medium) {
                 totalCapacity += pathStat.getCapacityB();
                 totalUsedCapacity += pathStat.getUsedCapacityB();
@@ -307,6 +310,10 @@ public class BackendLoadStatistic {
         int highCounter = 0;
         for (RootPathLoadStatistic pathStat : pathStatistics) {
             if (pathStat.getStorageMedium() != medium) {
+                continue;
+            }
+            if (pathStat.getDiskState() != DiskState.ONLINE) {
+                pathStat.setLocalClazz(Classification.MID);
                 continue;
             }
 
@@ -529,13 +536,13 @@ public class BackendLoadStatistic {
 
     /**
      * Classify the paths into 'low', 'mid' and 'high',
-     * and skip offline path, and path with different storage medium
+     * and skip offline/decommission path, and path with different storage medium
      */
     public void getPathStatisticByClass(
             Set<Long> low, Set<Long> mid, Set<Long> high, TStorageMedium storageMedium) {
 
         for (RootPathLoadStatistic pathStat : pathStatistics) {
-            if (pathStat.getDiskState() == DiskState.OFFLINE
+            if (pathStat.getDiskState() != DiskState.ONLINE
                     || (storageMedium != null && pathStat.getStorageMedium() != storageMedium)) {
                 continue;
             }
@@ -558,7 +565,7 @@ public class BackendLoadStatistic {
     public void getPathStatisticByClass(List<RootPathLoadStatistic> low,
             List<RootPathLoadStatistic> mid, List<RootPathLoadStatistic> high, TStorageMedium storageMedium) {
         for (RootPathLoadStatistic pathStat : pathStatistics) {
-            if (pathStat.getDiskState() == DiskState.OFFLINE
+            if (pathStat.getDiskState() != DiskState.ONLINE
                     || (storageMedium != null && pathStat.getStorageMedium() != storageMedium)) {
                 continue;
             }
@@ -603,6 +610,10 @@ public class BackendLoadStatistic {
 
     public List<RootPathLoadStatistic> getPathStatistics() {
         return pathStatistics;
+    }
+
+    public List<RootPathLoadStatistic> getPathStatistics(TStorageMedium storageMedium) {
+        return pathStatistics.stream().filter(p -> p.getStorageMedium() == storageMedium).collect(Collectors.toList());
     }
 
     RootPathLoadStatistic getPathStatisticByPathHash(long pathHash) {

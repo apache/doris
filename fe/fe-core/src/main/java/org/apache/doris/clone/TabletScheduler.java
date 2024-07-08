@@ -23,7 +23,7 @@ import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DiskInfo.DiskState;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -198,7 +198,7 @@ public class TabletScheduler extends MasterDaemon {
             if (backends.containsKey(beId)) {
                 Map<Long, TStorageMedium> paths = Maps.newHashMap();
                 backends.get(beId).getDisks().values().stream()
-                        .filter(v -> v.getState() == DiskState.ONLINE)
+                        .filter(DiskInfo::canReadWrite)
                         .forEach(v -> paths.put(v.getPathHash(), v.getStorageMedium()));
                 backendsWorkingSlots.get(beId).updatePaths(paths);
             } else {
@@ -217,7 +217,7 @@ public class TabletScheduler extends MasterDaemon {
             if (!backendsWorkingSlots.containsKey(be.getId())) {
                 Map<Long, TStorageMedium> paths = Maps.newHashMap();
                 be.getDisks().values().stream()
-                        .filter(v -> v.getState() == DiskState.ONLINE)
+                        .filter(DiskInfo::canCreateTablet)
                         .forEach(v -> paths.put(v.getPathHash(), v.getStorageMedium()));
                 PathSlot slot = new PathSlot(paths, be.getId());
                 backendsWorkingSlots.put(be.getId(), slot);
@@ -678,6 +678,12 @@ public class TabletScheduler extends MasterDaemon {
                     break;
                 case REPLICA_COMPACTION_TOO_SLOW:
                     handleReplicaTooSlow(tabletCtx);
+                    break;
+                case DISK_MIGRATION:
+                    handleDiskMigration(tabletCtx, batchTask);
+                    break;
+                case DELETE_REPLICA:
+                    handleDeleteReplicaOnDecommissionDisk(tabletCtx);
                     break;
                 case UNRECOVERABLE:
                     throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "tablet is unrecoverable");
@@ -1249,6 +1255,102 @@ public class TabletScheduler extends MasterDaemon {
         handleReplicaMissing(tabletCtx, batchTask);
     }
 
+    private void handleDiskMigration(TabletSchedCtx tabletCtxt, AgentBatchTask batchTask) throws SchedException {
+        Replica decommissionReplica = null;
+        Tag tag = null;
+        Backend backend = null;
+        for (Replica replica : tabletCtxt.getReplicas()) {
+            backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
+            if (backend != null && backend.isDecommissionedDisks(replica.getPathHash())) {
+                decommissionReplica = replica;
+                tag = backend.getLocationTag();
+                break;
+            }
+        }
+
+        if (decommissionReplica == null || tag == null) {
+            throw new SchedException(Status.FINISHED, "there is no replica need to migrate");
+        }
+
+        LoadStatisticForTag statistic = statisticMap.get(tag);
+        if (statistic == null) {
+            throw new SchedException(Status.RUNNING_FAILED, "there is no statistics");
+        }
+
+        // set source path
+        PathSlot pathSlot = backendsWorkingSlots.get(decommissionReplica.getBackendId());
+        if (pathSlot == null) {
+            throw new SchedException(Status.UNRECOVERABLE, "working slots not available for BE:"
+                    + decommissionReplica.getBackendId());
+        }
+
+        if (pathSlot.takeSlot(decommissionReplica.getPathHash()) == -1) {
+            throw new SchedException(Status.SCHEDULE_FAILED, "path busy, wait for next round");
+        }
+        tabletCtxt.setSrc(decommissionReplica);
+
+        // set dest path (alternative root path on same host)
+        BackendLoadStatistic beLoad = statistic.getBackendLoadStatistic(decommissionReplica.getBackendId());
+        List<RootPathLoadStatistic> pathLoadStatistics = beLoad.getPathStatistics(tabletCtxt.getStorageMedium());
+        if (pathLoadStatistics.size() < 2) {
+            throw new SchedException(Status.UNRECOVERABLE, "there is not alternative path available on backend "
+                + decommissionReplica.getBackendId() + ", unable to migrate tablet");
+        }
+
+        long destPathHash = -1L;
+        String destPath = null;
+        double lowestUserPercent = 1;
+        for (RootPathLoadStatistic loadStatistic : pathLoadStatistics) {
+            if (loadStatistic.getPathHash() == decommissionReplica.getPathHash()) {
+                continue;
+            }
+
+            if (loadStatistic.isFit(decommissionReplica.getDataSize(), false) == BalanceStatus.OK
+                    && lowestUserPercent > loadStatistic.getUsedPercent()) {
+                lowestUserPercent = loadStatistic.getUsedPercent();
+                destPathHash = loadStatistic.getPathHash();
+                destPath = loadStatistic.getPath();
+            }
+        }
+
+        if (destPathHash == -1) {
+            throw new SchedException(Status.UNRECOVERABLE, "there is not alternative path available on backend "
+                + decommissionReplica.getBackendId() + ", unable to migrate tablet");
+        }
+
+        if (pathSlot.takeSlot(destPathHash) == -1) {
+            throw new SchedException(Status.SCHEDULE_FAILED, "dest path busy, wait for next round");
+        }
+        tabletCtxt.setDest(decommissionReplica.getBackendId(), destPathHash, destPath);
+
+        batchTask.addTask(tabletCtxt.createStorageMediaMigrationTask());
+        LOG.info("TableId: {} on backed: {} will be migrated from src disk: {} to dest disk: {}",
+                tabletCtxt.getTabletId(), backend.getHost(), decommissionReplica.getPathHash(), destPathHash);
+    }
+
+    private void handleDeleteReplicaOnDecommissionDisk(TabletSchedCtx tabletCtx) throws SchedException {
+        stat.counterReplicaRedundantErr.incrementAndGet();
+
+        if (deleteReplicaOnDecommisionDisk(tabletCtx, true)) {
+            // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
+            // to remove this tablet from the pendingTablets(consider it as finished)
+            throw new SchedException(Status.FINISHED, "redundant replica is deleted");
+        }
+        throw new SchedException(Status.UNRECOVERABLE, "unable to delete any redundant replicas");
+    }
+
+    private boolean deleteReplicaOnDecommisionDisk(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
+        for (Replica replica : tabletCtx.getReplicas()) {
+            long beId = replica.getBackendId();
+            Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+            if (backend != null && backend.isDecommissionedDisks(replica.getPathHash())) {
+                deleteReplicaInternal(tabletCtx, replica, "delete replica on decommission disk", force);
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Replicas of colocate table's tablet does not locate on right backends set.
      *      backends set:       1,2,3
@@ -1737,7 +1839,9 @@ public class TabletScheduler extends MasterDaemon {
             LOG.warn("tablet info does not exist: {}", tabletId);
             return true;
         }
-        if (tabletCtx.getBalanceType() != TabletSchedCtx.BalanceType.DISK_BALANCE) {
+        if (tabletCtx.getBalanceType() != TabletSchedCtx.BalanceType.DISK_BALANCE
+                && !(tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.BE_BALANCE
+                    && tabletCtx.getTabletStatus() == TabletStatus.DISK_MIGRATION)) {
             // this should not happen
             LOG.warn("task type is not as excepted. tablet {}", tabletId);
             return true;

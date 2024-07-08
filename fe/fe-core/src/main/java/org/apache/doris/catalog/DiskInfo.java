@@ -36,7 +36,10 @@ public class DiskInfo implements Writable {
 
     public enum DiskState {
         ONLINE,
-        OFFLINE
+        OFFLINE,
+        DECOMMISSION
+        // SET by user, tablets on DECOMMISSIONED Disk shall be cloned to other backend
+        // or when available migrated to additional root path on same host
     }
 
     private static final long DEFAULT_CAPACITY_B = 1024 * 1024 * 1024 * 1024L; // 1T
@@ -124,6 +127,14 @@ public class DiskInfo implements Writable {
 
     public double getUsedPct() {
         return this.getDiskUsedCapacityB() / (double) (totalCapacityB <= 0 ? 1 : totalCapacityB);
+    }
+
+    public boolean canReadWrite() {
+        return state == DiskState.ONLINE || state == DiskState.DECOMMISSION;
+    }
+
+    public boolean canCreateTablet() {
+        return state == DiskState.ONLINE;
     }
 
     public DiskState getState() {

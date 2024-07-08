@@ -501,7 +501,7 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
     std::vector<double> usages;
     for (auto& it : _store_map) {
         DataDir* data_dir = it.second.get();
-        if (data_dir->is_used()) {
+        if (data_dir->get_state() == DiskState::ONLINE) {
             if ((_available_storage_medium_type_count == 1 ||
                  data_dir->storage_medium() == storage_medium) &&
                 !data_dir->reach_capacity_limit(0)) {
@@ -619,7 +619,7 @@ void StorageEngine::_exit_if_too_many_disks_are_failed() {
 
         for (auto& it : _store_map) {
             ++total_root_path_num;
-            if (it.second->is_used()) {
+            if (it.second->is_used()) { // included decommissioned, to avoid BE restarts
                 continue;
             }
             ++unused_root_path_num;
@@ -1529,6 +1529,24 @@ Status StorageEngine::_persist_broken_paths() {
     }
 
     return Status::OK();
+}
+
+void StorageEngine::decommission_disks(const std::vector<string>& decommission_disks) {
+    std::lock_guard<std::mutex> l(_store_lock);
+
+    for (auto& it : _store_map) {
+        if (std::find(decommission_disks.begin(), decommission_disks.end(), it.second->path()) !=
+            decommission_disks.end()) {
+            it.second->set_state(DiskState::DECOMMISSIONED);
+            LOG(INFO) << "disk " << it.second->path() << "is set to DECOMMISSIONED";
+        } else {
+            if (it.second->get_state() == DiskState::DECOMMISSIONED) {
+                it.second->set_state(DiskState::ONLINE);
+                LOG(INFO) << "disk " << it.second->path()
+                          << "is recovered to ONLINE, previous state is DECOMMISSIONED";
+            }
+        }
+    }
 }
 
 int CreateTabletIdxCache::get_index(const std::string& key) {

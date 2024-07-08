@@ -556,9 +556,10 @@ terminal String
     KW_QUOTA,
     KW_RANDOM,
     KW_RANGE,
-    KW_RECENT,
     KW_READ,
     KW_REBALANCE,
+    KW_RECENT,
+    KW_RECOMMISSION,
     KW_RECOVER,
     KW_REFRESH,
     KW_REGEXP,
@@ -7853,6 +7854,18 @@ admin_stmt ::=
     | KW_ADMIN KW_CANCEL KW_REBALANCE KW_DISK
     {:
         RESULT = new AdminCancelRebalanceDiskStmt(null);
+    :}
+    | KW_ADMIN KW_DECOMMISSION KW_DISK string_list:disks KW_ON STRING_LITERAL:backend
+    {:
+        RESULT = new AdminDecommissionDiskStmt(backend, disks, false);
+    :}
+    | KW_ADMIN KW_DECOMMISSION KW_DISK KW_FORCE string_list:disks KW_ON STRING_LITERAL:backend
+    {:
+        RESULT = new AdminDecommissionDiskStmt(backend, disks, true);
+    :}
+    | KW_ADMIN KW_RECOMMISSION KW_DISK string_list:disks KW_ON STRING_LITERAL:backend
+    {:
+        RESULT = new AdminRecommissionDiskStmt(backend, disks);
     :}
     | KW_ADMIN KW_CLEAN KW_TRASH KW_ON LPAREN string_list:backends RPAREN
     {:

@@ -78,7 +78,9 @@ public class Tablet extends MetaObject {
         COLOCATE_REDUNDANT, // replicas match the colocate backends set, but redundant.
         NEED_FURTHER_REPAIR, // one of replicas need a definite repair.
         UNRECOVERABLE,   // none of replicas are healthy
-        REPLICA_COMPACTION_TOO_SLOW // one replica's version count is much more than other replicas;
+        REPLICA_COMPACTION_TOO_SLOW, // one replica's version count is much more than other replicas;
+        DISK_MIGRATION, // Disk where the replica located is decommissioned
+        DELETE_REPLICA  // delete the replica on decommissioned disk, so that it goes to under-replicated state flow
     }
 
     @SerializedName(value = "id")
@@ -494,7 +496,8 @@ public class Tablet extends MetaObject {
         short replicationNum = replicaAlloc.getTotalReplicaNum();
         int alive = 0;
         int aliveAndVersionComplete = 0;
-        int stable = 0;
+        int backendStable = 0;
+        int diskStable = 0;
 
         Replica needFurtherRepairReplica = null;
         Set<String> hosts = Sets.newHashSet();
@@ -526,11 +529,15 @@ public class Tablet extends MetaObject {
                 stableAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
 
                 if (versionCompleted) {
-                    stable++;
+                    backendStable++;
                     versions.add(replica.getVisibleVersionCount());
 
                     allocNum = stableVersionCompleteAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
                     stableVersionCompleteAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
+
+                    if (!backend.isDecommissionedDisks(replica.getPathHash())) {
+                        diskStable++;
+                    }
                 }
             }
         }
@@ -574,7 +581,7 @@ public class Tablet extends MetaObject {
         }
 
         // 3. replica is under relocating
-        if (stable < replicationNum) {
+        if (backendStable < replicationNum) {
             Set<Long> replicaBeIds = replicas.stream().map(Replica::getBackendId).collect(Collectors.toSet());
             List<Long> availableBeIds = aliveBeIds.stream().filter(systemInfoService::checkBackendScheduleAvailable)
                     .collect(Collectors.toList());
@@ -582,17 +589,34 @@ public class Tablet extends MetaObject {
                     && availableBeIds.size() >= replicationNum
                     && replicationNum > 1) { // No BE can be choose to create a new replica
                 return Pair.of(TabletStatus.FORCE_REDUNDANT,
-                        stable < (replicationNum / 2) + 1
+                        backendStable < (replicationNum / 2) + 1
                                 ? TabletSchedCtx.Priority.NORMAL : TabletSchedCtx.Priority.LOW);
             }
-            if (stable < (replicationNum / 2) + 1) {
+            if (backendStable < (replicationNum / 2) + 1) {
                 return Pair.of(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.NORMAL);
-            } else if (stable < replicationNum) {
+            } else if (backendStable < replicationNum) {
                 return Pair.of(TabletStatus.REPLICA_RELOCATING, TabletSchedCtx.Priority.LOW);
             }
         }
 
-        // 4. got enough healthy replicas, check tag
+        // 4. disk decommission
+        if (diskStable < replicationNum) {
+            /* 1) Single Replica tablet:
+             *      - If another disk is available, migrate the replica to another disk
+             *      - If no disk is available, migrate the replica to another BE node
+             * 2) Multi Replica tablet:
+             *      - Discard the replica on the BE node where the disk is decommissioned
+             */
+            if (replicas.size() == 1) {
+                if (systemInfoService.getBackend(replicas.get(0).getBackendId()).getOnlineDisks().size() > 1) {
+                    return Pair.of(TabletStatus.DISK_MIGRATION, Priority.NORMAL);
+                }
+                return Pair.of(TabletStatus.REPLICA_RELOCATING, Priority.NORMAL);
+            }
+            return Pair.of(TabletStatus.DELETE_REPLICA, Priority.NORMAL);
+        }
+
+        // 5. got enough healthy replicas, check tag
         for (Map.Entry<Tag, Short> alloc : allocMap.entrySet()) {
             if (stableVersionCompleteAllocMap.getOrDefault(alloc.getKey(), (short) 0) < alloc.getValue()) {
                 if (stableAllocMap.getOrDefault(alloc.getKey(), (short) 0) >= alloc.getValue()) {
@@ -611,7 +635,7 @@ public class Tablet extends MetaObject {
             return Pair.of(TabletStatus.REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         }
 
-        // 5. find a replica's version count is much more than others, and drop it
+        // 6. find a replica's version count is much more than others, and drop it
         if (Config.repair_slow_replica && versions.size() == replicas.size() && versions.size() > 1) {
             // sort version
             Collections.sort(versions);
@@ -624,7 +648,7 @@ public class Tablet extends MetaObject {
             }
         }
 
-        // 6. healthy
+        // 7. healthy
         return Pair.of(TabletStatus.HEALTHY, TabletSchedCtx.Priority.NORMAL);
     }
 
@@ -667,6 +691,7 @@ public class Tablet extends MetaObject {
             return TabletStatus.COLOCATE_MISMATCH;
         }
 
+        int diskStableCount = 0;
         // 2. check version completeness
         for (Replica replica : replicas) {
             if (!backendsSet.contains(replica.getBackendId())) {
@@ -693,9 +718,19 @@ public class Tablet extends MetaObject {
                 // this replica is alive but version incomplete
                 return TabletStatus.VERSION_INCOMPLETE;
             }
+
+            Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
+            if (backend != null && !backend.isDecommissionedDisks(replica.getPathHash())) {
+                diskStableCount++;
+            }
         }
 
-        // 3. check redundant
+        // 3.check disk decommission
+        if (diskStableCount != replicas.size()) {
+            return TabletStatus.DISK_MIGRATION;
+        }
+
+        // 4. check redundant
         if (replicas.size() > totalReplicaNum) {
             return TabletStatus.COLOCATE_REDUNDANT;
         }

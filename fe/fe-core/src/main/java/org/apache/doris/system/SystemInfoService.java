@@ -17,6 +17,8 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.analysis.AdminDecommissionDiskStmt;
+import org.apache.doris.analysis.AdminRecommissionDiskStmt;
 import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.analysis.ModifyBackendHostNameClause;
 import org.apache.doris.catalog.Database;
@@ -33,6 +35,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.persist.DecommissionDiskInfo;
+import org.apache.doris.persist.RecommissionDiskInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TNodeInfo;
@@ -1029,5 +1033,59 @@ public class SystemInfoService {
 
     public long aliveBECount() {
         return idToBackendRef.values().stream().filter(Backend::isAlive).count();
+    }
+
+    public void decommissionDisks(AdminDecommissionDiskStmt stmt) throws DdlException {
+        Preconditions.checkArgument(stmt.isAnalyzed());
+
+        Backend backend = stmt.getBackend();
+        for (String disk : stmt.getDiskList()) {
+            backend.decommissionDisk(disk);
+        }
+
+        Env.getCurrentEnv().getEditLog()
+                .logDecommissionDisk(new DecommissionDiskInfo(stmt.getBackend().getId(), stmt.getDiskList()));
+    }
+
+    public void recommissionDisks(AdminRecommissionDiskStmt stmt) throws DdlException {
+        Preconditions.checkArgument(stmt.isAnalyzed());
+
+        Backend backend = stmt.getBackend();
+        for (String disk : stmt.getDiskList()) {
+            backend.recommissionDisk(disk);
+        }
+
+        Env.getCurrentEnv().getEditLog()
+            .logRecommissionDisk(new RecommissionDiskInfo(stmt.getBackend().getId(), stmt.getDiskList()));
+    }
+
+    public void replayDecommissionDisk(DecommissionDiskInfo info) {
+        Backend backend = getBackend(info.getBeId());
+        if (backend == null) {
+            LOG.warn("replay decommission disk failed, backend {} doesnot exist", info.getBeId());
+            return;
+        }
+        for (String disk : info.getDiskList()) {
+            try {
+                backend.decommissionDisk(disk);
+            } catch (DdlException e) {
+                LOG.warn("replay decommission failed", e);
+            }
+        }
+    }
+
+    public void replayRecommissionDisk(RecommissionDiskInfo info) {
+        Backend backend = getBackend(info.getBeId());
+        if (backend == null) {
+            LOG.warn("replay recommission disk failed, backend {} doesnot exist", info.getBeId());
+            return;
+        }
+        for (String disk : info.getDiskList()) {
+            try {
+                backend.recommissionDisk(disk);
+            } catch (DdlException e) {
+                LOG.warn("replay recommission failed", e);
+            }
+        }
     }
 }

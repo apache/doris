@@ -95,6 +95,7 @@ public:
     BaseStorageEngine(Type type, const UniqueId& backend_uid);
     virtual ~BaseStorageEngine();
 
+    bool is_local() { return _type == Type::LOCAL; }
     StorageEngine& to_local();
     CloudStorageEngine& to_cloud();
 
@@ -276,6 +277,8 @@ public:
     bool remove_broken_path(std::string path);
 
     std::set<string> get_broken_paths() { return _broken_paths; }
+
+    void decommission_disks(const std::vector<string>& decommission_disks);
 
 private:
     // Instance should be inited from `static open()`
