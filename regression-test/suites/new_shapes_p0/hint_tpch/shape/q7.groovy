@@ -17,54 +17,60 @@
  * under the License.
  */
 
-suite("q9") {
+suite("q7") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_nereids_distribute_planner=false'
+    sql 'set enable_nereids_distribute_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set runtime_filter_mode=OFF'
-    sql 'set parallel_pipeline_task_num=8'
     sql 'set exec_mem_limit=21G' 
     sql 'SET enable_pipeline_engine = true'
-
+    sql 'set parallel_pipeline_task_num=8'  
 sql 'set be_number_for_test=3'
 
     qt_select """
     explain shape plan
     select 
-        nation,
-        o_year,
-        sum(amount) as sum_profit
+    /*+ leading( lineitem broadcast {supplier broadcast n1} {orders shuffle {customer broadcast n2}}) */
+        supp_nation,
+        cust_nation,
+        l_year,
+        sum(volume) as revenue
     from
         (
             select
-		/*+ leading(orders shuffle {lineitem shuffle part} shuffle {supplier broadcast nation} shuffle partsupp) */
-                n_name as nation,
-                extract(year from o_orderdate) as o_year,
-                l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
+                n1.n_name as supp_nation,
+                n2.n_name as cust_nation,
+                extract(year from l_shipdate) as l_year,
+                l_extendedprice * (1 - l_discount) as volume
             from
-                part,
                 supplier,
                 lineitem,
-                partsupp,
                 orders,
-                nation
+                customer,
+                nation n1,
+                nation n2
             where
                 s_suppkey = l_suppkey
-                and ps_suppkey = l_suppkey
-                and ps_partkey = l_partkey
-                and p_partkey = l_partkey
                 and o_orderkey = l_orderkey
-                and s_nationkey = n_nationkey
-                and p_name like '%green%'
-        ) as profit
+                and c_custkey = o_custkey
+                and s_nationkey = n1.n_nationkey
+                and c_nationkey = n2.n_nationkey
+                and (
+                    (n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY')
+                    or (n1.n_name = 'GERMANY' and n2.n_name = 'FRANCE')
+                )
+                and l_shipdate between date '1995-01-01' and date '1996-12-31'
+        ) as shipping
     group by
-        nation,
-        o_year
+        supp_nation,
+        cust_nation,
+        l_year
     order by
-        nation,
-        o_year desc;
+        supp_nation,
+        cust_nation,
+        l_year;
     """
 }

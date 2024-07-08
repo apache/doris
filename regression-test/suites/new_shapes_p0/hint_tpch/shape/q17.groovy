@@ -17,45 +17,44 @@
  * under the License.
  */
 
-suite("q5") {
+suite("q17") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_nereids_distribute_planner=false'
+    sql 'set enable_nereids_distribute_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set runtime_filter_mode=OFF'
-    sql 'set exec_mem_limit=21G' 
+
+    sql 'set exec_mem_limit=21G'
     sql 'SET enable_pipeline_engine = true'
-    sql 'set parallel_pipeline_task_num=8'        
-sql 'set be_number_for_test=3'
+    sql 'set parallel_pipeline_task_num=8'
+
+
+
+    sql 'set be_number_for_test=3'
+    sql "set runtime_filter_type=8"
+    sql 'set enable_runtime_filter_prune=false'
 
     qt_select """
     explain shape plan
-    select 
-    /*+ leading(lineitem orders broadcast {supplier broadcast {nation broadcast region}} shuffle customer) */
-        n_name,
-        sum(l_extendedprice * (1 - l_discount)) as revenue
+    select
+    /*+ leading(lineitem broadcast part) */ 
+        sum(l_extendedprice) / 7.0 as avg_yearly
     from
-        customer,
-        orders,
         lineitem,
-        supplier,
-        nation,
-        region
+        part
     where
-        c_custkey = o_custkey
-        and l_orderkey = o_orderkey
-        and l_suppkey = s_suppkey
-        and c_nationkey = s_nationkey
-        and s_nationkey = n_nationkey
-        and n_regionkey = r_regionkey
-        and r_name = 'ASIA'
-        and o_orderdate >= date '1994-01-01'
-        and o_orderdate < date '1994-01-01' + interval '1' year
-    group by
-        n_name
-    order by
-        revenue desc;
+        p_partkey = l_partkey
+        and p_brand = 'Brand#23'
+        and p_container = 'MED BOX'
+        and l_quantity < (
+            select
+                0.2 * avg(l_quantity)
+            from
+                lineitem
+            where
+                l_partkey = p_partkey
+        );
     """
 }

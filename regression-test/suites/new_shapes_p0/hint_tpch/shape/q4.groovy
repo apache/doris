@@ -17,45 +17,48 @@
  * under the License.
  */
 
-suite("q5") {
+suite("q4") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_nereids_distribute_planner=false'
+    sql 'set enable_nereids_distribute_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
-    sql 'set runtime_filter_mode=OFF'
+
     sql 'set exec_mem_limit=21G' 
     sql 'SET enable_pipeline_engine = true'
-    sql 'set parallel_pipeline_task_num=8'        
+    sql 'set parallel_pipeline_task_num=8'
+    sql 'set runtime_filter_mode=OFF'
+
+
+    
+        
 sql 'set be_number_for_test=3'
+
 
     qt_select """
     explain shape plan
-    select 
-    /*+ leading(lineitem orders broadcast {supplier broadcast {nation broadcast region}} shuffle customer) */
-        n_name,
-        sum(l_extendedprice * (1 - l_discount)) as revenue
+    select  
+    /*+ leading(lineitem orders) */
+        o_orderpriority,
+        count(*) as order_count
     from
-        customer,
-        orders,
-        lineitem,
-        supplier,
-        nation,
-        region
+        orders
     where
-        c_custkey = o_custkey
-        and l_orderkey = o_orderkey
-        and l_suppkey = s_suppkey
-        and c_nationkey = s_nationkey
-        and s_nationkey = n_nationkey
-        and n_regionkey = r_regionkey
-        and r_name = 'ASIA'
-        and o_orderdate >= date '1994-01-01'
-        and o_orderdate < date '1994-01-01' + interval '1' year
+        o_orderdate >= date '1993-07-01'
+        and o_orderdate < date '1993-07-01' + interval '3' month
+        and exists (
+            select
+                *
+            from
+                lineitem
+            where
+                l_orderkey = o_orderkey
+                and l_commitdate < l_receiptdate
+        )
     group by
-        n_name
+        o_orderpriority
     order by
-        revenue desc;
+        o_orderpriority;
     """
 }

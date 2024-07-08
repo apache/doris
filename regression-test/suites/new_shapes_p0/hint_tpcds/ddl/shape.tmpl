@@ -17,52 +17,24 @@
  * under the License.
  */
 
-suite("q3") {
+suite("query{--}") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
-    // db = "tpch"
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_nereids_distribute_planner=false'
+    sql 'set enable_nereids_distribute_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
-
-    sql 'set exec_mem_limit=21G' 
-    sql 'SET enable_pipeline_engine = true'
-    sql 'set parallel_pipeline_task_num=8'
-    sql 'set runtime_filter_mode=OFF'
-
-
-    
-
-        
-sql 'set be_number_for_test=3'
-
-
-    qt_select """
+    sql 'set exec_mem_limit=21G'
+    sql 'set be_number_for_test=3'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
+    sql 'set forbid_unknown_col_stats=true'
+    sql 'set enable_nereids_timeout = false'
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set runtime_filter_type=8'
+    sql 'set dump_nereids_memo=false'
+    def ds = """{query}"""
+    qt_ds_shape_{--} '''
     explain shape plan
-    select  
-    /*+ leading(lineitem {orders shuffle customer}) */
-        l_orderkey,
-        sum(l_extendedprice * (1 - l_discount)) as revenue,
-        o_orderdate,
-        o_shippriority
-    from
-        customer,
-        orders,
-        lineitem
-    where
-        c_mktsegment = 'BUILDING'
-        and c_custkey = o_custkey
-        and l_orderkey = o_orderkey
-        and o_orderdate < date '1995-03-15'
-        and l_shipdate > date '1995-03-15'
-    group by
-        l_orderkey,
-        o_orderdate,
-        o_shippriority
-    order by
-        revenue desc,
-        o_orderdate
-    limit 10;
-    """
+    {query}
+    '''
 }

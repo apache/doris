@@ -17,45 +17,53 @@
  * under the License.
  */
 
-suite("q5") {
+suite("q11") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_nereids_distribute_planner=false'
+    sql 'set enable_nereids_distribute_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set runtime_filter_mode=OFF'
-    sql 'set exec_mem_limit=21G' 
+    sql 'set parallel_pipeline_task_num=8'
+    sql 'set exec_mem_limit=21G'
     sql 'SET enable_pipeline_engine = true'
-    sql 'set parallel_pipeline_task_num=8'        
-sql 'set be_number_for_test=3'
+    sql 'set be_number_for_test=3'
+    sql "set runtime_filter_type=8"
+    sql 'set enable_runtime_filter_prune=false'
+
+
 
     qt_select """
     explain shape plan
-    select 
-    /*+ leading(lineitem orders broadcast {supplier broadcast {nation broadcast region}} shuffle customer) */
-        n_name,
-        sum(l_extendedprice * (1 - l_discount)) as revenue
+    select  
+    /*+ leading(partsupp {supplier nation}) */
+        ps_partkey,
+        sum(ps_supplycost * ps_availqty) as value
     from
-        customer,
-        orders,
-        lineitem,
+        partsupp,
         supplier,
-        nation,
-        region
+        nation
     where
-        c_custkey = o_custkey
-        and l_orderkey = o_orderkey
-        and l_suppkey = s_suppkey
-        and c_nationkey = s_nationkey
+        ps_suppkey = s_suppkey
         and s_nationkey = n_nationkey
-        and n_regionkey = r_regionkey
-        and r_name = 'ASIA'
-        and o_orderdate >= date '1994-01-01'
-        and o_orderdate < date '1994-01-01' + interval '1' year
+        and n_name = 'GERMANY'
     group by
-        n_name
+        ps_partkey having
+            sum(ps_supplycost * ps_availqty) > (
+                select
+                /*+ leading(partsupp {supplier nation}) */
+                    sum(ps_supplycost * ps_availqty) * 0.000002
+                from
+                    partsupp,
+                    supplier,
+                    nation
+                where
+                    ps_suppkey = s_suppkey
+                    and s_nationkey = n_nationkey
+                    and n_name = 'GERMANY'
+            )
     order by
-        revenue desc;
+        value desc;
     """
 }

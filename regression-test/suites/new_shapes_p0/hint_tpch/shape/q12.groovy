@@ -17,45 +17,53 @@
  * under the License.
  */
 
-suite("q5") {
+suite("q12") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_nereids_distribute_planner=false'
+    sql 'set enable_nereids_distribute_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set runtime_filter_mode=OFF'
+    sql 'set parallel_pipeline_task_num=8'
     sql 'set exec_mem_limit=21G' 
     sql 'SET enable_pipeline_engine = true'
-    sql 'set parallel_pipeline_task_num=8'        
-sql 'set be_number_for_test=3'
 
+
+
+    
+sql 'set be_number_for_test=3'
+    
     qt_select """
     explain shape plan
     select 
-    /*+ leading(lineitem orders broadcast {supplier broadcast {nation broadcast region}} shuffle customer) */
-        n_name,
-        sum(l_extendedprice * (1 - l_discount)) as revenue
+    /*+ leading(orders lineitem) */
+        l_shipmode,
+        sum(case
+            when o_orderpriority = '1-URGENT'
+                or o_orderpriority = '2-HIGH'
+                then 1
+            else 0
+        end) as high_line_count,
+        sum(case
+            when o_orderpriority <> '1-URGENT'
+                and o_orderpriority <> '2-HIGH'
+                then 1
+            else 0
+        end) as low_line_count
     from
-        customer,
         orders,
-        lineitem,
-        supplier,
-        nation,
-        region
+        lineitem
     where
-        c_custkey = o_custkey
-        and l_orderkey = o_orderkey
-        and l_suppkey = s_suppkey
-        and c_nationkey = s_nationkey
-        and s_nationkey = n_nationkey
-        and n_regionkey = r_regionkey
-        and r_name = 'ASIA'
-        and o_orderdate >= date '1994-01-01'
-        and o_orderdate < date '1994-01-01' + interval '1' year
+        o_orderkey = l_orderkey
+        and l_shipmode in ('MAIL', 'SHIP')
+        and l_commitdate < l_receiptdate
+        and l_shipdate < l_commitdate
+        and l_receiptdate >= date '1994-01-01'
+        and l_receiptdate < date '1994-01-01' + interval '1' year
     group by
-        n_name
+        l_shipmode
     order by
-        revenue desc;
+        l_shipmode;
     """
 }

@@ -17,54 +17,64 @@
  * under the License.
  */
 
-suite("q9") {
+suite("q8") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_nereids_distribute_planner=false'
+    sql 'set enable_nereids_distribute_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set runtime_filter_mode=OFF'
-    sql 'set parallel_pipeline_task_num=8'
-    sql 'set exec_mem_limit=21G' 
-    sql 'SET enable_pipeline_engine = true'
 
-sql 'set be_number_for_test=3'
+    sql 'set exec_mem_limit=21G'
+    sql 'SET enable_pipeline_engine = true'
+    sql 'set parallel_pipeline_task_num=8'
+
+
+
+    sql 'set be_number_for_test=3'
+    sql "set runtime_filter_type=8"
+    sql 'set enable_runtime_filter_prune=false'
 
     qt_select """
     explain shape plan
     select 
-        nation,
+    /*+ leading( supplier { orders {lineitem broadcast part}  {customer broadcast {n1 broadcast region}}} broadcast n2) */ 
         o_year,
-        sum(amount) as sum_profit
+        sum(case
+            when nation = 'BRAZIL' then volume
+            else 0
+        end) / sum(volume) as mkt_share
     from
         (
             select
-		/*+ leading(orders shuffle {lineitem shuffle part} shuffle {supplier broadcast nation} shuffle partsupp) */
-                n_name as nation,
                 extract(year from o_orderdate) as o_year,
-                l_extendedprice * (1 - l_discount) - ps_supplycost * l_quantity as amount
+                l_extendedprice * (1 - l_discount) as volume,
+                n2.n_name as nation
             from
                 part,
                 supplier,
                 lineitem,
-                partsupp,
                 orders,
-                nation
+                customer,
+                nation n1,
+                nation n2,
+                region
             where
-                s_suppkey = l_suppkey
-                and ps_suppkey = l_suppkey
-                and ps_partkey = l_partkey
-                and p_partkey = l_partkey
-                and o_orderkey = l_orderkey
-                and s_nationkey = n_nationkey
-                and p_name like '%green%'
-        ) as profit
+                p_partkey = l_partkey
+                and s_suppkey = l_suppkey
+                and l_orderkey = o_orderkey
+                and o_custkey = c_custkey
+                and c_nationkey = n1.n_nationkey
+                and n1.n_regionkey = r_regionkey
+                and r_name = 'AMERICA'
+                and s_nationkey = n2.n_nationkey
+                and o_orderdate between date '1995-01-01' and date '1996-12-31'
+                and p_type = 'ECONOMY ANODIZED STEEL'
+        ) as all_nations
     group by
-        nation,
         o_year
     order by
-        nation,
-        o_year desc;
+        o_year;
     """
 }
