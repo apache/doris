@@ -299,7 +299,7 @@ suite("test_range_partition", "p0") {
     // create one table without datetime partition, but with date string
     sql """set enable_fallback_to_original_planner=false"""
     sql """
-        CREATE TABLE IF NOT EXISTS range_date_cast_to_datetime_range_partition_range_partition ( 
+        CREATE TABLE IF NOT EXISTS range_date_cast_to_datetime_range_partition ( 
             id int,
             name string,
             pdate DATETIME ) 
