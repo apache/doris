@@ -116,11 +116,11 @@ suite("test_create_table_exception") {
 
             def checkResult = { ->
                 def tables = sql """show tables;"""
-                log.info(tables.toString())
+                log.info("tables=" + tables)
                 assertEquals(3, tables.size())
 
                 def groups = sql """ show proc "/colocation_group" """
-                log.info(groups)
+                log.info("groups=" + groups)
                 assertEquals(1, groups.size())
             }
 
