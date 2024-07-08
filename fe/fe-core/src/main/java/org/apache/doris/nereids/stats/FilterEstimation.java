@@ -104,6 +104,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         Expression leftExpr = predicate.child(0);
         Expression rightExpr = predicate.child(1);
         Statistics leftStats = leftExpr.accept(this, context);
+        leftStats = leftStats.normalizeByRatio(context.statistics.getRowCount());
         Statistics andStats = rightExpr.accept(this,
                 new EstimationContext(leftStats));
         if (predicate instanceof And) {
