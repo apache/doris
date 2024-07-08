@@ -170,4 +170,8 @@ suite("txn_insert_concurrent_insert_mow") {
     assertEquals(t0_row_count, result[0][0])
     assertEquals(t1_row_count, result2[0][0])
     assertEquals(0, errors.size())
+    result = sql """ select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER,count(*) a from ${tableName}_0 group by L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER having a > 1; """
+    assertEquals(0, result.size())
+    result = sql """ select L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER,count(*) a from ${tableName}_1 group by L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER having a > 1; """
+    assertEquals(0, result.size())
 }
