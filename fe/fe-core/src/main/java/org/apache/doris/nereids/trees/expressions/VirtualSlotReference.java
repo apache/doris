@@ -156,6 +156,7 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
                 originExpression, computeLongValueMethod);
     }
 
+    @Override
     public Slot withIndexInSql(Pair<Integer, Integer> index) {
         return this;
     }

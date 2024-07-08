@@ -293,6 +293,7 @@ public class SlotReference extends Slot {
                 qualifier, table, column, internalName, subPath, indexInSqlString);
     }
 
+    @Override
     public Slot withIndexInSql(Pair<Integer, Integer> index) {
         return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subPath,
                 Optional.ofNullable(index));

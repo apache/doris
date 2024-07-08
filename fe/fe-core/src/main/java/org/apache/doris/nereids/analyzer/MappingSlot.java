@@ -121,6 +121,7 @@ public class MappingSlot extends Slot {
         return this;
     }
 
+    @Override
     public Slot withIndexInSql(Pair<Integer, Integer> index) {
         return this;
     }

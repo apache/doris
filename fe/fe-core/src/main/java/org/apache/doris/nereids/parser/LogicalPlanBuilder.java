@@ -502,8 +502,6 @@ import java.util.stream.Collectors;
  */
 @SuppressWarnings({"OptionalUsedAsFieldOrParameterType", "OptionalGetWithoutIsPresent"})
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
-    private final boolean forCreateView;
-
     // Sort the parameters with token position to keep the order with original placeholders
     // in prepared statement.Otherwise, the order maybe broken
     private final Map<Token, Placeholder> tokenPosToParameters = Maps.newTreeMap((pos1, pos2) -> {
@@ -513,14 +511,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         return pos1.getCharPositionInLine() - pos2.getCharPositionInLine();
     });
-
-    public LogicalPlanBuilder() {
-        forCreateView = false;
-    }
-
-    public LogicalPlanBuilder(boolean forCreateView) {
-        this.forCreateView = forCreateView;
-    }
 
     @SuppressWarnings("unchecked")
     protected <T> T typedVisit(ParseTree ctx) {
@@ -866,9 +856,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAlterView(AlterViewContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
-        LogicalPlan logicalPlan = visitQuery(ctx.query());
         String querySql = getOriginSql(ctx.query());
-        AlterViewInfo info = new AlterViewInfo(new TableNameInfo(nameParts), logicalPlan, querySql,
+        AlterViewInfo info = new AlterViewInfo(new TableNameInfo(nameParts), querySql,
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
         return new AlterViewCommand(info);
     }
@@ -1152,20 +1141,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String generateName = ctx.tableName.getText();
         // if later view explode map type, we need to add a project to convert map to struct
         String columnName = ctx.columnNames.get(0).getText();
-
-        if (forCreateView) {
-            ConnectContext.get().getStatementContext().addIndexInSqlToString(
-                    Pair.of(ctx.tableName.start.getStartIndex(),
-                            ctx.tableName.stop.getStopIndex()),
-                    Utils.qualifiedNameWithBackquote(ImmutableList.of(ctx.tableName.getText())));
-            for (IdentifierContext colCtx : ctx.columnNames) {
-                ConnectContext.get().getStatementContext().addIndexInSqlToString(
-                        Pair.of(colCtx.start.getStartIndex(),
-                                colCtx.stop.getStopIndex()),
-                        Utils.qualifiedNameWithBackquote(ImmutableList.of(colCtx.getText())));
-            }
-        }
-
         List<String> expandColumnNames = Lists.newArrayList();
         if (ctx.columnNames.size() > 1) {
             columnName = ConnectContext.get() != null
@@ -1204,20 +1179,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .map(RuleContext::getText)
                     .collect(ImmutableList.toImmutableList())
             );
-            if (forCreateView) {
-                ConnectContext.get().getStatementContext().addIndexInSqlToString(
-                        Pair.of(ctx.identifier().start.getStartIndex(),
-                                ctx.identifier().stop.getStopIndex()),
-                        Utils.qualifiedNameWithBackquote(ImmutableList.of(ctx.identifier().getText())));
-                if (ctx.columnAliases() != null) {
-                    for (IdentifierContext colCtx : ctx.columnAliases().identifier()) {
-                        ConnectContext.get().getStatementContext().addIndexInSqlToString(
-                                Pair.of(colCtx.start.getStartIndex(),
-                                        colCtx.stop.getStopIndex()),
-                                Utils.qualifiedNameWithBackquote(ImmutableList.of(colCtx.getText())));
-                    }
-                }
-            }
             return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, queryPlan);
         });
     }
@@ -1396,7 +1357,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create an aliased table reference. This is typically used in FROM clauses.
      */
-    private LogicalPlan withTableAlias(LogicalPlan plan, TableAliasContext ctx) {
+    protected LogicalPlan withTableAlias(LogicalPlan plan, TableAliasContext ctx) {
         if (ctx.strictIdentifier() == null) {
             return plan;
         }
@@ -1405,12 +1366,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (null != ctx.identifierList()) {
                 throw new ParseException("Do not implemented", ctx);
                 // TODO: multi-colName
-            }
-            if (forCreateView) {
-                ConnectContext.get().getStatementContext().addIndexInSqlToString(
-                        Pair.of(ctx.strictIdentifier().start.getStartIndex(),
-                                ctx.strictIdentifier().stop.getStopIndex()),
-                        Utils.qualifiedNameWithBackquote(ImmutableList.of(alias)));
             }
             return new LogicalSubQueryAlias<>(alias, plan);
         });
@@ -1464,14 +1419,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
-        MultipartIdentifierContext identifier = ctx.multipartIdentifier();
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
-        UnboundRelation relation = forCreateView ? new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
-                tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
-                Optional.ofNullable(tableSample), indexName, scanParams,
-                Optional.of(Pair.of(identifier.start.getStartIndex(), identifier.stop.getStopIndex())),
-                Optional.ofNullable(tableSnapshot)) :
-                new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+        UnboundRelation relation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                         tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
                         Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot));
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(relation);
@@ -1531,9 +1480,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 target = ImmutableList.of();
             }
-            return forCreateView
-                    ? new UnboundStar(target, Optional.of(Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex())))
-                    : new UnboundStar(target);
+            return new UnboundStar(target);
         });
     }
 
@@ -1553,12 +1500,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
             String alias = visitIdentifierOrText(ctx.identifierOrText());
-            if (forCreateView) {
-                ConnectContext.get().getStatementContext().addIndexInSqlToString(
-                        Pair.of(ctx.identifierOrText().start.getStartIndex(),
-                                ctx.identifierOrText().stop.getStopIndex()),
-                        Utils.qualifiedNameWithBackquote(ImmutableList.of(alias)));
-            }
             return new UnboundAlias(expression, alias);
         });
     }
@@ -2207,11 +2148,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     dbName = ctx.functionIdentifier().dbName.getText();
                 }
                 UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params);
-                if (forCreateView) {
-                    function = function.withIndexInSql(Pair.of(
-                            ctx.functionIdentifier().start.getStartIndex(),
-                            ctx.functionIdentifier().stop.getStopIndex()));
-                }
                 if (ctx.windowSpec() != null) {
                     if (isDistinct) {
                         throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
@@ -2339,8 +2275,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 List<String> nameParts = Lists.newArrayList(unboundAttribute.getNameParts());
                 nameParts.add(ctx.fieldName.getText());
                 UnboundSlot slot = new UnboundSlot(nameParts, Optional.empty());
-                return forCreateView ? slot.withIndexInSql(Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex()))
-                        : slot;
+                return slot;
             } else {
                 // todo: base is an expression, may be not a table name.
                 throw new ParseException("Unsupported dereference expression: " + ctx.getText(), ctx);
@@ -2365,8 +2300,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitColumnReference(ColumnReferenceContext ctx) {
         // todo: handle quoted and unquoted
-        UnboundSlot slot = UnboundSlot.quoted(ctx.getText());
-        return forCreateView ? slot.withIndexInSql(Pair.of(ctx.start.getStartIndex(), ctx.stop.getStopIndex())) : slot;
+        return UnboundSlot.quoted(ctx.getText());
     }
 
     /**
@@ -2600,10 +2534,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
                 ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
-        LogicalPlan logicalPlan = visitQuery(ctx.query());
         String querySql = getOriginSql(ctx.query());
         CreateViewInfo info = new CreateViewInfo(ctx.EXISTS() != null, new TableNameInfo(nameParts),
-                comment, logicalPlan, querySql,
+                comment, querySql,
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
         return new CreateViewCommand(info);
     }
@@ -3043,7 +2976,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      *
      * <p>Note that query hints are ignored (both by the parser and the builder).
      */
-    private LogicalPlan withSelectQuerySpecification(
+    protected LogicalPlan withSelectQuerySpecification(
             ParserRuleContext ctx,
             LogicalPlan inputRelation,
             SelectClauseContext selectClause,
@@ -3065,10 +2998,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (!expressions.stream().allMatch(UnboundSlot.class::isInstance)) {
                         throw new ParseException("only column name is supported in except clause", selectColumnCtx);
                     }
-                    UnboundStar star = forCreateView ? new UnboundStar(ImmutableList.of(),
-                            Optional.of(Pair.of(selectColumnCtx.start.getStartIndex(),
-                                    selectColumnCtx.stop.getStopIndex())))
-                            : new UnboundStar(ImmutableList.of());
+                    UnboundStar star = new UnboundStar(ImmutableList.of());
                     project = new LogicalProject<>(ImmutableList.of(star), expressions, isDistinct, aggregate);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
@@ -3253,7 +3183,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .collect(ImmutableList.toImmutableList());
     }
 
-    private LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
+    protected LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
             Optional<AggClauseContext> aggCtx, boolean isDistinct) {
         return ParserUtils.withOrigin(selectCtx, () -> {
             if (aggCtx.isPresent()) {
@@ -3269,9 +3199,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (!expressions.stream().allMatch(UnboundSlot.class::isInstance)) {
                         throw new ParseException("only column name is supported in except clause", selectCtx);
                     }
-                    UnboundStar star = forCreateView ? new UnboundStar(ImmutableList.of(),
-                            Optional.of(Pair.of(selectCtx.start.getStartIndex(), selectCtx.stop.getStopIndex()))) :
-                            new UnboundStar(ImmutableList.of());
+                    UnboundStar star = new UnboundStar(ImmutableList.of());
                     return new LogicalProject<>(ImmutableList.of(star), expressions, isDistinct, input);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());

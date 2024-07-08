@@ -80,6 +80,7 @@ public class MarkJoinSlotReference extends SlotReference {
         return new MarkJoinSlotReference(exprId, name, existsHasAgg);
     }
 
+    @Override
     public Slot withIndexInSql(Pair<Integer, Integer> index) {
         return this;
     }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -53,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -66,27 +69,31 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 /** BaseViewInfo */
 public class BaseViewInfo {
     protected final TableNameInfo viewName;
-    protected final LogicalPlan logicalQuery;
+    protected LogicalPlan logicalQuery;
     protected final String querySql;
     protected final List<SimpleColumnDefinition> simpleColumnDefinitions;
     protected final List<Column> finalCols = Lists.newArrayList();
     protected Plan analyzedPlan;
 
-    public BaseViewInfo(TableNameInfo viewName, LogicalPlan logicalQuery,
+    public BaseViewInfo(TableNameInfo viewName,
             String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
         this.viewName = viewName;
-        this.logicalQuery = logicalQuery;
         this.querySql = querySql;
         this.simpleColumnDefinitions = simpleColumnDefinitions;
     }
 
-    protected void analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) {
+    protected void analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) throws AnalysisException {
         StatementContext stmtCtx = ctx.getStatementContext();
         LogicalPlan parsedViewPlan = new NereidsParser().parseForCreateView(sql);
+        logicalQuery = parsedViewPlan;
+        if (logicalQuery instanceof LogicalFileSink) {
+            throw new AnalysisException("Not support OUTFILE clause in CREATE VIEW statement");
+        }
         if (parsedViewPlan instanceof UnboundResultSink) {
             parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
         }
@@ -100,7 +107,7 @@ public class BaseViewInfo {
         analyzedPlan.accept(PlanSlotFinder.INSTANCE, ctx.getStatementContext());
     }
 
-    protected String rewriteSql(Map<Pair<Integer, Integer>, String> indexStringSqlMap) {
+    protected String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap) {
         StringBuilder builder = new StringBuilder();
         int beg = 0;
         for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
@@ -240,6 +247,11 @@ public class BaseViewInfo {
 
     private static class PlanSlotFinder extends DefaultPlanVisitor<Void, StatementContext> {
         private static PlanSlotFinder INSTANCE = new PlanSlotFinder();
+
+        @Override
+        public Void visitLogicalView(LogicalView<? extends Plan> alias, StatementContext context) {
+            return null;
+        }
 
         @Override
         public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, StatementContext context) {

@@ -395,10 +395,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 dbName, functionName, arguments);
         // for create view stmt
         if (builder instanceof UdfBuilder) {
-            unboundFunction.getIndexInSqlString().ifPresent(index ->
-                    ConnectContext.get().getStatementContext().addIndexInSqlToString(index,
-                    Utils.qualifiedNameWithBackquote(ImmutableList.of(null == dbName
-                            ? ConnectContext.get().getDatabase() : dbName, functionName))));
+            unboundFunction.getIndexInSqlString().ifPresent(index -> {
+                ConnectContext.get().getStatementContext().addIndexInSqlToString(index,
+                        Utils.qualifiedNameWithBackquote(ImmutableList.of(null == dbName
+                                ? ConnectContext.get().getDatabase() : dbName, functionName)));
+            });
         }
 
         Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
