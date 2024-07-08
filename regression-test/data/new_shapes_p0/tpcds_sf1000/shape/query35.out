@@ -37,7 +37,7 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer_demographics.cd_demo_sk = c.c_current_cdemo_sk)) otherCondition=() build RFs:RF1 cd_demo_sk->[c_current_cdemo_sk]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
+--------------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF1
 ----------------------------------PhysicalProject
