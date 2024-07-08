@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalDistribute[DistributionSpecGather]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
 --------------PhysicalProject
 ----------------filter((lineitem.l_shipdate < '1995-10-01') and (lineitem.l_shipdate >= '1995-09-01'))
 ------------------PhysicalOlapScan[lineitem] apply RFs: RF0

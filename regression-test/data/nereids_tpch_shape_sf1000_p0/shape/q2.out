@@ -10,7 +10,7 @@ PhysicalResultSink
 --------------PhysicalQuickSort[LOCAL_SORT]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[ps_suppkey]
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[ps_suppkey]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN colocated] hashCondition=((part.p_partkey = partsupp.ps_partkey)) otherCondition=() build RFs:RF2 p_partkey->[ps_partkey]
 --------------------------PhysicalProject
