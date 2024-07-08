@@ -38,10 +38,11 @@ import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.common.StorageSharedKeyCredential;
 
+import java.time.Duration;
 import java.util.Iterator;
 
 interface ListObjectsFileNames {
-    public boolean isEmpty(String tableName, String tableId);
+    public boolean isEmpty(String tableName, String tabletId);
     public Set<String> listObjects(String userName, String userId);
 };
 
@@ -68,7 +69,7 @@ class AwsListObjectsFileNames implements ListObjectsFileNames {
                 .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
     }
 
-    public boolean isEmpty(String tableName, String tableId) {
+    public boolean isEmpty(String tableName, String tabletId) {
         def objectListing = s3Client.listObjects(
             new ListObjectsRequest().withMaxKeys(1).withBucketName(bucket).withPrefix("${prefix}/data/${tabletId}/"))
 
@@ -124,11 +125,14 @@ class AzureListObjectsFileNames implements ListObjectsFileNames {
         this.bucket = bucket;
         this.suite = suite;
         String uri = String.format(URI_TEMPLATE, this.ak, this.bucket);
-            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(this.ak, this.sk);
-        this.containerClient = new BlobContainerClientBuilder().credential(cred).endpoint(uri).build();
+        StorageSharedKeyCredential cred = new StorageSharedKeyCredential(this.ak, this.sk);
+        BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
+        builder.credential(cred);
+        builder.endpoint(uri);
+        this.containerClient = builder.buildClient();
     }
 
-    public boolean isEmpty(String tableName, String tableId) {
+    public boolean isEmpty(String tableName, String tabletId) {
         PagedIterable<BlobItem> blobs = containerClient.listBlobs(
             new ListBlobsOptions()
                 .setPrefix("${prefix}/data/${tabletId}/")
@@ -173,8 +177,8 @@ class ListObjectsFileNamesUtil {
 
     public static ListObjectsFileNames getListObjectsFileNames(String provider, String ak, String sk, String endpoint, String region, String prefix, String bucket, Suite suite) {
         if (provider.equalsIgnoreCase("azure")) {
-            return AzureListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
+            return new AzureListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
         }
-        return AwsListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
+        return new AwsListObjectsFileNames(ak, sk, endpoint, region, prefix, bucket, suite)
     }
 }
