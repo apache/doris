@@ -207,6 +207,11 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
 Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                                    int64_t segment_id, uint64_t offset, std::span<const Slice> data,
                                    bool segment_eos, FileType file_type) {
+    DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
+        if (segment_id != 0) {
+            return Status::OK();
+        }
+    });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -225,6 +230,11 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
 Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                                    int64_t segment_id, const SegmentStatistics& segment_stat,
                                    TabletSchemaSPtr flush_schema) {
+    DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
+        if (segment_id != 0) {
+            return Status::OK();
+        }
+    });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -369,7 +379,53 @@ Status LoadStreamStub::_send_with_buffer(butil::IOBuf& buf, bool sync) {
     std::lock_guard<decltype(_send_mutex)> send_lock(_send_mutex);
     buffer_lock.unlock();
     VLOG_DEBUG << "send buf size : " << output.size() << ", sync: " << sync;
-    return _send_with_retry(output);
+    auto st = _send_with_retry(output);
+    if (!st.ok()) {
+        _handle_failure(output, st);
+    }
+    return st;
+}
+
+void LoadStreamStub::_handle_failure(butil::IOBuf& buf, Status st) {
+    while (buf.size() > 0) {
+        // step 1: parse header
+        size_t hdr_len = 0;
+        buf.cutn((void*)&hdr_len, sizeof(size_t));
+        butil::IOBuf hdr_buf;
+        PStreamHeader hdr;
+        buf.cutn(&hdr_buf, hdr_len);
+        butil::IOBufAsZeroCopyInputStream wrapper(hdr_buf);
+        hdr.ParseFromZeroCopyStream(&wrapper);
+
+        // step 2: cut data
+        size_t data_len = 0;
+        buf.cutn((void*)&data_len, sizeof(size_t));
+        butil::IOBuf data_buf;
+        buf.cutn(&data_buf, data_len);
+
+        // step 3: handle failure
+        switch (hdr.opcode()) {
+        case PStreamHeader::ADD_SEGMENT:
+        case PStreamHeader::APPEND_DATA: {
+            add_failed_tablet(hdr.tablet_id(), st);
+        } break;
+        case PStreamHeader::CLOSE_LOAD: {
+            brpc::StreamClose(_stream_id);
+        } break;
+        case PStreamHeader::GET_SCHEMA: {
+            // Just log and let wait_for_schema timeout
+            std::ostringstream oss;
+            for (const auto& tablet : hdr.tablets()) {
+                oss << " " << tablet.tablet_id();
+            }
+            LOG(WARNING) << "failed to send GET_SCHEMA request, tablet_id:" << oss.str() << ", "
+                         << *this;
+        } break;
+        default:
+            LOG(WARNING) << "unexpected stream message " << hdr.opcode() << ", " << *this;
+            DCHECK(false);
+        }
+    }
 }
 
 Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
