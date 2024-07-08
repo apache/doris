@@ -22,7 +22,7 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3
 --------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((a.ca_address_sk = c.c_current_addr_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
+----------------------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((a.ca_address_sk = c.c_current_addr_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 ------------------------------------------PhysicalProject
 --------------------------------------------PhysicalOlapScan[customer] apply RFs: RF0
 ------------------------------------------PhysicalProject
