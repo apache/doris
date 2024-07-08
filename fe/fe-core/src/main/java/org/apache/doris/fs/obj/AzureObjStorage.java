@@ -299,17 +299,36 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         return String.format("s3://%s/%s", bucket, fileName);
     }
 
+    public static String getLongestPrefix(String globPattern) {
+        int length = globPattern.length();
+        int earliestSpecialCharIndex = length;
+
+        char[] specialChars = {'*', '?', '[', '{', '\\'};
+        
+        for (char specialChar : specialChars) {
+            int index = globPattern.indexOf(specialChar);
+            if (index != -1 && index < earliestSpecialCharIndex) {
+                earliestSpecialCharIndex = index;
+            }
+        }
+
+        return globPattern.substring(0, earliestSpecialCharIndex);
+    }
+
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String globPath = uri.getKey();
+            String bucket = uri.getBucket();
             LOG.info("try to glob list for azure, remote path {}, orig {}", globPath, remotePath);
-            BlobContainerClient client = getClient().getBlobContainerClient(uri.getBucket());
+            BlobContainerClient client = getClient().getBlobContainerClient(bucket);
             java.nio.file.Path pathPattern = Paths.get(globPath);
             LOG.info("path pattern {}", pathPattern.toString());
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern.toString());
 
-            ListBlobsOptions options = new ListBlobsOptions().setPrefix(globPath);
+            String listPrefix = getLongestPrefix(globPath);
+            LOG.info("azure glob list prefix is {}", listPrefix);
+            ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
             String newContinuationToken = null;
             do {
                 PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
