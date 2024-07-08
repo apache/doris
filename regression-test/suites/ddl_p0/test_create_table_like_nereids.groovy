@@ -85,7 +85,7 @@ suite("test_create_table_like_nereids") {
         UNIQUE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
         PROPERTIES (
-        "replication_num" = "3",
+        "replication_num" = "1",
         "light_schema_change" = "true"
         );
     """
