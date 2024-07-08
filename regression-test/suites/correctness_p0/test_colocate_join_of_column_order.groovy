@@ -53,27 +53,27 @@ suite("test_colocate_join_of_column_order") {
 
     sql """set enable_nereids_planner=true; """
     explain {
-        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t1 b on a.k1=b.k1 and a.k2=b.k2;")
+        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t2 b on a.k1=b.k1 and a.k2=b.k2;")
         notContains "COLOCATE"
     }
     explain {
-        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t1 b on a.k1=b.k2;")
+        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t2 b on a.k1=b.k2;")
         notContains "COLOCATE"
     }
     explain {
-        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t1 b on a.k1=b.k1;")
+        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t2 b on a.k1=b.k1;")
         notContains "COLOCATE"
     }
     explain {
-        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t1 b on a.k1=b.k2 and a.v=b.v;")
+        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t2 b on a.k1=b.k2 and a.v=b.v;")
         notContains "COLOCATE"
     }
     explain {
-        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t1 b on a.k1=b.k2 and a.k2=b.k1;")
+        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t2 b on a.k1=b.k2 and a.k2=b.k1;")
         contains "COLOCATE"
     }
     explain {
-        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t1 b on a.k1=b.k2 and a.k2=b.k1 and a.v=b.v;")
+        sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t2 b on a.k1=b.k2 and a.k2=b.k1 and a.v=b.v;")
         contains "COLOCATE"
     }
 
