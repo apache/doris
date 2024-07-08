@@ -407,7 +407,7 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
         int64_t query_weighted_limit = 0;
         int64_t query_weighted_consumption = 0;
         query_ctx->get_weighted_mem_info(query_weighted_limit, query_weighted_consumption);
-        if (query_weighted_consumption < query_weighted_limit) {
+        if (query_weighted_limit == 0 || query_weighted_consumption < query_weighted_limit) {
             return false;
         }
         auto big_memory_operator_num = query_ctx->get_running_big_mem_op_num();
@@ -424,7 +424,12 @@ bool PipelineTask::should_revoke_memory(RuntimeState* state, int64_t revocable_m
                              << PrettyPrinter::print_bytes(revocable_mem_bytes)
                              << ", mem_limit_of_op: " << PrettyPrinter::print_bytes(mem_limit_of_op)
                              << ", min_revocable_mem_bytes: "
-                             << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
+                             << PrettyPrinter::print_bytes(min_revocable_mem_bytes)
+                             << ", query_weighted_consumption: "
+                             << PrettyPrinter::print_bytes(query_weighted_consumption)
+                             << ", query_weighted_limit: "
+                             << PrettyPrinter::print_bytes(query_weighted_limit)
+                             << ", big_memory_operator_num: " << big_memory_operator_num;
         return (revocable_mem_bytes > mem_limit_of_op ||
                 revocable_mem_bytes > min_revocable_mem_bytes);
     } else {
