@@ -72,6 +72,12 @@ public:
                                int start, int end,
                                std::vector<StringRef>& buffer_list) const override;
 
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                              int* num_deserialized,
+                                              const FormatOptions& options) const override;
+
+    void insert_column_last_value_multiple_times(IColumn& column, int times) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

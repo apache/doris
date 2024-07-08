@@ -217,9 +217,9 @@ public:
                                                        int* num_deserialized,
                                                        const FormatOptions& options) const = 0;
     // deserialize fixed values.Repeatedly insert the value row times into the column.
-    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
-                                              int* num_deserialized,
-                                              const FormatOptions& options) const {
+    virtual Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                                      int* num_deserialized,
+                                                      const FormatOptions& options) const {
         Status st = deserialize_one_cell_from_json(column, slice, options);
         if (!st.ok()) {
             *num_deserialized = 0;
@@ -296,6 +296,11 @@ public:
                                           rapidjson::Document::AllocatorType& allocator,
                                           Arena& mem_pool, int row_num) const;
     virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
+
+    // Insert the last value to the end of this column multiple times.
+    virtual void insert_column_last_value_multiple_times(IColumn& column, int times) const {
+        LOG(FATAL) << "   --- not imple ";
+    }
 
 protected:
     bool _return_object_as_string = false;
