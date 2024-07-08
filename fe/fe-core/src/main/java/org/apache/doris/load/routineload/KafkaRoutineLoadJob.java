@@ -746,7 +746,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 cachedPartitionWithLatestOffsets.put(pair.first, pair.second);
             }
         } catch (Exception e) {
-            LOG.warn("failed to get latest partition offset. {}", e.getMessage(), e);
+            // It needs to pause job when can not get partition meta.
+            // To ensure the stability of the routine load,
+            // the scheduler will automatically pull up routine load job in this scenario,
+            // to avoid some network and Kafka exceptions causing the routine load job to stop
+            updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
+                        "failed to get latest partition offset. {}" + e.getMessage()),
+                        false /* not replay */);
             return false;
         }
 
