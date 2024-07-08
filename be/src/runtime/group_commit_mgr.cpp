@@ -147,7 +147,8 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
     if (runtime_state->is_cancelled()) {
         auto st = Status::Cancelled<false>(runtime_state->cancel_reason());
         _cancel_without_lock(st);
-        return st;
+        return Status::Cancelled("cancel group_commit, label=" + label +
+                                 ", status=" + st.to_string());
     }
     if (!_block_queue.empty()) {
         const BlockData block_data = _block_queue.front();
