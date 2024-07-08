@@ -316,7 +316,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        long cnt = 0;
+        long rount_cnt = 0;
+        long startTime = System.nanoTime();
+        Status st = Status.OK;
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String globPath = uri.getKey();
@@ -332,12 +334,11 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
             String newContinuationToken = null;
             do {
-                long startTime = System.nanoTime();
+                rount_cnt++;
                 PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
                 PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
 
                 for (BlobItem blobItem : pagedResponse.getElements()) {
-                    cnt++;
                     java.nio.file.Path blobPath = Paths.get(blobItem.getName());
 
                     if (matcher.matches(blobPath)) {
@@ -351,22 +352,22 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                         result.add(remoteFile);
                     }
                 }
-                long endTime = System.nanoTime();
-                long duration = endTime - startTime;
-                LOG.info("process {} elements under prefix {} for one round， cost {} nanosecond", cnt, listPrefix,
-                        duration);
-                cnt = 0;
                 newContinuationToken = pagedResponse.getContinuationToken();
             } while (newContinuationToken != null);
 
         } catch (BlobStorageException e) {
             LOG.warn("glob file " + remotePath + " failed because azure error: " + e.getMessage());
-            return new Status(Status.ErrCode.COMMON_ERROR, "glob file " + remotePath
+            st = new Status(Status.ErrCode.COMMON_ERROR, "glob file " + remotePath
                     + " failed because azure error: " + e.getMessage());
         } catch (Exception e) {
             LOG.warn("errors while glob file " + remotePath, e);
-            return new Status(Status.ErrCode.COMMON_ERROR, "errors while glob file " + remotePath + e.getMessage());
+            st = new Status(Status.ErrCode.COMMON_ERROR, "errors while glob file " + remotePath + e.getMessage());
+        } finally {
+            long endTime = System.nanoTime();
+            long duration = endTime - startTime;
+            LOG.info("process elements under prefix {} for {} round， cost {} nanosecond", remotePath, rount_cnt,
+                    duration);
         }
-        return Status.OK;
+        return st;
     }
 }
