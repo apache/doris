@@ -3030,7 +3030,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         // all partitions are created successfully, try to replace the old partitions.
         // before replacing, we need to check again.
         // Things may be changed outside the table lock.
-        List<Partition> oldPartitions = Lists.newArrayList();
         boolean hasWriteLock = false;
         try {
             olapTable = (OlapTable) db.getTableOrDdlException(copiedTbl.getId());
