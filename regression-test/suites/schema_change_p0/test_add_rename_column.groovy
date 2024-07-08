@@ -32,7 +32,7 @@ suite("test_add_rename_column") {
         unique key(id)
         distributed by hash(id) buckets 1
         properties (
-            'replication_num' = 1
+            'replication_num' = '1'
         )
     """
 
