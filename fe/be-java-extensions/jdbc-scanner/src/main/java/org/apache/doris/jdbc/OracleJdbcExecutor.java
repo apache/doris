@@ -38,6 +38,7 @@ import java.time.LocalDateTime;
 
 public class OracleJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(OracleJdbcExecutor.class);
+    private final CharsetDecoder utf8Decoder = StandardCharsets.UTF_8.newDecoder();
 
     public OracleJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
@@ -127,7 +128,7 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
         }
     }
 
-    private static String convertByteArrayToString(byte[] bytes) {
+    private String convertByteArrayToString(byte[] bytes) {
         if (isValidUtf8(bytes)) {
             return new String(bytes, StandardCharsets.UTF_8);
         } else {
@@ -136,17 +137,17 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
         }
     }
 
-    private static boolean isValidUtf8(byte[] bytes) {
-        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
+    private boolean isValidUtf8(byte[] bytes) {
+        utf8Decoder.reset();
         try {
-            decoder.decode(ByteBuffer.wrap(bytes));
+            utf8Decoder.decode(ByteBuffer.wrap(bytes));
             return true;
         } catch (CharacterCodingException e) {
             return false;
         }
     }
 
-    private static String bytesToHex(byte[] bytes) {
+    private String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
             sb.append(String.format("%02X", b));
