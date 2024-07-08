@@ -1604,8 +1604,7 @@ TEST_F(BlockFileCacheTest, ttl_normal) {
         assert_range(1, blocks[0], io::FileBlock::Range(60, 69), io::FileBlock::State::EMPTY);
         ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
         download(blocks[0]);
-        assert_range(1, blocks[0], io::FileBlock::Range(60, 69),
-                     io::FileBlock::State::DOWNLOADED);
+        assert_range(1, blocks[0], io::FileBlock::Range(60, 69), io::FileBlock::State::DOWNLOADED);
         EXPECT_EQ(blocks[0]->cache_type(), io::FileCacheType::TTL);
     }
     {
