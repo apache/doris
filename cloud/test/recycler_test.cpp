@@ -29,6 +29,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/simple_thread_pool.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
@@ -48,6 +49,8 @@ static const std::string instance_id = "instance_id_recycle_test";
 static int64_t current_time = 0;
 static constexpr int64_t db_id = 1000;
 
+static doris::cloud::RecyclerThreadPoolGroup thread_group;
+
 int main(int argc, char** argv) {
     auto conf_file = "doris_cloud.conf";
     if (!cloud::config::init(conf_file, true)) {
@@ -63,6 +66,16 @@ int main(int argc, char** argv) {
     current_time = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
 
     ::testing::InitGoogleTest(&argc, argv);
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    s3_producer_pool->start();
+    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_tablet_pool->start();
+    auto group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    group_recycle_function_pool->start();
+    thread_group =
+            RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
+                                    std::move(group_recycle_function_pool));
     return RUN_ALL_TESTS();
 }
 
@@ -618,7 +631,7 @@ TEST(RecyclerTest, recycle_empty) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_empty");
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
     ASSERT_EQ(recycler.init(), 0);
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
@@ -651,7 +664,7 @@ TEST(RecyclerTest, recycle_rowsets) {
     sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -713,7 +726,7 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
 
     config::instance_recycler_worker_pool_size = 10;
     config::recycle_task_threshold_seconds = 0;
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
     ASSERT_EQ(recycler.init(), 0);
 
     auto sp = SyncPoint::get_instance();
@@ -793,7 +806,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -852,7 +865,7 @@ TEST(RecyclerTest, recycle_tablet) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_tablet");
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -925,7 +938,7 @@ TEST(RecyclerTest, recycle_indexes) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_indexes");
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -1034,7 +1047,7 @@ TEST(RecyclerTest, recycle_partitions) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_partitions");
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -1142,7 +1155,7 @@ TEST(RecyclerTest, recycle_versions) {
 
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
     ASSERT_EQ(recycler.init(), 0);
     // Recycle all partitions in table except 30006
     ASSERT_EQ(recycler.recycle_partitions(), 0);
@@ -1211,7 +1224,7 @@ TEST(RecyclerTest, abort_timeout_txn) {
     }
     InstanceInfoPB instance;
     instance.set_instance_id(mock_instance);
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
     ASSERT_EQ(recycler.init(), 0);
     sleep(1);
     ASSERT_EQ(recycler.abort_timeout_txn(), 0);
@@ -1254,7 +1267,7 @@ TEST(RecyclerTest, abort_timeout_txn_and_rebegin) {
     }
     InstanceInfoPB instance;
     instance.set_instance_id(mock_instance);
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
     ASSERT_EQ(recycler.init(), 0);
     sleep(1);
     ASSERT_EQ(recycler.abort_timeout_txn(), 0);
@@ -1321,7 +1334,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group);
         ASSERT_EQ(recycler.init(), 0);
         recycler.abort_timeout_txn();
         TxnInfoPB txn_info_pb;
@@ -1372,7 +1385,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group);
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
         recycler.abort_timeout_txn();
@@ -1424,7 +1437,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group);
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
         recycler.abort_timeout_txn();
@@ -1483,7 +1496,7 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group);
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
         recycler.abort_timeout_txn();
@@ -1620,7 +1633,7 @@ TEST(RecyclerTest, recycle_copy_jobs) {
 
     InstanceInfoPB instance_info;
     create_instance(internal_stage_id, external_stage_id, instance_info);
-    InstanceRecycler recycler(txn_kv, instance_info);
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group);
     ASSERT_EQ(recycler.init(), 0);
     auto internal_accessor = recycler.accessor_map_.find(internal_stage_id)->second;
 
@@ -1779,7 +1792,7 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
 
     InstanceInfoPB instance_info;
     create_instance(internal_stage_id, external_stage_id, instance_info);
-    InstanceRecycler recycler(txn_kv, instance_info);
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group);
     ASSERT_EQ(recycler.init(), 0);
     const auto& internal_accessor = recycler.accessor_map_.find(internal_stage_id)->second;
 
@@ -1893,7 +1906,7 @@ TEST(RecyclerTest, recycle_stage) {
     instance.set_instance_id(mock_instance);
     instance.add_obj_info()->CopyFrom(object_info);
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group);
     ASSERT_EQ(recycler.init(), 0);
     auto accessor = recycler.accessor_map_.begin()->second;
     for (int i = 0; i < 10; ++i) {
@@ -1953,7 +1966,7 @@ TEST(RecyclerTest, recycle_deleted_instance) {
 
     InstanceInfoPB instance_info;
     create_instance(internal_stage_id, external_stage_id, instance_info);
-    InstanceRecycler recycler(txn_kv, instance_info);
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group);
     ASSERT_EQ(recycler.init(), 0);
     // create txn key
     for (size_t i = 0; i < 100; i++) {
@@ -2531,7 +2544,7 @@ TEST(RecyclerTest, delete_rowset_data) {
     }
 
     {
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group);
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
         int64_t txn_id_base = 114115;
@@ -2565,7 +2578,7 @@ TEST(RecyclerTest, delete_rowset_data) {
         tmp_obj_info->set_bucket(config::test_s3_bucket);
         tmp_obj_info->set_prefix(resource_id);
 
-        InstanceRecycler recycler(txn_kv, tmp_instance);
+        InstanceRecycler recycler(txn_kv, tmp_instance, thread_group);
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
         // Delete multiple rowset files using one series of RowsetPB
@@ -2585,7 +2598,7 @@ TEST(RecyclerTest, delete_rowset_data) {
         ASSERT_FALSE(list_iter->has_next());
     }
     {
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group);
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
         // Delete multiple rowset files using one series of RowsetPB
