@@ -62,10 +62,6 @@ public class ColocatePersistInfo implements Writable {
         return new ColocatePersistInfo(groupId, tableId, backendsPerBucketSeq, new ReplicaAllocation());
     }
 
-    public static ColocatePersistInfo createForRemoveTable(GroupId groupId, long tableId) {
-        return new ColocatePersistInfo(groupId, tableId, Maps.newHashMap(), new ReplicaAllocation());
-    }
-
     public static ColocatePersistInfo createForBackendsPerBucketSeq(GroupId groupId,
             Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
         return new ColocatePersistInfo(groupId, -1L, backendsPerBucketSeq, new ReplicaAllocation());

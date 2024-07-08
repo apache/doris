@@ -2805,7 +2805,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         Set<Long> tabletIdSet = new HashSet<>();
         // create partition
         boolean editlogCreateTable = false;
-        boolean editlogColocateAddTable = false;
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 if (properties != null && !properties.isEmpty()) {
@@ -2960,7 +2959,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId,
                             backendsPerBucketSeq);
                     Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
-                    editlogColocateAddTable = true;
                 }
                 LOG.info("successfully create table[{};{}]", tableName, tableId);
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
@@ -2984,10 +2982,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                 GroupId groupId = Env.getCurrentColocateIndex().getGroup(tableId);
                 Env.getCurrentColocateIndex().removeTable(tableId);
-                if (editlogColocateAddTable) {
-                    ColocatePersistInfo info = ColocatePersistInfo.createForRemoveTable(groupId, tableId);
-                    Env.getCurrentEnv().getEditLog().logColocateRemoveTable(info);
-                }
+                // edit log write DropTableInfo will also remove colocate group
             }
             try {
                 dropTable(db, tableId, true, 0L);
