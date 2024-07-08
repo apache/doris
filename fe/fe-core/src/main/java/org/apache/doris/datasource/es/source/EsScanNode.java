@@ -220,7 +220,7 @@ public class EsScanNode extends ExternalScanNode {
                     String.join(",", unPartitionedIndices), String.join(",", partitionedIndices));
         }
         List<TScanRangeLocations> result = Lists.newArrayList();
-        boolean enableShardScroll = isEnableESShardScroll();
+        boolean enableShardScroll = isEnableESParallelScroll();
         for (EsShardPartitions indexState : selectedIndex) {
             // When disabling shard scroll, only use the first shard routing.
             // Because we only need plan a single scan range.
@@ -288,9 +288,9 @@ public class EsScanNode extends ExternalScanNode {
         return result;
     }
 
-    private boolean isEnableESShardScroll() {
+    private boolean isEnableESParallelScroll() {
         ConnectContext connectContext = ConnectContext.get();
-        return connectContext != null && connectContext.getSessionVariable().isEnableESShardScroll();
+        return connectContext != null && connectContext.getSessionVariable().isEnableESParallelScroll();
     }
 
     /**

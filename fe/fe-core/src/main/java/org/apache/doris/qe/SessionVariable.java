@@ -605,7 +605,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
 
-    public static final String ENABLE_ES_SHARD_SCROLL = "enable_es_shard_scroll";
+    public static final String ENABLE_ES_PARALLEL_SCROLL = "enable_es_parallel_scroll";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -2000,18 +2000,18 @@ public class SessionVariable implements Serializable, Writable {
      * When enabling shard scroll, FE will plan scan ranges by shards of ES indices.
      * Otherwise, FE will plan a single query to ES.
      */
-    @VariableMgr.VarAttr(name = ENABLE_ES_SHARD_SCROLL, description = {
-        "ES catalog 是否开启 shard 级别的 scroll 请求，默认开启。",
-        "Whether to enable shard-level scroll requests for ES catalog, enabled by default."
+    @VariableMgr.VarAttr(name = ENABLE_ES_PARALLEL_SCROLL, description = {
+        "ES catalog 是否开启 shard 级别并发的 scroll 请求，默认开启。",
+        "Whether to enable shard-level parallel scroll requests for ES catalog, enabled by default."
     })
-    public boolean enableESShardScroll = true;
+    public boolean enableESParallelScroll = true;
 
-    public void setEnableEsShardScroll(boolean enableESShardScroll) {
-        this.enableESShardScroll = enableESShardScroll;
+    public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
+        this.enableESParallelScroll = enableESParallelScroll;
     }
 
-    public boolean isEnableESShardScroll() {
-        return enableESShardScroll;
+    public boolean isEnableESParallelScroll() {
+        return enableESParallelScroll;
     }
 
     public boolean isEnableJoinSpill() {

@@ -331,10 +331,10 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         
         }
 
-        sql """set enable_es_shard_scroll=true"""
+        sql """set enable_es_parallel_scroll=true"""
         query_catalogs()
 
-        sql """set enable_es_shard_scroll=false"""
+        sql """set enable_es_parallel_scroll=false"""
         query_catalogs()
     }
 }
