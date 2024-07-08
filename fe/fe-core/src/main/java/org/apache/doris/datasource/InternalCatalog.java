@@ -2937,9 +2937,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
 
-            // if table not exists, then db.createTableWithLock will write an editlog.
-            editlogCreateTable = !result.second;
-
             if (result.second) {
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                     // if this is a colocate table, its table id is already added to colocate group
@@ -2951,6 +2948,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 LOG.info("duplicate create table[{};{}], skip next steps", tableName, tableId);
             } else {
+                // if table not exists, then db.createTableWithLock will write an editlog.
+                editlogCreateTable = true;
+
                 // we have added these index to memory, only need to persist here
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                     GroupId groupId = Env.getCurrentColocateIndex().getGroup(tableId);
