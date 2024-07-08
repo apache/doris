@@ -4120,7 +4120,7 @@ public class SessionVariable implements Serializable, Writable {
         return this.maxMsgSizeOfResultReceiver;
     }
 
-    private TSerdeDialect getSerdeDialect() {
+    public TSerdeDialect getSerdeDialect() {
         switch (serdeDialect) {
             case "doris":
                 return TSerdeDialect.DORIS;
