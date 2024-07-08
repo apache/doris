@@ -163,7 +163,7 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
             }
             if (err.number() == CL_ERR_FileNotFound) {
                 return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                        "inverted index path: {} not exist.", index_file_path));
+                        "inverted index path: {} not exist.", _index_file_dir.c_str()));
             }
             return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occur when open idx file {}, error msg: {}",
