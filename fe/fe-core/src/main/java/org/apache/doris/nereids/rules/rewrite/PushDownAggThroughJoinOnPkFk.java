@@ -106,9 +106,19 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
             LogicalJoin<?, ?> newJoin = innerJoinCluster
                     .constructJoinWithPrimary(e.getKey(), subJoin, primaryAndForeign.first);
             if (newJoin != null && newJoin.left() == primaryAndForeign.first) {
-                return newJoin.withChildren(newJoin.left(), newAgg.withChildren(newJoin.right()));
+                newJoin = (LogicalJoin<?, ?>) newJoin
+                        .withChildren(newJoin.left(), newAgg.withChildren(newJoin.right()));
+                if (Sets.union(newJoin.left().getOutputSet(), newJoin.right().getOutputSet())
+                        .containsAll(newJoin.getInputSlots())) {
+                    return newJoin;
+                }
             } else if (newJoin != null && newJoin.right() == primaryAndForeign.first) {
-                return newJoin.withChildren(newAgg.withChildren(newJoin.left()), newJoin.right());
+                newJoin = (LogicalJoin<?, ?>) newJoin
+                        .withChildren(newAgg.withChildren(newJoin.left()), newJoin.right());
+                if (Sets.union(newJoin.left().getOutputSet(), newJoin.right().getOutputSet())
+                        .containsAll(newJoin.getInputSlots())) {
+                    return newJoin;
+                }
             }
         }
         return null;
