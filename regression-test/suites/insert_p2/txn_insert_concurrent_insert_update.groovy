@@ -135,7 +135,10 @@ suite("txn_insert_concurrent_insert_update") {
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement stmt = conn.createStatement()) {
             // set session variable and begin
-            def pre_sqls = ["set enable_unique_key_partial_update = true", "begin"]
+            def pre_sqls = ["set enable_unique_key_partial_update = true", "begin",
+                "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);",
+                "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);"
+            ]
             for (def pre_sql : pre_sqls) {
                 logger.info("execute sql: " + pre_sql)
                 stmt.execute(pre_sql)

@@ -21,9 +21,8 @@ import java.sql.Statement
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CompletableFuture
 
-// test update and delete command
-suite("txn_insert_concurrent_insert_ud") {
-    def tableName = "txn_insert_concurrent_insert_ud"
+suite("txn_insert_concurrent_insert_mow") {
+    def tableName = "txn_insert_concurrent_insert_mow"
     List<String> errors = new ArrayList<>()
 
     for (int i = 0; i < 3; i++) {
@@ -91,18 +90,10 @@ suite("txn_insert_concurrent_insert_ud") {
      * 1. insert into ${tableName}_0 select * from ${tableName}_2; (6001215 rows)
      * 2. insert into ${tableName}_0 select * from ${tableName}_2 L_ORDERKEY < 2000000; (2000495 rows)
      * 3. insert into ${tableName}_1 select * from ${tableName}_2 where L_ORDERKEY < 3000000; (2999666 rows)
-     * 4. update ${tableName}_0 set L_QUANTITY = L_QUANTITY + 10 where L_ORDERKEY < 1000000;
-     " 5. update ${tableName}_0 set ${tableName}_0.L_QUANTITY = 100 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000 and L_ORDERKEY < 3000000);
-     " 6. delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);
-     " 7. delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);
      *
      * suppose there is 'threadNum' concurrency, the rows of each table should be:
-     * t0: insert from t1: unknown, depend on the commit order
-     *     insert from t2: 6001215
-     *     update from t1: [2000000, ) -> + 10, maybe overwrite by insert
-     *     update from t2: [3000000, 4000000) -> 100, maybe overwrite by insert
-     *     delete from t1: the first sub txn, will insert again
-     *     delete from t2: the first sub txn, will insert again
+     * t0: from t2: 6001215
+     *     from t1: unknown, depend on the commit order
      * t1: from t2: 2999666
      */
     def sqls = [
@@ -117,24 +108,14 @@ suite("txn_insert_concurrent_insert_ud") {
             "insert into ${tableName}_1 select * from ${tableName}_2 where L_ORDERKEY >= 1000000 and L_ORDERKEY < 2000000;",
             "insert into ${tableName}_1 select * from ${tableName}_2 where L_ORDERKEY >= 2000000 and L_ORDERKEY < 3000000;",
             "insert into ${tableName}_0 select * from ${tableName}_1 where L_ORDERKEY < 1000000;",
-            "insert into ${tableName}_0 select * from ${tableName}_1 where L_ORDERKEY >= 1000000 and L_ORDERKEY < 2000000;",
-            "update ${tableName}_0 set L_QUANTITY = L_QUANTITY + 10 where L_ORDERKEY < 1000000;",
-            "update ${tableName}_0 set ${tableName}_0.L_QUANTITY = 100 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000 and L_ORDERKEY < 3000000);",
-            // "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);",
-            // "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);",
+            "insert into ${tableName}_0 select * from ${tableName}_1 where L_ORDERKEY >= 1000000 and L_ORDERKEY < 2000000;"
     ]
     def txn_insert = { ->
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement stmt = conn.createStatement()) {
             // begin
-            def pre_sqls = ["begin",
-                "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_1 where L_ORDERKEY >= 2000000);",
-                "delete from ${tableName}_0 where ${tableName}_0.L_ORDERKEY in (select L_ORDERKEY from ${tableName}_2 where L_ORDERKEY >= 3000000 and L_ORDERKEY < 4000000);"
-            ]
-            for (def pre_sql : pre_sqls) {
-                logger.info("execute sql: " + pre_sql)
-                stmt.execute(pre_sql)
-            }
+            logger.info("execute sql: begin")
+            stmt.execute("begin")
             // insert
             List<Integer> list = new ArrayList()
             for (int i = 0; i < sqls.size(); i++) {
@@ -169,9 +150,9 @@ suite("txn_insert_concurrent_insert_ud") {
 
     logger.info("error num: " + errors.size() + ", errors: " + errors)
 
-    def t0_row_count = 6001215 // 2000495 or 5000226
+    def t0_row_count = 6001215
     def result = sql """ select count() from ${tableName}_0 """
-    logger.info("${tableName}_0 row count: ${result}, expected >= ${t0_row_count}")
+    logger.info("${tableName}_0 row count: ${result}, expected: ${t0_row_count}")
 
     def t1_row_count = 2999666
     def result2 = sql """ select count() from ${tableName}_1 """
@@ -186,7 +167,7 @@ suite("txn_insert_concurrent_insert_ud") {
         }
     }
 
-    assertTrue(result[0][0] >= t0_row_count)
+    assertEquals(t0_row_count, result[0][0])
     assertEquals(t1_row_count, result2[0][0])
     assertEquals(0, errors.size())
 }
