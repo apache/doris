@@ -147,6 +147,9 @@ public:
     static inline size_t allocator_cache_mem() {
         return _s_allocator_cache_mem.load(std::memory_order_relaxed);
     }
+    static inline size_t allocator_metadata_mem() {
+        return _s_allocator_metadata_mem.load(std::memory_order_relaxed);
+    }
     static inline int64_t je_dirty_pages_mem() {
         return _s_je_dirty_pages_mem.load(std::memory_order_relaxed);
     }
@@ -187,6 +190,7 @@ private:
     static std::atomic<int64_t> _s_soft_mem_limit;
 
     static std::atomic<int64_t> _s_allocator_cache_mem;
+    static std::atomic<int64_t> _s_allocator_metadata_mem;
     static std::atomic<int64_t> _s_je_dirty_pages_mem;
     static std::atomic<int64_t> _s_je_dirty_pages_mem_limit;
     static std::atomic<int64_t> _s_virtual_memory_used;

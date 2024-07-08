@@ -52,6 +52,7 @@ std::atomic<int64_t> MemInfo::_s_mem_limit = std::numeric_limits<int64_t>::max()
 std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::max();
 
 std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
+std::atomic<int64_t> MemInfo::_s_allocator_metadata_mem = 0;
 std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem = std::numeric_limits<int64_t>::min();
 std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
@@ -85,9 +86,9 @@ void MemInfo::refresh_allocator_mem() {
     // https://jemalloc.net/jemalloc.3.html
     // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md
     _s_allocator_cache_mem.store(get_je_all_arena_metrics("tcache_bytes") +
-                                         get_je_metrics("stats.metadata") +
                                          get_je_all_arena_metrics("pdirty") * get_page_size(),
                                  std::memory_order_relaxed);
+    _s_allocator_metadata_mem.store(get_je_metrics("stats.metadata"), std::memory_order_relaxed);
     _s_je_dirty_pages_mem.store(get_je_all_arena_metrics("pdirty") * get_page_size(),
                                 std::memory_order_relaxed);
     _s_virtual_memory_used.store(get_je_metrics("stats.mapped"), std::memory_order_relaxed);
