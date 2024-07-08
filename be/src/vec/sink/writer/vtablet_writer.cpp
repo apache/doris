@@ -528,8 +528,11 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     }
 
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
-    RETURN_IF_ERROR(
-            block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first)));
+    st = block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first));
+    if (!st.ok()) {
+        _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
+        return st;
+    }
     for (auto tablet_id : payload->second) {
         _cur_add_block_request->add_tablet_ids(tablet_id);
     }
