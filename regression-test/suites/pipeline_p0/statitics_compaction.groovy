@@ -66,5 +66,5 @@ suite("statistic_table_compaction", "nonConcurrent,p0") {
     }
 
     do_compaction("__internal_schema.column_statistics")
-    do_compaction("__internal_schema.histogram_statistics")
+    do_compaction("__internal_schema.partition_statistics")
 }

@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext;
@@ -58,10 +59,12 @@ import org.apache.doris.qe.cache.SqlCache;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -123,16 +126,14 @@ public class NereidsSqlCacheManager {
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         String key = currentUserIdentity.toString() + ":" + sql.trim();
-        if ((sqlCaches.getIfPresent(key) == null) && sqlCacheContext.getOrComputeCacheKeyMd5() != null
+        if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null
                 && sqlCacheContext.getResultSetInFe().isPresent()) {
             sqlCaches.put(key, sqlCacheContext);
         }
     }
 
-    /** tryAddCache */
-    public void tryAddCache(
-            ConnectContext connectContext, String sql,
-            CacheAnalyzer analyzer, boolean currentMissParseSqlFromSqlCache) {
+    /** tryAddBeCache */
+    public void tryAddBeCache(ConnectContext connectContext, String sql, CacheAnalyzer analyzer) {
         Optional<SqlCacheContext> sqlCacheContextOpt = connectContext.getStatementContext().getSqlCacheContext();
         if (!sqlCacheContextOpt.isPresent()) {
             return;
@@ -143,8 +144,7 @@ public class NereidsSqlCacheManager {
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         String key = currentUserIdentity.toString() + ":" + sql.trim();
-        if ((currentMissParseSqlFromSqlCache || sqlCaches.getIfPresent(key) == null)
-                && sqlCacheContext.getOrComputeCacheKeyMd5() != null) {
+        if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null) {
             SqlCache cache = (SqlCache) analyzer.getCache();
             sqlCacheContext.setSumOfPartitionNum(cache.getSumOfPartitionNum());
             sqlCacheContext.setLatestPartitionId(cache.getLatestId());
@@ -182,9 +182,6 @@ public class NereidsSqlCacheManager {
         if (viewsChanged(env, sqlCacheContext)) {
             return invalidateCache(key);
         }
-        if (usedVariablesChanged(sqlCacheContext)) {
-            return invalidateCache(key);
-        }
 
         LogicalEmptyRelation whateverPlan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
         if (nondeterministicFunctionChanged(whateverPlan, connectContext, sqlCacheContext)) {
@@ -201,7 +198,10 @@ public class NereidsSqlCacheManager {
 
         try {
             Optional<ResultSet> resultSetInFe = sqlCacheContext.getResultSetInFe();
-            if (resultSetInFe.isPresent()) {
+
+            List<Variable> currentVariables = resolveUserVariables(sqlCacheContext);
+            boolean usedVariablesChanged = usedVariablesChanged(currentVariables, sqlCacheContext);
+            if (resultSetInFe.isPresent() && !usedVariablesChanged) {
                 MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
 
                 String cachedPlan = sqlCacheContext.getPhysicalPlan();
@@ -214,7 +214,9 @@ public class NereidsSqlCacheManager {
             }
 
             Status status = new Status();
-            PUniqueId cacheKeyMd5 = sqlCacheContext.getOrComputeCacheKeyMd5();
+            PUniqueId cacheKeyMd5 = usedVariablesChanged
+                    ? sqlCacheContext.doComputeCacheKeyMd5(Utils.fastToImmutableSet(currentVariables))
+                    : sqlCacheContext.getOrComputeCacheKeyMd5();
             InternalService.PFetchCacheResult cacheData =
                     SqlCache.getCacheData(sqlCacheContext.getCacheProxy(),
                             cacheKeyMd5, sqlCacheContext.getLatestPartitionId(),
@@ -235,7 +237,7 @@ public class NereidsSqlCacheManager {
                 );
                 return Optional.of(logicalSqlCache);
             }
-            return invalidateCache(key);
+            return Optional.empty();
         } catch (Throwable t) {
             return invalidateCache(key);
         }
@@ -253,15 +255,15 @@ public class NereidsSqlCacheManager {
                 return true;
             }
             OlapTable olapTable = (OlapTable) tableIf;
-            long currentTableTime = olapTable.getVisibleVersionTime();
-            long cacheTableTime = scanTable.latestTimestamp;
             long currentTableVersion = olapTable.getVisibleVersion();
             long cacheTableVersion = scanTable.latestVersion;
             // some partitions have been dropped, or delete or updated or replaced, or insert rows into new partition?
-            if (currentTableTime > cacheTableTime
-                    || (currentTableTime == cacheTableTime && currentTableVersion > cacheTableVersion)) {
+            if (currentTableVersion != cacheTableVersion) {
                 return true;
             }
+
+            Collection<Long> partitionIds = scanTable.getScanPartitions();
+            olapTable.getVersionInBatchForCloudMode(partitionIds);
 
             for (Long scanPartitionId : scanTable.getScanPartitions()) {
                 Partition partition = olapTable.getPartition(scanPartitionId);
@@ -342,12 +344,24 @@ public class NereidsSqlCacheManager {
         return false;
     }
 
-    private boolean usedVariablesChanged(SqlCacheContext sqlCacheContext) {
-        for (Variable variable : sqlCacheContext.getUsedVariables()) {
+    private List<Variable> resolveUserVariables(SqlCacheContext sqlCacheContext) {
+        List<Variable> cachedUsedVariables = sqlCacheContext.getUsedVariables();
+        List<Variable> currentVariables = Lists.newArrayListWithCapacity(cachedUsedVariables.size());
+        for (Variable cachedVariable : cachedUsedVariables) {
             Variable currentVariable = ExpressionAnalyzer.resolveUnboundVariable(
-                    new UnboundVariable(variable.getName(), variable.getType()));
-            if (!Objects.equals(currentVariable, variable)
-                    || variable.getRealExpression().anyMatch(Nondeterministic.class::isInstance)) {
+                    new UnboundVariable(cachedVariable.getName(), cachedVariable.getType()));
+            currentVariables.add(currentVariable);
+        }
+        return currentVariables;
+    }
+
+    private boolean usedVariablesChanged(List<Variable> currentVariables, SqlCacheContext sqlCacheContext) {
+        List<Variable> cachedUsedVariables = sqlCacheContext.getUsedVariables();
+        for (int i = 0; i < cachedUsedVariables.size(); i++) {
+            Variable currentVariable = currentVariables.get(i);
+            Variable cachedVariable = cachedUsedVariables.get(i);
+            if (!Objects.equals(currentVariable, cachedVariable)
+                    || cachedVariable.getRealExpression().anyMatch(Nondeterministic.class::isInstance)) {
                 return true;
             }
         }

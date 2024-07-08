@@ -183,13 +183,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return getLogicalPlan(table, unboundRelation, qualifiedTablName, cascadesContext);
     }
 
-    private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifiedTableName) {
+    private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier) {
         LogicalOlapScan scan;
-        List<Long> partIds = getPartitionIds(table, unboundRelation, qualifiedTableName);
+        List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
         List<Long> tabletIds = unboundRelation.getTabletIds();
         if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifiedTableName, partIds,
+                    (OlapTable) table, qualifier, partIds,
                     tabletIds, unboundRelation.getHints(), unboundRelation.getTableSample());
         } else {
             Optional<String> indexName = unboundRelation.getIndexName();
@@ -205,13 +205,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         : PreAggStatus.off("For direct index scan on mor/agg.");
 
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifiedTableName, tabletIds,
+                    (OlapTable) table, qualifier, tabletIds,
                     CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() : partIds, indexId,
                     preAggStatus, CollectionUtils.isEmpty(partIds) ? ImmutableList.of() : partIds,
                     unboundRelation.getHints(), unboundRelation.getTableSample());
             } else {
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, qualifiedTableName, tabletIds, unboundRelation.getHints(),
+                    (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample());
             }
         }
@@ -347,14 +347,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(), () -> {
-            viewContext.newAnalyzer(true, customTableResolver).analyze();
+            viewContext.newAnalyzer(customTableResolver).analyze();
         });
         parentContext.addPlanProcesses(viewContext.getPlanProcesses());
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
         return viewContext.getRewritePlan();
     }
 
-    private List<Long> getPartitionIds(TableIf t, UnboundRelation unboundRelation, List<String> qualifiedTableName) {
+    private List<Long> getPartitionIds(TableIf t, UnboundRelation unboundRelation, List<String> qualifier) {
         List<String> parts = unboundRelation.getPartNames();
         if (CollectionUtils.isEmpty(parts)) {
             return ImmutableList.of();
@@ -367,12 +367,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return parts.stream().map(name -> {
             Partition part = ((OlapTable) t).getPartition(name, unboundRelation.isTempPart());
             if (part == null) {
-                String qualified;
-                if (!CollectionUtils.isEmpty(qualifiedTableName)) {
-                    qualified = String.join(".", qualifiedTableName);
+                List<String> qualified;
+                if (!CollectionUtils.isEmpty(qualifier)) {
+                    qualified = qualifier;
                 } else {
-                    qualified = unboundRelation.getTableName();
+                    qualified = Lists.newArrayList();
                 }
+                qualified.add(unboundRelation.getTableName());
                 throw new AnalysisException(String.format("Partition: %s is not exists on table %s",
                         name, String.join(".", qualified)));
             }

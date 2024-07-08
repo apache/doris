@@ -103,7 +103,6 @@ clean_be() {
 
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
-    rm -rf "${DORIS_HOME}/zoneinfo"
     popd
 }
 
@@ -742,6 +741,8 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
 fi
 
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
+    # need remove old version hadoop jars if $DORIS_OUTPUT been used multiple times, otherwise will cause jar conflict
+    rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs"
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
@@ -750,12 +751,6 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
     cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
-    if [[ ! -r "${DORIS_HOME}/zoneinfo/Africa/Abidjan" ]]; then
-        rm -rf "${DORIS_HOME}/zoneinfo"
-        echo "Generating zoneinfo files"
-        tar -xzf "${DORIS_HOME}/resource/zoneinfo.tar.gz" -C "${DORIS_HOME}"/
-    fi
-    cp -r -p "${DORIS_HOME}/zoneinfo" "${DORIS_OUTPUT}/be/"
 
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
@@ -872,6 +867,7 @@ fi
 
 if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     rm -rf "${DORIS_HOME}/output/ms"
+    rm -rf "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_HOME}/cloud/output/lib"
     fi

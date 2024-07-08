@@ -112,16 +112,17 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
             return;
         }
 
-        if (Env.isCheckpointThread()) {
-            return;
-        }
-
         List<Long> shadowIdxList = indexIdMap.keySet().stream().collect(Collectors.toList());
         dropIndex(shadowIdxList);
     }
 
     @Override
     protected void postProcessOriginIndex() {
+        if (Config.enable_check_compatibility_mode) {
+            LOG.info("skip drop origin indexes in checking compatibility mode");
+            return;
+        }
+
         List<Long> originIdxList = indexIdMap.values().stream().collect(Collectors.toList());
         dropIndex(originIdxList);
     }
@@ -212,21 +213,25 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                 for (Tablet shadowTablet : shadowIdx.getTablets()) {
                     OlapFile.TabletMetaCloudPB.Builder builder =
                             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                                .createTabletMetaBuilder(tableId, shadowIdxId,
-                                partitionId, shadowTablet, tbl.getPartitionInfo().getTabletType(partitionId),
-                                shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
-                                bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(), tbl.getCompressionType(),
-                                tbl.getStoragePolicy(), tbl.isInMemory(), true,
-                                tbl.getName(), tbl.getTTLSeconds(),
-                                tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                                shadowSchemaVersion, tbl.getCompactionPolicy(),
-                                tbl.getTimeSeriesCompactionGoalSizeMbytes(),
-                                tbl.getTimeSeriesCompactionFileCountThreshold(),
-                                tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
-                                tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                                tbl.getTimeSeriesCompactionLevelThreshold(),
-                                tbl.disableAutoCompaction(),
-                                tbl.getRowStoreColumnsUniqueIds(rowStoreColumns));
+                                    .createTabletMetaBuilder(tableId, shadowIdxId,
+                                            partitionId, shadowTablet,
+                                            tbl.getPartitionInfo().getTabletType(partitionId),
+                                            shadowSchemaHash, originKeysType, shadowShortKeyColumnCount, bfColumns,
+                                            bfFpp, tabletIndexes, shadowSchema, tbl.getDataSortInfo(),
+                                            tbl.getCompressionType(),
+                                            tbl.getStoragePolicy(), tbl.isInMemory(), true,
+                                            tbl.getName(), tbl.getTTLSeconds(),
+                                            tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
+                                            shadowSchemaVersion, tbl.getCompactionPolicy(),
+                                            tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                                            tbl.getTimeSeriesCompactionFileCountThreshold(),
+                                            tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                            tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                            tbl.getTimeSeriesCompactionLevelThreshold(),
+                                            tbl.disableAutoCompaction(),
+                                            tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                                            tbl.getEnableMowLightDelete(),
+                                            tbl.getInvertedIndexFileStorageFormat());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

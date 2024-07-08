@@ -399,6 +399,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRenameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVReplaceInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
@@ -853,6 +854,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.SET() != null) {
             alterMTMVInfo = new AlterMTMVPropertyInfo(mvName,
                     Maps.newHashMap(visitPropertyItemList(ctx.fileProperties)));
+        } else if (ctx.REPLACE() != null) {
+            String newName = ctx.newName.getText();
+            Map<String, String> properties = ctx.propertyClause() != null
+                    ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+            alterMTMVInfo = new AlterMTMVReplaceInfo(mvName, newName, properties);
         }
         return new AlterMTMVCommand(alterMTMVInfo);
     }
@@ -941,9 +947,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
-        if (ctx.USING() == null && ctx.cte() == null && ctx.explain() == null) {
+
+        Command deleteCommand;
+        if (ctx.USING() == null && ctx.cte() == null) {
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
-            return new DeleteFromCommand(tableName, tableAlias, partitionSpec.first, partitionSpec.second, query);
+            deleteCommand = new DeleteFromCommand(tableName, tableAlias, partitionSpec.first,
+                    partitionSpec.second, query);
         } else {
             // convert to insert into select
             query = withRelations(query, ctx.relations().relation());
@@ -952,8 +961,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (ctx.cte() != null) {
                 cte = Optional.ofNullable(withCte(query, ctx.cte()));
             }
-            return withExplain(new DeleteFromUsingCommand(tableName, tableAlias,
-                    partitionSpec.first, partitionSpec.second, query, cte), ctx.explain());
+            deleteCommand = new DeleteFromUsingCommand(tableName, tableAlias,
+                    partitionSpec.first, partitionSpec.second, query, cte);
+        }
+        if (ctx.explain() != null) {
+            return withExplain(deleteCommand, ctx.explain());
+        } else {
+            return deleteCommand;
         }
     }
 
@@ -3450,6 +3464,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         if (planTypeContext.MEMO() != null) {
             return ExplainLevel.MEMO_PLAN;
+        }
+        if (planTypeContext.DISTRIBUTED() != null) {
+            return ExplainLevel.DISTRIBUTED_PLAN;
         }
         return ExplainLevel.ALL_PLAN;
     }

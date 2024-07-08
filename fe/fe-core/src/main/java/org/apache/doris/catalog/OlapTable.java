@@ -135,44 +135,44 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         WAITING_STABLE
     }
 
-    @SerializedName(value = "state")
+    @SerializedName(value = "tst", alternate = {"state"})
     private volatile OlapTableState state;
 
     // index id -> index meta
-    @SerializedName("indexIdToMeta")
+    @SerializedName(value = "itm", alternate = {"indexIdToMeta"})
     private Map<Long, MaterializedIndexMeta> indexIdToMeta = Maps.newHashMap();
     // index name -> index id
-    @SerializedName("indexNameToId")
+    @SerializedName(value = "inti", alternate = {"indexNameToId"})
     private Map<String, Long> indexNameToId = Maps.newHashMap();
 
-    @SerializedName("keysType")
+    @SerializedName(value = "kt", alternate = {"keysType"})
     private KeysType keysType;
     @Setter
-    @SerializedName("partitionInfo")
+    @SerializedName(value = "pi", alternate = {"partitionInfo"})
     private PartitionInfo partitionInfo;
-    @SerializedName("idToPartition")
+    @SerializedName(value = "itp", alternate = {"idToPartition"})
     @Getter
     private ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
     // handled in postgsonprocess
     @Getter
     private Map<String, Partition> nameToPartition = Maps.newTreeMap();
 
-    @SerializedName(value = "distributionInfo")
+    @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo defaultDistributionInfo;
 
     // all info about temporary partitions are save in "tempPartitions"
     @Getter
-    @SerializedName(value = "tempPartitions")
+    @SerializedName(value = "tps", alternate = {"tempPartitions"})
     private TempPartitions tempPartitions = new TempPartitions();
 
     // bloom filter columns
-    @SerializedName(value = "bfColumns")
+    @SerializedName(value = "bfc", alternate = {"bfColumns"})
     private Set<String> bfColumns;
 
     @SerializedName(value = "bfFpp")
     private double bfFpp;
 
-    @SerializedName(value = "colocateGroup")
+    @SerializedName(value = "cgs", alternate = "colocateGroup")
     private String colocateGroup;
 
     private boolean hasSequenceCol;
@@ -187,10 +187,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // So we add this 'baseIndexId' to explicitly specify the base index id,
     // which should be different with table id.
     // The init value is -1, which means there is not partition and index at all.
-    @SerializedName(value = "baseIndexId")
+    @SerializedName(value = "bid", alternate = {"baseIndexId"})
     private long baseIndexId = -1;
 
-    @SerializedName(value = "tableProperty")
+    @SerializedName(value = "tp", alternate = {"tableProperty"})
     private TableProperty tableProperty;
 
     @SerializedName(value = "aIncg")
@@ -1149,6 +1149,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return partition;
     }
 
+    public void getVersionInBatchForCloudMode(Collection<Long> partitionIds) {
+        if (Config.isCloudMode()) { // do nothing for non-cloud mode
+            List<CloudPartition> partitions = partitionIds.stream()
+                    .sorted()
+                    .map(this::getPartition)
+                    .map(partition -> (CloudPartition) partition)
+                    .collect(Collectors.toList());
+            try {
+                CloudPartition.getSnapshotVisibleVersion(partitions);
+            } catch (RpcException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
     // select the non-empty partition ids belonging to this table.
     //
     // ATTN: partitions not belonging to this table will be filtered.
@@ -1309,12 +1324,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return null;
     }
 
-    public void setEnableDeleteOnDeletePredicate(boolean enable) {
-        getOrCreatTableProperty().setEnableDeleteOnDeletePredicate(enable);
+    public void setEnableMowLightDelete(boolean enable) {
+        getOrCreatTableProperty().setEnableMowLightDelete(enable);
     }
 
-    public boolean getEnableDeleteOnDeletePredicate() {
-        return getOrCreatTableProperty().getEnableDelteOnDeletePredicate();
+    public boolean getEnableMowLightDelete() {
+        return getOrCreatTableProperty().getEnableMowLightDelete();
     }
 
     public void setGroupCommitIntervalMs(int groupCommitInterValMs) {
@@ -2974,5 +2989,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public long getReplicaCount() {
         return statistics.getReplicaCount();
+    }
+
+    public boolean isShadowIndex(long indexId) {
+        String indexName = getIndexNameById(indexId);
+        if (indexName != null && indexName.startsWith(org.apache.doris.alter.SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+            return true;
+        } else {
+            return false;
+        }
     }
 }

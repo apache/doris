@@ -116,12 +116,7 @@ DEFINE_mInt32(max_fill_rate, "2");
 
 DEFINE_mInt32(double_resize_threshold, "23");
 
-// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
-// actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
-// with large memory larger than 16G.
-// Turn up max. On machines with more than 16G memory, more memory buffers will be reserved for Full GC.
-// Turn down max. will use as much memory as possible.
-DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
+DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "6871947673");
 
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 DEFINE_mString(process_minor_gc_size, "10%");
@@ -139,7 +134,7 @@ DEFINE_mBool(enable_stacktrace_in_allocator_check_failed, "false");
 
 DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
-DEFINE_mBool(enable_memory_orphan_check, "true");
+DEFINE_mBool(enable_memory_orphan_check, "false");
 
 // The maximum time a thread waits for full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -255,6 +250,7 @@ DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
 DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
 DEFINE_mInt32(fetch_rpc_timeout_seconds, "30");
+
 // default thrift client retry interval (in milliseconds)
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
 // max message size of thrift request
@@ -321,7 +317,7 @@ DEFINE_mInt32(garbage_sweep_batch_size, "100");
 DEFINE_mInt32(snapshot_expire_time_sec, "172800");
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
-DEFINE_mInt32(trash_file_expire_time_sec, "259200");
+DEFINE_mInt32(trash_file_expire_time_sec, "86400");
 // minimum file descriptor number
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
@@ -567,6 +563,7 @@ DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
 DEFINE_mBool(enable_je_purge_dirty_pages, "true");
+DEFINE_mString(je_dirty_pages_mem_limit_percent, "5%");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
@@ -692,6 +689,9 @@ DEFINE_Int32(high_priority_flush_thread_num_per_store, "6");
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DEFINE_Int32(max_flush_thread_num_per_cpu, "4");
+
+DEFINE_mInt32(wg_flush_thread_num_per_store, "6");
+DEFINE_mInt32(wg_flush_thread_num_per_cpu, "4");
 
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -1003,8 +1003,6 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
-// only cache index pages (prerequisite: enable_file_cache = true)
-DEFINE_Bool(file_cache_index_only, "false");
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
@@ -1072,7 +1070,7 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_mInt32(segment_cache_capacity, "-1");
-DEFINE_mInt32(estimated_num_columns_per_segment, "30");
+DEFINE_mInt32(estimated_num_columns_per_segment, "200");
 DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
 // The value is calculate by storage_page_cache_limit * index_page_cache_percentage
 DEFINE_mInt32(segment_cache_memory_percentage, "2");
@@ -1166,14 +1164,10 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
-DEFINE_mBool(enable_cgroup_cpu_soft_limit, "true");
 
 DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
-
-// Dir of default timezone files
-DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
@@ -1320,6 +1314,13 @@ DEFINE_Int64(min_row_group_size, "134217728");
 DEFINE_mInt64(compaction_memory_bytes_limit, "1073741824");
 
 DEFINE_mInt64(compaction_batch_size, "-1");
+
+// If set to false, the parquet reader will not use page index to filter data.
+// This is only for debug purpose, in case sometimes the page index
+// filter wrong data.
+DEFINE_mBool(enable_parquet_page_index, "true");
+
+DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 
 // clang-format off
 #ifdef BE_TEST

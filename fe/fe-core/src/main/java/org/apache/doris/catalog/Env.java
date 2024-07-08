@@ -1590,8 +1590,15 @@ public class Env {
                                 SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
                     }
                 }
-                if (journalVersion <= FeMetaVersion.VERSION_133) {
-                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                if (journalVersion <= FeMetaVersion.VERSION_129) {
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0", SessionVariable.ENABLE_NEREIDS_PLANNER,
+                            "true");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0", SessionVariable.ENABLE_NEREIDS_DML,
+                            "true");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0",
+                            SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
+                            "false");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0",
                             SessionVariable.ENABLE_MATERIALIZED_VIEW_REWRITE,
                             "true");
                 }
@@ -3589,9 +3596,9 @@ public class Env {
 
         // enable delete on delete predicate
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE)
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
                     .append("\" = \"");
-            sb.append(olapTable.getEnableDeleteOnDeletePredicate()).append("\"");
+            sb.append(olapTable.getEnableMowLightDelete()).append("\"");
         }
 
         // enable duplicate without keys by default
@@ -4630,7 +4637,8 @@ public class Env {
                 db.unregisterTable(oldTableName);
                 db.registerTable(table);
 
-                TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
+                TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), oldTableName,
+                        newTableName);
                 editLog.logTableRename(tableInfo);
                 LOG.info("rename table[{}] to {}", oldTableName, newTableName);
             } finally {
@@ -4817,7 +4825,8 @@ public class Env {
             indexNameToIdMap.put(newRollupName, indexId);
 
             // log
-            TableInfo tableInfo = TableInfo.createForRollupRename(db.getId(), table.getId(), indexId, newRollupName);
+            TableInfo tableInfo = TableInfo.createForRollupRename(db.getId(), table.getId(), indexId,
+                    rollupName, newRollupName);
             editLog.logRollupRename(tableInfo);
             LOG.info("rename rollup[{}] to {}", rollupName, newRollupName);
         } finally {
@@ -4876,7 +4885,7 @@ public class Env {
 
             // log
             TableInfo tableInfo = TableInfo.createForPartitionRename(db.getId(), table.getId(), partition.getId(),
-                    newPartitionName);
+                    partitionName, newPartitionName);
             editLog.logPartitionRename(tableInfo);
             LOG.info("rename partition[{}] to {}", partitionName, newPartitionName);
         } finally {
@@ -5577,8 +5586,10 @@ public class Env {
      * otherwise, it will only truncate those specified partitions.
      *
      */
-    public void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException {
-        getInternalCatalog().truncateTable(truncateTableStmt);
+    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getTblRef().getName().getCtl(),
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.truncateTable(stmt);
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
@@ -6268,6 +6279,11 @@ public class Env {
 
             OlapTable olapTable = (OlapTable) table;
             getTableMeta(olapTable, dbMeta);
+        }
+
+        if (Config.enable_feature_binlog) {
+            BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
+            dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
         }
 
         result.setDbMeta(dbMeta);

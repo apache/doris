@@ -86,8 +86,6 @@ public class TimeUtils {
     public static Date MAX_DATETIME = null;
 
     static {
-        TIME_ZONE = ZoneId.of("UTC+8");
-
         Map<String, String> timeZoneMap = Maps.newHashMap();
         timeZoneMap.putAll(ZoneId.SHORT_IDS);
 
@@ -98,7 +96,7 @@ public class TimeUtils {
         timeZoneMap.put("GMT", UTC_TIME_ZONE);
 
         timeZoneAliasMap = ImmutableMap.copyOf(timeZoneMap);
-
+        TIME_ZONE = getSystemTimeZone().toZoneId();
         DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         DATE_FORMAT.withZone(TIME_ZONE);
 

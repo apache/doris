@@ -105,10 +105,14 @@ suite("test_partition_stats") {
     // Don't record partition update rows until first analyze finish.
     def result = sql """show table stats part partition(*)"""
     assertEquals(0, result.size())
-    sql """analyze table part with sync;"""
+    sql """analyze table part properties("use.auto.analyzer"="true");"""
     result = sql """show table stats part"""
     assertEquals(1, result.size())
     assertEquals("0", result[0][0])
+    result = sql """show auto analyze part"""
+    assertEquals(1, result.size())
+    assertEquals("true", result[0][15])
+
 
     // Test show cached partition stats.
     sql """analyze table part with sync;"""
@@ -202,7 +206,7 @@ suite("test_partition_stats") {
     result = sql """select * from internal.__internal_schema.partition_statistics where tbl_id = ${tblIdPart1}"""
     assertEquals(0, result.size())
 
-    // Test analyze table after drop partition
+    // Test analyze table after drop partition, test show table column stats
     sql """drop database if exists test_partition_stats"""
     sql """create database test_partition_stats"""
     sql """use test_partition_stats"""
@@ -230,9 +234,52 @@ suite("test_partition_stats") {
         "replication_allocation" = "tag.location.default: 1"
     )
     """
+    result = sql """show table stats part2 partition(*) (id)"""
+    assertEquals(0, result.size())
+    result = sql """show table stats part2 partition(*) (colint, coltinyint, colsmallint, colbigint, collargeint, colfloat, coldouble, coldecimal)"""
+    assertEquals(0, result.size())
     sql """analyze table part2 with sync;"""
+    result = sql """show table stats part2 partition(*) (id)"""
+    assertEquals(3, result.size())
+    result = sql """show table stats part2 partition(*) (colint, coltinyint, colsmallint, colbigint, collargeint, colfloat, coldouble, coldecimal)"""
+    assertEquals(24, result.size())
+    result = sql """show table stats part2 partition(p1, p2) (id, colint)"""
+    assertEquals(4, result.size())
+    result = sql """show table stats part2 partition(p1) (id)"""
+    assertEquals(1, result.size())
+    assertEquals("part2", result[0][0])
+    assertEquals("id", result[0][1])
+    assertEquals("p1", result[0][2])
+    assertEquals("0", result[0][3])
+
     sql """Insert into part2 values (1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1), (2, 2, 2, 2, 2, 2, 2.2, 2.2, 2.2), (3, 3, 3, 3, 3, 3, 3.3, 3.3, 3.3),(4, 4, 4, 4, 4, 4, 4.4, 4.4, 4.4),(5, 5, 5, 5, 5, 5, 5.5, 5.5, 5.5),(6, 6, 6, 6, 6, 6, 6.6, 6.6, 6.6),(10001, 10001, 10001, 10001, 10001, 10001, 10001.10001, 10001.10001, 10001.10001),(10002, 10002, 10002, 10002, 10002, 10002, 10002.10002, 10002.10002, 10002.10002),(10003, 10003, 10003, 10003, 10003, 10003, 10003.10003, 10003.10003, 10003.10003),(10004, 10004, 10004, 10004, 10004, 10004, 10004.10004, 10004.10004, 10004.10004),(10005, 10005, 10005, 10005, 10005, 10005, 10005.10005, 10005.10005, 10005.10005),(10006, 10006, 10006, 10006, 10006, 10006, 10006.10006, 10006.10006, 10006.10006),(20001, 20001, 20001, 20001, 20001, 20001, 20001.20001, 20001.20001, 20001.20001),(20002, 20002, 20002, 20002, 20002, 20002, 20002.20002, 20002.20002, 20002.20002),(20003, 20003, 20003, 20003, 20003, 20003, 20003.20003, 20003.20003, 20003.20003),(20004, 20004, 20004, 20004, 20004, 20004, 20004.20004, 20004.20004, 20004.20004),(20005, 20005, 20005, 20005, 20005, 20005, 20005.20005, 20005.20005, 20005.20005),(20006, 20006, 20006, 20006, 20006, 20006, 20006.20006, 20006.20006, 20006.20006)"""
+    result = sql """show table stats part2 partition(*) (id)"""
+    assertEquals(3, result.size())
+    result = sql """show table stats part2 partition(*) (colint, coltinyint, colsmallint, colbigint, collargeint, colfloat, coldouble, coldecimal)"""
+    assertEquals(24, result.size())
+    result = sql """show table stats part2 partition(p1, p2) (id, colint)"""
+    assertEquals(4, result.size())
+    result = sql """show table stats part2 partition(p1) (id)"""
+    assertEquals(1, result.size())
+    assertEquals("part2", result[0][0])
+    assertEquals("id", result[0][1])
+    assertEquals("p1", result[0][2])
+    assertEquals("0", result[0][3])
+
     sql """analyze table part2 with sync;"""
+    result = sql """show table stats part2 partition(*) (id)"""
+    assertEquals(3, result.size())
+    result = sql """show table stats part2 partition(*) (colint, coltinyint, colsmallint, colbigint, collargeint, colfloat, coldouble, coldecimal)"""
+    assertEquals(24, result.size())
+    result = sql """show table stats part2 partition(p1, p2) (id, colint)"""
+    assertEquals(4, result.size())
+    result = sql """show table stats part2 partition(p1) (id)"""
+    assertEquals(1, result.size())
+    assertEquals("part2", result[0][0])
+    assertEquals("id", result[0][1])
+    assertEquals("p1", result[0][2])
+    assertEquals("6", result[0][3])
+
     result = sql """show column stats part2"""
     assertEquals(9, result.size())
     assertEquals("18.0", result[0][2])
@@ -927,6 +974,33 @@ suite("test_partition_stats") {
     assertEquals("0.0", result[0][4])
     assertEquals("1", result[0][7])
     assertEquals("20004", result[0][8])
+
+    // Test escape special col name.
+    sql """
+        create table part9(
+            k int null,
+            v variant null
+        )
+        duplicate key (k)
+        PARTITION BY RANGE(`k`)
+        (
+            PARTITION p1 VALUES [("0"), ("2")),
+            PARTITION p2 VALUES [("2"), ("4")),
+            PARTITION p3 VALUES [("4"), ("6"))
+        )
+        distributed BY hash(k) buckets 3
+        properties("replication_num" = "1");
+    """
+    sql """insert into part9 select 1,'{"k1" : 1, "k2" : 1, "k3" : "a"}';"""
+    sql """insert into part9 select 2,'{"k1" : 2, "k2" : 2, "k3" : "b"}';"""
+    sql """insert into part9 select 3,'{"k1" : 3, "k2" : null, "k3" : "c"}';"""
+    sql """insert into part9 select 4,'{"k1" : 4, "k2" : null, "k4" : {"k44" : 456}}';"""
+    createMV("create materialized view mv1 as select abs(cast(v['k4']['k44'] as int)), sum(abs(cast(v['k2'] as int)+2)+3) from part9 group by abs(cast(v['k4']['k44'] as int));")
+    sql """analyze table part9 with sync"""
+    result = sql """show column cached stats part9 partition(*)"""
+    assertEquals(9, result.size())
+    result = sql """show column stats part9 partition(*)"""
+    assertEquals(9, result.size())
 
     sql """drop database test_partition_stats"""
 }
