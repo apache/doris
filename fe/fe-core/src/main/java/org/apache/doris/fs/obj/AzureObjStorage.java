@@ -304,7 +304,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         int earliestSpecialCharIndex = length;
 
         char[] specialChars = {'*', '?', '[', '{', '\\'};
-        
+
         for (char specialChar : specialChars) {
             int index = globPattern.indexOf(specialChar);
             if (index != -1 && index < earliestSpecialCharIndex) {
@@ -316,9 +316,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        long round_cnt = 0;
-        long element_cnt = 0;
-        long match_cnt = 0;
+        long roundCnt = 0;
+        long elementCnt = 0;
+        long matchCnt = 0;
         long startTime = System.nanoTime();
         Status st = Status.OK;
         try {
@@ -336,18 +336,18 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
             String newContinuationToken = null;
             do {
-                round_cnt++;
+                roundCnt++;
                 PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
                 PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
 
                 for (BlobItem blobItem : pagedResponse.getElements()) {
-                    element_cnt++;
+                    elementCnt++;
                     java.nio.file.Path blobPath = Paths.get(blobItem.getName());
 
-                    if (matcher.matches(blobPath)) {
+                    if (!matcher.matches(blobPath)) {
                         continue;
                     }
-                    match_cnt++;
+                    matchCnt++;
                     RemoteFile remoteFile = new RemoteFile(
                             fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
                                     uri.getBucket()),
@@ -370,9 +370,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
-            LOG.info("process {} elements under prefix {} for {} round, match {} elements， cost {} nanosecond",
-                    remotePath, element_cnt, match_cnt, round_cnt,
-                    duration);
+            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
+                    remotePath, elementCnt, matchCnt, roundCnt,
+                    duration / 1000);
         }
         return st;
     }
