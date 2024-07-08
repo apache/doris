@@ -23,10 +23,12 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -43,6 +45,23 @@ public class UnassignedScanSingleRemoteTableJob extends AbstractUnassignedScanJo
             ScanWorkerSelector scanWorkerSelector) {
         super(fragment, ImmutableList.of(scanNode), exchangeToChildJob);
         this.scanWorkerSelector = Objects.requireNonNull(scanWorkerSelector, "scanWorkerSelector is not null");
+    }
+
+    @Override
+    public List<AssignedJob> computeAssignedJobs(DistributedPlanWorkerManager workerManager,
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        List<AssignedJob> assignedJobs = super.computeAssignedJobs(workerManager, inputJobs);
+        if (assignedJobs.isEmpty()) {
+            // the file scan have pruned, so no assignedJobs,
+            // we should allocate an instance of it,
+            assignedJobs = ImmutableList.of(
+                    assignWorkerAndDataSources(0,
+                            ConnectContext.get().nextInstanceId(),
+                            workerManager.randomAvailableWorker(),
+                            DefaultScanSource.empty())
+            );
+        }
+        return assignedJobs;
     }
 
     @Override
