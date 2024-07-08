@@ -316,6 +316,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        long cnt = 0;
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String globPath = uri.getKey();
@@ -331,10 +332,12 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
             String newContinuationToken = null;
             do {
+                long startTime = System.nanoTime();
                 PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
                 PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
 
                 for (BlobItem blobItem : pagedResponse.getElements()) {
+                    cnt++;
                     java.nio.file.Path blobPath = Paths.get(blobItem.getName());
 
                     if (matcher.matches(blobPath)) {
@@ -348,6 +351,11 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                         result.add(remoteFile);
                     }
                 }
+                long endTime = System.nanoTime();
+                long duration = endTime - startTime;
+                LOG.info("process {} elements under prefix {} for one round， cost {} nanosecond", cnt, listPrefix,
+                        duration);
+                cnt = 0;
                 newContinuationToken = pagedResponse.getContinuationToken();
             } while (newContinuationToken != null);
 
