@@ -140,7 +140,8 @@ public class MasterImpl {
                         && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION
                         && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO
                         && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
-                        && taskType != TTaskType.CALCULATE_DELETE_BITMAP) {
+                        && taskType != TTaskType.CALCULATE_DELETE_BITMAP
+                        && taskType != TTaskType.REALTIME_PUSH) {
                     return result;
                 }
             }
@@ -153,7 +154,6 @@ public class MasterImpl {
                     finishCreateReplica(task, request);
                     break;
                 case REALTIME_PUSH:
-                    checkHasTabletInfo(request);
                     Preconditions.checkState(request.isSetReportVersion());
                     finishRealtimePush(task, request);
                     break;
@@ -301,16 +301,32 @@ public class MasterImpl {
         }
     }
 
-    private void finishRealtimePush(AgentTask task, TFinishTaskRequest request) {
-        List<TTabletInfo> finishTabletInfos = request.getFinishTabletInfos();
-        Preconditions.checkState(finishTabletInfos != null && !finishTabletInfos.isEmpty());
-
+    private void finishRealtimePush(AgentTask task, TFinishTaskRequest request) throws Exception {
         PushTask pushTask = (PushTask) task;
 
         long dbId = pushTask.getDbId();
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
         long transactionId = ((PushTask) task).getTransactionId();
+
+        if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+            if (pushTask.getPushType() == TPushType.DELETE) {
+                // DeleteHandler may return status code DELETE_INVALID_CONDITION and DELETE_INVALID_PARAMETERS,
+                // we don't need to retry if meet them.
+                // note that they will be converted to TStatusCode.INTERNAL_ERROR when being sent from be to fe
+                if (request.getTaskStatus().getStatusCode() == TStatusCode.INTERNAL_ERROR) {
+                    pushTask.countDownToZero(request.getTaskStatus().getStatusCode(),
+                            task.getBackendId() + ": " + request.getTaskStatus().getErrorMsgs().toString());
+                    AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
+                    LOG.warn("finish push replica error: {}", request.getTaskStatus().getErrorMsgs().toString());
+                }
+            }
+            return;
+        }
+
+        checkHasTabletInfo(request);
+        List<TTabletInfo> finishTabletInfos = request.getFinishTabletInfos();
+
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);

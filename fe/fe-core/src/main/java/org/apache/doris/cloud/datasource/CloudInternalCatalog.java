@@ -63,6 +63,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
 
@@ -157,7 +158,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
             List<String> rowStoreColumns =
-                                                tbl.getTableProperty().getCopiedRowStoreColumns();
+                    tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet tablet : index.getTablets()) {
                 OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
@@ -171,6 +172,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                        tbl.getEnableMowLightDelete(),
+                        tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowColumnPageSize());
                 requestBuilder.addTabletMetas(builder);
             }
@@ -218,7 +221,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-            List<Integer> rowStoreColumnUniqueIds, long pageSize) throws DdlException {
+            List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -335,7 +339,15 @@ public class CloudInternalCatalog extends InternalCatalog {
             schemaBuilder.addAllRowStoreColumnUniqueIds(rowStoreColumnUniqueIds);
         }
         schemaBuilder.setDisableAutoCompaction(disableAutoCompaction);
+        schemaBuilder.setEnableMowLightDelete(enableMowLightDelete);
 
+        if (invertedIndexFileStorageFormat != null) {
+            if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
+                schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
+            } else {
+                schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
+            }
+        }
         schemaBuilder.setRowColumnPageSize(pageSize);
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();

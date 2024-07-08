@@ -158,10 +158,10 @@ DECLARE_mInt32(max_fill_rate);
 
 DECLARE_mInt32(double_resize_threshold);
 
-// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
-// actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
-// with large memory larger than 16G.
-// Turn up max. On machines with more than 16G memory, more memory buffers will be reserved for Full GC.
+// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 6.4G,
+// actual low water mark=min(6.4G, MemTotal * 10%), avoid wasting too much memory on machines
+// with large memory larger than 64G.
+// Turn up max. On machines with more than 64G memory, more memory buffers will be reserved for Full GC.
 // Turn down max. will use as much memory as possible.
 DECLARE_Int64(max_sys_mem_available_low_water_mark_bytes);
 
@@ -619,6 +619,8 @@ DECLARE_String(pprof_profile_dir);
 DECLARE_mString(jeprofile_dir);
 // Purge all unused dirty pages for all arenas.
 DECLARE_mBool(enable_je_purge_dirty_pages);
+// Purge all unused Jemalloc dirty pages for all arenas when exceed je_dirty_pages_mem_limit and process exceed soft limit.
+DECLARE_mString(je_dirty_pages_mem_limit_percent);
 
 // to forward compatibility, will be removed later
 DECLARE_mBool(enable_token_check);
