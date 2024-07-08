@@ -59,17 +59,10 @@ struct StreamingHtMinReductionEntry {
     double streaming_ht_min_reduction;
 };
 
-// TODO: experimentally tune these values and also programmatically get the cache size
-// of the machine that we're running on.
-static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
-        // Expand up to L2 cache always.
+static const StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
         {0, 0.0},
-        // Expand into L3 cache if we look like we're getting some reduction.
-        // At present, The L2 cache is generally 1024k or more
-        {1024 * 1024, 1.1},
-        // Expand into main memory if we're getting a significant reduction.
-        // The L3 cache is generally 16MB or more
-        {16 * 1024 * 1024, 2.0},
+        {256 * 1024, 1.1},
+        {2 * 1024 * 1024, 2.0},
 };
 
 static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
