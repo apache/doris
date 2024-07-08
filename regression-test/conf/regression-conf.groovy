@@ -91,6 +91,9 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "workload_manager_p1," +
     "cloud_p0/cache," +
     "zzz_the_end_sentinel_do_not_touch," +
+    "hdfs_vault_p2/default_vault_p2" +
+    "vaults/default" +
+    "s3_vault/default_vault_p2" +
     "dialect_compatible"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
