@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
@@ -44,6 +45,26 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
         this.scanWorkerSelector = Objects.requireNonNull(
                 scanWorkerSelector, "scanWorkerSelector cat not be null");
         this.olapScanNode = olapScanNode;
+    }
+
+    @Override
+    public List<AssignedJob> computeAssignedJobs(DistributedPlanWorkerManager workerManager,
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        List<AssignedJob> assignedJobs = super.computeAssignedJobs(workerManager, inputJobs);
+        if (assignedJobs.isEmpty()) {
+            // the tablets have pruned, so no assignedJobs,
+            // we should allocate an instance of it,
+            //
+            // for example: SELECT * FROM tbl TABLET(1234)
+            // if the tablet 1234 not exists
+            assignedJobs = ImmutableList.of(
+                    assignWorkerAndDataSources(0,
+                            ConnectContext.get().nextInstanceId(),
+                            workerManager.randomAvailableWorker(),
+                            DefaultScanSource.empty())
+            );
+        }
+        return assignedJobs;
     }
 
     @Override
