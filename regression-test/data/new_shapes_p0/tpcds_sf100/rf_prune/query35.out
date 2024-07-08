@@ -37,7 +37,7 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer_demographics.cd_demo_sk = c.c_current_cdemo_sk)) otherCondition=()
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=()
+--------------------------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=()
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[customer]
 ----------------------------------PhysicalProject

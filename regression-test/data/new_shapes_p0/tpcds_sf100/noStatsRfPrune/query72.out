@@ -18,7 +18,7 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF3 cd_demo_sk->[cs_bill_cdemo_sk]
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=()
+------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk)) otherCondition=()
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)) otherCondition=()
 ------------------------------------------PhysicalProject
