@@ -9,4 +9,3 @@ CREATE CATALOG `hive` PROPERTIES (
 );
 
 ALTER SYSTEM ADD BACKEND 'doris-hudi-env:9050';
-
