@@ -2980,9 +2980,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Env.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
             if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
+                // edit log write DropTableInfo will also remove colocate group
                 GroupId groupId = Env.getCurrentColocateIndex().getGroup(tableId);
                 Env.getCurrentColocateIndex().removeTable(tableId);
-                // edit log write DropTableInfo will also remove colocate group
             }
             try {
                 dropTable(db, tableId, true, 0L);
