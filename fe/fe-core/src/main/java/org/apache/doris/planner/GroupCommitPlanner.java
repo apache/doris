@@ -193,7 +193,8 @@ public class GroupCommitPlanner {
         if (expr instanceof NullLiteral) {
             row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
         } else if (expr.getType() instanceof ArrayType) {
-            row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForArray()));
+            row.addColBuilder().setValue(String.format("\"%s\"",
+                    expr.getStringValueForArray(FormatOptions.getDefault())));
         } else if (!expr.getChildren().isEmpty()) {
             expr.getChildren().forEach(child -> processExprVal(child, row));
         } else {
