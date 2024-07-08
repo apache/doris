@@ -328,14 +328,12 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
 Status ColumnReader::new_inverted_index_iterator(
         std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta,
         const StorageReadOptions& read_options, std::unique_ptr<InvertedIndexIterator>* iterator) {
-    RETURN_IF_ERROR(_ensure_inverted_index_loaded(std::move(index_file_reader), index_meta));
-    {
-        std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
-        if (_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
-                                                          read_options.runtime_state, iterator));
-        }
+    if (_inverted_index == nullptr) {
+        RETURN_IF_ERROR(_new_inverted_index_reader.call(
+                [&] { return _ensure_inverted_index_loaded(index_file_reader, index_meta); }));
     }
+    RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats, read_options.runtime_state,
+                                                  iterator));
     return Status::OK();
 }
 
