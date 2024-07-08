@@ -222,7 +222,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 st = block->finalize();
             }
             if (!st.ok()) {
-                LOG_WARNING("Write data to file cache failed").error(st);
+                LOG_EVERY_N(WARNING, 100) << "Write data to file cache failed. err=" << st.msg();
             } else {
                 _insert_file_reader(block);
             }

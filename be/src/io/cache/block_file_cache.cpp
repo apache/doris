@@ -619,10 +619,15 @@ void BlockFileCache::fill_holes_with_empty_file_blocks(FileBlocks& file_blocks,
 }
 
 FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
-                                            const CacheContext& context) {
+                                            CacheContext& context) {
     FileBlock::Range range(offset, offset + size - 1);
 
     std::lock_guard cache_lock(_mutex);
+    if (auto iter = _key_to_time.find(hash);
+        context.cache_type == FileCacheType::INDEX && iter != _key_to_time.end()) {
+        context.cache_type = FileCacheType::TTL;
+        context.expiration_time = iter->second;
+    }
 
     /// Get all blocks which intersect with the given range.
     auto file_blocks = get_impl(hash, context, range, cache_lock);
