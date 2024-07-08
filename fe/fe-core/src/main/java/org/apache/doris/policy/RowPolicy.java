@@ -175,7 +175,8 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
         } catch (Exception e) {
             String errorMsg = String.format("table policy parse originStmt error, originStmt: %s, stmtIdx: %s.",
                     originStmt, stmtIdx);
-            throw new IOException(errorMsg, e);
+            // Only print logs to avoid cluster failure to start
+            LOG.warn(errorMsg, e);
         }
     }
 
