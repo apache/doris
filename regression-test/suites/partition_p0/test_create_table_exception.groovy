@@ -128,12 +128,17 @@ suite("test_create_table_exception") {
             createTable(2)
             checkResult()
 
+            sleep 1000
             cluster.restartFrontends(cluster.getMasterFe().index)
             sleep 32_000
-            reconnectFe()
-            checkResult()
+            def newMasterFe = cluster.getMasterFe()
+            def newMasterFeUrl =  "jdbc:mysql://${newMasterFe.host}:${newMasterFe.queryPort}/?useLocalSessionState=false&allowLoadLocalInfile=false"
+            newMasterFeUrl = context.config.buildUrlWithDb(newMasterFeUrl, context.dbName)
+            connect('root', '', newMasterFeUrl) {
+                checkResult()
+            }
+
         } finally {
-            GetDebugPoint().disableDebugPointForAllFEs('FE.createOlapTable.exception')
         }
     }
 }

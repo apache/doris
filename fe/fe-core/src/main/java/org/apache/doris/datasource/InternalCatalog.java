@@ -2979,7 +2979,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             for (Long tabletId : tabletIdSet) {
                 Env.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
-            // edit log write DropTableInfo will also remove colocate group
+            // edit log write DropTableInfo will result in deleting colocate group,
+            // but follow fe may need wait 30s (recycle bin mgr run every 30s).
             if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                 Env.getCurrentColocateIndex().removeTable(tableId);
             }
