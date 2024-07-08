@@ -79,7 +79,7 @@ Suite.metaClass.checkRecycleTable = { String token, String instanceId, String cl
         // def objectListing = s3Client.listObjects(
         //     new ListObjectsRequest().withMaxKeys(1).withBucketName(bucket).withPrefix("${prefix}/data/${tabletId}/"))
 
-        suite.getLogger().info("tableName: ${tableName}, tabletId:${tabletId}, objectListing:${objectListing.getObjectSummaries()}".toString())
+        // suite.getLogger().info("tableName: ${tableName}, tabletId:${tabletId}, objectListing:${objectListing.getObjectSummaries()}".toString())
         if (!client.isEmpty(tableName, tabletId)) {
             return false;
         }
