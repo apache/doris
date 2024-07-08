@@ -490,14 +490,8 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-<<<<<<< HEAD
     s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
-                                       input_rs_readers, output_rs_writer.get(), 100, &stats);
-=======
-    auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
-                                            *tablet_schema, input_rs_readers,
-                                            output_rs_writer.get(), 100, num_segments, &stats);
->>>>>>> 6969ad0596 ([enhancement](compaction) optimizing memory usage for compaction (#37099))
+                                       input_rs_readers, output_rs_writer.get(), 100, num_segments, &stats);
     ASSERT_TRUE(s.ok()) << s;
     RowsetSharedPtr out_rowset;
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
@@ -603,14 +597,8 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-<<<<<<< HEAD
     s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
-                                       input_rs_readers, output_rs_writer.get(), 100, &stats);
-=======
-    auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
-                                            *tablet_schema, input_rs_readers,
-                                            output_rs_writer.get(), 100, num_segments, &stats);
->>>>>>> 6969ad0596 ([enhancement](compaction) optimizing memory usage for compaction (#37099))
+                                       input_rs_readers, output_rs_writer.get(), 100, num_segments, &stats);
     ASSERT_TRUE(s.ok()) << s;
     RowsetSharedPtr out_rowset;
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
@@ -825,14 +813,8 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-<<<<<<< HEAD
     st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
-                                        input_rs_readers, output_rs_writer.get(), 100, &stats);
-=======
-    st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema,
-                                        input_rs_readers, output_rs_writer.get(), 100, num_segments,
-                                        &stats);
->>>>>>> 6969ad0596 ([enhancement](compaction) optimizing memory usage for compaction (#37099))
+                                        input_rs_readers, output_rs_writer.get(), 100, num_segments, &stats);
     ASSERT_TRUE(st.ok()) << st;
     RowsetSharedPtr out_rowset;
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
@@ -933,14 +915,8 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-<<<<<<< HEAD
     st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
-                                        input_rs_readers, output_rs_writer.get(), 100, &stats);
-=======
-    st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, *tablet_schema,
-                                        input_rs_readers, output_rs_writer.get(), 100, num_segments,
-                                        &stats);
->>>>>>> 6969ad0596 ([enhancement](compaction) optimizing memory usage for compaction (#37099))
+                                        input_rs_readers, output_rs_writer.get(), 100, num_segments, &stats);
     ASSERT_TRUE(st.ok()) << st;
     RowsetSharedPtr out_rowset;
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
@@ -1031,14 +1007,8 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     Merger::Statistics stats;
     RowIdConversion rowid_conversion;
     stats.rowid_conversion = &rowid_conversion;
-<<<<<<< HEAD
     s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
-                                       input_rs_readers, output_rs_writer.get(), 100, &stats);
-=======
-    auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
-                                            *tablet_schema, input_rs_readers,
-                                            output_rs_writer.get(), 100, num_segments, &stats);
->>>>>>> 6969ad0596 ([enhancement](compaction) optimizing memory usage for compaction (#37099))
+                                       input_rs_readers, output_rs_writer.get(), 100, num_segments, &stats);
     EXPECT_TRUE(s.ok());
     RowsetSharedPtr out_rowset;
     EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
