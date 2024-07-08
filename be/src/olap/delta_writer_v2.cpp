@@ -180,7 +180,7 @@ Status DeltaWriterV2::close() {
     return _memtable_writer->close();
 }
 
-Status DeltaWriterV2::close_wait(RuntimeProfile* profile) {
+Status DeltaWriterV2::close_wait(int32_t& num_segments, RuntimeProfile* profile) {
     SCOPED_RAW_TIMER(&_close_wait_time);
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
@@ -190,6 +190,7 @@ Status DeltaWriterV2::close_wait(RuntimeProfile* profile) {
         _update_profile(profile);
     }
     RETURN_IF_ERROR(_memtable_writer->close_wait(profile));
+    num_segments = _rowset_writer->next_segment_id();
 
     _delta_written_success = true;
     return Status::OK();
