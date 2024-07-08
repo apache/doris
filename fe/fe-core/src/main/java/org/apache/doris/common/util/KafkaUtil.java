@@ -160,64 +160,6 @@ public class KafkaUtil {
         }
     }
 
-    public static List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
-                                                             Map<String, String> convertedCustomProperties,
-                                                             List<Pair<Integer, Long>> offsets)
-                                                             throws LoadException {
-        // filter values greater than 0 as these offsets is real offset
-        // only update offset like OFFSET_BEGINNING or OFFSET_END
-        List<Pair<Integer, Long>> offsetFlags = new ArrayList<>();
-        List<Pair<Integer, Long>> realOffsets = new ArrayList<>();
-        for (Pair<Integer, Long> pair : offsets) {
-            if (pair.second < 0) {
-                offsetFlags.add(pair);
-            } else {
-                realOffsets.add(pair);
-            }
-        }
-        if (offsetFlags.size() == 0) {
-            LOG.info("do not need update and directly return offsets for partitions {} in topic: {}", offsets, topic);
-            return offsets;
-        }
-
-        try {
-            InternalService.PKafkaMetaProxyRequest.Builder metaRequestBuilder =
-                    InternalService.PKafkaMetaProxyRequest.newBuilder()
-                            .setKafkaInfo(InternalService.PKafkaLoadInfo.newBuilder()
-                                    .setBrokers(brokerList)
-                                    .setTopic(topic)
-                                    .addAllProperties(
-                                            convertedCustomProperties.entrySet().stream().map(
-                                                    e -> InternalService.PStringPair.newBuilder()
-                                                            .setKey(e.getKey())
-                                                            .setVal(e.getValue())
-                                                            .build()
-                                            ).collect(Collectors.toList())
-                                    )
-                            );
-            for (Pair<Integer, Long> pair : offsetFlags) {
-                metaRequestBuilder.addOffsetFlags(InternalService.PIntegerPair.newBuilder().setKey(pair.first)
-                        .setVal(pair.second).build());
-            }
-            InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
-                    metaRequestBuilder).setTimeoutSecs(Config.max_get_kafka_meta_timeout_second).build();
-            InternalService.PProxyResult result = getInfoRequest(request, Config.max_get_kafka_meta_timeout_second);
-
-            List<InternalService.PIntegerPair> pairs = result.getPartitionOffsets().getOffsetTimesList();
-            List<Pair<Integer, Long>> partitionOffsets = Lists.newArrayList();
-            for (InternalService.PIntegerPair pair : pairs) {
-                partitionOffsets.add(Pair.of(pair.getKey(), pair.getVal()));
-            }
-            realOffsets.addAll(partitionOffsets);
-            LOG.info("finish to get real offsets for partitions {} in topic: {}", realOffsets, topic);
-            return realOffsets;
-        } catch (Exception e) {
-            LOG.warn("failed to get real offsets.", e);
-            throw new LoadException(
-                    "Failed to get real offsets of kafka topic: " + topic + ". error: " + e.getMessage());
-        }
-    }
-
     private static InternalService.PProxyResult getInfoRequest(InternalService.PProxyRequest request, int timeout)
                                                         throws LoadException {
         int retryTimes = 0;
