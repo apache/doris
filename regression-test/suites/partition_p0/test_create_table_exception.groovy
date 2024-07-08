@@ -129,7 +129,7 @@ suite("test_create_table_exception") {
             checkResult()
 
             cluster.restartFrontends(cluster.getMasterFe().index)
-            sleep 30_000
+            sleep 32_000
             reconnectFe()
             checkResult()
         } finally {
