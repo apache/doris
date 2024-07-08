@@ -136,7 +136,7 @@ public:
     int64_t limit() const { return _limit; }
     int64_t offset() const { return _offset; }
 
-    void set_enable_spill(bool b) { _enable_spill = b; }
+    void set_enable_spill() { _enable_spill = true; }
 
 protected:
     Status partial_sort(Block& src_block, Block& dest_block);

@@ -60,24 +60,24 @@ public class Partition extends MetaObject {
 
     @SerializedName(value = "id")
     private long id;
-    @SerializedName(value = "name")
+    @SerializedName(value = "nm", alternate = {"name"})
     private String name;
-    @SerializedName(value = "state")
+    @SerializedName(value = "st", alternate = {"state"})
     private PartitionState state;
-    @SerializedName(value = "baseIndex")
+    @SerializedName(value = "bi", alternate = {"baseIndex"})
     private MaterializedIndex baseIndex;
     /**
      * Visible rollup indexes are indexes which are visible to user.
      * User can do query on them, show them in related 'show' stmt.
      */
-    @SerializedName(value = "idToVisibleRollupIndex")
+    @SerializedName(value = "ivr", alternate = {"idToVisibleRollupIndex"})
     private Map<Long, MaterializedIndex> idToVisibleRollupIndex = Maps.newHashMap();
     /**
      * Shadow indexes are indexes which are not visible to user.
      * Query will not run on these shadow indexes, and user can not see them neither.
      * But load process will load data into these shadow indexes.
      */
-    @SerializedName(value = "idToShadowIndex")
+    @SerializedName(value = "isi", alternate = {"idToShadowIndex"})
     private Map<Long, MaterializedIndex> idToShadowIndex = Maps.newHashMap();
 
     /**
@@ -88,21 +88,21 @@ public class Partition extends MetaObject {
 
     // not have committedVersion because committedVersion = nextVersion - 1
     @Deprecated
-    @SerializedName(value = "committedVersionHash")
+    @SerializedName(value = "cvh", alternate = {"committedVersionHash"})
     private long committedVersionHash;
-    @SerializedName(value = "visibleVersion")
+    @SerializedName(value = "vv", alternate = {"visibleVersion"})
     private long visibleVersion;
-    @SerializedName(value = "visibleVersionTime")
+    @SerializedName(value = "vvt", alternate = {"visibleVersionTime"})
     private long visibleVersionTime;
     @Deprecated
-    @SerializedName(value = "visibleVersionHash")
+    @SerializedName(value = "vvh", alternate = {"visibleVersionHash"})
     private long visibleVersionHash;
-    @SerializedName(value = "nextVersion")
+    @SerializedName(value = "nv", alternate = {"nextVersion"})
     protected long nextVersion;
     @Deprecated
-    @SerializedName(value = "nextVersionHash")
+    @SerializedName(value = "nvh", alternate = {"nextVersionHash"})
     private long nextVersionHash;
-    @SerializedName(value = "distributionInfo")
+    @SerializedName(value = "di", alternate = {"distributionInfo"})
     private DistributionInfo distributionInfo;
 
     protected Partition() {

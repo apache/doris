@@ -50,6 +50,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     private static final Logger LOG = LogManager.getLogger(AsyncMaterializationContext.class);
     private final MTMV mtmv;
+    private List<String> materializationQualifier;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -72,7 +73,10 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     @Override
     List<String> getMaterializationQualifier() {
-        return this.mtmv.getFullQualifiers();
+        if (this.materializationQualifier == null) {
+            this.materializationQualifier = this.mtmv.getFullQualifiers();
+        }
+        return this.materializationQualifier;
     }
 
     @Override
@@ -116,7 +120,12 @@ public class AsyncMaterializationContext extends MaterializationContext {
         if (!(relation instanceof PhysicalCatalogRelation)) {
             return false;
         }
-        return ((PhysicalCatalogRelation) relation).getTable() instanceof MTMV;
+        if (!(((PhysicalCatalogRelation) relation).getTable() instanceof MTMV)) {
+            return false;
+        }
+        return ((PhysicalCatalogRelation) relation).getTable().getFullQualifiers().equals(
+                this.getMaterializationQualifier()
+        );
     }
 
     public Plan getScanPlan() {

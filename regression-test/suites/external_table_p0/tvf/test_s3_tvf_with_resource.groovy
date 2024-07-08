@@ -177,6 +177,8 @@ suite("test_s3_tvf_with_resource", "p0") {
     }
 
     // test auth
+    def tokens = context.config.jdbcUrl.split('/')
+    def url=tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
     String user = 'test_s3_tvf_with_resource_user'
     String pwd = 'C123_567p'
     String viewName = "test_s3_tvf_with_resource_view"
@@ -203,7 +205,7 @@ suite("test_s3_tvf_with_resource", "p0") {
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
     }
     // not have usage priv, can not select tvf with resource
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user=user, password="${pwd}", url=url) {
         test {
                 sql """
                     SELECT * FROM S3 (
@@ -218,7 +220,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     }
 
     // only have select_priv of view,can select view with resource
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user=user, password="${pwd}", url=url) {
             sql """SELECT * FROM ${viewName};"""
     }
 
