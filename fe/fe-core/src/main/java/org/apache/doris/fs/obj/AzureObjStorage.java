@@ -316,7 +316,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        long rount_cnt = 0;
+        long round_cnt = 0;
+        long element_cnt = 0;
+        long match_cnt = 0;
         long startTime = System.nanoTime();
         Status st = Status.OK;
         try {
@@ -334,23 +336,26 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
             String newContinuationToken = null;
             do {
-                rount_cnt++;
+                round_cnt++;
                 PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
                 PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
 
                 for (BlobItem blobItem : pagedResponse.getElements()) {
+                    element_cnt++;
                     java.nio.file.Path blobPath = Paths.get(blobItem.getName());
 
                     if (matcher.matches(blobPath)) {
-                        RemoteFile remoteFile = new RemoteFile(
-                                fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
-                                        uri.getBucket()),
-                                !blobItem.isPrefix(),
-                                blobItem.isPrefix() ? -1 : blobItem.getProperties().getContentLength(),
-                                blobItem.getProperties().getContentLength(),
-                                blobItem.getProperties().getLastModified().getSecond());
-                        result.add(remoteFile);
+                        continue;
                     }
+                    match_cnt++;
+                    RemoteFile remoteFile = new RemoteFile(
+                            fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
+                                    uri.getBucket()),
+                            !blobItem.isPrefix(),
+                            blobItem.isPrefix() ? -1 : blobItem.getProperties().getContentLength(),
+                            blobItem.getProperties().getContentLength(),
+                            blobItem.getProperties().getLastModified().getSecond());
+                    result.add(remoteFile);
                 }
                 newContinuationToken = pagedResponse.getContinuationToken();
             } while (newContinuationToken != null);
@@ -365,7 +370,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
-            LOG.info("process elements under prefix {} for {} round， cost {} nanosecond", remotePath, rount_cnt,
+            LOG.info("process {} elements under prefix {} for {} round, match {} elements， cost {} nanosecond",
+                    remotePath, element_cnt, match_cnt, round_cnt,
                     duration);
         }
         return st;
