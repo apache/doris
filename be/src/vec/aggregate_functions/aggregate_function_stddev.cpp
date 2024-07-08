@@ -121,7 +121,6 @@ void register_aggregate_function_stddev_variance_samp_old(AggregateFunctionSimpl
             "variance_samp", create_aggregate_function_variance_samp_older<false, false>);
     factory.register_alternative_function(
             "variance_samp", create_aggregate_function_variance_samp_older<false, true>, true);
-    factory.register_alias("variance_samp", "var_samp");
     factory.register_alternative_function("stddev_samp",
                                           create_aggregate_function_stddev_samp_older<true, false>);
     factory.register_alternative_function(
