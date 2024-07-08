@@ -1001,13 +1001,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         return true;
     }
 
-    private void dropTable(Database db, long tableId, boolean isForceDrop,
+    private void dropTable(Database db, long tableId, boolean isForceDrop, boolean isReplay,
                           Long recycleTime) throws MetaNotFoundException {
         Table table = db.getTableOrMetaException(tableId);
         db.writeLock();
         table.writeLock();
         try {
-            unprotectDropTable(db, table, isForceDrop, true, recycleTime);
+            unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), tableId);
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
@@ -1018,7 +1018,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
             Long recycleTime) throws MetaNotFoundException {
-        dropTable(db, tableId, isForceDrop, recycleTime);
+        dropTable(db, tableId, isForceDrop, true, recycleTime);
     }
 
     public void replayEraseTable(long tableId) {
@@ -2804,7 +2804,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // if failed in any step, use this set to do clear things
         Set<Long> tabletIdSet = new HashSet<>();
         // create partition
-        boolean editlogCreateTable = false;
+        boolean hadLogEditCreateTable = false;
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 if (properties != null && !properties.isEmpty()) {
@@ -2949,7 +2949,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 LOG.info("duplicate create table[{};{}], skip next steps", tableName, tableId);
             } else {
                 // if table not exists, then db.createTableWithLock will write an editlog.
-                editlogCreateTable = true;
+                hadLogEditCreateTable = true;
 
                 // we have added these index to memory, only need to persist here
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
@@ -2985,8 +2985,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Env.getCurrentColocateIndex().removeTable(tableId);
             }
             try {
-                dropTable(db, tableId, true, 0L);
-                if (editlogCreateTable) {
+                dropTable(db, tableId, true, false, 0L);
+                if (hadLogEditCreateTable) {
                     DropInfo info = new DropInfo(db.getId(), tableId, olapTable.getName(), -1L, true, 0L);
                     Env.getCurrentEnv().getEditLog().logDropTable(info);
                 }
