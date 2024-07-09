@@ -91,6 +91,13 @@ public class PublishVersionDaemon extends MasterDaemon {
             LOG.warn("some transaction state need to publish, but no backend exists");
             return;
         }
+        traverseReadyTxnAndDispatchPublishVersionTask(readyTransactionStates, allBackends);
+        tryFinishTxn(readyTransactionStates, infoService, globalTransactionMgr, partitionVisibleVersions,
+                backendPartitions);
+    }
+
+    private void traverseReadyTxnAndDispatchPublishVersionTask(List<TransactionState> readyTransactionStates,
+            List<Long> allBackends) {
         long createPublishVersionTaskTime = System.currentTimeMillis();
         // every backend-transaction identified a single task
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -153,10 +160,28 @@ public class PublishVersionDaemon extends MasterDaemon {
         if (!batchTask.getAllTasks().isEmpty()) {
             AgentTaskExecutor.submit(batchTask);
         }
+    }
 
-        Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
+    private void tryFinishTxn(List<TransactionState> readyTransactionStates,
+            SystemInfoService infoService, GlobalTransactionMgr globalTransactionMgr,
+            Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
+            try {
+                // try to finish the transaction, if failed just retry in next loop
+                tryFinishOneTxn(transactionState, infoService, globalTransactionMgr, partitionVisibleVersions,
+                        backendPartitions);
+            } catch (Throwable t) {
+                LOG.error("errors while finish transaction: {}, publish tasks: {}", transactionState,
+                        transactionState.getPublishVersionTasks(), t);
+            }
+        } // end for readyTransactionStates
+    }
+
+    private void tryFinishOneTxn(TransactionState transactionState,
+            SystemInfoService infoService, GlobalTransactionMgr globalTransactionMgr,
+            Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
+            Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
             Stream<PublishVersionTask> publishVersionTaskStream = transactionState
                     .getPublishVersionTasks()
                     .values()
@@ -206,7 +231,6 @@ public class PublishVersionDaemon extends MasterDaemon {
                     MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishTime);
                 }
             }
-        } // end for readyTransactionStates
     }
 
     private Map<Long, Set<Long>> getBaseTabletIdsForEachBe(TransactionState transactionState,
