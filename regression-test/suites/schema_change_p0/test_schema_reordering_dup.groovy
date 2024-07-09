@@ -1,6 +1,6 @@
 suite("test_schema_reordering_dup", "p0") {
-    def tbName = "test_schema_reordering_unique"
-    def tbName2 = "test_schema_reordering_0"
+    def tbName = "test_schema_reordering_dup"
+    def tbName2 = "test_schema_reordering_dup_0"
     def initTable1 = ""
     def initTableData1 = ""
     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1  "
@@ -380,6 +380,107 @@ suite("test_schema_reordering_dup", "p0") {
         sql initTableData
         sql """ alter  table ${tbName} MODIFY  column t_int BIGINT KEY  AFTER username """
         insertSql = "insert into ${tbName} values(4, 'Emily Brown', 40, 92.0, 'San Francisco', 28, 2, 5556667778, true,  4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99);"
+        waitForSchemaChangeDone({
+            sql getTableStatusSql
+            time 60
+        }, insertSql, true, "${tbName}")
+    }, errorMessage)
+
+
+
+
+    /**
+     *  TODO Data doubling dup drop partition key
+     *
+     */
+    initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
+            "          (\n" +
+            "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
+            "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +
+            "              `score` DECIMAL(38,10) COMMENT \"分数\",\n" +
+            "              `city` CHAR(20) COMMENT \"用户所在城市\",\n" +
+            "              `age` SMALLINT COMMENT \"用户年龄\",\n" +
+            "              `sex` TINYINT COMMENT \"用户性别\",\n" +
+            "              `phone` LARGEINT COMMENT \"用户电话\",\n" +
+            "              `is_ok` BOOLEAN COMMENT \"是否完成\",\n" +
+            "              `t_int` INT COMMENT \"测试int\",\n" +
+            "              `t_bigint` BIGINT COMMENT \"测试BIGINT\",\n" +
+            "              `t_date` DATE COMMENT \"测试DATE\",\n" +
+            "              `t_datev2` DATEV2 COMMENT \"测试DATEV2\",\n" +
+            "              `t_datetimev2` DATETIMEV2 COMMENT \"测试DATETIMEV2\",\n" +
+            "              `t_datetime` DATETIME COMMENT \"用户注册时间\",\n" +
+            "              `t_string` STRING COMMENT \"测试string\",\n" +
+            "              `m` Map<STRING, INT> NULL COMMENT \"\",\n" +
+            "              `j` JSON NULL COMMENT \"\",\n" +
+            "              `t_decimal` DECIMAL(38,10) COMMENT \"测试decimal\",\n" +
+            "              `t_float` FLOAT COMMENT \"测试float\"\n" +
+            "          )\n" +
+            "          DUPLICATE KEY(`user_id`, `username`, `score`, `city`, `age`)\n" +
+            "          DISTRIBUTED BY HASH(`user_id`) BUCKETS 1\n" +
+            "          PROPERTIES (\n" +
+            "          \"replication_allocation\" = \"tag.location.default: 1\"\n" +
+            "          );"
+
+    initTableData = "insert into ${tbName} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99)," +
+            "               (2, 'Jane Smith', 85.2, 'Los Angeles', 30, 2, 9876543210, false, 20, 2000000000, '2024-06-12', '2024-06-12', '2024-06-12 09:45:00', '2024-06-12 09:45:00', 'Test String 2', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99)," +
+            "               (3, 'Mike Johnson', 77.8, 'Chicago', 35, 1, 1112223334, true, 30, 3000000000, '2024-06-13', '2024-06-13', '2024-06-13 11:15:00', '2024-06-13 11:15:00', 'Test String 3', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99)," +
+            "               (4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99)," +
+            "               (5, 'David Wilson', 88.9, 'Seattle', 32, 1, 9998887776, false, 50, 5000000000, '2024-06-15', '2024-06-15', '2024-06-15 15:45:00', '2024-06-15 15:45:00', 'Test String 5', {'a': 500, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99);"
+        sql initTable
+        sql initTableData
+        sql """ alter  table ${tbName} DROP  column age  """
+        insertSql = "insert into ${tbName} values(4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true,  4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99);"
+        waitForSchemaChangeDone({
+            sql getTableStatusSql
+            time 60
+        }, insertSql, false, "${tbName}")
+    sql """ DROP TABLE IF EXISTS ${tbName} """
+
+
+
+    /**
+     *  dup drop DISTRIBUTED key
+     *
+     */
+    initTable = " CREATE TABLE IF NOT EXISTS ${tbName}\n" +
+            "          (\n" +
+            "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
+            "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +
+            "              `score` DECIMAL(38,10) COMMENT \"分数\",\n" +
+            "              `city` CHAR(20) COMMENT \"用户所在城市\",\n" +
+            "              `age` SMALLINT COMMENT \"用户年龄\",\n" +
+            "              `sex` TINYINT COMMENT \"用户性别\",\n" +
+            "              `phone` LARGEINT COMMENT \"用户电话\",\n" +
+            "              `is_ok` BOOLEAN COMMENT \"是否完成\",\n" +
+            "              `t_int` INT COMMENT \"测试int\",\n" +
+            "              `t_bigint` BIGINT COMMENT \"测试BIGINT\",\n" +
+            "              `t_date` DATE COMMENT \"测试DATE\",\n" +
+            "              `t_datev2` DATEV2 COMMENT \"测试DATEV2\",\n" +
+            "              `t_datetimev2` DATETIMEV2 COMMENT \"测试DATETIMEV2\",\n" +
+            "              `t_datetime` DATETIME COMMENT \"用户注册时间\",\n" +
+            "              `t_string` STRING COMMENT \"测试string\",\n" +
+            "              `m` Map<STRING, INT> NULL COMMENT \"\",\n" +
+            "              `j` JSON NULL COMMENT \"\",\n" +
+            "              `t_decimal` DECIMAL(38,10) COMMENT \"测试decimal\",\n" +
+            "              `t_float` FLOAT COMMENT \"测试float\"\n" +
+            "          )\n" +
+            "          DUPLICATE KEY(`user_id` )\n" +
+            "          DISTRIBUTED BY HASH(`username`) BUCKETS 1\n" +
+            "          PROPERTIES (\n" +
+            "          \"replication_allocation\" = \"tag.location.default: 1\"\n" +
+            "          );"
+
+    initTableData = "insert into ${tbName} values(1, 'John Doe', 95.5, 'New York', 25, 1, 1234567890, true, 10, 1000000000, '2024-06-11', '2024-06-11', '2024-06-11 08:30:00', '2024-06-11 08:30:00', 'Test String 1', {'a': 100, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99)," +
+            "               (2, 'Jane Smith', 85.2, 'Los Angeles', 30, 2, 9876543210, false, 20, 2000000000, '2024-06-12', '2024-06-12', '2024-06-12 09:45:00', '2024-06-12 09:45:00', 'Test String 2', {'a': 200, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99)," +
+            "               (3, 'Mike Johnson', 77.8, 'Chicago', 35, 1, 1112223334, true, 30, 3000000000, '2024-06-13', '2024-06-13', '2024-06-13 11:15:00', '2024-06-13 11:15:00', 'Test String 3', {'a': 300, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99)," +
+            "               (4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true, 40, 4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99)," +
+            "               (5, 'David Wilson', 88.9, 'Seattle', 32, 1, 9998887776, false, 50, 5000000000, '2024-06-15', '2024-06-15', '2024-06-15 15:45:00', '2024-06-15 15:45:00', 'Test String 5', {'a': 500, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99);"
+    errorMessage = "errCode = 2, detailMessage = Table regression_test_schema_change_p0.test_schema_reordering_dup check failed"
+    expectException({
+        sql initTable
+        sql initTableData
+        sql """ alter  table ${tbName} DROP  column username  """
+        insertSql = "insert into ${tbName} values(4, 'Emily Brown', 92.0, 'San Francisco', 28, 2, 5556667778, true,  4000000000, '2024-06-14', '2024-06-14', '2024-06-14 13:30:00', '2024-06-14 13:30:00', 'Test String 4', {'a': 400, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99);"
         waitForSchemaChangeDone({
             sql getTableStatusSql
             time 60
