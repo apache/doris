@@ -144,7 +144,6 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     auto ctrl = static_cast<brpc::Controller*>(controller);                              \
     begin_rpc(#func_name, ctrl, request);                                                \
     brpc::ClosureGuard closure_guard(done);                                              \
-    [[maybe_unused]] std::stringstream ss;                                               \
     [[maybe_unused]] MetaServiceCode code = MetaServiceCode::OK;                         \
     [[maybe_unused]] std::string msg;                                                    \
     [[maybe_unused]] std::string instance_id;                                            \

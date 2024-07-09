@@ -231,6 +231,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
+        std::stringstream ss;
         ss << "failed to get instance, instance_id=" << instance_id << " err=" << err;
         msg = ss.str();
         return;
@@ -524,6 +525,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
     RPC_PREPROCESS(alter_obj_store_info);
+    std::stringstream ss;
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
     case AlterObjStoreInfoRequest::ADD_S3_VAULT:
@@ -880,6 +882,7 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
                                    const UpdateAkSkRequest* request, UpdateAkSkResponse* response,
                                    ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(update_ak_sk);
+    std::stringstream ss;
     instance_id = request->has_instance_id() ? request->instance_id() : "";
     if (instance_id.empty()) {
         msg = "instance id not set";
@@ -1396,6 +1399,7 @@ void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
                                    const GetInstanceRequest* request, GetInstanceResponse* response,
                                    ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_instance);
+    std::stringstream ss;
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1510,6 +1514,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                                     AlterClusterResponse* response,
                                     ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(alter_cluster);
+    std::stringstream ss;
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     instance_id = request->has_instance_id() ? request->instance_id() : "";
     if (!cloud_unique_id.empty() && instance_id.empty()) {
@@ -1847,6 +1852,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
                                   const GetClusterRequest* request, GetClusterResponse* response,
                                   ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_cluster);
+    std::stringstream ss;
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     std::string cluster_id = request->has_cluster_id() ? request->cluster_id() : "";
     std::string cluster_name = request->has_cluster_name() ? request->cluster_name() : "";
@@ -1974,6 +1980,7 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
                                    const CreateStageRequest* request, CreateStageResponse* response,
                                    ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(create_stage);
+    std::stringstream ss;
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2161,6 +2168,7 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
                                 const GetStageRequest* request, GetStageResponse* response,
                                 ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_stage);
+    std::stringstream ss;
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2549,6 +2557,7 @@ void MetaServiceImpl::get_iam(google::protobuf::RpcController* controller,
                               const GetIamRequest* request, GetIamResponse* response,
                               ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_iam);
+    std::stringstream ss;
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2646,6 +2655,7 @@ void MetaServiceImpl::alter_iam(google::protobuf::RpcController* controller,
                                 const AlterIamRequest* request, AlterIamResponse* response,
                                 ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(alter_iam);
+    std::stringstream ss;
     std::string arn_id = request->has_account_id() ? request->account_id() : "";
     std::string arn_ak = request->has_ak() ? request->ak() : "";
     std::string arn_sk = request->has_sk() ? request->sk() : "";
@@ -2736,6 +2746,7 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
                                      AlterRamUserResponse* response,
                                      ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(alter_ram_user);
+    std::stringstream ss;
     instance_id = request->has_instance_id() ? request->instance_id() : "";
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2861,8 +2872,7 @@ void MetaServiceImpl::begin_copy(google::protobuf::RpcController* controller,
     int file_num = 0;
     size_t file_size = 0;
     size_t file_meta_size = 0;
-    for (auto i = 0; i < object_files.size(); ++i) {
-        auto& file = object_files.at(i);
+    for (const auto& file : object_files) {
         // 1. get copy file kv to check if file is loading or loaded
         CopyFileKeyInfo file_key_info {instance_id, request->stage_id(), request->table_id(),
                                        file.relative_path(), file.etag()};
@@ -2936,6 +2946,7 @@ void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
                                   const FinishCopyRequest* request, FinishCopyResponse* response,
                                   ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(finish_copy);
+    std::stringstream ss;
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;

@@ -75,6 +75,7 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
                                 const BeginTxnRequest* request, BeginTxnResponse* response,
                                 ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(begin_txn);
+    std::stringstream ss;
     if (!request->has_txn_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid argument, missing txn info";
@@ -339,6 +340,7 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
                                     PrecommitTxnResponse* response,
                                     ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(precommit_txn);
+    std::stringstream ss;
     int64_t txn_id = request->has_txn_id() ? request->txn_id() : -1;
     int64_t db_id = request->has_db_id() ? request->db_id() : -1;
     if ((txn_id < 0 && db_id < 0)) {
@@ -580,6 +582,7 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
                                                 GetRLTaskCommitAttachResponse* response,
                                                 ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_rl_task_commit_attach);
+    std::stringstream ss;
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -744,9 +747,8 @@ void scan_tmp_rowset(
     return;
 }
 
-void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stats,
-                         std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
-                         std::string& msg) {
+void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stats, Transaction* txn,
+                         MetaServiceCode& code, std::string& msg) {
     if (config::split_tablet_stats) {
         if (stats.num_segs > 0) {
             std::string data_size_key;
@@ -1158,7 +1160,7 @@ void commit_txn_immediately(
         auto& tablet_idx = tablet_ids[tablet_id];
         StatsTabletKeyInfo info {instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
                                  tablet_idx.partition_id(), tablet_id};
-        update_tablet_stats(info, stats, txn, code, msg);
+        update_tablet_stats(info, stats, txn.get(), code, msg);
         if (code != MetaServiceCode::OK) return;
     }
     // Remove tmp rowset meta
@@ -1813,6 +1815,7 @@ void MetaServiceImpl::abort_txn(::google::protobuf::RpcController* controller,
                                 const AbortTxnRequest* request, AbortTxnResponse* response,
                                 ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(abort_txn);
+    std::stringstream ss;
     // Get txn id
     int64_t txn_id = request->has_txn_id() ? request->txn_id() : -1;
     std::string label = request->has_label() ? request->label() : "";
@@ -2052,6 +2055,7 @@ void MetaServiceImpl::get_txn(::google::protobuf::RpcController* controller,
                               const GetTxnRequest* request, GetTxnResponse* response,
                               ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_txn);
+    std::stringstream ss;
     int64_t txn_id = request->has_txn_id() ? request->txn_id() : -1;
     int64_t db_id = request->has_db_id() ? request->db_id() : -1;
     std::string label = request->has_label() ? request->label() : "";
@@ -2238,6 +2242,7 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
                                     BeginSubTxnResponse* response,
                                     ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(begin_sub_txn);
+    std::stringstream ss;
     int64_t txn_id = request->has_txn_id() ? request->txn_id() : -1;
     int64_t sub_txn_num = request->has_sub_txn_num() ? request->sub_txn_num() : -1;
     int64_t db_id = request->has_db_id() ? request->db_id() : -1;
@@ -2434,6 +2439,7 @@ void MetaServiceImpl::abort_sub_txn(::google::protobuf::RpcController* controlle
                                     AbortSubTxnResponse* response,
                                     ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(abort_sub_txn);
+    std::stringstream ss;
     int64_t txn_id = request->has_txn_id() ? request->txn_id() : -1;
     int64_t sub_txn_id = request->has_sub_txn_id() ? request->sub_txn_id() : -1;
     int64_t sub_txn_num = request->has_sub_txn_num() ? request->sub_txn_num() : -1;
@@ -2549,6 +2555,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
                                          CheckTxnConflictResponse* response,
                                          ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(check_txn_conflict);
+    std::stringstream ss;
     if (!request->has_db_id() || !request->has_end_txn_id() || (request->table_ids_size() <= 0)) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid db id, end txn id or table_ids.";
@@ -2791,6 +2798,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                                       CleanTxnLabelResponse* response,
                                       ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(clean_txn_label);
+    std::stringstream ss;
     if (!request->has_db_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "missing db id";
@@ -2885,6 +2893,7 @@ void MetaServiceImpl::get_txn_id(::google::protobuf::RpcController* controller,
                                  const GetTxnIdRequest* request, GetTxnIdResponse* response,
                                  ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_txn_id);
+    std::stringstream ss;
     if (!request->has_db_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "missing db id";
@@ -2995,7 +3004,6 @@ void MetaServiceImpl::get_txn_id(::google::protobuf::RpcController* controller,
     code = MetaServiceCode::TXN_ID_NOT_FOUND;
     ss << "transaction not found, label=" << label;
     msg = ss.str();
-    return;
 }
 
 } // namespace doris::cloud
