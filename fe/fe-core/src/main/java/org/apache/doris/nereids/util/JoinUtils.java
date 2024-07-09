@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -55,6 +56,7 @@ import com.google.common.collect.Sets;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -317,14 +319,22 @@ public class JoinUtils {
             }
             Expression leftChild = ((EqualPredicate) expr).left();
             Expression rightChild = ((EqualPredicate) expr).right();
-            if (!(leftChild instanceof Slot) || !(rightChild instanceof Slot)) {
+            if (!(leftChild instanceof SlotReference) || !(rightChild instanceof SlotReference)) {
                 return false;
             }
 
-            // on conditions must keep same order as distributed columns
-            Integer leftIndex = leftHashSpec.getExprIdToEquivalenceSet().get(((Slot) leftChild).getExprId());
-            Integer rightIndex = rightHashSpec.getExprIdToEquivalenceSet().get(((Slot) rightChild).getExprId());
-            if (leftIndex != rightIndex) {
+            SlotReference leftSlot = (SlotReference) leftChild;
+            SlotReference rightSlot = (SlotReference) rightChild;
+            Integer leftIndex = null;
+            Integer rightIndex = null;
+            if (leftSlot.getTable().isPresent() && leftSlot.getTable().get().getId() == leftHashSpec.getTableId()) {
+                leftIndex = leftHashSpec.getExprIdToEquivalenceSet().get(leftSlot.getExprId());
+                rightIndex = rightHashSpec.getExprIdToEquivalenceSet().get(rightSlot.getExprId());
+            } else {
+                leftIndex = rightHashSpec.getExprIdToEquivalenceSet().get(leftSlot.getExprId());
+                rightIndex = leftHashSpec.getExprIdToEquivalenceSet().get(rightSlot.getExprId());
+            }
+            if (!Objects.equals(leftIndex, rightIndex)) {
                 return false;
             }
             if (leftIndex != null) {
