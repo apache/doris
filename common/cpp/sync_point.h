@@ -15,17 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Most code of this file is copied and modified from rocksdb SyncPoint.
-// And modified by Gavin (github.com/gavinchou).
+// Most code of this file is copied from rocksdb SyncPoint.
+// https://github.com/facebook/rocksdb
 
 #pragma once
 // clang-format off
 #include <functional>
-#include <mutex>
+#include <iostream>
 #include <string>
 #include <vector>
+#include <any>
 
-namespace doris::cloud {
+namespace doris {
+
+#define SYNC_POINT_HOOK_RETURN_VALUE(expr, point_name, ...)                              \
+    [&]() mutable {                                                                      \
+        TEST_SYNC_POINT_RETURN_WITH_VALUE(point_name, decltype((expr)) {}, __VA_ARGS__); \
+        return (expr);                                                                   \
+    }()
 
 // This class provides facility to reproduce race conditions deterministically
 // in unit tests.
@@ -65,7 +72,7 @@ public:
   //        z                            /     |
   //        z     /---------2-----------/      |  there may be nothing
   //        |    /                             |  between point1 point4
-  // point3 o --/                              |  they are for sync
+  // ponit3 o --/                              |  they are for sync
   //        |                                  |  between test case and object
   //        v                                  v
   //
@@ -86,11 +93,45 @@ public:
                                 const std::vector<SyncPointPair>& dependencies,
                                 const std::vector<SyncPointPair>& markers);
 
+  class CallbackGuard {
+  public:
+    CallbackGuard() = default;
+    explicit CallbackGuard(std::string point) : _point(std::move(point)) {}
+    ~CallbackGuard() {
+      if (!_point.empty()) {
+        get_instance()->clear_call_back(_point);
+      }
+    }
+    CallbackGuard(const CallbackGuard&) = delete;
+    CallbackGuard& operator=(const CallbackGuard&) = delete;
+
+    CallbackGuard(CallbackGuard&& other) noexcept {
+      if (!_point.empty() && _point != other._point) {
+        get_instance()->clear_call_back(_point);
+      }
+      _point = std::move(other._point);
+    }
+
+    CallbackGuard& operator=(CallbackGuard&& other) noexcept {
+      if (!_point.empty() && _point != other._point) {
+        get_instance()->clear_call_back(_point);
+      }
+      _point = std::move(other._point);
+      return *this;
+    };
+
+  private:
+    std::string _point;
+  };
+
   // The argument to the callback is passed through from
   // TEST_SYNC_POINT_CALLBACK(); nullptr if TEST_SYNC_POINT or
   // TEST_IDX_SYNC_POINT was used.
+  // If `guard` is not nullptr, method will return a `CallbackGuard` object which will clear the
+  // callback when it is destructed.
   void set_call_back(const std::string& point,
-                     const std::function<void(void*)>& callback);
+                     const std::function<void(std::vector<std::any>&&)>& callback,
+                     CallbackGuard* guard = nullptr);
 
   // Clear callback function by point
   void clear_call_back(const std::string& point);
@@ -109,8 +150,8 @@ public:
 
   // Triggered by TEST_SYNC_POINT, blocking execution until all predecessors
   // are executed.
-  // And/or call registered callback function, with argument `cb_arg`
-  void process(const std::string& point, void* cb_arg = nullptr);
+  // And/or call registered callback function, with argument `cb_args`
+  void process(const std::string& point, std::vector<std::any>&& cb_args = {});
 
   // TODO: it might be useful to provide a function that blocks until all
   //       sync points are cleared.
@@ -120,32 +161,67 @@ public:
 private:
    // Singleton
   SyncPoint();
-  Data* impl_; // implementation which is hidden in cpp file
+  Data* impl_; // impletation which is hidden in cpp file
 };
-} // namespace doris::cloud
+
+template <class T>
+T try_any_cast(const std::any& a) {
+  try {
+    return std::any_cast<T>(a);
+  } catch (const std::bad_any_cast& e) { 
+    std::cerr << e.what() << " expected=" << typeid(T).name() << " actual=" << a.type().name() << std::endl;
+    throw e;
+  }
+}
+
+template <typename T>
+auto try_any_cast_ret(std::vector<std::any>& any) {
+    return try_any_cast<std::pair<T, bool>*>(any.back());
+}
+
+} // namespace doris
+
+#define SYNC_POINT(x) doris::SyncPoint::get_instance()->process(x)
+#define IDX_SYNC_POINT(x, index) \
+    doris::SyncPoint::get_instance()->process(x + std::to_string(index))
+#define SYNC_POINT_CALLBACK(x, ...) doris::SyncPoint::get_instance()->process(x, {__VA_ARGS__})
+#define SYNC_POINT_RETURN_WITH_VALUE(x, default_ret_val, ...) \
+{ \
+  std::pair ret {default_ret_val, false}; \
+  std::vector<std::any> args {__VA_ARGS__}; \
+  args.emplace_back(&ret); \
+  doris::SyncPoint::get_instance()->process(x, std::move(args)); \
+  if (ret.second) return std::move(ret.first); \
+}
+#define SYNC_POINT_RETURN_WITH_VOID(x, ...) \
+{ \
+  bool pred = false; \
+  std::vector<std::any> args {__VA_ARGS__}; \
+  args.emplace_back(&pred); \
+  doris::SyncPoint::get_instance()->process(x, std::move(args)); \
+  if (pred) return; \
+}
+#define SYNC_POINT_SINGLETON() (void)doris::SyncPoint::get_instance() 
 
 // TEST_SYNC_POINT is no op in release build.
 // Turn on this feature by defining the macro
-#ifndef UNIT_TEST
+#ifndef BE_TEST
 # define TEST_SYNC_POINT(x)
 # define TEST_IDX_SYNC_POINT(x, index)
-# define TEST_SYNC_POINT_CALLBACK(x, y)
-# define TEST_SYNC_POINT_RETURN_WITH_VALUE(sync_point_name, ret_val_ptr)
-# define TEST_SYNC_POINT_RETURN_WITH_VOID(sync_point_name)
+# define TEST_SYNC_POINT_CALLBACK(x, ...)
+# define TEST_SYNC_POINT_RETURN_WITH_VALUE(x, default_ret_val, ...)
+# define TEST_SYNC_POINT_RETURN_WITH_VOID(x, ...)
 // seldom called
-# define INIT_SYNC_POINT_SINGLETONS()
+# define TEST_SYNC_POINT_SINGLETON()
 #else
 // Use TEST_SYNC_POINT to specify sync points inside code base.
 // Sync points can have happens-after depedency on other sync points,
 // configured at runtime via SyncPoint::load_dependency. This could be
 // utilized to re-produce race conditions between threads.
-# define TEST_SYNC_POINT(x) doris::cloud::SyncPoint::get_instance()->process(x)
-# define TEST_IDX_SYNC_POINT(x, index) \
-  doris::cloud::SyncPoint::get_instance()->process(x + std::to_string(index))
-# define TEST_SYNC_POINT_CALLBACK(x, y) \
-  doris::cloud::SyncPoint::get_instance()->process(x, y)
-# define INIT_SYNC_POINT_SINGLETONS() \
-  (void)doris::cloud::SyncPoint::get_instance();
+# define TEST_SYNC_POINT(x) SYNC_POINT(x)
+# define TEST_IDX_SYNC_POINT(x, index) IDX_SYNC_POINT(x, index)
+# define TEST_SYNC_POINT_CALLBACK(x, ...) SYNC_POINT_CALLBACK(x, __VA_ARGS__)
+# define TEST_SYNC_POINT_SINGLETON() SYNC_POINT_SINGLETON()
 
 /**
  * Inject return points for testing.
@@ -155,61 +231,41 @@ private:
  *
  * tested thread:
  * ...
- * TEST_SYNC_POINT_CALLBACK("point_ctx", ptr_to_ctx);
- * TEST_SYNC_POINT_RETURN_WITH_VALUE("point_ret", ptr_to_ret_val);
+ * TEST_SYNC_POINT_RETURN_WITH_VALUE("point_ret", int(0), ctx0);
  * ...
  *
  * testing thread:
- * sync_point->add("point_ctx", [&ctx](void* ptr_to_ctx) { ctx = ptr_to_ctx; });
- * sync_point->add("point_ret", [](void* ptr_to_ret) {...});
- * sync_point->add("point_ret::pred", [&ctx](void* pred) { pred = *ctx ? true : false; });
+ * sync_point->add("point_ret", [](auto&& args) {
+ *     auto ctx0 = try_any_cast<bool>(args[0]);
+ *     auto pair = try_any_cast<std::pair<int, bool>*>(args.back());
+ *     pair->first = ...;
+ *     pair->second = ctx0; });
  *
- * See sync_point_test.cpp for more details.
+ * See sync_piont_test.cpp for more details.
  */
 #pragma GCC diagnostic ignored "-Waddress"
-# define TEST_SYNC_POINT_RETURN_WITH_VALUE(sync_point_name, ret_val_ptr) \
-static_assert(ret_val_ptr != nullptr, "ret_val_ptr cannot be nullptr");\
-TEST_SYNC_POINT_CALLBACK(sync_point_name, ret_val_ptr); \
-{ \
-  bool pred = false; \
-  TEST_SYNC_POINT_CALLBACK(std::string(sync_point_name) + "::pred", &pred); \
-  if (pred) return *ret_val_ptr; \
-}
+# define TEST_SYNC_POINT_RETURN_WITH_VALUE(x, default_ret_val, ...) SYNC_POINT_RETURN_WITH_VALUE(x, default_ret_val, __VA_ARGS__)
+# define TEST_SYNC_POINT_RETURN_WITH_VOID(x, ...) SYNC_POINT_RETURN_WITH_VOID(x, __VA_ARGS__)
 
-# define TEST_SYNC_POINT_RETURN_WITH_VOID(sync_point_name) \
-{ \
-  bool pred = false; \
-  TEST_SYNC_POINT_CALLBACK(std::string(sync_point_name) + "::pred", &pred); \
-  if (pred) return; \
-}
-
-#endif // UNIT_TEST
+#endif // BE_TEST
 
 // TODO: define injection point in production env.
 //       the `if` expr can be live configure of the application
-#define ENABLE_INJECTION_POINT 0
 #ifndef ENABLE_INJECTION_POINT
 # define TEST_INJECTION_POINT(x)
-# define TEST_IDX_TEST_INJECTION_POINT(x, index)
-# define TEST_INJECTION_POINT_CALLBACK(x, y)
-# define INIT_INJECTION_POINT_SINGLETONS()
+# define TEST_IDX_INJECTION_POINT(x, index)
+# define TEST_INJECTION_POINT_CALLBACK(x, ...)
+# define TEST_INJECTION_POINT_RETURN_WITH_VALUE(x, default_ret_val, ...)
+# define TEST_INJECTION_POINT_RETURN_WITH_VOID(x, ...)
+# define TEST_INJECTION_POINT_SINGLETON()
 #else
-# define TEST_INJECTION_POINT(x)                                                    \
-  if (ENABLE_INJECTION_POINT) {                                                     \
-    doris::cloud::SyncPoint::get_instance()->process(x);                            \
-  }
-# define TEST_IDX_INJECTION_POINT(x, index)                                         \
-  if (ENABLE_INJECTION_POINT) {                                                     \
-    doris::cloud::SyncPoint::get_instance()->process(x + std::to_string(index));    \
-  }
-# define TEST_INJECTION_POINT_CALLBACK(x, y)                                        \
-  if (ENABLE_INJECTION_POINT) {                                                     \
-    doris::cloud::SyncPoint::get_instance()->process(x, y);                         \
-  }
-# define INIT_INJECTION_POINT_SINGLETONS()                                          \
-  if (ENABLE_INJECTION_POINT) {                                                     \
-    (void)doris::cloud::SyncPoint::get_instance();                                  \
-  }
+# define TEST_INJECTION_POINT(x) SYNC_POINT(x);
+# define TEST_IDX_INJECTION_POINT(x, index) IDX_SYNC_POINT(x, index);
+# define TEST_INJECTION_POINT_CALLBACK(x, ...) SYNC_POINT_CALLBACK(x, __VA_ARGS__);
+# define TEST_INJECTION_POINT_SINGLETON() SYNC_POINT_SINGLETON();
+# define TEST_INJECTION_POINT_RETURN_WITH_VALUE(x, default_ret_val, ...) SYNC_POINT_RETURN_WITH_VALUE(x, default_ret_val, __VA_ARGS__);
+# define TEST_INJECTION_POINT_RETURN_WITH_VOID(x, ...) SYNC_POINT_RETURN_WITH_VOID(x, __VA_ARGS__);
 #endif // ENABLE_INJECTION_POINT
 
 // clang-format on
+// vim: et tw=80 ts=2 sw=2 cc=80:

@@ -25,7 +25,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/string_util.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "recycler/storage_vault_accessor.h"
 
 namespace doris::cloud {

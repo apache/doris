@@ -31,7 +31,7 @@
 #include "common/logging.h"
 #include "common/network_util.h"
 #include "common/string_util.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
@@ -72,11 +72,7 @@ static int encrypt_ak_sk_helper(const std::string plain_ak, const std::string pl
     std::string key;
     int64_t key_id;
     int ret = get_newest_encryption_key_for_ak_sk(&key_id, &key);
-    {
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key_ret", &ret);
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key", &key);
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key_id", &key_id);
-    }
+    TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key", &ret, &key, &key_id);
     if (ret != 0) {
         msg = "failed to get encryption key";
         code = MetaServiceCode::ERR_ENCRYPT;
@@ -422,10 +418,7 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     AkSkPair cipher_ak_sk_pair;
     auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
                                     msg);
-    {
-        [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
-        TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ak_sk_ret);
-    }
+    TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
     if (ret != 0) {
         return;
     }
@@ -548,10 +541,6 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
 
         auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
                                         code, msg);
-        {
-            [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
-            TEST_SYNC_POINT_CALLBACK("alter_obj_store_info_encrypt_ak_sk_helper", &ak_sk_ret);
-        }
         if (ret != 0) {
             return;
         }
