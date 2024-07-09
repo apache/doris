@@ -140,13 +140,13 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         // ON a.id = b.id;
         // ```
         // contains right outer join and missing instance in left side because of tablet pruner, for example
-        // left:  [bucket 1]
-        // right: [bucket 1, bucket 2]
+        // left:  [bucket 1, bucket 3]
         //
-        // we should join buckets corresponding:
+        // we should join buckets:
         // [
-        //   (left bucket 1) right outer join (right bucket 1)
-        //   (no any machine) right outer join (right bucket 2)
+        //   (left bucket 1) right outer join (exchange right data which should process by bucket 1)
+        //   (no any machine) right outer join (exchange right data which should process by bucket 2)
+        //   (left bucket 3) right outer join (exchange right data which should process by bucket 3)
         // ]
         // if missing the left bucket 2, it will compute an empty result
         // because right bucket 2 doesn't exist destination instance,
