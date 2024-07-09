@@ -39,7 +39,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
