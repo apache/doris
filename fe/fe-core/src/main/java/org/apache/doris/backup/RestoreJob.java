@@ -1123,6 +1123,7 @@ public class RestoreJob extends AbstractJob {
 
         // generate new partition id
         long newPartId = env.getNextId();
+        long oldPartId = remotePart.getId();
         remotePart.setIdForRestore(newPartId);
 
         // indexes
@@ -1142,9 +1143,11 @@ public class RestoreJob extends AbstractJob {
 
         // save version info for creating replicas
         long visibleVersion = remotePart.getVisibleVersion();
+        LOG.info("reset partition {} for restore, visible version: {}, old partition id: {}",
+                newPartId, visibleVersion, oldPartId);
 
         // tablets
-        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
+        Map<Tag, Integer> nextIndexes = Maps.newHashMap();
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
@@ -1159,7 +1162,7 @@ public class RestoreJob extends AbstractJob {
                 // replicas
                 try {
                     Pair<Map<Tag, List<Long>>, TStorageMedium> beIdsAndMedium = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs, null, false, false);
+                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexes, null, false, false);
                     Map<Tag, List<Long>> beIds = beIdsAndMedium.first;
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {

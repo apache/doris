@@ -703,4 +703,27 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         }
         return bdbEnvironment.getNotReadyReason();
     }
+
+    @Override
+    public boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
+        JournalEntity entity = new JournalEntity();
+        entity.setOpCode(op);
+        entity.setData(writable);
+
+        DataOutputBuffer buffer = new DataOutputBuffer(OUTPUT_BUFFER_INIT_SIZE);
+        entity.write(buffer);
+
+        DatabaseEntry theData = new DatabaseEntry(buffer.getData());
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("opCode = {}, journal size = {}", op, theData.getSize());
+        }
+
+        // 1GB
+        if (theData.getSize() > (1 << 30)) {
+            return true;
+        }
+
+        return false;
+    }
 }
