@@ -27,6 +27,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
 
+    def db = "test_s3_tvf_with_resource";
     def export_table_name = "test_s3_tvf_with_resource_export_test"
     def outFilePath = "${bucket}/est_s3_tvf/export_test/exp_"
     def resource_name = "test_s3_tvf_resource"
@@ -77,6 +78,9 @@ suite("test_s3_tvf_with_resource", "p0") {
         return res[0][3]
     }
 
+    sql """drop database if exists ${db}"""
+    sql """create database ${db}"""
+    sql """use ${db}"""
     // create table to export data
     create_table(export_table_name)
 
@@ -181,8 +185,7 @@ suite("test_s3_tvf_with_resource", "p0") {
     String viewName = "test_s3_tvf_with_resource_view"
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
-    String dbName = context.config.getDbNameByFile(context.file)
-    sql """grant select_priv on ${dbName}.${viewName} to ${user}"""
+    sql """grant select_priv on ${db}.${viewName} to ${user}"""
     sql "drop view if exists ${viewName}"
     sql """
         create view ${viewName} as

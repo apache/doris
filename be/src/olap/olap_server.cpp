@@ -841,6 +841,45 @@ void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* 
     response->mutable_status()->set_status_code(0);
 }
 
+bool need_generate_compaction_tasks(int count, int thread_per_disk, CompactionType compaction_type,
+                                    bool all_base) {
+    if (count >= thread_per_disk) {
+        // Return if no available slot
+        return false;
+    } else if (count >= thread_per_disk - 1) {
+        // Only one slot left, check if it can be assigned to base compaction task.
+        if (compaction_type == CompactionType::BASE_COMPACTION) {
+            if (all_base) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+int get_concurrent_per_disk(int max_score, int thread_per_disk) {
+    if (!config::enable_compaction_priority_scheduling) {
+        return thread_per_disk;
+    }
+
+    double load_average = 0;
+    if (DorisMetrics::instance()->system_metrics() != nullptr) {
+        load_average = DorisMetrics::instance()->system_metrics()->get_load_average_1_min();
+    }
+    int num_cores = doris::CpuInfo::num_cores();
+    bool cpu_usage_high = load_average > num_cores * 0.8;
+
+    auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
+    bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 0.8;
+
+    if (max_score <= config::low_priority_compaction_score_threshold &&
+        (cpu_usage_high || memory_usage_high)) {
+        return config::low_priority_compaction_task_num_per_disk;
+    }
+
+    return thread_per_disk;
+}
+
 std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
     _update_cumulative_compaction_policy();
@@ -870,22 +909,11 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         int count = copied_cumu_map[data_dir].size() + copied_base_map[data_dir].size();
         int thread_per_disk = data_dir->is_ssd_disk() ? config::compaction_task_num_per_fast_disk
                                                       : config::compaction_task_num_per_disk;
-        if (count >= thread_per_disk) {
-            // Return if no available slot
-            need_pick_tablet = false;
-            if (!check_score) {
-                continue;
-            }
-        } else if (count >= thread_per_disk - 1) {
-            // Only one slot left, check if it can be assigned to base compaction task.
-            if (compaction_type == CompactionType::BASE_COMPACTION) {
-                if (copied_cumu_map[data_dir].empty()) {
-                    need_pick_tablet = false;
-                    if (!check_score) {
-                        continue;
-                    }
-                }
-            }
+
+        need_pick_tablet = need_generate_compaction_tasks(count, thread_per_disk, compaction_type,
+                                                          copied_cumu_map[data_dir].empty());
+        if (!need_pick_tablet && !check_score) {
+            continue;
         }
 
         // Even if need_pick_tablet is false, we still need to call find_best_tablet_to_compaction(),
@@ -898,6 +926,9 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                             ? copied_cumu_map[data_dir]
                             : copied_base_map[data_dir],
                     &disk_max_score, _cumulative_compaction_policies);
+            int concurrent_num = get_concurrent_per_disk(disk_max_score, thread_per_disk);
+            need_pick_tablet = need_generate_compaction_tasks(
+                    count, concurrent_num, compaction_type, copied_cumu_map[data_dir].empty());
             if (tablet != nullptr) {
                 if (need_pick_tablet) {
                     tablets_compaction.emplace_back(tablet);
@@ -1001,17 +1032,6 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     int64_t permits = 0;
     Status st = Tablet::prepare_compaction_and_calculate_permits(compaction_type, tablet,
                                                                  compaction, permits);
-    bool is_low_priority_task = [&]() {
-        // Can add more strategies to determine whether a task is a low priority task in the future
-        if (!config::enable_compaction_priority_scheduling) {
-            return false;
-        }
-        if (tablet->version_count() >=
-            (config::max_tablet_version_num * config::low_priority_tablet_version_num_ratio)) {
-            return false;
-        }
-        return !force;
-    }();
     if (st.ok() && permits > 0) {
         if (!force) {
             _permit_limiter.request(permits);
@@ -1021,18 +1041,8 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
-                                            compaction_type, permits, force, is_low_priority_task,
-                                            this]() {
-            if (is_low_priority_task && !_increase_low_priority_task_nums(tablet->data_dir())) {
-                VLOG_DEBUG << "skip low priority compaction task for tablet: "
-                           << tablet->tablet_id();
-                // Todo: push task back
-            } else {
-                tablet->execute_compaction(*compaction);
-                if (is_low_priority_task) {
-                    _decrease_low_priority_task_nums(tablet->data_dir());
-                }
-            }
+                                            compaction_type, permits, force, this]() {
+            tablet->execute_compaction(*compaction);
             if (!force) {
                 _permit_limiter.release(permits);
             }
