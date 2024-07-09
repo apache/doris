@@ -63,7 +63,7 @@ TEST_F(TestBaseCompaction, filter_input_rowset) {
                                      TCompressionType::LZ4F));
     TabletSharedPtr tablet(new Tablet(engine, tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     tablet->_cumulative_point = 25;
-    BaseCompaction compaction(engine, tablet);
+    BaseCompaction compaction(tablet);
     //std::vector<RowsetSharedPtr> rowsets;
 
     RowsetSharedPtr init_rs = create_rowset({0, 1}, 1, false, 0);
