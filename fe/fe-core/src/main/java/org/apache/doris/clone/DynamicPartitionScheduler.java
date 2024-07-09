@@ -467,10 +467,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
             // IllegalArgumentException: lb is greater than ub
             String hint = "'dynamic_partition.start' = " + dynamicPartitionProperty.getStart()
-                    + ", maybe it's too small, can use alter table sql to increase it.";
+                    + ", maybe it's too small, can use alter table sql to increase it. ";
             LOG.warn("Error in gen reservePartitionKeyRange. db: {}, table: {}. {}",
                     db.getFullName(), olapTable.getName(), hint, e);
-            recordDropPartitionFailedMsg(db.getFullName(), olapTable.getName(), hint + e.getMessage(), olapTable.getId());
+            recordDropPartitionFailedMsg(db.getFullName(), olapTable.getName(), hint + e.getMessage(),
+                    olapTable.getId());
             return dropPartitionClauses;
         }
 
