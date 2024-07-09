@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.View;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
@@ -105,84 +104,82 @@ public class BindDynamicSplit implements AnalysisRuleFactory {
         return null;
     }
 
-    private Plan rewritePlan(LogicalView logicalView, Plan result,
-                             LogicalDynamicSplit logicalDynamicSplit) {
+    /**
+     * Applies a filter to the plan based on the dynamic split criteria.
+     * This method is shared between LogicalView and LogicalRelation to avoid code duplication.
+     *
+     * @param result              The original plan that needs to be rewritten.
+     * @param relationChild       The child of the relation node.
+     *                            Will add filter to this node if it matches the split criteria.
+     * @param logicalDynamicSplit The dynamic split information which contains the range and column name.
+     * @param catalogTable        The catalog table from which the slot reference will be retrieved.
+     * @return The rewritten plan with the added filter.
+     */
+    private Plan rewritePlanWithFilter(Plan result, Plan relationChild, LogicalDynamicSplit logicalDynamicSplit,
+                                       TableIf catalogTable) {
+        logicalDynamicSplit.setReplaced(true);
         Range range = logicalDynamicSplit.getRange();
         SplitColumnInfo splitColumnInfo = logicalDynamicSplit.getSplitColumnInfo();
         String splitColumnName = splitColumnInfo.getColumnName();
         TableName splitTable = splitColumnInfo.getTableNameInfo().transferToTableName();
-        View view = logicalView.getView();
-        logicalDynamicSplit.setReplaced(Boolean.TRUE);
-        if (!view.getName().equalsIgnoreCase(splitTable.getTbl())) {
+
+        // Verify if the catalog table matches the split table information.
+        if (!catalogTable.getName().equals(splitTable.getTbl())
+                || !catalogTable.getDatabase().getFullName().equals(splitTable.getDb())
+                || !catalogTable.getDatabase().getCatalog().getName().equals(splitTable.getCtl())) {
             return result;
         }
-        if (!view.getDatabase().getFullName().equals(splitTable.getDb())) {
+
+        SlotReference slotReference = getSlotReference(relationChild.getOutput(), splitColumnName);
+        if (slotReference == null) {
+            logicalDynamicSplit.setReplaced(false);
+            LOG.warn("Cannot find the split column {} in the table {}", splitColumnName, catalogTable.getName());
             return result;
         }
-        if (!view.getDatabase().getCatalog().getName().equals(splitTable.getCtl())) {
-            return result;
-        }
-        SlotReference slotReference = getSlotReference(logicalView.getOutput(), splitColumnName);
-        if (null == slotReference) {
-            logicalDynamicSplit.setReplaced(Boolean.FALSE);
-            LOG.warn("Can not find the split column {} in the table {}", splitColumnName, splitColumnName);
-            return result;
-        }
-        GreaterThanEqual greaterThanEqual = new GreaterThanEqual(slotReference,
-                Literal.of(range.getMinimum()));
+
+        // Create the filter conditions based on the range of the dynamic split.
+        GreaterThanEqual greaterThanEqual = new GreaterThanEqual(slotReference, Literal.of(range.getMinimum()));
         LessThanEqual lessThanEqual = new LessThanEqual(slotReference, Literal.of(range.getMaximum()));
-        LogicalFilter logicalFilter = new LogicalFilter<>(ImmutableSet.of(greaterThanEqual, lessThanEqual),
-                logicalView);
+        LogicalFilter logicalFilter = new LogicalFilter<>(ImmutableSet.of(
+                greaterThanEqual, lessThanEqual), relationChild);
+
+        // Rewrite the plan by replacing the catalog table node with the logical filter.
         result = result.rewriteUp(node -> {
-            if (node instanceof LogicalView) {
+            if (node.equals(catalogTable)) {
                 return logicalFilter;
             }
             return node;
         });
+
         return result;
     }
 
-    private Plan rewritePlan(LogicalRelation logicalRelation, Plan result,
-                             LogicalDynamicSplit logicalDynamicSplit) {
+    /**
+     * Rewrites the plan for LogicalView by applying the dynamic split filter.
+     *
+     * @param logicalView         The logical view to apply the filter on.
+     * @param result              The original plan.
+     * @param logicalDynamicSplit The dynamic split information.
+     * @return The rewritten plan with the filter applied.
+     */
+    private Plan rewritePlan(LogicalView logicalView, Plan result, LogicalDynamicSplit logicalDynamicSplit) {
+        return rewritePlanWithFilter(result, logicalView, logicalDynamicSplit, logicalView.getView());
+    }
+
+    /**
+     * Rewrites the plan for LogicalRelation by applying the dynamic split filter.
+     *
+     * @param logicalRelation     The logical relation to apply the filter on.
+     * @param result              The original plan.
+     * @param logicalDynamicSplit The dynamic split information.
+     * @return The rewritten plan with the filter applied.
+     */
+    private Plan rewritePlan(LogicalRelation logicalRelation, Plan result, LogicalDynamicSplit logicalDynamicSplit) {
         LogicalCatalogRelation catalogRelation = convertAndCheckLogicalRelation(logicalRelation);
-        if (null == catalogRelation) {
+        if (catalogRelation == null) {
             return result;
         }
-        Range range = logicalDynamicSplit.getRange();
-        SplitColumnInfo splitColumnInfo = logicalDynamicSplit.getSplitColumnInfo();
-        String splitColumnName = splitColumnInfo.getColumnName();
-        TableName splitTable = splitColumnInfo.getTableNameInfo().transferToTableName();
-        TableIf table = catalogRelation.getTable();
-        logicalDynamicSplit.setReplaced(Boolean.TRUE);
-        if (!table.getName().equals(splitTable.getTbl())) {
-            return result;
-        }
-        if (!table.getDatabase().getFullName().equals(splitTable.getDb())) {
-            return result;
-        }
-        if (!table.getDatabase().getCatalog().getName().equals(splitTable.getCtl())) {
-            return result;
-        }
-        SlotReference slotReference = getSlotReference(catalogRelation.getOutput(), splitColumnName);
-        if (null == slotReference) {
-            logicalDynamicSplit.setReplaced(Boolean.FALSE);
-            LOG.warn("Can not find the split column {} in the table {}", splitColumnName, table.getName());
-            return result;
-        }
-        GreaterThanEqual greaterThanEqual = new GreaterThanEqual(slotReference,
-                Literal.of(range.getMinimum()));
-        LessThanEqual lessThanEqual = new LessThanEqual(slotReference, Literal.of(range.getMaximum()));
-
-        LogicalFilter logicalFilter = new LogicalFilter<>(ImmutableSet.of(greaterThanEqual, lessThanEqual),
-                catalogRelation);
-        result = result.rewriteUp(node -> {
-            if (node instanceof LogicalCatalogRelation) {
-                return logicalFilter;
-            }
-            return node;
-        });
-
-        return result;
+        return rewritePlanWithFilter(result, catalogRelation, logicalDynamicSplit, catalogRelation.getTable());
     }
 
     private SlotReference getSlotReference(List<Slot> outputs, String splitColumnName) {
