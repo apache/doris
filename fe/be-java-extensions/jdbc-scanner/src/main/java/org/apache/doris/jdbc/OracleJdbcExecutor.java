@@ -27,6 +27,10 @@ import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.StandardCharsets;
 import java.sql.Clob;
 import java.sql.SQLException;
 import java.time.LocalDate;
@@ -34,6 +38,7 @@ import java.time.LocalDateTime;
 
 public class OracleJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(OracleJdbcExecutor.class);
+    private final CharsetDecoder utf8Decoder = StandardCharsets.UTF_8.newDecoder();
 
     public OracleJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
@@ -112,6 +117,8 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
                             LOG.error("Failed to get string from clob", e);
                             return null;
                         }
+                    } else if (input instanceof byte[]) {
+                        return convertByteArrayToString((byte[]) input);
                     } else {
                         return input.toString();
                     }
@@ -119,5 +126,32 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
             default:
                 return null;
         }
+    }
+
+    private String convertByteArrayToString(byte[] bytes) {
+        if (isValidUtf8(bytes)) {
+            return new String(bytes, StandardCharsets.UTF_8);
+        } else {
+            // Convert byte[] to hexadecimal string with "0x" prefix
+            return "0x" + bytesToHex(bytes);
+        }
+    }
+
+    private boolean isValidUtf8(byte[] bytes) {
+        utf8Decoder.reset();
+        try {
+            utf8Decoder.decode(ByteBuffer.wrap(bytes));
+            return true;
+        } catch (CharacterCodingException e) {
+            return false;
+        }
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X", b));
+        }
+        return sb.toString();
     }
 }
