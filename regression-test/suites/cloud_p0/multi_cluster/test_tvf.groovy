@@ -54,17 +54,33 @@ suite('test_tvf_in_cloud', 'multi_cluster') {
         def jsonObject = jsonSlurper.parseText(tag)
         def cloudClusterId = jsonObject.cloud_cluster_id
         // multi cluster env
+
+        // current cluster
+        testCase.call()
+        // use other cluster
+        def ret = sql_return_maparray """show clusters"""
+        def currentCluster = ret.stream().filter(cluster -> cluster.is_current == "TRUE").findFirst().orElse(null)
+        def otherCluster = ret.stream().filter(cluster -> cluster.is_current == "FALSE").findFirst().orElse(null)
+        assertTrue(otherCluster != null)
+        sql """use @${otherCluster.cluster}"""
         testCase.call()
         
         // 调用http api 将add_new_cluster 下掉
         def ms = cluster.getAllMetaservices().get(0)
-        logger.info("ms add={}", ms)
+        logger.info("ms addr={}, port={}", ms.host, ms.httpPort)
         drop_cluster(clusterName, cloudClusterId, ms)
         Thread.sleep(5000)
         result = sql """show clusters"""
         logger.info("show cluster2 : {}", result)
 
         // single cluster env
+        // use old clusterName, has been droped
+        test {
+            sql """select * from numbers("number" = "100")"""
+            exception "in cloud maybe this cluster has been dropped" 
+        }
+        // switch to old cluster
+        sql """use @${currentCluster.cluster}"""
         testCase.call()
     }
 }
