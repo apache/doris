@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_partition_upper_case_nereids", "p2,external,iceberg,external_remote,external_remote_iceberg") {
+suite("iceberg_partition_upper_case_nereids", "p0,external,doris,external_docker,external_docker_doris") {
     def orc_upper1 = """select * from iceberg_partition_upper_case_orc order by k1;"""
     def orc_upper2 = """select k1, city from iceberg_partition_upper_case_orc order by k1;"""
     def orc_upper3 = """select k1, k2 from iceberg_partition_upper_case_orc order by k1;"""
@@ -40,18 +40,30 @@ suite("iceberg_partition_upper_case_nereids", "p2,external,iceberg,external_remo
     def parquet_lower4 = """select city from iceberg_partition_lower_case_parquet order by city;"""
     def parquet_lower5 = """select * from iceberg_partition_lower_case_parquet where k1>1 and city='Beijing' order by k1;"""
 
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "iceberg_partition_nereids"
-        sql """drop catalog if exists ${catalog_name};"""
-        sql """
-            create catalog if not exists ${catalog_name} properties (
-                'type'='hms',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
-            );
-        """
+    String enabled = context.config.otherConfigs.get("enableIcebergTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable iceberg test.")
+        return
+    }
+
+    String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
+    String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String catalog_name = "iceberg_partition_upper_case_nereids"
+
+    sql """drop catalog if exists ${catalog_name}"""
+    sql """
+    CREATE CATALOG ${catalog_name} PROPERTIES (
+        'type'='iceberg',
+        'iceberg.catalog.type'='rest',
+        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        "s3.access_key" = "admin",
+        "s3.secret_key" = "password",
+        "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+        "s3.region" = "us-east-1"
+    );"""
+
+
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
@@ -79,6 +91,5 @@ suite("iceberg_partition_upper_case_nereids", "p2,external,iceberg,external_remo
         qt_parquetlower4 parquet_lower4
         qt_parquetlower5 parquet_lower5
 
-    }
 }
 
