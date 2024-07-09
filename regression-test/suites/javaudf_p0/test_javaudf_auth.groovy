@@ -34,7 +34,7 @@ suite("test_javaudf_auth") {
     def url=tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
 
     def user = 'udf_auth_user'
-    def pwd = '123456'
+    def pwd = 'qwe678^&*'
     def dbName = 'udf_auth_db'
 
     try_sql("DROP USER ${user}")
