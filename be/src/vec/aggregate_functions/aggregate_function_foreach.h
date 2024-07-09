@@ -205,8 +205,15 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const AggregateFunctionForEachData& state = data(place);
-
-        auto& arr_to = assert_cast<ColumnArray&>(to);
+        IColumn* result_column = nullptr;
+        if (to.is_nullable()) {
+            auto& null_column = assert_cast<ColumnNullable&>(to);
+            null_column.get_null_map_data().push_back(0);
+            result_column = &(null_column.get_nested_column());
+        } else {
+            result_column = &to;
+        }
+        auto& arr_to = assert_cast<ColumnArray&>(*result_column);
         auto& offsets_to = arr_to.get_offsets();
         IColumn& elems_to = arr_to.get_data();
 
