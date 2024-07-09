@@ -280,7 +280,7 @@ suite("test_ttl_lru_evict") {
             load_customer_once("customer_ttl")
         }
         // then we do query and hopefully, we should not run into too many SKIP_CACHE
-        sql """ select count(*) from customer_ttl """
+        sql """ select count(*) from customer_ttl where C_ADDRESS like '%ea%' and C_NAME like '%a%' and C_COMMENT like '%b%' """
 
         long skip_cache_count_end = 0
         getMetricsMethod.call() {
