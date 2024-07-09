@@ -1412,6 +1412,8 @@ DECLARE_mBool(enable_parquet_page_index);
 // Default is true, if set to false, the not found file will result in query failure.
 DECLARE_mBool(ignore_not_found_file_in_external_table);
 
+DECLARE_mBool(enable_hdfs_mem_limiter);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
