@@ -423,7 +423,7 @@ void MemInfo::refresh_proc_meminfo() {
                 if (fields.size() < 2) {
                     continue;
                 }
-                std::string key = fields[0].substr(0, fields[0].size() - 1);
+                std::string key = fields[0].substr(0, fields[0].size());
 
                 StringParser::ParseResult result;
                 auto mem_value = StringParser::string_to_int<int64_t>(fields[1].data(),
@@ -449,19 +449,19 @@ void MemInfo::refresh_proc_meminfo() {
             // https://serverfault.com/questions/902009/the-memory-usage-reported-in-cgroup-differs-from-the-free-command
             // memory.usage_in_bytes ~= free.used + free.(buff/cache) - (buff)
             // so, memory.usage_in_bytes - memory.meminfo["Cached"]
-            _s_cgroup_mem_usage = cgroup_mem_usage - _s_cgroup_mem_info_bytes["Cached"];
+            _s_cgroup_mem_usage = cgroup_mem_usage - _s_cgroup_mem_info_bytes["cache"];
             // wait 10s, 100 * 100ms, avoid too frequently.
             _s_cgroup_mem_refresh_wait_times = -100;
             LOG(INFO) << "Refresh cgroup memory win, refresh again after 10s, cgroup mem limit: "
                       << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage
-                      << ", cgroup mem info cached: " << _s_cgroup_mem_info_bytes["Cached"];
+                      << ", cgroup mem info cached: " << _s_cgroup_mem_info_bytes["cache"];
         } else {
             // find cgroup failed, wait 300s, 1000 * 100ms.
             _s_cgroup_mem_refresh_wait_times = -3000;
             LOG(INFO)
                     << "Refresh cgroup memory failed, refresh again after 300s, cgroup mem limit: "
                     << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage
-                    << ", cgroup mem info cached: " << _s_cgroup_mem_info_bytes["Cached"];
+                    << ", cgroup mem info cached: " << _s_cgroup_mem_info_bytes["cache"];
         }
     } else {
         if (config::enable_use_cgroup_memory_info) {
