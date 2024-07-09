@@ -57,7 +57,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileFormatType;
@@ -1780,7 +1779,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
         out.writeLong(id);
         Text.writeString(out, name);
-        Text.writeString(out, SystemInfoService.DEFAULT_CLUSTER);
+
+        RoutineLoadTemporaryProperty tmpProperty = new RoutineLoadTemporaryProperty();
+        tmpProperty.setPauseReason(pauseReason);
+        tmpProperty.write(out);
+
         out.writeLong(dbId);
         out.writeLong(tableId);
         out.writeInt(desireTaskConcurrentNum);
@@ -1827,8 +1830,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
         id = in.readLong();
         name = Text.readString(in);
-        // cluster
-        Text.readString(in);
+
+        RoutineLoadTemporaryProperty tmpProperty;
+        try {
+            tmpProperty = RoutineLoadTemporaryProperty.read(in);
+            pauseReason = tmpProperty.getPauseReason();
+        } catch (Exception e) {
+            LOG.warn("deserialization exception, possibly due to upgrade reason, error: ", e);
+        }
+
         dbId = in.readLong();
         tableId = in.readLong();
         if (tableId == 0) {

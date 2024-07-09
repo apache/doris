@@ -17,51 +17,40 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class ErrorReason implements Writable {
-    @SerializedName(value = "code")
-    private InternalErrorCode code;
-    @SerializedName(value = "msg")
-    private String msg;
+public class RoutineLoadTemporaryProperty implements Writable {
+    private static final Logger LOG = LogManager.getLogger(RoutineLoadTemporaryProperty.class);
 
-    public ErrorReason(InternalErrorCode errCode, String msg) {
-        this.code = errCode;
-        this.msg = msg;
+    @SerializedName(value = "pr")
+    private ErrorReason pauseReason;
+
+    public ErrorReason getPauseReason() {
+        return pauseReason;
     }
 
-    public InternalErrorCode getCode() {
-        return code;
-    }
-
-    public void setCode(InternalErrorCode code) {
-        this.code = code;
-    }
-
-    public String getMsg() {
-        return msg;
-    }
-
-    public void setMsg(String msg) {
-        this.msg = msg;
+    public void setPauseReason(ErrorReason pauseReason) {
+        this.pauseReason = pauseReason;
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
+        String json = GsonUtils.GSON.toJson(this, RoutineLoadTemporaryProperty.class);
         Text.writeString(out, json);
     }
 
-    @Override
-    public String toString() {
-        return "ErrorReason{" + "code=" + code + ", msg='" + msg + '\'' + '}';
+    public static RoutineLoadTemporaryProperty read(DataInput in) throws Exception {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, RoutineLoadTemporaryProperty.class);
     }
 }
