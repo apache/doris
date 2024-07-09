@@ -247,7 +247,7 @@ set debug_skip_fold_constant=false;
 -- SELECT timezone_minute(TIME '12:34:56.123456789-00:35');
 -- SELECT timezone_minute(TIME '12:34:56.1234567890-00:35');
 -- SELECT timezone_minute(TIME '12:34:56.12345678901-00:35');
--- SELECT timezone_minute(TIME '12:34:56.123456789012-00:35')
+-- SELECT timezone_minute(TIME '12:34:56.123456789012-00:35');
 set debug_skip_fold_constant=true;
 SELECT EXTRACT(HOUR FROM TIME '12:34:56+08:35');
 SELECT EXTRACT(HOUR FROM TIME '12:34:56.1+08:35');

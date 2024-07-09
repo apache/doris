@@ -1065,7 +1065,7 @@ SELECT CAST(TIME '23:59:59.999999999999+08:35' AS TIME(11) WITH TIME ZONE);
 -- SELECT date_trunc('hour', TIME '12:34:56.555555555+08:35');
 -- SELECT date_trunc('hour', TIME '12:34:56.5555555555+08:35');
 -- SELECT date_trunc('hour', TIME '12:34:56.55555555555+08:35');
--- SELECT date_trunc('hour', TIME '12:34:56.555555555555+08:35')
+-- SELECT date_trunc('hour', TIME '12:34:56.555555555555+08:35');
 set debug_skip_fold_constant=true;
 SELECT TIME '12:34:56+08:35';
 SELECT TIME '12:34:56.1+08:35';

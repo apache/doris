@@ -117,7 +117,7 @@ SELECT date_trunc('second', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kat
 -- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu');
 -- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu');
 -- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu');
--- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu')
+-- SELECT date_trunc('millisecond', TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu');
 set debug_skip_fold_constant=true;
 SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56 Asia/Kathmandu');
 SELECT date_trunc('year', TIMESTAMP '2020-05-10 12:34:56.1 Asia/Kathmandu');

@@ -1741,7 +1741,7 @@ SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.12345678 Asia/Kathmandu');
 SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.123456789 Asia/Kathmandu');
 SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.1234567890 Asia/Kathmandu');
 SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.12345678901 Asia/Kathmandu');
-SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu')
+SELECT to_unixtime(TIMESTAMP '2020-05-10 12:34:56.123456789012 Asia/Kathmandu');
 set debug_skip_fold_constant=true;
 SELECT TIMESTAMP '2020-05-01 12:34:56 Asia/Kathmandu';
 SELECT TIMESTAMP '2020-05-01 12:34:56.1 Asia/Kathmandu';

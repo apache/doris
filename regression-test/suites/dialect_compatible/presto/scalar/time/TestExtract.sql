@@ -91,7 +91,7 @@ set debug_skip_fold_constant=false;
 -- SELECT millisecond(TIME '12:34:56.123456789');
 -- SELECT millisecond(TIME '12:34:56.1234567890');
 -- SELECT millisecond(TIME '12:34:56.12345678901');
--- SELECT millisecond(TIME '12:34:56.123456789012')
+-- SELECT millisecond(TIME '12:34:56.123456789012');
 set debug_skip_fold_constant=true;
 SELECT EXTRACT(HOUR FROM TIME '12:34:56');
 SELECT EXTRACT(HOUR FROM TIME '12:34:56.1');

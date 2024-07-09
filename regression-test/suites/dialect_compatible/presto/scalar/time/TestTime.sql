@@ -697,7 +697,7 @@ SELECT CAST(TIME '12:34:56.5' AS TIME(0));
 -- SELECT date_trunc('hour', TIME '12:34:56.555555555');
 -- SELECT date_trunc('hour', TIME '12:34:56.5555555555');
 -- SELECT date_trunc('hour', TIME '12:34:56.55555555555');
--- SELECT date_trunc('hour', TIME '12:34:56.555555555555')
+-- SELECT date_trunc('hour', TIME '12:34:56.555555555555');
 set debug_skip_fold_constant=true;
 SELECT TIME '12:34:56';
 SELECT TIME '12:34:56.1';
