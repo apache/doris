@@ -306,17 +306,21 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    String get_ccr_body(String table) {
+    String get_ccr_body(String table, String db = null) {
+        if (db == null) {
+            db = context.dbName
+        }
+
         Gson gson = new Gson()
 
-        Map<String, String> srcSpec = context.getSrcSpec()
+        Map<String, String> srcSpec = context.getSrcSpec(db)
         srcSpec.put("table", table)
 
-        Map<String, String> destSpec = context.getDestSpec()
+        Map<String, String> destSpec = context.getDestSpec(db)
         destSpec.put("table", table)
 
         Map<String, Object> body = Maps.newHashMap()
-        body.put("name", context.suiteName + "_" + context.dbName + "_" + table)
+        body.put("name", context.suiteName + "_" + db + "_" + table)
         body.put("src", srcSpec)
         body.put("dest", destSpec)
 
@@ -442,6 +446,31 @@ class Suite implements GroovyInterceptable {
             result = DataUtils.sortByToString(result)
         }
         return result
+    }
+
+    def target_sql_return_maparray(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute ${isOrder ? "order_" : ""}target_sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeToList(context.getTargetConnection(this), sqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+
+        // get all column names as list
+        List<String> columnNames = new ArrayList<>()
+        for (int i = 0; i < meta.getColumnCount(); i++) {
+            columnNames.add(meta.getColumnName(i + 1))
+        }
+
+        // add result to res map list, each row is a map with key is column name
+        List<Map<String, Object>> res = new ArrayList<>()
+        for (int i = 0; i < result.size(); i++) {
+            Map<String, Object> row = new HashMap<>()
+            for (int j = 0; j < columnNames.size(); j++) {
+                row.put(columnNames.get(j), result.get(i).get(j))
+            }
+            res.add(row)
+        }
+        return res
     }
 
     List<List<String>> sql_meta(String sqlStr, boolean isOrder = false) {
@@ -732,7 +761,7 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
-    void sshExec(String username, String host, String cmd) {
+    void sshExec(String username, String host, String cmd, boolean alert=true) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
         logger.info("Execute: ${cmds}".toString())
@@ -740,8 +769,10 @@ class Suite implements GroovyInterceptable {
         def errMsg = new StringBuilder()
         def msg = new StringBuilder()
         p.waitForProcessOutput(msg, errMsg)
-        assert errMsg.length() == 0: "error occurred!" + errMsg
-        assert p.exitValue() == 0
+        if (alert) {
+            assert errMsg.length() == 0: "error occurred!\n" + errMsg
+            assert p.exitValue() == 0
+        }
     }
 
     List<String> getFrontendIpHttpPort() {
@@ -1285,10 +1316,15 @@ class Suite implements GroovyInterceptable {
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+        if(backendId_to_backendIP.size() == 1) {
+            logger.info("Only one backend, skip scp udf file")
+            return
+        }
 
         def udf_file_dir = new File(udf_file_path).parent
         backendId_to_backendIP.values().each { be_ip ->
-            sshExec ("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"")
+            sshExec("root", be_ip, "ssh-keygen -f '/root/.ssh/known_hosts' -R \"${be_ip}\"", false)
+            sshExec("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"", false)
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }

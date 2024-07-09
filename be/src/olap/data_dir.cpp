@@ -663,7 +663,7 @@ Status DataDir::load() {
 }
 
 // gc unused local tablet dir
-void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path) {
+void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path, int16_t shard_id) {
     if (_stop_bg_worker) {
         return;
     }
@@ -681,12 +681,11 @@ void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path) {
     if (!tablet || tablet->data_dir() != this) {
         if (tablet) {
             LOG(INFO) << "The tablet in path " << tablet_schema_hash_path
-                      << " is not same with the running one: " << tablet->data_dir()->_path << "/"
-                      << tablet->tablet_path()
+                      << " is not same with the running one: " << tablet->tablet_path()
                       << ", might be the old tablet after migration, try to move it to trash";
         }
         StorageEngine::instance()->tablet_manager()->try_delete_unused_tablet_path(
-                this, tablet_id, schema_hash, tablet_schema_hash_path);
+                this, tablet_id, schema_hash, tablet_schema_hash_path, shard_id);
         return;
     }
 
@@ -855,7 +854,14 @@ void DataDir::perform_path_gc() {
                     std::this_thread::sleep_for(
                             std::chrono::milliseconds(config::path_gc_check_step_interval_ms));
                 }
-                _perform_tablet_gc(tablet_id_path + '/' + schema_hash.file_name);
+                int16_t shard_id = -1;
+                try {
+                    shard_id = std::stoi(shard.file_name);
+                } catch (const std::exception&) {
+                    LOG(WARNING) << "failed to stoi shard_id, shard name=" << shard.file_name;
+                    continue;
+                }
+                _perform_tablet_gc(tablet_id_path + '/' + schema_hash.file_name, shard_id);
             }
         }
     }
@@ -921,8 +927,14 @@ void DataDir::disks_compaction_num_increment(int64_t delta) {
 }
 
 Status DataDir::move_to_trash(const std::string& tablet_path) {
-    Status res = Status::OK();
+    if (config::trash_file_expire_time_sec <= 0) {
+        LOG(INFO) << "delete tablet dir " << tablet_path
+                  << " directly due to trash_file_expire_time_sec is 0";
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_path));
+        return delete_tablet_parent_path_if_empty(tablet_path);
+    }
 
+    Status res = Status::OK();
     // 1. get timestamp string
     string time_str;
     if ((res = gen_timestamp_string(&time_str)) != Status::OK()) {
@@ -957,8 +969,16 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     }
 
     // 5. check parent dir of source file, delete it when empty
+    RETURN_IF_ERROR(delete_tablet_parent_path_if_empty(tablet_path));
+
+    return Status::OK();
+}
+
+Status DataDir::delete_tablet_parent_path_if_empty(const std::string& tablet_path) {
+    auto fs_tablet_path = io::Path(tablet_path);
     std::string source_parent_dir = fs_tablet_path.parent_path(); // tablet_id level
     std::vector<io::FileInfo> sub_files;
+    bool exists = true;
     RETURN_IF_ERROR(
             io::global_local_filesystem()->list(source_parent_dir, false, &sub_files, &exists));
     if (sub_files.empty()) {
@@ -966,7 +986,6 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
         // no need to exam return status
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(source_parent_dir));
     }
-
     return Status::OK();
 }
 

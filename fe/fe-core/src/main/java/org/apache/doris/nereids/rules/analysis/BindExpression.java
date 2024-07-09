@@ -42,6 +42,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -89,8 +90,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -208,22 +212,38 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private LogicalResultSink<Plan> bindResultSink(MatchingContext<UnboundResultSink<Plan>> ctx) {
         LogicalSink<Plan> sink = ctx.root;
+        Plan child = sink.child();
+        List<Slot> output = child.getOutput();
+        List<NamedExpression> castNullToTinyInt = Lists.newArrayListWithCapacity(output.size());
+        boolean needProject = false;
+        for (Slot slot : output) {
+            DataType newType = TypeCoercionUtils.replaceSpecifiedType(
+                    slot.getDataType(), NullType.class, TinyIntType.INSTANCE);
+            if (!newType.equals(slot.getDataType())) {
+                needProject = true;
+                castNullToTinyInt.add(new Alias(new Cast(slot, newType)));
+            } else {
+                castNullToTinyInt.add(slot);
+            }
+        }
+        if (needProject) {
+            child = new LogicalProject<>(castNullToTinyInt, child);
+        }
         if (ctx.connectContext.getState().isQuery()) {
-            List<NamedExpression> outputExprs = sink.child().getOutput().stream()
+            List<NamedExpression> outputExprs = child.getOutput().stream()
                     .map(NamedExpression.class::cast)
                     .collect(ImmutableList.toImmutableList());
-            return new LogicalResultSink<>(outputExprs, sink.child());
+            return new LogicalResultSink<>(outputExprs, child);
         }
         // Should infer column name for expression when query command
-        final ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder =
-                ImmutableListMultimap.builder();
-        List<Slot> childOutput = sink.child().getOutput();
+        final ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder = ImmutableListMultimap.builder();
+        List<Slot> childOutput = child.getOutput();
         for (int index = 0; index < childOutput.size(); index++) {
             exprIdToIndexMapBuilder.put(childOutput.get(index).getExprId(), index);
         }
         InferPlanOutputAlias aliasInfer = new InferPlanOutputAlias(childOutput);
-        List<NamedExpression> output = aliasInfer.infer(sink.child(), exprIdToIndexMapBuilder.build());
-        return new LogicalResultSink<>(output, sink.child());
+        List<NamedExpression> sinkExpr = aliasInfer.infer(child, exprIdToIndexMapBuilder.build());
+        return new LogicalResultSink<>(sinkExpr, child);
     }
 
     private LogicalSubQueryAlias<Plan> bindSubqueryAlias(MatchingContext<LogicalSubQueryAlias<Plan>> ctx) {

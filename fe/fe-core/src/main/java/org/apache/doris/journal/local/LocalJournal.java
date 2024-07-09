@@ -210,4 +210,9 @@ public class LocalJournal implements Journal {
     public List<Long> getDatabaseNames() {
         throw new RuntimeException("Not Support");
     }
+
+    @Override
+    public boolean exceedMaxJournalSize(short op, Writable writable) throws IOException  {
+        return false;
+    }
 }

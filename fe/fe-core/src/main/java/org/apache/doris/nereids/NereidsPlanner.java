@@ -19,10 +19,8 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -45,37 +43,29 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
-import org.apache.doris.qe.ResultSetMetaData;
-import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -125,10 +115,14 @@ public class NereidsPlanner extends Planner {
         NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);
         PhysicalProperties requireProperties = buildInitRequireProperties();
-        statementContext.getStopwatch().start();
-        boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
-        Plan resultPlan = plan(parsedPlan, requireProperties, explainLevel, showPlanProcess);
-        statementContext.getStopwatch().stop();
+        statementContext.getStopwatch().reset().start();
+        Plan resultPlan = null;
+        try {
+            boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
+            resultPlan = plan(parsedPlan, requireProperties, explainLevel, showPlanProcess);
+        } finally {
+            statementContext.getStopwatch().stop();
+        }
         setOptimizedPlan(resultPlan);
         if (explainLevel.isPlanLevel) {
             return;
@@ -535,64 +529,33 @@ public class NereidsPlanner extends Planner {
         if (!(parsedStmt instanceof LogicalPlanAdapter)) {
             return Optional.empty();
         }
-        if (physicalPlan instanceof PhysicalSqlCache
-                && ((PhysicalSqlCache) physicalPlan).getResultSet().isPresent()) {
-            return Optional.of(((PhysicalSqlCache) physicalPlan).getResultSet().get());
+
+        setFormatOptions();
+        if (physicalPlan instanceof ComputeResultSet) {
+            Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+            Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
+                    .computeResultInFe(cascadesContext, sqlCacheContext);
+            if (resultSet.isPresent()) {
+                return resultSet;
+            }
         }
-        if (!(physicalPlan instanceof PhysicalResultSink)) {
-            return Optional.empty();
-        }
 
-        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
-        boolean enableSqlCache
-                = CacheAnalyzer.canUseSqlCache(statementContext.getConnectContext().getSessionVariable());
-        Plan child = physicalPlan.child(0);
-        if (child instanceof PhysicalOneRowRelation) {
-            PhysicalOneRowRelation physicalOneRowRelation = (PhysicalOneRowRelation) physicalPlan.child(0);
-            List<Column> columns = Lists.newArrayList();
-            List<String> data = Lists.newArrayList();
-            for (int i = 0; i < physicalOneRowRelation.getProjects().size(); i++) {
-                NamedExpression item = physicalOneRowRelation.getProjects().get(i);
-                NamedExpression output = physicalPlan.getOutput().get(i);
-                Expression expr = item.child(0);
-                if (expr instanceof Literal) {
-                    LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
-                    columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-                    data.add(legacyExpr.getStringValueInFe());
-                } else {
-                    return Optional.empty();
-                }
-            }
+        return Optional.empty();
+    }
 
-            ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
-            ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
-            if (sqlCacheContext.isPresent() && enableSqlCache) {
-                sqlCacheContext.get().setResultSetInFe(resultSet);
-                Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
-                        statementContext.getConnectContext(),
-                        statementContext.getOriginStatement().originStmt
-                );
-            }
-            return Optional.of(resultSet);
-        } else if (child instanceof PhysicalEmptyRelation) {
-            List<Column> columns = Lists.newArrayList();
-            for (int i = 0; i < physicalPlan.getOutput().size(); i++) {
-                NamedExpression output = physicalPlan.getOutput().get(i);
-                columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-            }
-
-            ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
-            ResultSet resultSet = new CommonResultSet(metadata, ImmutableList.of());
-            if (sqlCacheContext.isPresent() && enableSqlCache) {
-                sqlCacheContext.get().setResultSetInFe(resultSet);
-                Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
-                        statementContext.getConnectContext(),
-                        statementContext.getOriginStatement().originStmt
-                );
-            }
-            return Optional.of(resultSet);
-        } else {
-            return Optional.empty();
+    private void setFormatOptions() {
+        ConnectContext ctx = statementContext.getConnectContext();
+        SessionVariable sessionVariable = ctx.getSessionVariable();
+        switch (sessionVariable.serdeDialect) {
+            case "presto":
+            case "trino":
+                statementContext.setFormatOptions(FormatOptions.getForPresto());
+                break;
+            case "doris":
+                statementContext.setFormatOptions(FormatOptions.getDefault());
+                break;
+            default:
+                throw new AnalysisException("Unsupported serde dialect: " + sessionVariable.serdeDialect);
         }
     }
 

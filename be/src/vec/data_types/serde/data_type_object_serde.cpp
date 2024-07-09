@@ -39,7 +39,8 @@ namespace vectorized {
 
 Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                  bool col_const) const {
+                                                  bool col_const,
+                                                  const FormatOptions& options) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
     if (!variant.is_finalized()) {
         const_cast<ColumnObject&>(variant).finalize();
@@ -49,7 +50,7 @@ Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
         // Serialize scalar types, like int, string, array, faster path
         const auto& root = variant.get_subcolumn({});
         RETURN_IF_ERROR(root->get_least_common_type_serde()->write_column_to_mysql(
-                root->get_finalized_column(), row_buffer, row_idx, col_const));
+                root->get_finalized_column(), row_buffer, row_idx, col_const, options));
     } else {
         // Serialize hierarchy types to json format
         rapidjson::StringBuffer buffer;

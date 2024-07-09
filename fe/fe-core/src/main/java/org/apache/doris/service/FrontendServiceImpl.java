@@ -62,6 +62,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -2732,6 +2733,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Long> tabletIds = request.getTabletIds();
         Map<Long, List<TReplicaInfo>> tabletReplicaInfos = Maps.newHashMap();
         for (Long tabletId : tabletIds) {
+            if (DebugPointUtil.isEnable("getTabletReplicaInfos.returnEmpty")) {
+                LOG.info("enable getTabletReplicaInfos.returnEmpty");
+                continue;
+            }
             List<TReplicaInfo> replicaInfos = Lists.newArrayList();
             List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
                     .getReplicasByTabletId(tabletId);
@@ -2762,13 +2767,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TAutoIncrementRangeResult getAutoIncrementRange(TAutoIncrementRangeRequest request) {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get auto-increement range request: {}, backend: {}", request, clientAddr);
-        }
+        LOG.info("[auto-inc] receive getAutoIncrementRange request: {}, backend: {}", request, clientAddr);
 
         TAutoIncrementRangeResult result = new TAutoIncrementRangeResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("[auto-inc] failed to getAutoIncrementRange:{}, request:{}, backend:{}",
+                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
+            return result;
+        }
+
         try {
             Env env = Env.getCurrentEnv();
             Database db = env.getInternalCatalog().getDbOrMetaException(request.getDbId());
@@ -2777,19 +2790,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             autoIncrementGenerator = olapTable.getAutoIncrementGenerator();
             long columnId = request.getColumnId();
             long length = request.getLength();
-            long lowerBound = -1;
-            if (request.isSetLowerBound()) {
-                lowerBound = request.getLowerBound();
-            }
-            Pair<Long, Long> range = autoIncrementGenerator.getAutoIncrementRange(columnId, length, lowerBound);
+            Pair<Long, Long> range = autoIncrementGenerator.getAutoIncrementRange(columnId, length, -1);
             result.setStart(range.first);
             result.setLength(range.second);
         } catch (UserException e) {
-            LOG.warn("failed to get auto-increment range of column {}: {}", request.getColumnId(), e.getMessage());
+            LOG.warn("[auto-inc] failed to get auto-increment range of db_id={}, table_id={}, column_id={}, errmsg={}",
+                    request.getDbId(), request.getTableId(), request.getColumnId(), e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.warn("[auto-inc] catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
         }

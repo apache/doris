@@ -98,6 +98,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.NereidsSqlCacheManager;
@@ -326,7 +327,8 @@ public class StmtExecutor {
                 context.getSessionVariable().profileLevel, context.getSessionVariable().getEnablePipelineXEngine());
     }
 
-    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
+    public static InternalService.PDataRow getRowStringValue(List<Expr> cols,
+            FormatOptions options) throws UserException {
         if (cols.isEmpty()) {
             return null;
         }
@@ -339,9 +341,9 @@ public class StmtExecutor {
             if (expr instanceof NullLiteral) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
-                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForStreamLoad()));
+                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForStreamLoad(options)));
             } else {
-                String stringValue = expr.getStringValueForStreamLoad();
+                String stringValue = expr.getStringValueForStreamLoad(options);
                 if (stringValue.equals(NULL_VALUE_FOR_LOAD) || stringValue.startsWith("\"") || stringValue.endsWith(
                         "\"")) {
                     row.addColBuilder().setValue(String.format("\"%s\"", stringValue));
@@ -1591,7 +1593,7 @@ public class StmtExecutor {
                 String originStmt = parsedStmt.getOrigStmt().originStmt;
                 NereidsSqlCacheManager sqlCacheManager = context.getEnv().getSqlCacheManager();
                 if (cacheResult != null) {
-                    sqlCacheManager.tryAddCache(context, originStmt, cacheAnalyzer, false);
+                    sqlCacheManager.tryAddBeCache(context, originStmt, cacheAnalyzer);
                 }
             }
         }
@@ -1809,11 +1811,7 @@ public class StmtExecutor {
                 Cache cache = cacheAnalyzer.getCache();
                 if (cache instanceof SqlCache && !cache.isDisableCache() && planner instanceof NereidsPlanner) {
                     String originStmt = parsedStmt.getOrigStmt().originStmt;
-                    LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
-                    boolean currentMissParseSqlFromSqlCache = !(logicalPlanAdapter.getLogicalPlan()
-                            instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache);
-                    context.getEnv().getSqlCacheManager().tryAddCache(
-                            context, originStmt, cacheAnalyzer, currentMissParseSqlFromSqlCache);
+                    context.getEnv().getSqlCacheManager().tryAddBeCache(context, originStmt, cacheAnalyzer);
                 }
             }
             if (!isSendFields) {
@@ -2017,9 +2015,10 @@ public class StmtExecutor {
                     throw new TException("Column count doesn't match value count");
                 }
             }
+            FormatOptions options = FormatOptions.getDefault();
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
                 ++effectRows;
-                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
+                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row, options);
                 if (data == null) {
                     continue;
                 }
@@ -2594,6 +2593,15 @@ public class StmtExecutor {
                 .addColumn(new Column("Name", ScalarType.createVarchar(20)))
                 .addColumn(new Column("Type", ScalarType.createVarchar(20)))
                 .addColumn(new Column("Definition", ScalarType.createVarchar(20)))
+                .build();
+        ResultSet resultSet = new ShowResultSet(metaData, result);
+        sendResultSet(resultSet);
+    }
+
+    public void handleShowCreateMTMVStmt(List<List<String>> result) throws IOException {
+        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("Materialized View", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Create Materialized View", ScalarType.createVarchar(30)))
                 .build();
         ResultSet resultSet = new ShowResultSet(metaData, result);
         sendResultSet(resultSet);

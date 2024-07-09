@@ -114,9 +114,6 @@ public:
 
     virtual void clear_finished_tasks() {}
 
-    virtual void add_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
-
     virtual Status send_report(bool);
 
     Status update_status(Status status) {

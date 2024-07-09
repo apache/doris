@@ -1544,7 +1544,7 @@ visible_functions = {
         [['esquery'], 'BOOLEAN', ['DATEV2', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['DATETIMEV2', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['TIMEV2', 'VARCHAR'], ''],
-        [['esquery'], 'BOOLEAN', ['ARRAY', 'VARCHAR'], ''],
+        [['esquery'], 'BOOLEAN', ['ARRAY<T>', 'VARCHAR'], '', ['T']],
         [['esquery'], 'BOOLEAN', ['MAP', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['STRING', 'VARCHAR'], ''],
         [['esquery'], 'BOOLEAN', ['VARIANT', 'VARCHAR'], ''],

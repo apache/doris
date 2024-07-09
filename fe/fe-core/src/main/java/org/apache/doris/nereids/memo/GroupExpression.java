@@ -349,4 +349,28 @@ public class GroupExpression {
     public ObjectId getId() {
         return id;
     }
+
+    /**
+     * the first child plan of clazz
+     * @param clazz the operator type, like join/aggregate
+     * @return child operator of type clazz, if not found, return null
+     */
+    public Plan getFirstChildPlan(Class clazz) {
+        for (Group childGroup : children) {
+            for (GroupExpression logical : childGroup.getLogicalExpressions()) {
+                if (clazz.isInstance(logical.getPlan())) {
+                    return logical.getPlan();
+                }
+            }
+        }
+        // for dphyp
+        for (Group childGroup : children) {
+            for (GroupExpression physical : childGroup.getPhysicalExpressions()) {
+                if (clazz.isInstance(physical.getPlan())) {
+                    return physical.getPlan();
+                }
+            }
+        }
+        return null;
+    }
 }

@@ -48,6 +48,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import io.airlift.concurrent.MoreFutures;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -72,6 +73,7 @@ import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -88,6 +90,7 @@ public class HMSTransaction implements Transaction {
     private final Map<DatabaseTableName, Action<TableAndMore>> tableActions = new HashMap<>();
     private final Map<DatabaseTableName, Map<List<String>, Action<PartitionAndMore>>>
             partitionActions = new HashMap<>();
+    private final Map<DatabaseTableName, List<FieldSchema>> tableColumns = new HashMap<>();
 
     private final Executor fileSystemExecutor;
     private HmsCommitter hmsCommitter;
@@ -103,9 +106,27 @@ public class HMSTransaction implements Transaction {
             this.s3MPUPendingUpload = s3MPUPendingUpload;
             this.path = path;
         }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            UncompletedMpuPendingUpload that = (UncompletedMpuPendingUpload) o;
+            return Objects.equals(s3MPUPendingUpload, that.s3MPUPendingUpload) && Objects.equals(path,
+                    that.path);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(s3MPUPendingUpload, path);
+        }
     }
 
-    private Set<UncompletedMpuPendingUpload> uncompletedMpuPendingUploads = new HashSet<>();
+    private final Set<UncompletedMpuPendingUpload> uncompletedMpuPendingUploads = new HashSet<>();
 
     public HMSTransaction(HiveMetadataOps hiveOps, FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
         this.hiveOps = hiveOps;
@@ -223,7 +244,7 @@ public class HMSTransaction implements Transaction {
                                 Maps.newHashMap(),
                                 sd.getOutputFormat(),
                                 sd.getSerdeInfo().getSerializationLib(),
-                                hiveOps.getClient().getSchema(dbName, tbName)
+                                getTableColumns(dbName, tbName)
                         );
                         if (updateMode == TUpdateMode.OVERWRITE) {
                             dropPartition(dbName, tbName, hivePartition.getPartitionValues(), true);
@@ -295,6 +316,7 @@ public class HMSTransaction implements Transaction {
             throw t;
         } finally {
             hmsCommitter.runClearPathsForFinish();
+            hmsCommitter.shutdownExecutorService();
         }
     }
 
@@ -378,7 +400,7 @@ public class HMSTransaction implements Transaction {
                         partition.getParameters(),
                         sd.getOutputFormat(),
                         sd.getSerdeInfo().getSerializationLib(),
-                        hiveOps.getClient().getSchema(dbName, tbName)
+                        getTableColumns(dbName, tbName)
                 );
 
                 partitionActionsForTable.put(
@@ -895,6 +917,11 @@ public class HMSTransaction implements Transaction {
         throw new RuntimeException("Not Found table: " + databaseName + "." + tableName);
     }
 
+    public synchronized List<FieldSchema> getTableColumns(String databaseName, String tableName) {
+        return tableColumns.computeIfAbsent(new DatabaseTableName(databaseName, tableName),
+            key -> hiveOps.getClient().getSchema(dbName, tbName));
+    }
+
     public synchronized void finishChangingExistingTable(
             ActionType actionType,
             String databaseName,
@@ -1085,7 +1112,7 @@ public class HMSTransaction implements Transaction {
 
         // update statistics for unPartitioned table or existed partition
         private final List<UpdateStatisticsTask> updateStatisticsTasks = new ArrayList<>();
-        Executor updateStatisticsExecutor = Executors.newFixedThreadPool(16);
+        ExecutorService updateStatisticsExecutor = Executors.newFixedThreadPool(16);
 
         // add new partition
         private final AddPartitionsTask addPartitionsTask = new AddPartitionsTask();
@@ -1258,7 +1285,7 @@ public class HMSTransaction implements Transaction {
                     Maps.newHashMap(),
                     sd.getOutputFormat(),
                     sd.getSerdeInfo().getSerializationLib(),
-                    hiveOps.getClient().getSchema(dbName, tbName)
+                    getTableColumns(dbName, tbName)
             );
 
             HivePartitionWithStatistics partitionWithStats =
@@ -1503,6 +1530,10 @@ public class HMSTransaction implements Transaction {
             for (CompletableFuture<?> future : asyncFileSystemTaskFutures) {
                 MoreFutures.getFutureValue(future, RuntimeException.class);
             }
+        }
+
+        public void shutdownExecutorService() {
+            updateStatisticsExecutor.shutdownNow();
         }
     }
 

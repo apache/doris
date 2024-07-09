@@ -52,6 +52,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.CleanLabelOperationLog;
@@ -345,6 +346,7 @@ public class DatabaseTransactionMgr {
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
+        MTMVUtil.checkModifyMTMVData(db, tableIdList, ConnectContext.get());
         checkDatabaseDataQuota();
         Preconditions.checkNotNull(coordinator);
         Preconditions.checkNotNull(label);
@@ -1468,7 +1470,7 @@ public class DatabaseTransactionMgr {
     protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
-            LOG.warn("Unknow exception. state of transaction [{}] changed, failed to commit transaction",
+            LOG.warn("Unknown exception. state of transaction [{}] changed, failed to commit transaction",
                     transactionState.getTransactionId());
             return;
         }

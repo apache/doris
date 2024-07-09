@@ -426,6 +426,14 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
         break; // while (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write())
     }
 
+    DBUG_EXECUTE_IF("Tablet.revise_tablet_meta_fail", {
+        auto ptablet_id = dp->param("tablet_id", 0);
+        if (tablet_id() == ptablet_id) {
+            LOG(INFO) << "injected revies_tablet_meta failure for tabelt: " << ptablet_id;
+            calc_bm_status = Status::InternalError("fault injection error");
+        }
+    });
+
     // error handling
     if (!calc_bm_status.ok()) {
         if (is_incremental_clone) {
@@ -2001,9 +2009,11 @@ void Tablet::execute_single_replica_compaction(SingleReplicaCompaction& compacti
         set_last_failure_time(this, compaction, UnixMillis());
         set_last_single_compaction_failure_status(res.to_string());
         if (res.is<CANCELLED>()) {
+            DorisMetrics::instance()->single_compaction_request_cancelled->increment(1);
             VLOG_CRITICAL << "Cannel fetching from the remote peer. res=" << res
                           << ", tablet=" << tablet_id();
         } else {
+            DorisMetrics::instance()->single_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to do single replica compaction. res=" << res
                          << ", tablet=" << tablet_id();
         }
@@ -3617,7 +3627,9 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
                                       << " src loaction: |" << src.rowset_id << "|"
                                       << src.segment_id << "|" << src.row_id
                                       << " version: " << cur_version;
-                        missed_rows->insert(src);
+                        if (missed_rows) {
+                            missed_rows->insert(src);
+                        }
                         continue;
                     }
                     VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
@@ -3625,7 +3637,9 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
                                << " src location: |" << src.rowset_id << "|" << src.segment_id
                                << "|" << src.row_id << " start version: " << start_version
                                << "end version" << end_version;
-                    (*location_map)[rowset].emplace_back(src, dst);
+                    if (location_map) {
+                        (*location_map)[rowset].emplace_back(src, dst);
+                    }
                     output_rowset_delete_bitmap->add({dst.rowset_id, dst.segment_id, cur_version},
                                                      dst.row_id);
                 }

@@ -495,7 +495,7 @@ DECLARE_mInt64(pick_rowset_to_compact_interval_sec);
 // Compaction priority schedule
 DECLARE_mBool(enable_compaction_priority_scheduling);
 DECLARE_mInt32(low_priority_compaction_task_num_per_disk);
-DECLARE_mDouble(low_priority_tablet_version_num_ratio);
+DECLARE_mInt32(low_priority_compaction_score_threshold);
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DECLARE_Int32(max_meta_checkpoint_threads);
@@ -725,6 +725,9 @@ DECLARE_mInt64(storage_flood_stage_left_capacity_bytes); // 1GB
 DECLARE_Int32(flush_thread_num_per_store);
 // number of thread for flushing memtable per store, for high priority load task
 DECLARE_Int32(high_priority_flush_thread_num_per_store);
+
+// workload group's flush thread num
+DECLARE_Int32(wg_flush_thread_num_per_store);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1159,6 +1162,8 @@ DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
+// missing rows correctness check when compaction for mow table
+DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
@@ -1214,7 +1219,6 @@ DECLARE_mBool(exit_on_exception);
 
 // cgroup
 DECLARE_mString(doris_cgroup_cpu_path);
-DECLARE_mBool(enable_cgroup_cpu_soft_limit);
 
 DECLARE_mBool(enable_workload_group_memory_gc);
 
@@ -1328,6 +1332,8 @@ DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
 
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
+
+DECLARE_mBool(enable_parquet_page_index);
 
 #ifdef BE_TEST
 // test s3

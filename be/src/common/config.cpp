@@ -246,6 +246,7 @@ DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
 DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
 DEFINE_mInt32(fetch_rpc_timeout_seconds, "30");
+
 // default thrift client retry interval (in milliseconds)
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
 // max message size of thrift request
@@ -311,7 +312,7 @@ DEFINE_mInt32(garbage_sweep_batch_size, "100");
 DEFINE_mInt32(snapshot_expire_time_sec, "172800");
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
-DEFINE_mInt32(trash_file_expire_time_sec, "259200");
+DEFINE_mInt32(trash_file_expire_time_sec, "86400");
 // minimum file descriptor number
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
@@ -426,6 +427,8 @@ DEFINE_Validator(compaction_task_num_per_disk,
                  [](const int config) -> bool { return config >= 2; });
 DEFINE_Validator(compaction_task_num_per_fast_disk,
                  [](const int config) -> bool { return config >= 2; });
+DEFINE_Validator(low_priority_compaction_task_num_per_disk,
+                 [](const int config) -> bool { return config >= 2; });
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DEFINE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
@@ -447,8 +450,8 @@ DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
 
 // Compaction priority schedule
 DEFINE_mBool(enable_compaction_priority_scheduling, "true");
-DEFINE_mInt32(low_priority_compaction_task_num_per_disk, "1");
-DEFINE_mDouble(low_priority_tablet_version_num_ratio, "0.7");
+DEFINE_mInt32(low_priority_compaction_task_num_per_disk, "2");
+DEFINE_mInt32(low_priority_compaction_score_threshold, "200");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DEFINE_Int32(max_meta_checkpoint_threads, "-1");
@@ -670,6 +673,8 @@ DEFINE_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 DEFINE_Int32(flush_thread_num_per_store, "6");
 // number of thread for flushing memtable per store, for high priority load task
 DEFINE_Int32(high_priority_flush_thread_num_per_store, "6");
+
+DEFINE_Int32(wg_flush_thread_num_per_store, "6");
 
 // config for tablet meta checkpoint
 DEFINE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -1052,7 +1057,7 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_mInt32(segment_cache_capacity, "-1");
-DEFINE_mInt32(estimated_num_columns_per_segment, "30");
+DEFINE_mInt32(estimated_num_columns_per_segment, "200");
 DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
 // The value is calculate by storage_page_cache_limit * index_page_cache_percentage
 DEFINE_mInt32(segment_cache_memory_percentage, "2");
@@ -1098,6 +1103,8 @@ DEFINE_mInt64(LZ4_HC_compression_level, "9");
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
+// missing rows correctness check when compaction for mow table
+DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
@@ -1140,7 +1147,6 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
-DEFINE_mBool(enable_cgroup_cpu_soft_limit, "true");
 
 DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
@@ -1245,6 +1251,11 @@ DEFINE_Int64(min_row_group_size, "134217728");
 
 // The time out milliseconds for remote fetch schema RPC, default 60s
 DEFINE_mInt64(fetch_remote_schema_rpc_timeout_ms, "60000");
+
+// If set to false, the parquet reader will not use page index to filter data.
+// This is only for debug purpose, in case sometimes the page index
+// filter wrong data.
+DEFINE_mBool(enable_parquet_page_index, "true");
 
 // clang-format off
 #ifdef BE_TEST

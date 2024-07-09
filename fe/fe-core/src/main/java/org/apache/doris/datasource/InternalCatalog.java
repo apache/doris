@@ -136,6 +136,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -1263,7 +1264,19 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (resultExpr.getSrcSlotRef() != null
                             && resultExpr.getSrcSlotRef().getTable() != null
                             && !resultExpr.getSrcSlotRef().getTable().isManagedTable()) {
-                        typeDef = new TypeDef(ScalarType.createStringType());
+                        if (createTableStmt.getPartitionDesc().inIdentifierPartitions(
+                                resultExpr.getSrcSlotRef().getColumnName())
+                                || (createTableStmt.getDistributionDesc() != null
+                                && createTableStmt.getDistributionDesc().inDistributionColumns(
+                                        resultExpr.getSrcSlotRef().getColumnName()))) {
+                            // String type can not be used in partition/distributed column
+                            // so we replace it to varchar
+                            if (resultType.getPrimitiveType() == PrimitiveType.STRING) {
+                                typeDef = new TypeDef(ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH));
+                            }
+                        } else {
+                            typeDef = new TypeDef(ScalarType.createStringType());
+                        }
                     }
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
@@ -3090,6 +3103,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         OlapTable olapTable = db.getOlapTableOrDdlException(dbTbl.getTbl());
 
         long rowsToTruncate = 0;
+        if (olapTable instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ConnectContext.get())) {
+            throw new DdlException("Not allowed to perform current operation on async materialized view");
+        }
 
         BinlogConfig binlogConfig;
         olapTable.readLock();
@@ -3140,6 +3156,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         List<Partition> newPartitions = Lists.newArrayList();
         // tabletIdSet to save all newly created tablet ids.
         Set<Long> tabletIdSet = Sets.newHashSet();
+        Runnable failedCleanCallback = () -> {
+            for (Long tabletId : tabletIdSet) {
+                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+            }
+        };
         Map<Integer, Integer> clusterKeyMap = new TreeMap<>();
         for (int i = 0; i < olapTable.getBaseSchema().size(); i++) {
             Column column = olapTable.getBaseSchema().get(i);
@@ -3176,9 +3197,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         } catch (DdlException e) {
             // create partition failed, remove all newly created tablets
-            for (Long tabletId : tabletIdSet) {
-                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
-            }
+            failedCleanCallback.run();
             throw e;
         }
         Preconditions.checkState(origPartitions.size() == newPartitions.size());
@@ -3186,15 +3205,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         // all partitions are created successfully, try to replace the old partitions.
         // before replacing, we need to check again.
         // Things may be changed outside the table lock.
-        olapTable = (OlapTable) db.getTableOrDdlException(copiedTbl.getId());
-        olapTable.writeLockOrDdlException();
+        boolean hasWriteLock = false;
         try {
+            olapTable = (OlapTable) db.getTableOrDdlException(copiedTbl.getId());
+            olapTable.writeLockOrDdlException();
+            hasWriteLock = true;
             olapTable.checkNormalStateForAlter();
             // check partitions
             for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
-                Partition partition = copiedTbl.getPartition(entry.getValue());
+                Partition partition = olapTable.getPartition(entry.getValue());
                 if (partition == null || !partition.getName().equalsIgnoreCase(entry.getKey())) {
-                    throw new DdlException("Partition [" + entry.getKey() + "] is changed");
+                    throw new DdlException("Partition [" + entry.getKey() + "] is changed"
+                            + " during truncating table, please retry");
                 }
             }
 
@@ -3238,6 +3260,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 }
             }
+            if (DebugPointUtil.isEnable("InternalCatalog.truncateTable.metaChanged")) {
+                metaChanged = true;
+                LOG.warn("debug set truncate table meta changed");
+            }
 
             if (metaChanged) {
                 throw new DdlException("Table[" + copiedTbl.getName() + "]'s meta has been changed. try again.");
@@ -3252,8 +3278,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                             newPartitions,
                             truncateEntireTable, truncateTableStmt.toSqlWithoutTable());
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
+        } catch (DdlException e) {
+            failedCleanCallback.run();
+            throw e;
         } finally {
-            olapTable.writeUnlock();
+            if (hasWriteLock) {
+                olapTable.writeUnlock();
+            }
         }
 
         HashMap<Long, Long> updateRecords = new HashMap<>();

@@ -206,7 +206,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 throw e;
             }
         } catch (Exception e) {
-            throw new HMSClientException("failed to create database from hms client", e);
+            throw new HMSClientException("failed to create table from hms client", e);
         }
     }
 
@@ -682,7 +682,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             newTable.setParameters(newParams);
             client.client.alter_table(dbName, tableName, newTable);
         } catch (Exception e) {
-            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName);
+            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName, e);
         }
     }
 
@@ -710,7 +710,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             modifiedPartition.setParameters(newParams);
             client.client.alter_partition(dbName, tableName, modifiedPartition);
         } catch (Exception e) {
-            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName);
+            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName, e);
         }
     }
 
@@ -731,7 +731,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         try (ThriftHMSClient client = getClient()) {
             client.client.dropPartition(dbName, tableName, partitionValues, deleteData);
         } catch (Exception e) {
-            throw new RuntimeException("failed to drop partition for " + dbName + "." + tableName);
+            throw new RuntimeException("failed to drop partition for " + dbName + "." + tableName, e);
         }
     }
 }

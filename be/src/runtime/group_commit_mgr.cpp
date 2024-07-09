@@ -62,9 +62,27 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
     RETURN_IF_ERROR(status);
     if (block->rows() > 0) {
         if (!config::group_commit_wait_replay_wal_finish) {
-            _block_queue.push_back(block);
+            _block_queue.emplace_back(block);
             _data_bytes += block->bytes();
+            int before_block_queues_bytes = _all_block_queues_bytes->load();
             _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
+            std::stringstream ss;
+            ss << "[";
+            for (const auto& id : _load_ids) {
+                ss << id.to_string() << ", ";
+            }
+            ss << "]";
+            VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::add_block). "
+                       << "block queue size is " << _block_queue.size() << ", block rows is "
+                       << block->rows() << ", block bytes is " << block->bytes()
+                       << ", before add block, all block queues bytes is "
+                       << before_block_queues_bytes
+                       << ", after add block, all block queues bytes is "
+                       << _all_block_queues_bytes->load() << ", txn_id=" << txn_id
+                       << ", label=" << label << ", instance_id=" << load_instance_id
+                       << ", load_ids=" << ss.str() << ", runtime_state=" << runtime_state
+                       << ", the block is " << block->dump_data() << ", the block column size is "
+                       << block->columns_bytes();
         }
         if (write_wal || config::group_commit_wait_replay_wal_finish) {
             auto st = _v_wal_writer->write_wal(block.get());
@@ -124,19 +142,38 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
                           << ", runtime_state=" << runtime_state;
             }
         }
-        _get_cond.wait_for(l, std::chrono::milliseconds(left_milliseconds));
+        _get_cond.wait_for(l, std::chrono::milliseconds(std::min(left_milliseconds, 10000L)));
     }
     if (runtime_state->is_cancelled()) {
         auto st = Status::Cancelled<false>(runtime_state->cancel_reason());
         _cancel_without_lock(st);
-        return st;
+        return Status::Cancelled("cancel group_commit, label=" + label +
+                                 ", status=" + st.to_string());
     }
     if (!_block_queue.empty()) {
-        auto fblock = _block_queue.front();
-        block->swap(*fblock.get());
+        const BlockData block_data = _block_queue.front();
+        block->swap(*block_data.block);
         *find_block = true;
         _block_queue.pop_front();
-        _all_block_queues_bytes->fetch_sub(block->bytes(), std::memory_order_relaxed);
+        int before_block_queues_bytes = _all_block_queues_bytes->load();
+        _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
+        std::stringstream ss;
+        ss << "[";
+        for (const auto& id : _load_ids) {
+            ss << id.to_string() << ", ";
+        }
+        ss << "]";
+        VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::get_block). "
+                   << "block queue size is " << _block_queue.size() << ", block rows is "
+                   << block->rows() << ", block bytes is " << block->bytes()
+                   << ", before remove block, all block queues bytes is "
+                   << before_block_queues_bytes
+                   << ", after remove block, all block queues bytes is "
+                   << _all_block_queues_bytes->load() << ", txn_id=" << txn_id
+                   << ", label=" << label << ", instance_id=" << load_instance_id
+                   << ", load_ids=" << ss.str() << ", runtime_state=" << runtime_state
+                   << ", the block is " << block->dump_data() << ", the block column size is "
+                   << block->columns_bytes();
     }
     if (_block_queue.empty() && _need_commit && _load_ids.empty()) {
         *eos = true;
@@ -162,6 +199,7 @@ Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
                                             load_instance_id.to_string());
     }
     _load_ids.emplace(load_id);
+    group_commit_load_count.fetch_add(1);
     return Status::OK();
 }
 
@@ -176,10 +214,26 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
               << ", status=" << st.to_string();
     status = st;
     while (!_block_queue.empty()) {
-        {
-            auto& future_block = _block_queue.front();
-            _all_block_queues_bytes->fetch_sub(future_block->bytes(), std::memory_order_relaxed);
+        const BlockData& block_data = _block_queue.front().block;
+        int before_block_queues_bytes = _all_block_queues_bytes->load();
+        _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
+        std::stringstream ss;
+        ss << "[";
+        for (const auto& id : _load_ids) {
+            ss << id.to_string() << ", ";
         }
+        ss << "]";
+        VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::_cancel_without_block). "
+                   << "block queue size is " << _block_queue.size() << ", block rows is "
+                   << block_data.block->rows() << ", block bytes is " << block_data.block->bytes()
+                   << ", before remove block, all block queues bytes is "
+                   << before_block_queues_bytes
+                   << ", after remove block, all block queues bytes is "
+                   << _all_block_queues_bytes->load() << ", txn_id=" << txn_id
+                   << ", label=" << label << ", instance_id=" << load_instance_id
+                   << ", load_ids=" << ss.str() << ", the block is "
+                   << block_data.block->dump_data() << ", the block column size is "
+                   << block_data.block->columns_bytes();
         _block_queue.pop_front();
     }
 }
@@ -212,7 +266,7 @@ Status GroupCommitTable::get_first_block_load_queue(
             }
             if (!_is_creating_plan_fragment) {
                 _is_creating_plan_fragment = true;
-                RETURN_IF_ERROR(_thread_pool->submit_func([&] {
+                RETURN_IF_ERROR(_thread_pool->submit_func([this, be_exe_version, mem_tracker] {
                     auto st = _create_group_commit_load(be_exe_version, mem_tracker);
                     if (!st.ok()) {
                         LOG(WARNING) << "create group commit load error, st=" << st.to_string();

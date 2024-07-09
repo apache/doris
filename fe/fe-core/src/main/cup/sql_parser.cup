@@ -4052,6 +4052,10 @@ show_param ::=
     {:
         RESULT = new ShowCreateTableStmt(table, true, false);
     :}
+    | KW_CREATE KW_MATERIALIZED KW_VIEW table_name:table
+    {:
+        RESULT = new ShowCreateMTMVStmt(table);
+    :}
     /* Create database */
     | KW_CREATE KW_DATABASE db_name:db
     {:
@@ -7517,7 +7521,15 @@ admin_stmt ::=
     :}
     | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
     {:
-        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs);
+        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, false);
+    :}
+    | KW_ADMIN KW_SET KW_ALL KW_FRONTENDS KW_CONFIG opt_key_value_map:configs
+    {:
+        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, true);
+    :}
+    | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs KW_ALL
+    {:
+        RESULT = new AdminSetConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND, configs, true);
     :}
     // deprecated
     | KW_ADMIN KW_SHOW KW_FRONTEND KW_CONFIG opt_wild_where

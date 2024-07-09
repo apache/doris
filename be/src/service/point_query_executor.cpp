@@ -379,10 +379,12 @@ Status PointQueryExecutor::_output_data() {
         if (_binary_row_format) {
             vectorized::VMysqlResultWriter<true> mysql_writer(nullptr, _reusable->output_exprs(),
                                                               nullptr);
+            RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
             RETURN_IF_ERROR(_serialize_block(mysql_writer, *_result_block, _response));
         } else {
             vectorized::VMysqlResultWriter<false> mysql_writer(nullptr, _reusable->output_exprs(),
                                                                nullptr);
+            RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
             RETURN_IF_ERROR(_serialize_block(mysql_writer, *_result_block, _response));
         }
         VLOG_DEBUG << "dump block " << _result_block->dump_data();

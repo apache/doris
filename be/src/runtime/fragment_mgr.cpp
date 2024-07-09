@@ -692,9 +692,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << ", use workload group: " << workload_group_ptr->debug_string()
-                          << ", is pipeline: " << ((int)is_pipeline)
-                          << ", enable cgroup soft limit: "
-                          << ((int)config::enable_cgroup_cpu_soft_limit);
+                          << ", is pipeline: " << ((int)is_pipeline);
             } else {
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << " carried group info but can not find group in be";
@@ -775,11 +773,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                 std::make_pair(params.params.fragment_instance_id, fragment_executor));
     }
 
-    auto* current_thread_pool = query_ctx->get_non_pipe_exec_thread_pool();
-    if (!current_thread_pool) {
-        current_thread_pool = _thread_pool.get();
-    }
-    auto st = current_thread_pool->submit_func([this, fragment_executor, cb]() {
+    auto st = _thread_pool->submit_func([this, fragment_executor, cb]() {
 #ifndef BE_TEST
         SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
 #endif
@@ -1473,8 +1467,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
 Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
     UniqueId queryid = request->query_id();
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
-    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
     std::shared_ptr<QueryContext> query_ctx;
     {
@@ -1484,11 +1476,15 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _query_ctx_map.find(query_id);
         if (iter == _query_ctx_map.end()) {
-            return Status::InvalidArgument("query-id: {}", queryid.to_string());
+            return Status::EndOfFile("Query context (query-id: {}) not found, maybe finished",
+                                     queryid.to_string());
         }
 
         query_ctx = iter->second;
     }
+
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
     auto merge_status = filter_controller->send_filter_size(request);
     return merge_status;
 }

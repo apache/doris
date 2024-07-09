@@ -174,26 +174,6 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
         *file_reader = stream_load_ctx->pipe;
     }
 
-    if (file_reader->get() == nullptr) {
-        return Status::OK();
-    }
-
-    auto multi_table_pipe = std::dynamic_pointer_cast<io::MultiTablePipe>(*file_reader);
-    if (multi_table_pipe == nullptr || runtime_state == nullptr) {
-        return Status::OK();
-    }
-
-    TUniqueId pipe_id;
-    if (runtime_state->enable_pipeline_exec()) {
-        pipe_id = io::StreamLoadPipe::calculate_pipe_id(runtime_state->query_id(),
-                                                        runtime_state->fragment_id());
-    } else {
-        pipe_id = runtime_state->fragment_instance_id();
-    }
-    *file_reader = multi_table_pipe->get_pipe(pipe_id);
-    LOG(INFO) << "create pipe reader for fragment instance: " << pipe_id
-              << " pipe: " << (*file_reader).get();
-
     return Status::OK();
 }
 

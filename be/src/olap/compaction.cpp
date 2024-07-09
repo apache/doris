@@ -895,8 +895,17 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         _tablet->tablet_schema()->cluster_key_idxes().empty()) {
         Version version = _tablet->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
-        std::set<RowLocation> missed_rows;
-        std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
+        std::unique_ptr<RowLocationSet> missed_rows;
+        if (config::enable_missing_rows_correctness_check && !allow_delete_in_cumu_compaction() &&
+            compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+            missed_rows = std::make_unique<RowLocationSet>();
+            LOG(INFO) << "RowLocation Set inited succ for tablet:" << _tablet->tablet_id();
+        }
+        std::unique_ptr<std::map<RowsetSharedPtr, RowLocationPairList>> location_map;
+        if (config::enable_rowid_conversion_correctness_check) {
+            location_map = std::make_unique<std::map<RowsetSharedPtr, RowLocationPairList>>();
+            LOG(INFO) << "Location Map inited succ for tablet:" << _tablet->tablet_id();
+        }
         // Convert the delete bitmap of the input rowsets to output rowset.
         // New loads are not blocked, so some keys of input rowsets might
         // be deleted during the time. We need to deal with delete bitmap
@@ -904,13 +913,12 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // TODO(LiaoXin): check if there are duplicate keys
         std::size_t missed_rows_size = 0;
         _tablet->calc_compaction_output_rowset_delete_bitmap(
-                _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
-                &location_map, _tablet->tablet_meta()->delete_bitmap(),
+                _input_rowsets, _rowid_conversion, 0, version.second + 1, missed_rows.get(),
+                location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                 &output_rowset_delete_bitmap);
-        if (!allow_delete_in_cumu_compaction()) {
-            missed_rows_size = missed_rows.size();
-            if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
-                _tablet->tablet_state() == TABLET_RUNNING && stats != nullptr &&
+        if (missed_rows) {
+            missed_rows_size = missed_rows->size();
+            if (_tablet->tablet_state() == TABLET_RUNNING && stats != nullptr &&
                 stats->merged_rows != missed_rows_size) {
                 std::stringstream ss;
                 ss << "cumulative compaction: the merged rows(" << stats->merged_rows
@@ -936,9 +944,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         }
 
         if (config::enable_rowid_conversion_correctness_check) {
-            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, *location_map));
+            location_map->clear();
         }
-        location_map.clear();
 
         {
             std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
@@ -965,8 +973,8 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 }
                 DeleteBitmap txn_output_delete_bitmap(_tablet->tablet_id());
                 _tablet->calc_compaction_output_rowset_delete_bitmap(
-                        _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
-                        &location_map, *it.delete_bitmap.get(), &txn_output_delete_bitmap);
+                        _input_rowsets, _rowid_conversion, 0, UINT64_MAX, missed_rows.get(),
+                        location_map.get(), *it.delete_bitmap.get(), &txn_output_delete_bitmap);
                 if (config::enable_merge_on_write_correctness_check) {
                     RowsetIdUnorderedSet rowsetids;
                     rowsetids.insert(_output_rowset->rowset_id());
@@ -985,21 +993,20 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
             _tablet->calc_compaction_output_rowset_delete_bitmap(
-                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &missed_rows,
-                    &location_map, _tablet->tablet_meta()->delete_bitmap(),
+                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX,
+                    missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                     &output_rowset_delete_bitmap);
 
-            if (!allow_delete_in_cumu_compaction() &&
-                compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
-                DCHECK_EQ(missed_rows.size(), missed_rows_size);
-                if (missed_rows.size() != missed_rows_size) {
+            if (missed_rows) {
+                DCHECK_EQ(missed_rows->size(), missed_rows_size);
+                if (missed_rows->size() != missed_rows_size) {
                     LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
-                                 << " after: " << missed_rows.size();
+                                 << " after: " << missed_rows->size();
                 }
             }
 
-            if (config::enable_rowid_conversion_correctness_check) {
-                RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+            if (location_map) {
+                RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, *location_map));
             }
 
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);

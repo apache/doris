@@ -169,6 +169,7 @@ import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
 import org.apache.doris.nereids.DorisParser.SetOperationContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
@@ -382,6 +383,7 @@ import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
@@ -390,6 +392,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRenameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVReplaceInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
@@ -415,6 +418,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.ShowCreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -806,6 +810,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public ShowCreateMTMVCommand visitShowCreateMTMV(ShowCreateMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        return new ShowCreateMTMVCommand(new ShowCreateMTMVInfo(new TableNameInfo(nameParts)));
+    }
+
+    @Override
     public CancelMTMVTaskCommand visitCancelMTMVTask(CancelMTMVTaskContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         long taskId = Long.parseLong(ctx.taskId.getText());
@@ -831,6 +841,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.SET() != null) {
             alterMTMVInfo = new AlterMTMVPropertyInfo(mvName,
                     Maps.newHashMap(visitPropertyItemList(ctx.fileProperties)));
+        } else if (ctx.REPLACE() != null) {
+            String newName = ctx.newName.getText();
+            Map<String, String> properties = ctx.propertyClause() != null
+                    ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+            alterMTMVInfo = new AlterMTMVReplaceInfo(mvName, newName, properties);
         }
         return new AlterMTMVCommand(alterMTMVInfo);
     }
@@ -919,9 +934,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
-        if (ctx.USING() == null && ctx.cte() == null && ctx.explain() == null) {
+
+        Command deleteCommand;
+        if (ctx.USING() == null && ctx.cte() == null) {
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
-            return new DeleteFromCommand(tableName, tableAlias, partitionSpec.first, partitionSpec.second, query);
+            deleteCommand = new DeleteFromCommand(tableName, tableAlias, partitionSpec.first,
+                    partitionSpec.second, query);
         } else {
             // convert to insert into select
             query = withRelations(query, ctx.relations().relation());
@@ -930,8 +948,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (ctx.cte() != null) {
                 cte = Optional.ofNullable(withCte(query, ctx.cte()));
             }
-            return withExplain(new DeleteFromUsingCommand(tableName, tableAlias,
-                    partitionSpec.first, partitionSpec.second, query, cte), ctx.explain());
+            deleteCommand = new DeleteFromUsingCommand(tableName, tableAlias,
+                    partitionSpec.first, partitionSpec.second, query, cte);
+        }
+        if (ctx.explain() != null) {
+            return withExplain(deleteCommand, ctx.explain());
+        } else {
+            return deleteCommand;
         }
     }
 

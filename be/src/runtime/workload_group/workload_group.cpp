@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "olap/storage_engine.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
@@ -364,9 +365,9 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
         Status ret = cgroup_cpu_ctl->init();
         if (ret.ok()) {
             _cgroup_cpu_ctl = std::move(cgroup_cpu_ctl);
-            LOG(INFO) << "[upsert wg thread pool] cgroup init success";
+            LOG(INFO) << "[upsert wg thread pool] cgroup init success, wg_id=" << tg_id;
         } else {
-            LOG(INFO) << "[upsert wg thread pool] cgroup init failed, gid= " << tg_id
+            LOG(INFO) << "[upsert wg thread pool] cgroup init failed, wg_id= " << tg_id
                       << ", reason=" << ret.to_string();
         }
     }
@@ -429,19 +430,29 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
                                                   min_remote_scan_thread_num);
     }
 
-    if (_non_pipe_thread_pool == nullptr) {
-        std::unique_ptr<ThreadPool> thread_pool = nullptr;
-        auto ret = ThreadPoolBuilder("nonPip_" + tg_name)
-                           .set_min_threads(1)
-                           .set_max_threads(config::fragment_pool_thread_num_max)
-                           .set_max_queue_size(config::fragment_pool_queue_size)
-                           .set_cgroup_cpu_ctl(cg_cpu_ctl_ptr)
-                           .build(&thread_pool);
-        if (!ret.ok()) {
-            LOG(INFO) << "[upsert wg thread pool] create non-pipline thread pool failed, gid="
-                      << tg_id;
-        } else {
-            _non_pipe_thread_pool = std::move(thread_pool);
+    if (_memtable_flush_pool == nullptr) {
+        int num_disk = ExecEnv::GetInstance()->get_storage_engine()->get_disk_num();
+        // -1 means disk num may not be inited, so not create flush pool
+        if (num_disk != -1) {
+            std::unique_ptr<ThreadPool> thread_pool = nullptr;
+
+            size_t min_threads = std::max(1, config::wg_flush_thread_num_per_store);
+            size_t max_threads = num_disk * min_threads;
+            std::string pool_name = "wg_flush_" + tg_name;
+            auto ret = ThreadPoolBuilder(pool_name)
+                               .set_min_threads(min_threads)
+                               .set_max_threads(max_threads)
+                               .set_cgroup_cpu_ctl(cg_cpu_ctl_ptr)
+                               .build(&thread_pool);
+            if (!ret.ok()) {
+                LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " failed, gid="
+                          << tg_id;
+            } else {
+                _memtable_flush_pool = std::move(thread_pool);
+                LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " succ, gid=" << tg_id
+                          << ", max thread num=" << max_threads
+                          << ", min thread num=" << min_threads;
+            }
         }
     }
 
@@ -456,11 +467,9 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
                           << cpu_hard_limit << ", gid=" << tg_id;
             }
         } else {
-            if (config::enable_cgroup_cpu_soft_limit) {
-                _cgroup_cpu_ctl->update_cpu_soft_limit(cpu_shares);
-                _cgroup_cpu_ctl->update_cpu_hard_limit(
-                        CPU_HARD_LIMIT_DEFAULT_VALUE); // disable cpu hard limit
-            }
+            _cgroup_cpu_ctl->update_cpu_soft_limit(cpu_shares);
+            _cgroup_cpu_ctl->update_cpu_hard_limit(
+                    CPU_HARD_LIMIT_DEFAULT_VALUE); // disable cpu hard limit
         }
         _cgroup_cpu_ctl->get_cgroup_cpu_info(&(tg_info->cgroup_cpu_shares),
                                              &(tg_info->cgroup_cpu_hard_limit));
@@ -469,13 +478,41 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
 
 void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                                         vectorized::SimplifiedScanScheduler** scan_sched,
-                                        ThreadPool** non_pipe_thread_pool,
+                                        ThreadPool** memtable_flush_pool,
                                         vectorized::SimplifiedScanScheduler** remote_scan_sched) {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
     *exec_sched = _task_sched.get();
     *scan_sched = _scan_task_sched.get();
     *remote_scan_sched = _remote_scan_task_sched.get();
-    *non_pipe_thread_pool = _non_pipe_thread_pool.get();
+    *memtable_flush_pool = _memtable_flush_pool.get();
+}
+
+std::string WorkloadGroup::thread_debug_info() {
+    std::string str = "";
+    if (_task_sched != nullptr) {
+        std::vector<int> exec_t_info = _task_sched->thread_debug_info();
+        str = fmt::format("[exec num:{}, real_num:{}, min_num:{}, max_num:{}],", exec_t_info[0],
+                          exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    }
+
+    if (_scan_task_sched != nullptr) {
+        std::vector<int> exec_t_info = _scan_task_sched->thread_debug_info();
+        str += fmt::format("[l_scan num:{}, real_num:{}, min_num:{}, max_num{}],", exec_t_info[0],
+                           exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    }
+
+    if (_remote_scan_task_sched != nullptr) {
+        std::vector<int> exec_t_info = _remote_scan_task_sched->thread_debug_info();
+        str += fmt::format("[r_scan num:{}, real_num:{}, min_num:{}, max_num:{}],", exec_t_info[0],
+                           exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    }
+
+    if (_memtable_flush_pool != nullptr) {
+        std::vector<int> exec_t_info = _memtable_flush_pool->debug_info();
+        str += fmt::format("[mem_tab_flush num:{}, real_num:{}, min_num:{}, max_num:{}]",
+                           exec_t_info[0], exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+    }
+    return str;
 }
 
 void WorkloadGroup::try_stop_schedulers() {
@@ -489,9 +526,9 @@ void WorkloadGroup::try_stop_schedulers() {
     if (_remote_scan_task_sched) {
         _remote_scan_task_sched->stop();
     }
-    if (_non_pipe_thread_pool) {
-        _non_pipe_thread_pool->shutdown();
-        _non_pipe_thread_pool->wait();
+    if (_memtable_flush_pool) {
+        _memtable_flush_pool->shutdown();
+        _memtable_flush_pool->wait();
     }
 }
 

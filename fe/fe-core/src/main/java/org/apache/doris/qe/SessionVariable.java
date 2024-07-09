@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
+import org.apache.doris.thrift.TSerdeDialect;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -134,6 +135,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
 
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
+    public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
@@ -192,6 +194,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
 
     public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
+
+    public static final String READ_CSV_EMPTY_LINE_AS_NULL = "read_csv_empty_line_as_null";
 
     public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
 
@@ -418,6 +422,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
+    public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
+
     /**
      * use insert stmt as the unified backend for all loads
      */
@@ -480,6 +486,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SQL_DIALECT = "sql_dialect";
 
+    public static final String SERDE_DIALECT = "serde_dialect";
+
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
 
     public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
@@ -521,6 +529,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
+    public static final String ALLOW_MODIFY_MATERIALIZED_VIEW_DATA
+            = "allow_modify_materialized_view_data";
+
     public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
             = "materialized_view_rewrite_enable_contain_external_table";
 
@@ -560,6 +571,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
 
     public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
+
+    public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -1031,6 +1044,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true)
     private boolean enableSyncRuntimeFilterSize = true;
 
+    @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
+            description = {"在读取csv文件时是否读取csv的空行为null",
+                    "Determine whether to read empty rows in CSV files as NULL when reading CSV files."})
+    public boolean readCsvEmptyLineAsNull = false;
+
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
 
@@ -1192,6 +1210,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
     private boolean enableNewCostModel = false;
 
+    @VariableMgr.VarAttr(name = "filter_cost_factor", needForward = true)
+    public double filterCostFactor = 0.0001;
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
 
@@ -1361,7 +1381,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = {
             "是否启用开启服务端prepared statement", "Set whether to enable server side prepared statement."})
-    public boolean enableServeSidePreparedStatement = false;
+    public boolean enableServeSidePreparedStatement = true;
+
+    @VariableMgr.VarAttr(name = MAX_PREPARED_STMT_COUNT,  flag = VariableMgr.GLOBAL,
+            needForward = true, description = {
+                "服务端prepared statement最大个数", "the maximum prepared statements server holds."})
+    public int maxPreparedStmtCount = 100000;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
@@ -1464,6 +1489,13 @@ public class SessionVariable implements Serializable, Writable {
                     "If the number of partitions exceeds the threshold, scan ranges will be got through batch mode."},
             needForward = true)
     public int numPartitionsInBatchMode = 1024;
+
+    @VariableMgr.VarAttr(
+            name = FETCH_SPLITS_MAX_WAIT_TIME,
+            description = {"batch方式中BE获取splits的最大等待时间",
+                    "The max wait time of getting splits in batch mode."},
+            needForward = true)
+    public long fetchSplitsMaxWaitTime = 4000;
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
@@ -1571,15 +1603,21 @@ public class SessionVariable implements Serializable, Writable {
     public int invertedIndexMaxExpansions = 50;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_SKIP_THRESHOLD,
-                description = {"在倒排索引中如果预估命中量占比总量超过百分比阈值，则跳过索引直接进行匹配。",
-                        "In the inverted index,"
-                        + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
-                        + " then skip the index and proceed directly to matching."})
+            description = {"在倒排索引中如果预估命中量占比总量超过百分比阈值，则跳过索引直接进行匹配。",
+                    "In the inverted index,"
+                            + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
+                            + " then skip the index and proceed directly to matching."})
     public int invertedIndexSkipThreshold = 50;
 
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
     public String sqlDialect = "doris";
+
+    @VariableMgr.VarAttr(name = SERDE_DIALECT, needForward = true, checker = "checkSerdeDialect",
+            description = {"返回给 MySQL 客户端时各数据类型的输出格式方言",
+                    "The output format dialect of each data type returned to the MySQL client."},
+            options = {"doris", "presto", "trino"})
+    public String serdeDialect = "doris";
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
@@ -1671,7 +1709,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
             description = {"是否开启基于结构信息的物化视图透明改写",
                     "Whether to enable materialized view rewriting based on struct info"})
-    public boolean enableMaterializedViewRewrite = false;
+    public boolean enableMaterializedViewRewrite = true;
+
+    @VariableMgr.VarAttr(name = ALLOW_MODIFY_MATERIALIZED_VIEW_DATA, needForward = true,
+            description = {"是否允许修改物化视图的数据",
+                    "Is it allowed to modify the data of the materialized view"})
+    public boolean allowModifyMaterializedViewData = false;
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
             description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
@@ -1693,7 +1736,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"当物化视图不足以提供查询的全部数据时，是否允许基表和物化视图 union 来响应查询",
                     "When the materialized view is not enough to provide all the data for the query, "
                             + "whether to allow the union of the base table and the materialized view to "
-                            + "respond to the query"})
+                            + "respond to the query"}, varType = VariableAnnotation.DEPRECATED)
     public boolean enableMaterializedViewUnionRewrite = true;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_NEST_REWRITE, needForward = true,
@@ -1860,6 +1903,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTERNAL_AGG_PARTITION_BITS,
             checker = "checkExternalAggPartitionBits", fuzzy = true)
     public int externalAggPartitionBits = 5; // means that the hash table will be partitioned into 32 blocks.
+
+    @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, description = {
+            "在CTAS中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即65533。默认为 true。",
+            "In CTAS (Create Table As Select), if CHAR/VARCHAR columns do not originate from the source table,"
+                    + " whether to set the length of such a column to MAX, which is 65533. The default is true."
+    })
+    public boolean useMaxLengthOfVarcharInCtas = true;
 
     public boolean isEnableJoinSpill() {
         return enableJoinSpill;
@@ -2725,6 +2775,14 @@ public class SessionVariable implements Serializable, Writable {
         this.numPartitionsInBatchMode = numPartitionsInBatchMode;
     }
 
+    public long getFetchSplitsMaxWaitTime() {
+        return fetchSplitsMaxWaitTime;
+    }
+
+    public void setFetchSplitsMaxWaitTime(long fetchSplitsMaxWaitTime) {
+        this.fetchSplitsMaxWaitTime = fetchSplitsMaxWaitTime;
+    }
+
     public boolean isEnableParquetLazyMat() {
         return enableParquetLazyMat;
     }
@@ -3304,6 +3362,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMinRevocableMem(minRevocableMem);
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 
+        tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
+        tResult.setSerdeDialect(getSerdeDialect());
         return tResult;
     }
 
@@ -3754,6 +3814,20 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkSerdeDialect(String serdeDialect) {
+        if (StringUtils.isEmpty(serdeDialect)) {
+            LOG.warn("serdeDialect value is empty");
+            throw new UnsupportedOperationException("serdeDialect value is empty");
+        }
+
+        if (!serdeDialect.equalsIgnoreCase("doris") && !serdeDialect.equalsIgnoreCase("presto")
+                && !serdeDialect.equalsIgnoreCase("trino")) {
+            LOG.warn("serdeDialect value is invalid, the invalid value is {}", serdeDialect);
+            throw new UnsupportedOperationException(
+                    "sqlDialect value is invalid, the invalid value is " + serdeDialect);
+        }
+    }
+
     public boolean isEnableInsertGroupCommit() {
         return Config.wait_internal_group_commit_finish
                 || GroupCommitBlockSink.parseGroupCommit(groupCommit) == TGroupCommitMode.ASYNC_MODE
@@ -3769,6 +3843,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableMaterializedViewRewrite() {
         return enableMaterializedViewRewrite;
+    }
+
+    public void setEnableMaterializedViewRewrite(boolean enableMaterializedViewRewrite) {
+        this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
+    }
+
+    public boolean isAllowModifyMaterializedViewData() {
+        return allowModifyMaterializedViewData;
     }
 
     public boolean isMaterializedViewRewriteEnableContainExternalTable() {
@@ -3826,5 +3908,17 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getMaxMsgSizeOfResultReceiver() {
         return this.maxMsgSizeOfResultReceiver;
+    }
+
+    public TSerdeDialect getSerdeDialect() {
+        switch (serdeDialect) {
+            case "doris":
+                return TSerdeDialect.DORIS;
+            case "presto":
+            case "trino":
+                return TSerdeDialect.PRESTO;
+            default:
+                throw new IllegalArgumentException("Unknown serde dialect: " + serdeDialect);
+        }
     }
 }
