@@ -428,7 +428,8 @@ private:
     size_t _num_removed_blocks = 0;
     std::shared_ptr<bvar::Status<size_t>> _cur_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_size_metrics;
-    std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_size_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_cache_size_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_normal_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_normal_queue_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_index_queue_element_count_metrics;

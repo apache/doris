@@ -56,8 +56,10 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_ttl_cache_size", 0);
     _cur_normal_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_normal_queue_element_count", 0);
-    _cur_ttl_cache_lru_queue_size_metrics = std::make_shared<bvar::Status<size_t>>(
+    _cur_ttl_cache_lru_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_ttl_cache_lru_queue_size", 0);
+    _cur_ttl_cache_lru_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
+            _cache_base_path.c_str(), "file_cache_ttl_cache_lru_queue_element_count", 0);
     _cur_normal_queue_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_normal_queue_cache_size", 0);
     _cur_index_queue_element_count_metrics = std::make_shared<bvar::Status<size_t>>(
@@ -323,14 +325,14 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
         if (context.expiration_time == 0) {
             for (auto& [_, cell] : file_blocks) {
                 if (cell.file_block->change_cache_type_by_mgr(FileCacheType::NORMAL)) {
-                    auto& queue = get_queue(FileCacheType::NORMAL);
-                    cell.queue_iterator =
-                            queue.add(cell.file_block->get_hash_value(), cell.file_block->offset(),
-                                      cell.file_block->range().size(), cache_lock);
                     if (config::enable_ttl_cache_evict_using_lru) {
                         auto& ttl_queue = get_queue(FileCacheType::TTL);
                         ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
                     }
+                    auto& queue = get_queue(FileCacheType::NORMAL);
+                    cell.queue_iterator =
+                            queue.add(cell.file_block->get_hash_value(), cell.file_block->offset(),
+                                      cell.file_block->range().size(), cache_lock);
                 }
             }
             _key_to_time.erase(iter);
@@ -1011,13 +1013,13 @@ bool BlockFileCache::remove_if_ttl_file_unlock(const UInt128Wrapper& file_key, b
                 if (cell.file_block->cache_type() == FileCacheType::TTL) {
                     auto st = cell.file_block->change_cache_type_by_mgr(FileCacheType::NORMAL);
                     if (st.ok()) {
+                        if (config::enable_ttl_cache_evict_using_lru) {
+                            ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
+                        }
                         auto& queue = get_queue(FileCacheType::NORMAL);
                         cell.queue_iterator = queue.add(
                                 cell.file_block->get_hash_value(), cell.file_block->offset(),
                                 cell.file_block->range().size(), cache_lock);
-                        if (config::enable_ttl_cache_evict_using_lru) {
-                            ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
-                        }
                     } else {
                         LOG_WARNING("Failed to change cache type to normal").error(st);
                     }
@@ -1553,7 +1555,9 @@ void BlockFileCache::run_background_operation() {
                                                _index_queue.get_capacity(cache_lock) -
                                                _normal_queue.get_capacity(cache_lock) -
                                                _disposable_queue.get_capacity(cache_lock));
-        _cur_ttl_cache_lru_queue_size_metrics->set_value(_ttl_queue.get_capacity(cache_lock));
+        _cur_ttl_cache_lru_queue_cache_size_metrics->set_value(_ttl_queue.get_capacity(cache_lock));
+        _cur_ttl_cache_lru_queue_element_count_metrics->set_value(
+                _ttl_queue.get_elements_num(cache_lock));
         _cur_normal_queue_cache_size_metrics->set_value(_normal_queue.get_capacity(cache_lock));
         _cur_normal_queue_element_count_metrics->set_value(
                 _normal_queue.get_elements_num(cache_lock));
