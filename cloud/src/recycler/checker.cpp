@@ -47,7 +47,6 @@
 #ifdef ENABLE_HDFS
 #include "recycler/hdfs_accessor.h"
 #endif
-#include "recycler/storage_vault_accessor.h"
 #include "recycler/s3_accessor.h"
 #include "recycler/storage_vault_accessor.h"
 #ifdef UNIT_TEST
