@@ -52,6 +52,8 @@ std::atomic<int64_t> MemInfo::_s_mem_limit = std::numeric_limits<int64_t>::max()
 std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::max();
 
 std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
+std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem = std::numeric_limits<int64_t>::min();
+std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
 
 int64_t MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
@@ -86,6 +88,8 @@ void MemInfo::refresh_allocator_mem() {
                                          get_je_metrics("stats.metadata") +
                                          get_je_all_arena_metrics("pdirty") * get_page_size(),
                                  std::memory_order_relaxed);
+    _s_je_dirty_pages_mem.store(get_je_all_arena_metrics("pdirty") * get_page_size(),
+                                std::memory_order_relaxed);
     _s_virtual_memory_used.store(get_je_metrics("stats.mapped"), std::memory_order_relaxed);
 #else
     _s_allocator_cache_mem.store(get_tc_metrics("tcmalloc.pageheap_free_bytes") +
@@ -244,6 +248,8 @@ void MemInfo::refresh_proc_meminfo() {
                                                                  _s_mem_limit, &is_percent));
         _s_process_full_gc_size.store(ParseUtil::parse_mem_spec(config::process_full_gc_size, -1,
                                                                 _s_mem_limit, &is_percent));
+        _s_je_dirty_pages_mem_limit.store(ParseUtil::parse_mem_spec(
+                config::je_dirty_pages_mem_limit_percent, -1, _s_mem_limit, &is_percent));
     }
 
     // 3. refresh process available memory

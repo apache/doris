@@ -60,6 +60,8 @@ docker/thirdparties/docker-compose/hive/scripts/paimon1
 fe_plugins/output
 fe_plugins/**/.factorypath
 
+docker/thirdparties/docker-compose/hive/scripts/data/*/*/data
+
 fs_brokers/apache_hdfs_broker/src/main/resources/
 fs_brokers/apache_hdfs_broker/src/main/thrift/
 

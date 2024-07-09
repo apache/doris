@@ -20,7 +20,7 @@
 #include <gtest/gtest.h>
 
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service_http.h"
@@ -94,11 +94,13 @@ v v             v                                 v                 v           
     EXPECT_EQ(http_res.body, nonunicode_res);
 
     // test empty body branch
-    auto sp = SyncPoint::get_instance();
+    auto sp = doris::SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("process_http_encode_key::empty_body",
-                      [](void* p) { ((std::string*)p)->clear(); });
+            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("process_http_encode_key::empty_body", [](auto&& args) {
+        auto* body = doris::try_any_cast<std::string*>(args[0]);
+        body->clear();
+    });
     sp->enable_processing();
 
     http_res = process_http_encode_key(uri);

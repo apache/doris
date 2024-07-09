@@ -39,17 +39,17 @@
     qt_inner_join1 """
                     select a.number as num1, b.number as num2
                     from numbers("number" = "10") a inner join numbers("number" = "10") b 
-                    on a.number=b.number;
+                    on a.number=b.number ORDER BY a.number,b.number;
                   """
     qt_inner_join2 """
                     select a.number as num1, b.number as num2
                     from numbers("number" = "6") a inner join numbers("number" = "6") b
-                    on a.number>b.number;
+                    on a.number>b.number ORDER BY a.number,b.number;
                   """
     qt_inner_join3 """
                     select a.number as num1, b.number as num2
                     from numbers("number" = "10") a inner join numbers("number" = "10") b
-                    on a.number=b.number and b.number%2 = 0;
+                    on a.number=b.number and b.number%2 = 0 ORDER BY a.number,b.number;
                   """
     qt_left_join """
                     select a.number as num1, b.number as num2

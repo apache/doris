@@ -31,9 +31,9 @@ suite("test_create_table_exception") {
         def table3 = "dynamic_partition_table"
         try {
             GetDebugPoint().enableDebugPointForAllFEs('FE.createOlapTable.exception', null)
-            def createTable = { ->
+            def createTable = { tableIdx ->
                 try_sql """
-                    CREATE TABLE $table1 (
+                    CREATE TABLE ${table1}_${tableIdx} (
                         `k1` int(11) NULL,
                         `k2` int(11) NULL
                     )
@@ -41,12 +41,13 @@ suite("test_create_table_exception") {
                     COMMENT 'OLAP'
                     DISTRIBUTED BY HASH(`k1`) BUCKETS 10
                     PROPERTIES (
+                    "colocate_with" = "col_grp_${tableIdx}",
                     "replication_num"="3"
                     );
                 """
 
                 try_sql """
-                    CREATE TABLE IF NOT EXISTS $table2 (
+                    CREATE TABLE IF NOT EXISTS ${table2}_${tableIdx} (
                         lo_orderdate int(11) NOT NULL COMMENT "",
                         lo_orderkey bigint(20) NOT NULL COMMENT "",
                         lo_linenumber bigint(20) NOT NULL COMMENT "",
@@ -79,7 +80,7 @@ suite("test_create_table_exception") {
                 """
 
                 try_sql """
-                    CREATE TABLE $table3 (
+                    CREATE TABLE ${table3}_${tableIdx} (
                         time date,
                         key1 int,
                         key2 int,
@@ -109,19 +110,35 @@ suite("test_create_table_exception") {
                     );
                 """
             }
-            createTable()
+            createTable(1)
             def result = sql """show tables;"""
             assertEquals(result.size(), 0)
+
+            def checkResult = { ->
+                def tables = sql """show tables;"""
+                log.info("tables=" + tables)
+                assertEquals(3, tables.size())
+
+                def groups = sql """ show proc "/colocation_group" """
+                log.info("groups=" + groups)
+                assertEquals(1, groups.size())
+            }
+
             GetDebugPoint().disableDebugPointForAllFEs('FE.createOlapTable.exception')
-            createTable()
-            result = sql """show tables;"""
-            log.info(result.toString())
-            assertEquals(result.size(), 3)
+            createTable(2)
+            checkResult()
+
+            sleep 1000
+            cluster.restartFrontends(cluster.getMasterFe().index)
+            sleep 32_000
+            def newMasterFe = cluster.getMasterFe()
+            def newMasterFeUrl =  "jdbc:mysql://${newMasterFe.host}:${newMasterFe.queryPort}/?useLocalSessionState=false&allowLoadLocalInfile=false"
+            newMasterFeUrl = context.config.buildUrlWithDb(newMasterFeUrl, context.dbName)
+            connect('root', '', newMasterFeUrl) {
+                checkResult()
+            }
+
         } finally {
-            GetDebugPoint().disableDebugPointForAllFEs('FE.createOlapTable.exception')
-            sql """drop table if exists ${table1}"""
-            sql """drop table if exists ${table2}"""
-            sql """drop table if exists ${table3}"""
         }
     }
 }
