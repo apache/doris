@@ -52,11 +52,8 @@ public class UnassignedScanMetadataJob extends AbstractUnassignedScanJob {
     }
 
     @Override
-    protected List<AssignedJob> insideMachineParallelization(
-            Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributedPlanWorkerManager workerManager) {
-        List<AssignedJob> assignedJobs = super.insideMachineParallelization(
-                workerToScanRanges, inputJobs, workerManager);
+    protected List<AssignedJob> fillUpAssignedJobs(List<AssignedJob> assignedJobs,
+            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         if (assignedJobs.isEmpty()) {
             return fillUpSingleEmptyInstance(workerManager);
         }

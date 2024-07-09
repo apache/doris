@@ -51,7 +51,16 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
         Map<DistributedPlanWorker, UninstancedScanSource> workerToScanSource = multipleMachinesParallelization(
                 workerManager, inputJobs);
 
-        return insideMachineParallelization(workerToScanSource, inputJobs, workerManager);
+        List<AssignedJob> assignedJobs = insideMachineParallelization(workerToScanSource, inputJobs, workerManager);
+
+        return fillUpAssignedJobs(assignedJobs, workerManager, inputJobs);
+    }
+
+    protected List<AssignedJob> fillUpAssignedJobs(
+            List<AssignedJob> assignedJobs,
+            DistributedPlanWorkerManager workerManager,
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        return assignedJobs;
     }
 
     protected abstract Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
