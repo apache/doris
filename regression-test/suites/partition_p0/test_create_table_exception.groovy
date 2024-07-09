@@ -92,7 +92,6 @@ suite("test_create_table_exception") {
                         `key2`
                     ) COMMENT 'OLAP' PARTITION BY RANGE(`time`)()
                     DISTRIBUTED BY HASH(`key1`) BUCKETS 6 PROPERTIES (
-                    "file_cache_ttl_seconds" = "0",
                     "bloom_filter_columns" = "time",
                     "dynamic_partition.enable" = "true",
                     "dynamic_partition.time_unit" = "DAY",
