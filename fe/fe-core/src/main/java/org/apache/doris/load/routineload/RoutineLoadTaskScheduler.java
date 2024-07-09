@@ -114,9 +114,10 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
-        routineLoadTaskInfo.setLastScheduledTime(System.currentTimeMillis());
-        LOG.debug("schedule routine load task info {} for job {}",
-                routineLoadTaskInfo.id, routineLoadTaskInfo.getJobId());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("schedule routine load task info {} for job {}",
+                    routineLoadTaskInfo.id, routineLoadTaskInfo.getJobId());
+        }
         // check if task has been abandoned
         if (!routineLoadManager.checkTaskInJob(routineLoadTaskInfo)) {
             // task has been abandoned while renew task has been added in queue
