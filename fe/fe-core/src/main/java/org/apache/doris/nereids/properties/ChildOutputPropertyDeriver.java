@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -339,6 +340,33 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         DistributionSpec childDistributionSpec = childrenOutputProperties.get(0).getDistributionSpec();
         PhysicalProperties output = childrenOutputProperties.get(0);
         if (childDistributionSpec instanceof DistributionSpecHash) {
+            DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistributionSpec;
+            List<List<Expression>> groupingSets = repeat.getGroupingSets();
+            if (!groupingSets.isEmpty()) {
+                Set<Expression> intersectGroupingKeys = Utils.fastToImmutableSet(groupingSets.get(0));
+                for (int i = 1; i < groupingSets.size() && !intersectGroupingKeys.isEmpty(); i++) {
+                    intersectGroupingKeys = Sets.intersection(
+                            intersectGroupingKeys, Utils.fastToImmutableSet(groupingSets.get(i))
+                    );
+                }
+                if (!intersectGroupingKeys.isEmpty()) {
+                    List<ExprId> orderedShuffledColumns = distributionSpecHash.getOrderedShuffledColumns();
+                    boolean hashColumnsChanged = false;
+                    for (Expression intersectGroupingKey : intersectGroupingKeys) {
+                        if (!(intersectGroupingKey instanceof SlotReference)) {
+                            hashColumnsChanged = true;
+                            break;
+                        }
+                        if (!(orderedShuffledColumns.contains(((SlotReference) intersectGroupingKey).getExprId()))) {
+                            hashColumnsChanged = true;
+                            break;
+                        }
+                    }
+                    if (!hashColumnsChanged) {
+                        return childrenOutputProperties.get(0);
+                    }
+                }
+            }
             output = PhysicalProperties.createAnyFromHash((DistributionSpecHash) childDistributionSpec);
         }
         return output.withOrderSpec(childrenOutputProperties.get(0).getOrderSpec());

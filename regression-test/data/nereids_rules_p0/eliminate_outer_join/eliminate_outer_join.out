@@ -102,7 +102,7 @@ PhysicalResultSink
 -- !multiple_full_outer_2 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashJoin[LEFT_OUTER_JOIN shuffle] hashCondition=((t1.id = t3.id)) otherCondition=()
+----hashJoin[LEFT_OUTER_JOIN shuffleBucket] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------hashJoin[RIGHT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[t]
 --------filter((t2.score > 10))
@@ -227,7 +227,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----filter(name IS NULL)
-------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((t1.id = t3.id)) otherCondition=()
+------hashJoin[FULL_OUTER_JOIN shuffleBucket] hashCondition=((t1.id = t3.id)) otherCondition=()
 --------hashJoin[FULL_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------PhysicalOlapScan[t]
 ----------PhysicalOlapScan[t]
