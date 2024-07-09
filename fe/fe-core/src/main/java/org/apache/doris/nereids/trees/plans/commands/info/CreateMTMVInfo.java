@@ -66,6 +66,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -372,7 +375,8 @@ public class CreateMTMVInfo {
             // If datatype is AggStateType, AggregateType should be generic, or column definition check will fail
             columns.add(new ColumnDefinition(
                     colName,
-                    slots.get(i).getDataType(),
+                    TypeCoercionUtils.replaceSpecifiedType(slots.get(i).getDataType(),
+                            NullType.class, TinyIntType.INSTANCE),
                     false,
                     slots.get(i).getDataType() instanceof AggStateType ? AggregateType.GENERIC : null,
                     slots.get(i).nullable(),
