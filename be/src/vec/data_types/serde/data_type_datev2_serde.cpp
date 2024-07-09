@@ -179,7 +179,8 @@ Status DataTypeDateV2SerDe::deserialize_column_from_fixed_json(IColumn& column, 
     if (!st.ok()) {
         return st;
     }
-    DataTypeDateV2SerDe::insert_column_last_value_multiple_times(column, rows - column.size());
+    DataTypeDateV2SerDe::insert_column_last_value_multiple_times(column, rows - 1);
+    *num_deserialized = rows;
     return Status::OK();
 }
 

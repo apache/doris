@@ -141,8 +141,8 @@ public:
             return st;
         }
 
-        DataTypeStringSerDeBase::insert_column_last_value_multiple_times(column,
-                                                                         rows - column.size());
+        DataTypeStringSerDeBase::insert_column_last_value_multiple_times(column, rows - 1);
+        *num_deserialized = rows;
         return Status::OK();
     }
 

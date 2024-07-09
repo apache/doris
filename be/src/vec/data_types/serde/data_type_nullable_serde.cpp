@@ -131,7 +131,6 @@ Status DataTypeNullableSerDe::deserialize_column_from_fixed_json(
         IColumn& column, Slice& slice, int rows, int* num_deserialized,
         const FormatOptions& options) const {
     auto& col = static_cast<ColumnNullable&>(column);
-    int idx = col.size();
     Status st = deserialize_one_cell_from_json(column, slice, options);
     if (!st.ok()) {
         return st;
@@ -141,10 +140,10 @@ Status DataTypeNullableSerDe::deserialize_column_from_fixed_json(
 
     null_map.resize_fill(
             rows, null_map.back()); // data_type_nullable::insert_column_last_value_multiple_times()
-    if (rows - idx - 1 != 0) {
-        nested_serde->insert_column_last_value_multiple_times(nested_column, rows - idx - 1);
+    if (rows - 1 != 0) {
+        nested_serde->insert_column_last_value_multiple_times(nested_column, rows - 1);
     }
-
+    *num_deserialized = rows;
     return Status::OK();
 }
 

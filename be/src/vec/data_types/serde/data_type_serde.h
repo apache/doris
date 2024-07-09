@@ -225,14 +225,19 @@ public:
             *num_deserialized = 0;
             return st;
         }
+        insert_column_last_value_multiple_times(column, rows - 1);
+        *num_deserialized = rows;
+        return Status::OK();
+    }
+    // Insert the last value to the end of this column multiple times.
+    virtual void insert_column_last_value_multiple_times(IColumn& column, int times) const {
         //If you try to simplify this operation by using `column.insert_many_from(column, column.size() - 1, rows - 1);`
         // you are likely to get incorrect data results.
         MutableColumnPtr dum_col = column.clone_empty();
         dum_col->insert_from(column, column.size() - 1);
-        column.insert_many_from(*dum_col.get(), 0, rows - 1);
-        *num_deserialized = rows;
-        return Status::OK();
+        column.insert_many_from(*dum_col.get(), 0, times);
     }
+
     virtual Status deserialize_one_cell_from_hive_text(
             IColumn& column, Slice& slice, const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const {
@@ -296,11 +301,6 @@ public:
                                           rapidjson::Document::AllocatorType& allocator,
                                           Arena& mem_pool, int row_num) const;
     virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
-
-    // Insert the last value to the end of this column multiple times.
-    virtual void insert_column_last_value_multiple_times(IColumn& column, int times) const {
-        LOG(FATAL) << "   --- not imple ";
-    }
 
 protected:
     bool _return_object_as_string = false;

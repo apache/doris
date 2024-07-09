@@ -252,7 +252,8 @@ Status DataTypeDateTimeV2SerDe::deserialize_column_from_fixed_json(
         return st;
     }
 
-    DataTypeDateTimeV2SerDe::insert_column_last_value_multiple_times(column, rows - column.size());
+    DataTypeDateTimeV2SerDe::insert_column_last_value_multiple_times(column, rows - 1);
+    *num_deserialized = rows;
     return Status::OK();
 }
 
