@@ -1044,6 +1044,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         for (SlotReference slot : slotSet) {
             ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);
             ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
+            colStatsBuilder.setCount(rowCount);
             adjustColStats(catalogRelation, slot, colStatsBuilder);
             rowCount = Math.max(rowCount, colStatsBuilder.getCount());
             builder.putColumnStatistics(slot, colStatsBuilder.build());
