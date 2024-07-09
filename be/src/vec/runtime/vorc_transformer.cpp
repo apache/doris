@@ -33,7 +33,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
 #include "util/debug_util.h"
@@ -124,12 +123,7 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
     set_compression_type(compress_type);
 }
 
-VOrcTransformer::~VOrcTransformer() {
-    SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(ExecEnv::GetInstance()->orc_writer_tracker());
-}
-
 Status VOrcTransformer::open() {
-    SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(ExecEnv::GetInstance()->orc_writer_tracker());
     if (!_schema_str.empty()) {
         try {
             _schema = orc::Type::buildTypeFromString(_schema_str);
@@ -322,16 +316,15 @@ int64_t VOrcTransformer::written_len() {
 }
 
 Status VOrcTransformer::close() {
-    SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(ExecEnv::GetInstance()->orc_writer_tracker());
-    if (_writer != nullptr) {
-        try {
+    try {
+        if (_writer != nullptr) {
             _writer->close();
-        } catch (const std::exception& e) {
-            return Status::IOError(e.what());
         }
-    }
-    if (_output_stream) {
-        _output_stream->close();
+        if (_output_stream) {
+            _output_stream->close();
+        }
+    } catch (const std::exception& e) {
+        return Status::IOError(e.what());
     }
     return Status::OK();
 }
@@ -340,8 +333,6 @@ Status VOrcTransformer::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
-
-    SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(ExecEnv::GetInstance()->orc_writer_tracker());
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     std::vector<StringRef> buffer_list;

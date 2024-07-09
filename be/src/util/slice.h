@@ -340,7 +340,7 @@ struct SliceMap {
 //
 // only receive the memory allocated by Allocator and disables mmap,
 // otherwise the memory may not be freed correctly, currently only be constructed by faststring.
-class OwnedSlice : private Allocator<false, false, false> {
+class OwnedSlice : private Allocator<false, false, false, DefaultMemoryAllocator> {
 public:
     OwnedSlice() : _slice((uint8_t*)nullptr, 0) {}
 

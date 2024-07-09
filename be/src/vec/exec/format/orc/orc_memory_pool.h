@@ -18,36 +18,36 @@
 #pragma once
 
 #include "orc/MemoryPool.hh"
+#include "vec/common/allocator.h"
 
-#if defined(USE_JEMALLOC) && defined(USE_MEM_TRACKER)
-extern "C" {
-void* doris_malloc(size_t size) __THROW;
-void doris_free(void* p) __THROW;
-}
-#endif // #if defined(USE_JEMALLOC) && defined(USE_MEM_TRACKER)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+using ORC_MEMORY_ALLOCATOR = RecordSizeMemoryAllocator;
+#else
+using ORC_MEMORY_ALLOCATOR = ORCMemoryAllocator;
+#endif
 
 namespace doris::vectorized {
 
 class ORCMemoryPool : public orc::MemoryPool {
 public:
     char* malloc(uint64_t size) override {
-#if defined(USE_JEMALLOC) && defined(USE_MEM_TRACKER)
-        return reinterpret_cast<char*>(doris_malloc(size));
-#else
-        return reinterpret_cast<char*>(std::malloc(size));
-#endif // #if defined(USE_JEMALLOC) && defined(USE_MEM_TRACKER)
+        char* p = reinterpret_cast<char*>(_allocator.alloc(size));
+        return p;
     }
 
     void free(char* p) override {
-#if defined(USE_JEMALLOC) && defined(USE_MEM_TRACKER)
-        doris_free(p);
-#else
-        std::free(p);
-#endif // #if defined(USE_JEMALLOC) && defined(USE_MEM_TRACKER)
+        if (p == nullptr) {
+            return;
+        }
+        size_t size = ORC_MEMORY_ALLOCATOR::allocated_size(p);
+        _allocator.free(p, size);
     }
 
     ORCMemoryPool() = default;
     ~ORCMemoryPool() override = default;
+
+private:
+    Allocator<false, false, false, ORC_MEMORY_ALLOCATOR> _allocator;
 };
 
 } // namespace doris::vectorized

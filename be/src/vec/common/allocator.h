@@ -23,6 +23,7 @@
 // TODO: Readable
 
 #include <fmt/format.h>
+#include <malloc.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -68,6 +69,159 @@ static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
 // is always a multiple of sixteen. (https://www.gnu.org/software/libc/manual/html_node/Aligned-Memory-Blocks.html)
 static constexpr int ALLOCATOR_ALIGNMENT_16 = 16;
 
+class DefaultMemoryAllocator {
+public:
+    static void* malloc(size_t size) __THROW { return std::malloc(size); }
+
+    static void* calloc(size_t n, size_t size) __THROW { return std::calloc(n, size); }
+
+    static constexpr bool need_record_actual_size() { return false; }
+
+    /*static size_t allocated_size(void* ptr) {
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }*/
+
+    static int posix_memalign(void** ptr, size_t alignment, size_t size) __THROW {
+        return ::posix_memalign(ptr, alignment, size);
+    }
+
+    static void* realloc(void* ptr, size_t size) __THROW { return std::realloc(ptr, size); }
+
+    static void free(void* p) __THROW { std::free(p); }
+
+    static void release_unused() {}
+
+private:
+};
+
+class ORCMemoryAllocator {
+public:
+    static void* malloc(size_t size) __THROW { return reinterpret_cast<char*>(std::malloc(size)); }
+
+    static void* calloc(size_t n, size_t size) __THROW { return std::calloc(n, size); }
+
+    static constexpr bool need_record_actual_size() { return true; }
+
+    static size_t allocated_size(void* ptr) { return malloc_usable_size(ptr); }
+
+    static int posix_memalign(void** ptr, size_t alignment, size_t size) __THROW {
+        return ::posix_memalign(ptr, alignment, size);
+    }
+
+    static void* realloc(void* ptr, size_t size) __THROW {
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
+
+    static void free(void* p) __THROW { std::free(p); }
+
+    static void release_unused() {}
+};
+
+class RecordSizeMemoryAllocator {
+public:
+    static void* malloc(size_t size) __THROW {
+        void* p = std::malloc(size);
+        if (p) {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _allocated_sizes[p] = size;
+        }
+        return p;
+    }
+
+    static void* calloc(size_t n, size_t size) __THROW {
+        void* p = std::calloc(n, size);
+        if (p) {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _allocated_sizes[p] = n * size;
+        }
+        return p;
+    }
+
+    static constexpr bool need_record_actual_size() { return false; }
+
+    static size_t allocated_size(void* ptr) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        auto it = _allocated_sizes.find(ptr);
+        if (it != _allocated_sizes.end()) {
+            return it->second;
+        }
+        return 0;
+    }
+
+    static int posix_memalign(void** ptr, size_t alignment, size_t size) __THROW {
+        int ret = ::posix_memalign(ptr, alignment, size);
+        if (ret == 0 && *ptr) {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _allocated_sizes[*ptr] = size;
+        }
+        return ret;
+    }
+
+    static void* realloc(void* ptr, size_t size) __THROW {
+        std::lock_guard<std::mutex> lock(_mutex);
+        void* p = std::realloc(ptr, size);
+        if (p) {
+            _allocated_sizes.erase(ptr);
+            _allocated_sizes[p] = size;
+        }
+        return p;
+    }
+
+    static void free(void* p) __THROW {
+        if (p) {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _allocated_sizes.erase(p);
+            std::free(p);
+        }
+    }
+
+    static void release_unused() {}
+
+private:
+    static std::unordered_map<void*, size_t> _allocated_sizes;
+    static std::mutex _mutex;
+};
+
+#if defined(USE_JEMALLOC)
+#include <jemalloc/jemalloc.h>
+/*extern "C" {
+void* je_arrow_malloc(size_t size) __THROW;
+void* je_arrow_calloc(size_t n, size_t size) __THROW;
+int je_arrow_posix_memalign(void** ptr, size_t alignment, size_t size) __THROW;
+void* je_arrow_realloc(void* p, size_t size) __THROW;
+void je_arrow_free(void* p) __THROW;
+size_t je_arrow_malloc_usable_size(void* ptr) __THROW;
+int je_arrow_mallctl(const char* name, void* oldp, size_t* oldlenp, void* newp, size_t newlen);
+}*/
+class ArrowJemallocMemoryAllocator {
+public:
+    static void* malloc(size_t size) __THROW { return je_malloc(size); }
+
+    static void* calloc(size_t n, size_t size) __THROW { return je_calloc(n, size); }
+
+    static constexpr bool need_record_actual_size() { return false; }
+
+    /*static size_t allocated_size(void* ptr) {
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }*/
+
+    static int posix_memalign(void** ptr, size_t alignment, size_t size) __THROW {
+        return je_posix_memalign(ptr, alignment, size);
+    }
+
+    static void* realloc(void* ptr, size_t size) __THROW { return je_realloc(ptr, size); }
+
+    static void free(void* p) __THROW { je_free(p); }
+
+    static void release_unused() {
+        je_mallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), NULL, NULL, NULL, 0);
+    }
+};
+#endif // defined(USE_JEMALLOC)
+
 /** Responsible for allocating / freeing memory. Used, for example, in PODArray, Arena.
   * Also used in hash tables.
   * The interface is different from std::allocator
@@ -78,7 +232,7 @@ static constexpr int ALLOCATOR_ALIGNMENT_16 = 16;
   * - random hint address for mmap
   * - mmap_threshold for using mmap less or more
   */
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
+template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 class Allocator {
 public:
     void sys_memory_check(size_t size) const;
@@ -99,6 +253,7 @@ public:
         memory_check(size);
         consume_memory(size);
         void* buf;
+        size_t record_size = size;
 
         if (use_mmap && size >= doris::config::mmap_threshold) {
             if (alignment > MMAP_MIN_ALIGNMENT)
@@ -112,46 +267,66 @@ public:
                 release_memory(size);
                 throw_bad_alloc(fmt::format("Allocator: Cannot mmap {}.", size));
             }
+            if constexpr (MemoryAllocator::need_record_actual_size()) {
+                record_size = MemoryAllocator::allocated_size(buf);
+            }
 
             /// No need for zero-fill, because mmap guarantees it.
         } else {
             if (alignment <= MALLOC_MIN_ALIGNMENT) {
                 if constexpr (clear_memory)
-                    buf = ::calloc(size, 1);
+                    buf = MemoryAllocator::calloc(size, 1);
                 else
-                    buf = ::malloc(size);
+                    buf = MemoryAllocator::malloc(size);
 
                 if (nullptr == buf) {
                     release_memory(size);
-                    throw_bad_alloc(fmt::format("Allocator: Cannot malloc {}.", size));
+                    throw_bad_alloc(
+                            fmt::format("Allocator: Cannot malloc {}.", size)); // overcommit = 1
+                }
+                if constexpr (MemoryAllocator::need_record_actual_size()) {
+                    record_size = MemoryAllocator::allocated_size(buf);
                 }
             } else {
                 buf = nullptr;
-                int res = posix_memalign(&buf, alignment, size);
+                int res = MemoryAllocator::posix_memalign(&buf, alignment, size);
 
                 if (0 != res) {
                     release_memory(size);
                     throw_bad_alloc(
                             fmt::format("Cannot allocate memory (posix_memalign) {}.", size));
                 }
-
-                if constexpr (clear_memory) memset(buf, 0, size);
+                if constexpr (MemoryAllocator::need_record_actual_size()) {
+                    record_size = MemoryAllocator::allocated_size(buf);
+                }
             }
+        }
+        if constexpr (MemoryAllocator::need_record_actual_size()) {
+            consume_memory(record_size - size);
         }
         return buf;
     }
 
     /// Free memory range.
     void free(void* buf, size_t size) {
+        /*size_t record_size = 0;
+        if (size) {
+            record_size = size;
+        } else {
+            record_size = MemoryAllocator::allocated_size(buf);
+        }*/
         if (use_mmap && size >= doris::config::mmap_threshold) {
             if (0 != munmap(buf, size)) {
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
             }
         } else {
-            ::free(buf);
+            MemoryAllocator::free(buf);
         }
+        //release_memory(record_size);
         release_memory(size);
     }
+
+    void release_unused() { MemoryAllocator::release_unused(); }
 
     /** Enlarge memory range.
       * Data from old range is moved to the beginning of new range.
@@ -170,7 +345,7 @@ public:
             (old_size < doris::config::mmap_threshold && new_size < doris::config::mmap_threshold &&
              alignment <= MALLOC_MIN_ALIGNMENT)) {
             /// Resize malloc'd memory region with no special alignment requirement.
-            void* new_buf = ::realloc(buf, new_size);
+            void* new_buf = MemoryAllocator::realloc(buf, new_size);
             if (nullptr == new_buf) {
                 release_memory(new_size - old_size);
                 throw_bad_alloc(fmt::format("Allocator: Cannot realloc from {} to {}.", old_size,
