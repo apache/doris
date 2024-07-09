@@ -822,7 +822,7 @@ public class TransactionState implements Writable {
     public void pruneAfterVisible() {
         publishVersionTasks.clear();
         tableIdToTabletDeltaRows.clear();
-        // TODO if subTransactionStates can be cleared?
+        involvedBackends.clear();
     }
 
     public void setSchemaForPartialUpdate(OlapTable olapTable) {
