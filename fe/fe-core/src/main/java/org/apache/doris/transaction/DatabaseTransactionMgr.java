@@ -2686,7 +2686,7 @@ public class DatabaseTransactionMgr {
                             PublishVersionTask publishVersionTask = null;
                             if (publishVersionTasks != null) {
                                 List<PublishVersionTask> matchedTasks = publishVersionTasks.stream()
-                                        .filter(t -> t.getTransactionId() == subTransactionId
+                                        .filter(t -> t != null && t.getTransactionId() == subTransactionId
                                                 && t.getPartitionVersionInfos().stream()
                                                 .anyMatch(s -> s.getPartitionId() == partitionId))
                                         .collect(Collectors.toList());
