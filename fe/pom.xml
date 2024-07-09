@@ -1056,6 +1056,8 @@ under the License.
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
                 <version>${kafka-clients.version}</version>
+                <!--routine load test use kafka-clients-->
+                <scope>test</scope>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.github.oshi/oshi-core -->
             <dependency>

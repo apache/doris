@@ -146,7 +146,7 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
             if (expr instanceof Literal) {
                 LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
                 columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-                data.add(legacyExpr.getStringValueInFe());
+                data.add(legacyExpr.getStringValueInFe(cascadesContext.getStatementContext().getFormatOptions()));
             } else {
                 return Optional.empty();
             }

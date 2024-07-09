@@ -40,6 +40,7 @@ header:
     - "**/*.sql"
     - "**/*.lock"
     - "**/*.out"
+    - "**/*.parquet"
     - "docs/.markdownlintignore"
     - "fe/fe-core/src/test/resources/data/net_snmp_normal"
     - "fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaLexer.g4"

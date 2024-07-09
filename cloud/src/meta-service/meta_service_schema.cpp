@@ -30,8 +30,8 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/txn_kv.h"

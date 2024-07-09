@@ -1165,6 +1165,9 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
 
+DEFINE_mBool(enable_be_proc_monitor, "false");
+DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
+
 DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
@@ -1261,9 +1264,6 @@ DEFINE_String(s3_client_http_scheme, "http");
 DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
-
-// enable injection point in regression-test
-DEFINE_mBool(enable_injection_point, "false");
 
 DEFINE_mBool(ignore_schema_change_check, "false");
 
