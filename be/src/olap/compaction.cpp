@@ -560,8 +560,12 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             // format: rowsetId_segmentId
             std::vector<std::unique_ptr<InvertedIndexFileWriter>> inverted_index_file_writers(
                     dest_segment_num);
-            for (int i = 0; i < dest_segment_num; ++i) {
-                auto prefix = dest_rowset_id.to_string() + "_" + std::to_string(i) + ".dat";
+
+            // Some columns have already been indexed
+            // key: seg_id, value: inverted index file size
+            std::unordered_map<int, int64_t> compacted_idx_file_size;
+            for (int seg_id = 0; seg_id < dest_segment_num; ++seg_id) {
+                auto prefix = dest_rowset_id.to_string() + "_" + std::to_string(seg_id) + ".dat";
                 auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
                         fs, tablet_path, prefix,
                         _cur_tablet_schema->get_inverted_index_storage_format());
@@ -571,6 +575,19 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                 if (st.ok()) {
                     auto index_not_need_to_compact =
                             DORIS_TRY(inverted_index_file_reader->get_all_directories());
+                    // V1: each index is a separate file
+                    // V2: all indexes are in a single file
+                    if (_cur_tablet_schema->get_inverted_index_storage_format() !=
+                        doris::InvertedIndexStorageFormatPB::V1) {
+                        int64_t fsize = 0;
+                        st = ctx.fs()->file_size(
+                                InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix), &fsize);
+                        if (!st.ok()) {
+                            LOG(ERROR) << "file size error in index compaction, error:" << st.msg();
+                            return st;
+                        }
+                        compacted_idx_file_size[seg_id] = fsize;
+                    }
                     auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                             fs, tablet_path, prefix,
                             _cur_tablet_schema->get_inverted_index_storage_format());
@@ -578,12 +595,14 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                             inverted_index_file_writer->initialize(index_not_need_to_compact),
                             "failed to initialize inverted_index_file_writer for " +
                                     inverted_index_file_writer->get_index_file_name());
-                    inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
+                    inverted_index_file_writers[seg_id] = std::move(inverted_index_file_writer);
                 } else if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
                     auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                             fs, tablet_path, prefix,
                             _cur_tablet_schema->get_inverted_index_storage_format());
-                    inverted_index_file_writers[i] = std::move(inverted_index_file_writer);
+                    inverted_index_file_writers[seg_id] = std::move(inverted_index_file_writer);
+                    // no index file
+                    compacted_idx_file_size[seg_id] = 0;
                 } else {
                     LOG(ERROR) << "init inverted index "
                                << InvertedIndexDescriptor::get_index_file_name(prefix)
@@ -670,11 +689,13 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                 }
             }
             uint64_t inverted_index_file_size = 0;
-            for (auto& inverted_index_file_writer : inverted_index_file_writers) {
+            for (int seg_id = 0; seg_id < dest_segment_num; ++seg_id) {
+                auto inverted_index_file_writer = inverted_index_file_writers[seg_id].get();
                 if (Status st = inverted_index_file_writer->close(); !st.ok()) {
                     status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
                 } else {
                     inverted_index_file_size += inverted_index_file_writer->get_index_file_size();
+                    inverted_index_file_size -= compacted_idx_file_size[seg_id];
                 }
             }
             // check index compaction status. If status is not ok, we should return error and end this compaction round.
