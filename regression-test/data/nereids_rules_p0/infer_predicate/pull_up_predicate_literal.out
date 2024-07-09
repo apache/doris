@@ -8,3 +8,82 @@ PhysicalResultSink
 ------filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def') and (ds.col2 = ds.col2))
 --------PhysicalOlapScan[test_pull_up_predicate_literal]
 
+-- !test_pull_up_literal_suquery --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
+------PhysicalProject
+--------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def') and (ds.col2 = ds.col2))
+--------PhysicalOlapScan[test_pull_up_predicate_literal]
+
+-- !test_pull_up_literal_extra_literal --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
+------PhysicalProject
+--------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def') and (ds.col2 = ds.col2))
+--------PhysicalOlapScan[test_pull_up_predicate_literal]
+
+-- !test_pull_up_literal_with_agg_func --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
+------PhysicalProject
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def') and (ds.col2 = ds.col2))
+--------PhysicalOlapScan[test_pull_up_predicate_literal]
+
+-- !test_pull_up_literal_to_empty_relation --
+PhysicalResultSink
+--PhysicalEmptyRelation
+
+-- !test_pull_up_literal_with_common_column --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=() build RFs:RF0 col2->[col2];RF1 col2->[col2]
+------PhysicalProject
+--------filter((t.col2 = 'def'))
+----------PhysicalOlapScan[test_pull_up_predicate_literal] apply RFs: RF0 RF1
+------filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def'))
+--------PhysicalOlapScan[test_pull_up_predicate_literal]
+
+-- !test_pull_up_literal_outer_has_agg --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----PhysicalDistribute[DistributionSpecGather]
+------hashAgg[LOCAL]
+--------PhysicalProject
+----------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
+------------PhysicalProject
+--------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def') and (ds.col2 = ds.col2))
+--------------PhysicalOlapScan[test_pull_up_predicate_literal]
+
+-- !test_pull_up_literal_multi_join --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.col1 = tmp2.col1)) otherCondition=()
+------PhysicalProject
+--------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+----------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((tmp2.col1 = 'abc'))
+----------PhysicalOlapScan[test_pull_up_predicate_literal]
+
+-- !test_pull_up_literal_outer_or --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
+------PhysicalProject
+--------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
+--------PhysicalOlapScan[test_pull_up_predicate_literal]
+

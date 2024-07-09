@@ -27,11 +27,11 @@ suite("test_pull_up_predicate_literal") {
     (
     "replication_num"="1"
     );
- """
+    """
     sql "insert into test_pull_up_predicate_literal values('abc','def'),(null,'def'),('abc',null)"
     sql """
      DROP view if exists test_pull_up_predicate_literal_view;
- """
+    """
 
     sql """
      create view test_pull_up_predicate_literal_view
@@ -46,11 +46,170 @@ suite("test_pull_up_predicate_literal") {
     select 'abc' as col1,'def' as col2
     ) tmp
     inner join test_pull_up_predicate_literal ds on tmp.col1 = ds.col1  and tmp.col2 = ds.col2;
- """
+    """
 
 
-   qt_test_pull_up_literal """explain shape plan select * from test_pull_up_predicate_literal_view where col1='abc' and col2='def';"""
+    qt_test_pull_up_literal """explain shape plan select * from test_pull_up_predicate_literal_view where col1='abc' and col2='def';"""
+    qt_test_pull_up_literal_suquery """
+        explain shape plan
+        SELECT *
+                FROM (
+                        SELECT
+                        tmp.col1,
+                        tmp.col2
+                        FROM (
+                                SELECT
+                                sub.col1,
+                                sub.col2
+                                FROM (
+                                        SELECT
+                                        'abc' AS col1,
+                                        'def' AS col2
+                                                FROM
+                                                test_pull_up_predicate_literal
+                                ) sub
+                        ) tmp
+                                INNER JOIN test_pull_up_predicate_literal ds
+                                ON tmp.col1 = ds.col1 AND tmp.col2 = ds.col2
+                ) t
+        WHERE col1 = 'abc' AND col2 = 'def';
+    """
+    qt_test_pull_up_literal_extra_literal """    
+        explain shape plan
+        SELECT *
+                FROM (
+                        SELECT
+                        tmp.col1,
+                        tmp.col2,
+                        tmp.col3
+                        FROM (
+                                SELECT
+                                'abc' AS col1,
+                                'def' AS col2,
+                                'extra' AS col3
+                                        FROM
+                                        test_pull_up_predicate_literal
+                        ) tmp
+                                INNER JOIN test_pull_up_predicate_literal ds
+                                ON tmp.col1 = ds.col1 AND tmp.col2 = ds.col2
+                ) t
+        WHERE col1 = 'abc' AND col2 = 'def';
+    """
 
+    qt_test_pull_up_literal_with_agg_func """    
+        explain shape plan
+        SELECT *
+                FROM (
+                        SELECT
+                        tmp.col1,
+                        tmp.col2,
+                        tmp.count_col
+                        FROM (
+                                SELECT
+                                'abc' AS col1,
+                                'def' AS col2,
+                                COUNT(*) AS count_col
+                                        FROM
+                                        test_pull_up_predicate_literal
+                                        GROUP BY
+                                        col1, col2
+                        ) tmp
+                                INNER JOIN test_pull_up_predicate_literal ds
+                                ON tmp.col1 = ds.col1 AND tmp.col2 = ds.col2
+                ) t
+        WHERE col1 = 'abc' AND col2 = 'def';
+    """
+
+    qt_test_pull_up_literal_to_empty_relation """ 
+        explain shape plan
+        SELECT *
+                FROM (
+                        SELECT
+                        tmp.col1,
+                        tmp.col2
+                        FROM (
+                                SELECT
+                                'mno' AS col1,
+                                'pqr' AS col2
+                                        FROM
+                                        test_pull_up_predicate_literal
+                        ) tmp
+                                INNER JOIN test_pull_up_predicate_literal ds
+                                ON tmp.col1 = ds.col1 AND tmp.col2 = ds.col2
+                ) t
+        WHERE col1 = 'abc' AND col2 = 'def';
+    """
+    qt_test_pull_up_literal_with_common_column """    
+        explain shape plan
+        SELECT *
+                FROM (
+                        SELECT
+                        tmp.col1,
+                        tmp.col2
+                        FROM (
+                                SELECT
+                                'abc' AS col1,
+                                col2
+                                FROM
+                                test_pull_up_predicate_literal
+                        ) tmp
+                                INNER JOIN test_pull_up_predicate_literal ds
+                                ON tmp.col1 = ds.col1 AND tmp.col2 = ds.col2
+                ) t
+        WHERE col1 = 'abc' AND col2 = 'def';
+    """
+
+    qt_test_pull_up_literal_outer_has_agg """
+        explain shape plan
+        SELECT MAX(t.col1), MIN(t.col2)
+        FROM (
+                SELECT tmp.col1, tmp.col2
+                        FROM (
+                        SELECT 'abc' AS col1, 'def' AS col2
+                                FROM test_pull_up_predicate_literal
+                ) tmp
+                        INNER JOIN test_pull_up_predicate_literal ds
+                        ON tmp.col1 = ds.col1 AND tmp.col2 = ds.col2
+        ) t
+        WHERE col1 = 'abc' AND col2 = 'def';
+    """
+
+
+    qt_test_pull_up_literal_multi_join """
+        explain shape plan
+        SELECT *
+                FROM (
+                        SELECT tmp.col1, tmp.col2
+                                FROM (
+                                SELECT 'abc' AS col1, 'def' AS col2
+                                        FROM test_pull_up_predicate_literal
+                        ) tmp
+                                INNER JOIN test_pull_up_predicate_literal ds
+                                ON tmp.col1 = ds.col1 AND tmp.col2 = ds.col2
+                        INNER JOIN test_pull_up_predicate_literal tmp2
+                                ON tmp.col1 = tmp2.col1
+                ) t
+    """
+
+    qt_test_pull_up_literal_outer_or """    
+        explain shape plan
+        SELECT *
+                FROM (
+                        SELECT
+                        tmp.col1,
+                        tmp.col2
+                        FROM (
+                                SELECT
+                                'abc' AS col1,
+                                'def' AS col2
+                                        FROM
+                                        test_pull_up_predicate_literal
+                        ) tmp
+                                INNER JOIN test_pull_up_predicate_literal ds
+                                ON tmp.col1 = ds.col1 AND tmp.col2 = ds.col2
+                ) t
+        WHERE (col1 = 'abc' AND col2 = 'def') OR (col1 = 'ghi' AND col2 = 'jkl');
+    """
 
 
     sql """ DROP TABLE IF EXISTS test_pull_up_predicate_literal; """
