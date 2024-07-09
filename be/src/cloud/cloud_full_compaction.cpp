@@ -327,6 +327,15 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     }
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*cloud_tablet(), -1, initiator,
                                                             delete_bitmap.get()));
+    LOG_INFO("update delete bitmap in CloudFullCompaction, tablet_id={}, range=[{}-{}]",
+             _tablet->tablet_id(), _input_rowsets.front()->start_version(),
+             _input_rowsets.back()->end_version())
+            .tag("job_id", _uuid)
+            .tag("input_rowsets", _input_rowsets.size())
+            .tag("input_rows", _input_row_num)
+            .tag("input_segments", _input_segments)
+            .tag("input_data_size", _input_rowsets_size)
+            .tag("update_bitmap_size", delete_bitmap->delete_bitmap.size());
     _tablet->tablet_meta()->delete_bitmap().merge(*delete_bitmap);
     return Status::OK();
 }

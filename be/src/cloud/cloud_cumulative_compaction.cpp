@@ -242,6 +242,14 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                 _input_rowsets, _output_rowset, _rowid_conversion, compaction_type(),
                 _stats.merged_rows, initiator, output_rowset_delete_bitmap,
                 _allow_delete_in_cumu_compaction));
+        LOG_INFO("update delete bitmap in CloudCumulativeCompaction, tablet_id={}, range=[{}-{}]",
+                 _tablet->tablet_id(), _input_rowsets.front()->start_version(),
+                 _input_rowsets.back()->end_version())
+                .tag("job_id", _uuid)
+                .tag("input_rowsets", _input_rowsets.size())
+                .tag("input_rows", _input_row_num)
+                .tag("input_segments", _input_segments)
+                .tag("update_bitmap_size", output_rowset_delete_bitmap->delete_bitmap.size());
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
     }
 
