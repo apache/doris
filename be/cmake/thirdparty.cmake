@@ -78,7 +78,6 @@ add_thirdparty(crypto)
 add_thirdparty(openssl LIBNAME "lib/libssl.a")
 add_thirdparty(leveldb)
 add_thirdparty(jemalloc LIBNAME "lib/libjemalloc_doris.a")
-add_thirdparty(jemalloc_arrow LIBNAME "lib/libjemalloc_arrow.a")
 
 if (WITH_MYSQL)
     add_thirdparty(mysql LIBNAME "lib/libmysqlclient.a")
