@@ -42,7 +42,7 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
         logger.info("table dynamic info: " + dynamicInfo)
         assertNotNull(dynamicInfo)
         assertTrue(dynamicInfo.LastDropPartitionMsg.contains("'dynamic_partition.start' = -99999999, maybe it's too small, "
-                + "can use alter table sql to increase it.")
+                + "can use alter table sql to increase it."))
 
         setFeConfig('max_dynamic_partition_num', Integer.MAX_VALUE)
 
