@@ -130,7 +130,7 @@ struct ParsedDataDouble : public ParsedData<double> {
 
     void insert_many_same_value_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
                                                  int length) override {
-	assert_cast<ColumnFloat64*>(column.get())
+        assert_cast<ColumnFloat64*>(column.get())
                 ->insert_many_vals(_backup_data[cur_offset], length);
     }
 };
