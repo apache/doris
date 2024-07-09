@@ -100,9 +100,7 @@ struct ParsedDataInt : public ParsedData<int64_t> {
 
     void insert_many_same_value_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
                                                  int length) override {
-        assert_cast<ColumnInt64*>(column.get())
-                ->insert_many_raw_data(
-                        reinterpret_cast<const char*>(_backup_data.data() + cur_offset), length);
+        assert_cast<ColumnInt64*>(column.get())->insert_many_vals(_backup_data[cur_offset], length);
     }
 };
 
@@ -132,9 +130,8 @@ struct ParsedDataDouble : public ParsedData<double> {
 
     void insert_many_same_value_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
                                                  int length) override {
-        assert_cast<ColumnFloat64*>(column.get())
-                ->insert_many_raw_data(
-                        reinterpret_cast<const char*>(_backup_data.data() + cur_offset), length);
+	assert_cast<ColumnFloat64*>(column.get())
+                ->insert_many_vals(_backup_data[cur_offset], length);
     }
 };
 
