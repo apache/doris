@@ -275,6 +275,32 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
     }
     return Status::OK();
 }
+template <typename T>
+
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_fixed_json(
+        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        const FormatOptions& options) const {
+    Status st = deserialize_one_cell_from_json(column, slice, options);
+    if (!st.ok()) {
+        return st;
+    }
+
+    DataTypeDecimalSerDe::insert_column_last_value_multiple_times(column, rows - 1);
+    *num_deserialized = rows;
+    return Status::OK();
+}
+
+template <typename T>
+void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
+                                                                      int times) const {
+    auto& col = static_cast<ColumnDecimal<T>&>(column);
+    auto sz = col.size();
+
+    T val = col.get_element(sz - 1);
+    for (int i = 0; i < times; i++) {
+        col.insert_value(val);
+    }
+}
 
 template class DataTypeDecimalSerDe<Decimal32>;
 template class DataTypeDecimalSerDe<Decimal64>;
