@@ -43,7 +43,8 @@
 namespace doris::io {
 
 bvar::Adder<uint64_t> s3_read_counter("cached_remote_reader_s3_read");
-bvar::LatencyRecorder g_skip_cache_counter("cached_remote_reader_skip_cache_count");
+bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
+bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -326,7 +327,8 @@ void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
     statis->bytes_write_into_cache += read_stats.bytes_write_into_file_cache;
     statis->write_cache_io_timer += read_stats.local_write_timer;
 
-    g_skip_cache_counter << read_stats.skip_cache;
+    g_skip_cache_num << read_stats.skip_cache;
+    g_skip_cache_sum << read_stats.skip_cache;
 }
 
 } // namespace doris::io
