@@ -509,6 +509,80 @@ static void set_default_vault_log_helper(const InstanceInfoPB& instance,
     LOG(INFO) << vault_msg;
 }
 
+static int alter_storage_vault(InstanceInfoPB& instance, Transaction* txn,
+                               const StorageVaultPB& vault, MetaServiceCode& code,
+                               std::string& msg) {
+    if (!vault.has_obj_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "Only s3 vault can be altered";
+        msg = ss.str();
+        return -1;
+    }
+    const auto& obj_info = vault.obj_info();
+    if (obj_info.has_bucket() || obj_info.has_endpoint() || obj_info.has_prefix() ||
+        obj_info.has_provider()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "Only ak, sk can be altered";
+        msg = ss.str();
+        return -1;
+    }
+    const auto& name = vault.name();
+    auto name_itr = std::find_if(instance.storage_vault_names().begin(),
+                                 instance.storage_vault_names().end(),
+                                 [&](const auto& vault_name) { return name == vault_name; });
+    if (name_itr == instance.storage_vault_names().end()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "invalid storage vault name, name =" << name;
+        msg = ss.str();
+        return -1;
+    }
+    auto pos = name_itr - instance.storage_vault_names().begin();
+    auto id_itr = instance.resource_ids().begin() + pos;
+    auto vault_key = storage_vault_key({instance.instance_id(), *id_itr});
+    std::string val;
+
+    auto err = txn->get(vault_key, &val);
+    LOG(INFO) << "get instance_key=" << hex(vault_key);
+
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        std::stringstream ss;
+        ss << "failed to get storage vault, vault_id=" << *name_itr << ", vault_name="
+           << "" << name << " err=" << err;
+        msg = ss.str();
+        return -1;
+    }
+    StorageVaultPB alter;
+    alter.ParseFromString(val);
+    if (obj_info.has_ak()) {
+        alter.mutable_obj_info()->set_ak(obj_info.ak());
+    }
+    if (obj_info.has_sk()) {
+        alter.mutable_obj_info()->set_ak(obj_info.sk());
+    }
+
+    val = alter.SerializeAsString();
+    if (val.empty()) {
+        msg = "failed to serialize";
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        return -1;
+    }
+
+    txn->put(vault_key, val);
+    LOG(INFO) << "put vault_id=" << *id_itr << " instance_key=" << hex(vault_key);
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit kv txn, err={}", err);
+        LOG(WARNING) << msg;
+    }
+
+    return 0;
+}
+
 void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* controller,
                                            const AlterObjStoreInfoRequest* request,
                                            AlterObjStoreInfoResponse* response,
@@ -584,6 +658,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         break;
     }
+    case AlterObjStoreInfoRequest::ALTER_S3_VAULT:
+        break;
     case AlterObjStoreInfoRequest::UNKNOWN: {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "Unknown alter info " + proto_to_json(*request);
@@ -834,6 +910,10 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         instance.clear_default_storage_vault_id();
         instance.clear_default_storage_vault_name();
         break;
+    }
+    case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
+        alter_storage_vault(instance, txn.get(), request->vault(), code, msg);
+        return;
     }
     case AlterObjStoreInfoRequest::DROP_S3_VAULT:
         [[fallthrough]];
