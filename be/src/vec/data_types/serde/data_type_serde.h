@@ -234,6 +234,27 @@ public:
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                        int* num_deserialized,
                                                        const FormatOptions& options) const = 0;
+    // deserialize fixed values.Repeatedly insert the value row times into the column.
+    virtual Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                                      int* num_deserialized,
+                                                      const FormatOptions& options) const {
+        Status st = deserialize_one_cell_from_json(column, slice, options);
+        if (!st.ok()) {
+            *num_deserialized = 0;
+            return st;
+        }
+        insert_column_last_value_multiple_times(column, rows - 1);
+        *num_deserialized = rows;
+        return Status::OK();
+    }
+    // Insert the last value to the end of this column multiple times.
+    virtual void insert_column_last_value_multiple_times(IColumn& column, int times) const {
+        //If you try to simplify this operation by using `column.insert_many_from(column, column.size() - 1, rows - 1);`
+        // you are likely to get incorrect data results.
+        MutableColumnPtr dum_col = column.clone_empty();
+        dum_col->insert_from(column, column.size() - 1);
+        column.insert_many_from(*dum_col.get(), 0, times);
+    }
 
     virtual Status deserialize_one_cell_from_hive_text(
             IColumn& column, Slice& slice, const FormatOptions& options,
