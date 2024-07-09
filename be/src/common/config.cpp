@@ -118,6 +118,8 @@ DEFINE_mInt32(double_resize_threshold, "23");
 
 DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "6871947673");
 
+DEFINE_Int64(memtable_limiter_reserved_memory_bytes, "838860800");
+
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 DEFINE_mString(process_minor_gc_size, "10%");
 DEFINE_mString(process_full_gc_size, "20%");
