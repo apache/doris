@@ -102,7 +102,7 @@ public class UnassignedJobBuilder {
             ScanNode scanNode = scanNodes.get(0);
             if (scanNode instanceof SchemaScanNode) {
                 // select * from information_schema.tables
-                unassignedJob = buildScanMetadataJob(planFragment, (SchemaScanNode) scanNode);
+                unassignedJob = buildScanMetadataJob(planFragment, (SchemaScanNode) scanNode, scanWorkerSelector);
             } else {
                 // only scan external tables or cloud tables or table valued functions
                 // e,g. select * from numbers('number'='100')
@@ -163,8 +163,8 @@ public class UnassignedJobBuilder {
     }
 
     private UnassignedJob buildScanMetadataJob(
-            PlanFragment fragment, SchemaScanNode schemaScanNode) {
-        return new UnassignedScanMetadataJob(fragment, schemaScanNode);
+            PlanFragment fragment, SchemaScanNode schemaScanNode, ScanWorkerSelector scanWorkerSelector) {
+        return new UnassignedScanMetadataJob(fragment, schemaScanNode, scanWorkerSelector);
     }
 
     private UnassignedJob buildScanRemoteTableJob(

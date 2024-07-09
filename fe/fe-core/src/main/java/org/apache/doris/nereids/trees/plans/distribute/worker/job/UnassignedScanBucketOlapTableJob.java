@@ -100,7 +100,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
     @Override
     protected List<AssignedJob> insideMachineParallelization(
             Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributedPlanWorkerManager workerManager) {
         // separate buckets to instanceNum groups, let one instance process some buckets.
         // for example, colocate join:
         // {
@@ -128,7 +128,8 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         //    ],
         //    ...
         // }
-        List<AssignedJob> assignedJobs = super.insideMachineParallelization(workerToScanRanges, inputJobs);
+        List<AssignedJob> assignedJobs = super.insideMachineParallelization(
+                workerToScanRanges, inputJobs, workerManager);
 
         // the case:
         // ```sql

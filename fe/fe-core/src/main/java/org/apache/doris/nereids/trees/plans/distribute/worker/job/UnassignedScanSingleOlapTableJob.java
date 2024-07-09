@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
@@ -48,26 +47,6 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
     }
 
     @Override
-    public List<AssignedJob> computeAssignedJobs(DistributedPlanWorkerManager workerManager,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        List<AssignedJob> assignedJobs = super.computeAssignedJobs(workerManager, inputJobs);
-        if (assignedJobs.isEmpty()) {
-            // the tablets have pruned, so no assignedJobs,
-            // we should allocate an instance of it,
-            //
-            // for example: SELECT * FROM tbl TABLET(1234)
-            // if the tablet 1234 not exists
-            assignedJobs = ImmutableList.of(
-                    assignWorkerAndDataSources(0,
-                            ConnectContext.get().nextInstanceId(),
-                            workerManager.randomAvailableWorker(),
-                            DefaultScanSource.empty())
-            );
-        }
-        return assignedJobs;
-    }
-
-    @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
             DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         // for every tablet, select its replica and worker.
@@ -84,7 +63,7 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
     @Override
     protected List<AssignedJob> insideMachineParallelization(
             Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributedPlanWorkerManager workerManager) {
         // for each worker, compute how many instances should be generated, and which data should be scanned.
         // for example:
         // {
@@ -98,6 +77,16 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
         //        instance 5: olapScanNode1: ScanRanges([tablet_10007])
         //    ],
         // }
-        return super.insideMachineParallelization(workerToScanRanges, inputJobs);
+        List<AssignedJob> assignedJobs = super.insideMachineParallelization(
+                workerToScanRanges, inputJobs, workerManager);
+        if (assignedJobs.isEmpty()) {
+            // the tablets have pruned, so no assignedJobs,
+            // we should allocate an instance of it,
+            //
+            // for example: SELECT * FROM tbl TABLET(1234)
+            // if the tablet 1234 not exists
+            assignedJobs = fillUpSingleEmptyInstance(workerManager);
+        }
+        return assignedJobs;
     }
 }

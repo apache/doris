@@ -26,6 +26,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 
@@ -50,7 +51,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
         Map<DistributedPlanWorker, UninstancedScanSource> workerToScanSource = multipleMachinesParallelization(
                 workerManager, inputJobs);
 
-        return insideMachineParallelization(workerToScanSource, inputJobs);
+        return insideMachineParallelization(workerToScanSource, inputJobs, workerManager);
     }
 
     protected abstract Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
@@ -58,7 +59,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
 
     protected List<AssignedJob> insideMachineParallelization(
             Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributedPlanWorkerManager workerManager) {
 
         ConnectContext context = ConnectContext.get();
         boolean useLocalShuffleToAddParallel = useLocalShuffleToAddParallel(workerToScanRanges);
@@ -198,5 +199,14 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
             }
         }
         return true;
+    }
+
+    protected List<AssignedJob> fillUpSingleEmptyInstance(DistributedPlanWorkerManager workerManager) {
+        return ImmutableList.of(
+                assignWorkerAndDataSources(0,
+                        ConnectContext.get().nextInstanceId(),
+                        workerManager.randomAvailableWorker(),
+                        DefaultScanSource.empty())
+        );
     }
 }

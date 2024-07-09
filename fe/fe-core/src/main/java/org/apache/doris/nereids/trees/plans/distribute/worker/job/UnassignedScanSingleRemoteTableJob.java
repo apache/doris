@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
@@ -48,25 +47,22 @@ public class UnassignedScanSingleRemoteTableJob extends AbstractUnassignedScanJo
     }
 
     @Override
-    public List<AssignedJob> computeAssignedJobs(DistributedPlanWorkerManager workerManager,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        List<AssignedJob> assignedJobs = super.computeAssignedJobs(workerManager, inputJobs);
-        if (assignedJobs.isEmpty()) {
-            // the file scan have pruned, so no assignedJobs,
-            // we should allocate an instance of it,
-            assignedJobs = ImmutableList.of(
-                    assignWorkerAndDataSources(0,
-                            ConnectContext.get().nextInstanceId(),
-                            workerManager.randomAvailableWorker(),
-                            DefaultScanSource.empty())
-            );
-        }
-        return assignedJobs;
-    }
-
-    @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
             DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         return scanWorkerSelector.selectReplicaAndWorkerWithoutBucket(scanNodes.get(0));
+    }
+
+    @Override
+    protected List<AssignedJob> insideMachineParallelization(
+            Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributedPlanWorkerManager workerManager) {
+        List<AssignedJob> assignedJobs = super.insideMachineParallelization(
+                workerToScanRanges, inputJobs, workerManager);
+        if (assignedJobs.isEmpty()) {
+            // the file scan have pruned, so no assignedJobs,
+            // we should allocate an instance of it,
+            assignedJobs = fillUpSingleEmptyInstance(workerManager);
+        }
+        return assignedJobs;
     }
 }

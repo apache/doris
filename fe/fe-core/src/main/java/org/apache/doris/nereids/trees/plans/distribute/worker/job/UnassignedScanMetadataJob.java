@@ -19,36 +19,48 @@ package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
+import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.SchemaScanNode;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /** UnassignedScanMetadataJob */
-public class UnassignedScanMetadataJob extends AbstractUnassignedJob {
+public class UnassignedScanMetadataJob extends AbstractUnassignedScanJob {
     private final SchemaScanNode schemaScanNode;
+    private final ScanWorkerSelector scanWorkerSelector;
 
-    public UnassignedScanMetadataJob(PlanFragment fragment, SchemaScanNode schemaScanNode) {
+    public UnassignedScanMetadataJob(PlanFragment fragment, SchemaScanNode schemaScanNode,
+            ScanWorkerSelector scanWorkerSelector) {
         super(fragment, ImmutableList.of(schemaScanNode), ArrayListMultimap.create());
+        this.scanWorkerSelector = Objects.requireNonNull(
+                scanWorkerSelector, "scanWorkerSelector cat not be null");
         this.schemaScanNode = schemaScanNode;
     }
 
     @Override
-    public List<AssignedJob> computeAssignedJobs(DistributedPlanWorkerManager workerManager,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+    protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
+            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        return scanWorkerSelector.selectReplicaAndWorkerWithoutBucket(schemaScanNode);
+    }
 
-        TUniqueId instanceId = ConnectContext.get().nextInstanceId();
-        DistributedPlanWorker randomAvailableWorker = workerManager.randomAvailableWorker();
-        return ImmutableList.of(
-                assignWorkerAndDataSources(0, instanceId, randomAvailableWorker, DefaultScanSource.empty())
-        );
+    @Override
+    protected List<AssignedJob> insideMachineParallelization(
+            Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributedPlanWorkerManager workerManager) {
+        List<AssignedJob> assignedJobs = super.insideMachineParallelization(
+                workerToScanRanges, inputJobs, workerManager);
+        if (assignedJobs.isEmpty()) {
+            return fillUpSingleEmptyInstance(workerManager);
+        }
+        return assignedJobs;
     }
 
     @Override
