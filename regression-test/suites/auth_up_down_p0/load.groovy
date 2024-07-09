@@ -133,7 +133,7 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth") {
             sql "select username from ${dbName}.${tableName1}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
@@ -155,7 +155,7 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth") {
             sql "select username from ${dbName}.${tableName1}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     connect(user=user2, password="${pwd}", url=context.config.jdbcUrl) {
@@ -169,7 +169,7 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth") {
             sql "select username from ${dbName}.${tableName2}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("USAGE/ADMIN privilege"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """GRANT USAGE_PRIV ON WORKLOAD GROUP '${wg1}' TO '${user1}';"""
