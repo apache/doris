@@ -1266,9 +1266,6 @@ DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
 
-// enable injection point in regression-test
-DEFINE_mBool(enable_injection_point, "false");
-
 DEFINE_mBool(ignore_schema_change_check, "false");
 
 DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t>::max()

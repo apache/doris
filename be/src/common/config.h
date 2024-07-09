@@ -1352,9 +1352,6 @@ DECLARE_mInt32(thrift_client_open_num_tries);
 // http scheme in S3Client to use. E.g. http or https
 DECLARE_String(s3_client_http_scheme);
 
-// enable injection point in regression-test
-DECLARE_mBool(enable_injection_point);
-
 DECLARE_mBool(ignore_schema_change_check);
 
 /** Only use in fuzzy test **/

@@ -51,8 +51,8 @@
 #include "common/logging.h"
 #include "common/stopwatch.h"
 #include "common/string_util.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "keys.h"
 #include "meta-service/codec.h"
 #include "meta-service/doris_txn.h"
@@ -82,10 +82,7 @@ MetaServiceImpl::~MetaServiceImpl() = default;
 // FIXME(gavin): should it be a member function of ResourceManager?
 std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                             const std::string& cloud_unique_id) {
-    {
-        [[maybe_unused]] std::string tmp_ret;
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("get_instance_id", &tmp_ret);
-    }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("get_instance_id", std::string {});
 
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
