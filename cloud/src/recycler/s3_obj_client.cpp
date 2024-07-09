@@ -29,7 +29,7 @@
 #include <ranges>
 
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 
 namespace doris::cloud {
 

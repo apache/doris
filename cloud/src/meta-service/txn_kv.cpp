@@ -35,8 +35,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/txn_kv_error.h"
 
 // =============================================================================
@@ -292,7 +292,6 @@ static TxnErrorCode await_future(FDBFuture* fut) {
         return bthread_fdb_future_block_until_ready(fut);
     }
     auto err = fdb_future_block_until_ready(fut);
-    TEST_SYNC_POINT_CALLBACK("fdb_future_block_until_ready_err", &err);
     if (err) [[unlikely]] {
         LOG(WARNING) << "fdb_future_block_until_ready failed: " << fdb_get_error(err);
         return cast_as_txn_code(err);
