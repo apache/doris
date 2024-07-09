@@ -384,7 +384,7 @@ void SegmentIterator::_initialize_predicate_results() {
     // Initialize from _column_pred_in_remaining_vconjunct
     for (auto& preds_in_remaining_vconjuct : _column_pred_in_remaining_vconjunct) {
         for (auto& pred_info : preds_in_remaining_vconjuct.second) {
-            int cid = pred_info.column_id;
+            int cid = _schema->column_id(pred_info.column_id);
             std::string pred_sign = _gen_predicate_result_sign(&pred_info);
             _column_predicate_inverted_index_status[cid][pred_sign] = false;
         }
