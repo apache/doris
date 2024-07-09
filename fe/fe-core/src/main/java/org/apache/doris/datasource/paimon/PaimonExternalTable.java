@@ -88,6 +88,7 @@ public class PaimonExternalTable extends ExternalTable {
     }
 
     private Type paimonPrimitiveTypeToDorisType(org.apache.paimon.types.DataType dataType) {
+        int tsScale = 3; // default
         switch (dataType.getTypeRoot()) {
             case BOOLEAN:
                 return Type.BOOLEAN;
@@ -114,12 +115,10 @@ public class PaimonExternalTable extends ExternalTable {
             case DATE:
                 return ScalarType.createDateV2Type();
             case TIMESTAMP_WITHOUT_TIME_ZONE:
-            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
-                int scale = 3; // default
                 if (dataType instanceof org.apache.paimon.types.TimestampType) {
-                    scale = ((org.apache.paimon.types.TimestampType) dataType).getPrecision();
-                    if (scale > 6) {
-                        scale = 6;
+                    tsScale = ((org.apache.paimon.types.TimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
                     }
                 } else if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
                     scale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
@@ -127,7 +126,15 @@ public class PaimonExternalTable extends ExternalTable {
                         scale = 6;
                     }
                 }
-                return ScalarType.createDatetimeV2Type(scale);
+                return ScalarType.createDatetimeV2Type(tsScale);
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+                    tsScale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
+                    }
+                }
+                return ScalarType.createDatetimeV2Type(tsScale);
             case ARRAY:
                 ArrayType arrayType = (ArrayType) dataType;
                 Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType());
