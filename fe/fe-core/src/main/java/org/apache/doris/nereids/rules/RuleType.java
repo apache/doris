@@ -306,6 +306,7 @@ public enum RuleType {
     PUSH_LIMIT_THROUGH_UNION(RuleTypeClass.REWRITE),
     PUSH_LIMIT_THROUGH_WINDOW(RuleTypeClass.REWRITE),
     LIMIT_SORT_TO_TOP_N(RuleTypeClass.REWRITE),
+    LIMIT_AGG_TO_TOPN_AGG(RuleTypeClass.REWRITE),
     // topN push down
     PUSH_DOWN_TOP_N_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSH_DOWN_TOP_N_THROUGH_PROJECT_JOIN(RuleTypeClass.REWRITE),

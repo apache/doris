@@ -199,7 +199,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             if (cte.isPresent()) {
                 this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
             }
-
+            if (this.logicalQuery instanceof UnboundTableSink) {
+                OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf,
+                        (UnboundTableSink<?>) this.logicalQuery);
+            }
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
@@ -220,17 +223,16 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                if (GroupCommitInsertExecutor.canGroupCommit(ctx, sink, physicalSink, planner)) {
-                    insertExecutor = new GroupCommitInsertExecutor(ctx, targetTableIf, label, planner, insertCtx,
-                            emptyInsert);
-                    targetTableIf.readUnlock();
-                    return insertExecutor;
-                }
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 // the insertCtx contains some variables to adjust SinkNode
-                insertExecutor = ctx.isTxnModel()
-                        ? new OlapTxnInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert)
-                        : new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert);
+                if (ctx.isTxnModel()) {
+                    insertExecutor = new OlapTxnInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert);
+                } else if (ctx.isGroupCommit()) {
+                    insertExecutor = new OlapGroupCommitInsertExecutor(ctx, olapTable, label, planner, insertCtx,
+                            emptyInsert);
+                } else {
+                    insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert);
+                }
 
                 boolean isEnableMemtableOnSinkNode =
                         olapTable.getTableProperty().getUseSchemaLightChange()

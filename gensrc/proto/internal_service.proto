@@ -24,6 +24,7 @@ option java_package = "org.apache.doris.proto";
 import "data.proto";
 import "descriptors.proto";
 import "types.proto";
+import "olap_common.proto";
 import "olap_file.proto";
 
 option cc_generic_services = true;
@@ -71,6 +72,7 @@ message PTabletID {
     optional int64 partition_id = 1;
     optional int64 index_id = 2;
     optional int64 tablet_id = 3;
+    optional int64 num_segments = 4;
 }
 
 message PTabletInfo {
@@ -909,6 +911,7 @@ message PStreamHeader {
     repeated PTabletID tablets = 10;
     optional TabletSchemaPB flush_schema = 11;
     optional uint64 offset = 12;
+    optional FileType file_type = 13;
 }
 
 message PGetWalQueueSizeRequest{

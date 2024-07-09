@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecGather]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF10 c_current_addr_sk->[ca_address_sk]
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF10 c_current_addr_sk->[ca_address_sk]
 ------------------PhysicalProject
 --------------------filter((customer_address.ca_gmt_offset = -7.00))
 ----------------------PhysicalOlapScan[customer_address] apply RFs: RF10

@@ -79,6 +79,7 @@ import java.util.stream.Collectors;
  * Representation of a single select block, including GROUP BY, ORDER BY and HAVING
  * clauses.
  */
+@Deprecated
 public class SelectStmt extends QueryStmt {
     private static final Logger LOG = LogManager.getLogger(SelectStmt.class);
     public static final String DEFAULT_VALUE = "__DEFAULT_VALUE__";
@@ -563,6 +564,7 @@ public class SelectStmt extends QueryStmt {
             // remove excepted columns
             resultExprs.removeIf(expr -> exceptCols.contains(expr.toColumnLabel()));
             colLabels.removeIf(exceptCols::contains);
+            originalExpr = new ArrayList<>(resultExprs);
         } else {
             if (needToSql) {
                 originalExpr = new ArrayList<>();

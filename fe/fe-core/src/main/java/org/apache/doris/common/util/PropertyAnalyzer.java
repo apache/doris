@@ -120,7 +120,6 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_STRICT_RANGE = "strict_range";
     public static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
-
     public static final String PROPERTIES_TYPE = "type";
     // This is common prefix for function column
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
@@ -209,10 +208,10 @@ public class PropertyAnalyzer {
     public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
             = Config.group_commit_data_bytes_default_value;
 
-    public static final String PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE =
-            "enable_mow_delete_on_delete_predicate";
-    public static final boolean PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE_DEFAULT_VALUE
-            = Config.enable_mow_delete_on_predicate;
+    public static final String PROPERTIES_ENABLE_MOW_LIGHT_DELETE =
+            "enable_mow_light_delete";
+    public static final boolean PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE
+            = Config.enable_mow_light_delete;
 
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
@@ -1423,18 +1422,18 @@ public class PropertyAnalyzer {
         if (properties == null || properties.isEmpty()) {
             return false;
         }
-        String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE);
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value == null) {
             return false;
         }
-        properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE);
+        properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value.equals("true")) {
             return true;
         } else if (value.equals("false")) {
             return false;
         }
         throw new AnalysisException(
-                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE + " must be `true` or `false`");
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE + " must be `true` or `false`");
     }
 
     /**

@@ -60,9 +60,11 @@ protected:
 
 public:
     class FSIndexOutput;
+    class FSIndexOutputV2;
     class FSIndexInput;
 
     friend class DorisFSDirectory::FSIndexOutput;
+    friend class DorisFSDirectory::FSIndexOutputV2;
     friend class DorisFSDirectory::FSIndexInput;
 
     const io::FileSystemSPtr& getFileSystem() { return _fs; }
@@ -78,6 +80,7 @@ public:
     void renameFile(const char* from, const char* to) override;
     void touchFile(const char* name) override;
     lucene::store::IndexOutput* createOutput(const char* name) override;
+    lucene::store::IndexOutput* createOutputV2(io::FileWriter* file_writer);
     void close() override;
     std::string toString() const override;
     static const char* getClassName();

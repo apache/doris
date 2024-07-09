@@ -19,6 +19,7 @@ under the License.
 
 # 新加case注意事项
 
+## 常规 case
 1. 变量名前要写 def，否则是全局变量，并行跑的 case 的时候可能被其他 case 影响。
 
     Problematic code:
@@ -65,3 +66,13 @@ under the License.
     sql """sync"""
     sql """select count(*) from table """
     ```
+
+6. UDF 的 case，需要把对应的 jar 包拷贝到所有 BE 机器上。
+
+    [示例](https://github.com/apache/doris/blob/master/regression-test/suites/javaudf_p0/test_javaudf_case.groovy#L27)
+
+
+## 兼容性 case
+指重启 FE 测试或升级测试中，在初始集群上创建的资源或规则，在集群重启或升级后也能正常使用，比如权限、UDF等。
+这些 case 需要拆分成两个文件，load.groovy 和 xxxx.groovy，放到一个文件夹中并加上 `restart_fe` 组标签，[示例](https://github.com/apache/doris/pull/37118)。
+
