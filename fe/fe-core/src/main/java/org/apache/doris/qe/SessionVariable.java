@@ -1039,7 +1039,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
-    public boolean enableFoldConstantByBe = true;
+    public boolean enableFoldConstantByBe = false;
     @VariableMgr.VarAttr(name = DEBUG_SKIP_FOLD_CONSTANT)
     public boolean debugSkipFoldConstant = false;
 
