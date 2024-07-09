@@ -349,7 +349,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                         assert_cast<vectorized::ColumnNullable*>(new_col->assume_mutable().get());
 
                 new_nullable_col->change_nested_column(ref_col);
-                new_nullable_col->get_null_map_data().resize_fill(new_nullable_col->size());
+                new_nullable_col->get_null_map_data().resize_fill(ref_col->size());
             } else {
                 // nullable to not nullable:
                 // suppose column `c_phone` is originally varchar(16) NOT NULL,
@@ -397,11 +397,24 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                 return Status::DataQualityError("Null data is changed to not nullable");
             }
         } else {
-            auto* new_null_map =
+            const auto& null_map_column =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
-                            ->get_null_map_column()
-                            .get_data()
-                            .data();
+                            ->get_null_map_column();
+            const auto& nested_column =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
+                            ->get_nested_column();
+            const auto* new_null_map = null_map_column.get_data().data();
+
+            if (null_map_column.size() != new_column->size() ||
+                nested_column.size() != new_column->size()) {
+                DCHECK(false) << "null_map_column_size=" << null_map_column.size()
+                              << " new_column_size=" << new_column->size()
+                              << " nested_column_size=" << nested_column.size();
+                return Status::InternalError(
+                        "null_map_column size is changed, null_map_column_size={}, "
+                        "new_column_size={}",
+                        null_map_column.size(), new_column->size());
+            }
 
             bool is_changed = false;
             for (size_t i = 0; i < ref_column->size(); i++) {
