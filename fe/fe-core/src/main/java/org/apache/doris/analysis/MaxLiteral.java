@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 
 import java.io.DataInput;
@@ -73,7 +74,7 @@ public final class MaxLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
+    public String getStringValueForArray(FormatOptions options) {
         return null;
     }
 

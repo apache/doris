@@ -142,7 +142,7 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
                           << ", runtime_state=" << runtime_state;
             }
         }
-        _get_cond.wait_for(l, std::chrono::milliseconds(left_milliseconds));
+        _get_cond.wait_for(l, std::chrono::milliseconds(std::min(left_milliseconds, 10000L)));
     }
     if (runtime_state->is_cancelled()) {
         auto st = Status::Cancelled<false>(runtime_state->cancel_reason());
@@ -199,6 +199,7 @@ Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
                                             load_instance_id.to_string());
     }
     _load_ids.emplace(load_id);
+    group_commit_load_count.fetch_add(1);
     return Status::OK();
 }
 
@@ -265,7 +266,7 @@ Status GroupCommitTable::get_first_block_load_queue(
             }
             if (!_is_creating_plan_fragment) {
                 _is_creating_plan_fragment = true;
-                RETURN_IF_ERROR(_thread_pool->submit_func([&] {
+                RETURN_IF_ERROR(_thread_pool->submit_func([this, be_exe_version, mem_tracker] {
                     auto st = _create_group_commit_load(be_exe_version, mem_tracker);
                     if (!st.ok()) {
                         LOG(WARNING) << "create group commit load error, st=" << st.to_string();
