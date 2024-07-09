@@ -181,56 +181,56 @@ public class PublishVersionDaemon extends MasterDaemon {
     private void tryFinishOneTxn(TransactionState transactionState,
             SystemInfoService infoService, GlobalTransactionMgr globalTransactionMgr,
             Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
-            Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
-            Stream<PublishVersionTask> publishVersionTaskStream = transactionState
-                    .getPublishVersionTasks()
-                    .values()
-                    .stream()
-                    .peek(task -> {
-                        if (task.isFinished() && CollectionUtils.isEmpty(task.getErrorTablets())) {
-                            Map<Long, Long> tableIdToDeltaNumRows =
-                                    task.getTableIdToDeltaNumRows();
-                            tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
-                                tableIdToTotalDeltaNumRows
-                                        .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
-                                tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
-                            });
-                        }
-                    });
-            boolean hasBackendAliveAndUnfinishedTask = publishVersionTaskStream
-                    .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
-            transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
-
-            boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout()
-                    || DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks");
-            if (shouldFinishTxn) {
-                try {
-                    // one transaction exception should not affect other transaction
-                    globalTransactionMgr.finishTransaction(transactionState.getDbId(),
-                            transactionState.getTransactionId(), partitionVisibleVersions, backendPartitions);
-                } catch (Exception e) {
-                    LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
-                }
-                if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
-                    // if finish transaction state failed, then update publish version time, should check
-                    // to finish after some interval
-                    transactionState.updateSendTaskTime();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("publish version for transaction {} failed", transactionState);
+        Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
+        Stream<PublishVersionTask> publishVersionTaskStream = transactionState
+                .getPublishVersionTasks()
+                .values()
+                .stream()
+                .peek(task -> {
+                    if (task.isFinished() && CollectionUtils.isEmpty(task.getErrorTablets())) {
+                        Map<Long, Long> tableIdToDeltaNumRows =
+                                task.getTableIdToDeltaNumRows();
+                        tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
+                            tableIdToTotalDeltaNumRows
+                                    .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
+                            tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
+                        });
                     }
-                }
-            }
+                });
+        boolean hasBackendAliveAndUnfinishedTask = publishVersionTaskStream
+                .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
+        transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
 
-            if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
-                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
-                }
-                transactionState.pruneAfterVisible();
-                if (MetricRepo.isInit) {
-                    long publishTime = transactionState.getLastPublishVersionTime() - transactionState.getCommitTime();
-                    MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishTime);
+        boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout()
+                || DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks");
+        if (shouldFinishTxn) {
+            try {
+                // one transaction exception should not affect other transaction
+                globalTransactionMgr.finishTransaction(transactionState.getDbId(),
+                        transactionState.getTransactionId(), partitionVisibleVersions, backendPartitions);
+            } catch (Exception e) {
+                LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
+            }
+            if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
+                // if finish transaction state failed, then update publish version time, should check
+                // to finish after some interval
+                transactionState.updateSendTaskTime();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("publish version for transaction {} failed", transactionState);
                 }
             }
+        }
+
+        if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+            for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
+                AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
+            }
+            transactionState.pruneAfterVisible();
+            if (MetricRepo.isInit) {
+                long publishTime = transactionState.getLastPublishVersionTime() - transactionState.getCommitTime();
+                MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishTime);
+            }
+        }
     }
 
     private Map<Long, Set<Long>> getBaseTabletIdsForEachBe(TransactionState transactionState,
