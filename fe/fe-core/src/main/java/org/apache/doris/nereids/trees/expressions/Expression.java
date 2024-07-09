@@ -64,6 +64,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     protected Optional<String> exprName = Optional.empty();
     private final int depth;
     private final int width;
+
     // Mark this expression is from predicate infer or something else infer
     private final boolean inferred;
     private final boolean hasUnbound;
@@ -73,7 +74,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     protected Expression(Expression... children) {
         super(children);
-
         boolean hasUnbound = false;
         switch (children.length) {
             case 0:
@@ -122,7 +122,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     protected Expression(List<Expression> children, boolean inferred) {
         super(children);
-
         boolean hasUnbound = false;
         switch (children.size()) {
             case 0:
@@ -430,7 +429,12 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     @Override
     public int hashCode() {
-        return getClass().hashCode();
+        if (children.isEmpty()) {
+            throw new
+                    RuntimeException(String.format("hashCode should be implemented by leaf %s",
+                    getClass().getSimpleName()));
+        }
+        return children.hashCode();
     }
 
     /**

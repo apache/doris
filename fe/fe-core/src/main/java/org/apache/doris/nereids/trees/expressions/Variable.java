@@ -113,6 +113,6 @@ public class Variable extends Expression implements LeafExpression {
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), name, type, realExpression);
+        return Objects.hash(name, type, realExpression);
     }
 }

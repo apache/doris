@@ -87,7 +87,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), qualifier);
+        return Objects.hash(qualifier, indexInSqlString);
     }
 
     @Override

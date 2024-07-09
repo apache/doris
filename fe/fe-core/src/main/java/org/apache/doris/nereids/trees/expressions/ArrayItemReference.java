@@ -170,5 +170,10 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
         public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
             return visitor.visitArrayItemSlot(this, context);
         }
+
+        @Override
+        public int hashCode() {
+            return exprId.asInt();
+        }
     }
 }
