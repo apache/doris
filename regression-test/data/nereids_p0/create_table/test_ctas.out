@@ -24,3 +24,6 @@ r2	{"title":"Amount","value":2.1}
 -- !desc --
 __substring_0	VARCHAR(30)	Yes	true	\N	
 
+-- !desc --
+__substring_0	VARCHAR(30)	Yes	true	\N	
+
