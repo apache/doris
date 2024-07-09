@@ -147,7 +147,10 @@ public class RowPolicy extends Policy {
             CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.getFirstStmt(parser);
             wherePredicate = stmt.getWherePredicate();
         } catch (Exception e) {
-            throw new IOException("table policy parse originStmt error", e);
+            String errorMsg = String.format("table policy parse originStmt error, originStmt: %s.",
+                    originStmt);
+            // Only print logs to avoid cluster failure to start
+            LOG.warn(errorMsg, e);
         }
     }
 
