@@ -15,11 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("paimon_base_filesystem", "p2,external,paimon,external_remote,external_remote_paimon") {
-    String enabled = context.config.otherConfigs.get("enableExternalPaimonTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String catalog_cos = "paimon_cos"
-        String catalog_oss = "paimon_oss"
+suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_docker_doris") {
+    String enabled = context.config.otherConfigs.get("enablePaimonTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        return
+    }
+
+    try {
+        String catalog_cos = "paimon_base_filesystem_paimon_cos"
+        String catalog_oss = "paimon_base_filesystem_paimon_oss"
         String ak = context.config.otherConfigs.get("aliYunAk")
         String sk = context.config.otherConfigs.get("aliYunSk")
 
@@ -61,6 +65,7 @@ suite("paimon_base_filesystem", "p2,external,paimon,external_remote,external_rem
         qt_c3 cos
         qt_c4 oss
 
+    } finally {
         sql """set force_jni_scanner=false"""
     }
 }
