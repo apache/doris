@@ -52,7 +52,7 @@ public:
         EngineOptions options;
         options.backend_uid = UniqueId::gen_uid();
         _storage_engine = std::make_unique<StorageEngine>(options);
-        _data_dir = std::make_unique<DataDir>(*_storage_engine, _engine_data_path, 100000000);
+        _data_dir = std::make_unique<DataDir>(_engine_data_path);
         static_cast<void>(_data_dir->init());
     }
 

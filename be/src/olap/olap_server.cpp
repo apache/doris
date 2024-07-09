@@ -854,6 +854,45 @@ int StorageEngine::_get_executing_compaction_num(
     return num;
 }
 
+bool need_generate_compaction_tasks(int count, int thread_per_disk, CompactionType compaction_type,
+                                    bool all_base) {
+    if (count >= thread_per_disk) {
+        // Return if no available slot
+        return false;
+    } else if (count >= thread_per_disk - 1) {
+        // Only one slot left, check if it can be assigned to base compaction task.
+        if (compaction_type == CompactionType::BASE_COMPACTION) {
+            if (all_base) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+int get_concurrent_per_disk(int max_score, int thread_per_disk) {
+    if (!config::enable_compaction_priority_scheduling) {
+        return thread_per_disk;
+    }
+
+    double load_average = 0;
+    if (DorisMetrics::instance()->system_metrics() != nullptr) {
+        load_average = DorisMetrics::instance()->system_metrics()->get_load_average_1_min();
+    }
+    int num_cores = doris::CpuInfo::num_cores();
+    bool cpu_usage_high = load_average > num_cores * 0.8;
+
+    auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
+    bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 0.8;
+
+    if (max_score <= config::low_priority_compaction_score_threshold &&
+        (cpu_usage_high || memory_usage_high)) {
+        return config::low_priority_compaction_task_num_per_disk;
+    }
+
+    return thread_per_disk;
+}
+
 std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
     _update_cumulative_compaction_policy();
