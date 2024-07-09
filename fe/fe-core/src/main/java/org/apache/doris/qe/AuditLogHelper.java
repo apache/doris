@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -27,6 +28,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.audit.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -136,6 +138,9 @@ public class AuditLogHelper {
                 auditEventBuilder.setStmt(origStmt);
             }
         }
+
+        auditEventBuilder.setStmtType(getStmtType(parsedStmt));
+
         if (!Env.getCurrentEnv().isMaster()) {
             if (ctx.executor.isForwardToMaster()) {
                 auditEventBuilder.setState(ctx.executor.getProxyStatus());
@@ -147,5 +152,19 @@ public class AuditLogHelper {
             }
         }
         Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(auditEventBuilder.build());
+    }
+
+    private static String getStmtType(StatementBase stmt) {
+        if (stmt == null) {
+            return StmtType.OTHER.name();
+        }
+        if (stmt.isExplain()) {
+            return StmtType.EXPLAIN.name();
+        }
+        if (stmt instanceof LogicalPlanAdapter) {
+            return ((LogicalPlanAdapter) stmt).getLogicalPlan().stmtType().name();
+        } else {
+            return stmt.stmtType().name();
+        }
     }
 }

@@ -100,4 +100,9 @@ public class CreateRepositoryStmt extends DdlStmt {
     public boolean needAuditEncryption() {
         return true;
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
+    }
 }

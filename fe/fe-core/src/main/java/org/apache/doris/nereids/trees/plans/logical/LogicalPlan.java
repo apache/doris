@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -107,4 +108,8 @@ public interface LogicalPlan extends Plan {
     void computeEqualSet(DataTrait.Builder builder);
 
     void computeFd(DataTrait.Builder builder);
+
+    default StmtType stmtType() {
+        return StmtType.OTHER;
+    }
 }
