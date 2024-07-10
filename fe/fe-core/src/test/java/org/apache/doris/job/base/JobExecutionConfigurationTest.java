@@ -75,8 +75,8 @@ public class JobExecutionConfigurationTest {
         JobExecutionConfiguration configuration = new JobExecutionConfiguration();
         configuration.setExecuteType(JobExecuteType.ONE_TIME);
         configuration.setImmediate(true);
-        configuration.setImmediate(true);
         TimerDefinition timerDefinition = new TimerDefinition();
+        timerDefinition.setStartTimeMs(0L);
         configuration.setTimerDefinition(timerDefinition);
         configuration.checkParams();
     }
