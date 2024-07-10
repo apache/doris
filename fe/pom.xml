@@ -1053,6 +1053,10 @@ under the License.
                         <groupId>org.elasticsearch</groupId>
                         <artifactId>*</artifactId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>com.sun.jersey</groupId>
+                        <artifactId>jersey-bundle</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
@@ -1315,6 +1319,10 @@ under the License.
                     <exclusion>
                         <artifactId>jackson-databind</artifactId>
                         <groupId>com.fasterxml.jackson.core</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>javax.ws.rs</groupId>
+                        <artifactId>jsr311-api</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
