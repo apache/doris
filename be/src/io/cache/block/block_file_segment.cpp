@@ -171,13 +171,28 @@ Status FileBlock::async_write(std::shared_ptr<char[]> buffer, size_t offset, siz
                 Status append_st = block_ptr->append(Slice(buffer_ptr.get() + off, size));
                 if (!append_st) {
                     block_ptr->_status = append_st;
+                    block_ptr->_download_state = State::EMPTY;
+                    block_ptr->async_remove();
                     return;
                 }
                 Status final_st = block_ptr->finalize_write();
                 if (!final_st) {
                     block_ptr->_status = final_st;
+                    block_ptr->_download_state = State::EMPTY;
+                    block_ptr->async_remove();
                 }
             });
+}
+
+void FileBlock::async_remove() {
+    Status st = _async_write_pool->submit_func([block_ptr = shared_from_this()]() {
+        IFileCache* cache = block_ptr->_cache;
+        std::lock_guard cache_lock(cache->_mutex);
+        std::lock_guard segment_lock(block_ptr->_mutex);
+        block_ptr->complete_unlocked(segment_lock);
+        cache->remove(block_ptr, cache_lock, segment_lock);
+    });
+    LOG(WARNING) << "Failed to remove file block " << _file_key.to_string() << ": " << st;
 }
 
 Status FileBlock::append(Slice data) {

@@ -113,6 +113,8 @@ public:
     /// Write the cached data asynchronously
     Status async_write(std::shared_ptr<char[]> buffer, size_t offset, size_t length);
 
+    void async_remove();
+
     // append data to cache file
     Status append(Slice data);
 
