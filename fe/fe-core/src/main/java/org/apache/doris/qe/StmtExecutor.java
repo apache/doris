@@ -725,7 +725,7 @@ public class StmtExecutor {
                     return;
                 }
             }
-            
+
             // Query following createting table would throw table not exist error.
             // For example.
             // t1: client issues create table to master fe
