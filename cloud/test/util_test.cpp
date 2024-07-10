@@ -82,7 +82,7 @@ TEST(StringUtilTest, test_string_strip) {
         {"abc"           , ""      , "abc"  },
         {"\t  /a/b/c \t/", "a/b/c" , " \t /"},
     };
-    for (auto&& i : leading_inputs) {
+    for (auto&& i : trim_inputs) {
         doris::cloud::strip_leading(std::get<0>(i), std::get<2>(i));
         EXPECT_EQ(std::get<0>(i), std::get<1>(i)) << " index=" << idx;
         ++idx;
