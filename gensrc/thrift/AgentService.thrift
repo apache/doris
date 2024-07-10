@@ -122,7 +122,7 @@ struct TCreateTabletReq {
     2: required TTabletSchema tablet_schema
     3: optional Types.TVersion version
     // Deprecated
-    4: optional Types.TVersionHash version_hash 
+    4: optional Types.TVersionHash version_hash
     5: optional Types.TStorageMedium storage_medium
     6: optional bool in_restore_mode
     // this new tablet should be colocate with base tablet
@@ -377,6 +377,8 @@ struct TPublishVersionRequest {
     2: required list<TPartitionVersionInfo> partition_version_infos
     // strict mode means BE will check tablet missing version
     3: optional bool strict_mode = false
+    // for delta rows statistics to exclude rollup tablets
+    4: optional set<Types.TTabletId> base_tablet_ids
 }
 
 struct TClearAlterTaskRequest {
@@ -484,7 +486,7 @@ struct TAgentResult {
     1: required Status.TStatus status
     2: optional string snapshot_path
     3: optional bool allow_incremental_clone
-    // the snapshot that be has done according 
+    // the snapshot that be has done according
     // to the preferred snapshot version that client requests
     4: optional i32 snapshot_version  = 1
 }
