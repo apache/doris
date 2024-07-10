@@ -22,7 +22,6 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -102,10 +101,6 @@ public class OptimizeGroupExpressionJob extends Job {
     }
 
     private List<Rule> getMvRules() {
-        ConnectContext connectContext = context.getCascadesContext().getConnectContext();
-        if (connectContext.getSessionVariable().isEnableMaterializedViewRewrite()) {
-            return getRuleSet().getMaterializedViewRules();
-        }
-        return ImmutableList.of();
+        return getRuleSet().getMaterializedViewRules();
     }
 }

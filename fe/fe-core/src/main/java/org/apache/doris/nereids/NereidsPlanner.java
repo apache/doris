@@ -104,7 +104,6 @@ public class NereidsPlanner extends Planner {
     // The cost of optimized plan
     private double cost = 0;
     private LogicalPlanAdapter logicalPlanAdapter;
-    private List<PlannerHook> hooks = new ArrayList<>();
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
@@ -286,7 +285,7 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start analyze plan");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
-        getHooks().forEach(hook -> hook.afterAnalyze(this));
+        this.statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End analyze plan");
@@ -701,14 +700,6 @@ public class NereidsPlanner extends Planner {
 
     public LogicalPlanAdapter getLogicalPlanAdapter() {
         return logicalPlanAdapter;
-    }
-
-    public List<PlannerHook> getHooks() {
-        return hooks;
-    }
-
-    public void addHook(PlannerHook hook) {
-        this.hooks.add(hook);
     }
 
     private String getTimeMetricString(Function<SummaryProfile, String> profileSupplier) {
