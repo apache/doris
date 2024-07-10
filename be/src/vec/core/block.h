@@ -223,7 +223,7 @@ public:
 
     void set_columns(const Columns& columns);
     Block clone_with_columns(const Columns& columns) const;
-    Block clone_without_columns() const;
+    Block clone_without_columns(const std::vector<int>* column_offset = nullptr) const;
 
     /** Get empty columns with the same types as in block. */
     MutableColumns clone_empty_columns() const;
@@ -606,7 +606,8 @@ public:
 
     void add_row(const Block* block, int row);
     // Batch add row should return error status if allocate memory failed.
-    Status add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end);
+    Status add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end,
+                    const std::vector<int>* column_offset = nullptr);
     Status add_rows(const Block* block, size_t row_begin, size_t length);
     Status add_rows(const Block* block, std::vector<int64_t> rows);
 

@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
@@ -192,7 +193,8 @@ public class GroupCommitPlanner {
         if (expr instanceof NullLiteral) {
             row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
         } else if (expr.getType() instanceof ArrayType) {
-            row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForArray()));
+            row.addColBuilder().setValue(String.format("\"%s\"",
+                    expr.getStringValueForArray(FormatOptions.getDefault())));
         } else if (!expr.getChildren().isEmpty()) {
             expr.getChildren().forEach(child -> processExprVal(child, row));
         } else {
@@ -213,7 +215,7 @@ public class GroupCommitPlanner {
         SelectStmt selectStmt = (SelectStmt) (stmt.getQueryStmt());
         if (selectStmt.getValueList() != null) {
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
-                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
+                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row, FormatOptions.getDefault());
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
                             .collect(Collectors.joining(",")));
@@ -229,7 +231,7 @@ public class GroupCommitPlanner {
                     exprList.add(resultExpr);
                 }
             }
-            InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList);
+            InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList, FormatOptions.getDefault());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
                         .collect(Collectors.joining(",")));
