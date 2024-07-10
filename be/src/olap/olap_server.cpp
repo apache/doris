@@ -44,7 +44,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/Types_constants.h"

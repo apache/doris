@@ -22,7 +22,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/cloud.pb.h"
 #include "olap/compaction.h"
 #include "olap/task/engine_checksum_task.h"

@@ -621,6 +621,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
 
+    public static final String MAX_FETCH_REMOTE_TABLET_COUNT = "max_fetch_remote_schema_tablet_count";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -1037,7 +1039,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
-    public boolean enableFoldConstantByBe = true;
+    public boolean enableFoldConstantByBe = false;
     @VariableMgr.VarAttr(name = DEBUG_SKIP_FOLD_CONSTANT)
     public boolean debugSkipFoldConstant = false;
 
@@ -1268,6 +1270,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
     private int rewriteOrToInPredicateThreshold = 2;
+
+    @VariableMgr.VarAttr(name = "push_topn_to_agg", fuzzy = false, needForward = true)
+    public boolean pushTopnToAgg = true;
 
     @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR, needForward = true)
     private double nereidsCboPenaltyFactor = 0.7;
@@ -1930,6 +1935,9 @@ public class SessionVariable implements Serializable, Writable {
     // fetch remote schema rpc timeout
     @VariableMgr.VarAttr(name = FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS, fuzzy = true)
     public long fetchRemoteSchemaTimeoutSeconds = 120;
+    // max tablet count for fetch remote schema
+    @VariableMgr.VarAttr(name = MAX_FETCH_REMOTE_TABLET_COUNT, fuzzy = true)
+    public int maxFetchRemoteTabletCount = 512;
 
     @VariableMgr.VarAttr(
             name = ENABLE_JOIN_SPILL,
