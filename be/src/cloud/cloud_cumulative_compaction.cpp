@@ -246,6 +246,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                  _tablet->tablet_id(), _input_rowsets.front()->start_version(),
                  _input_rowsets.back()->end_version())
                 .tag("job_id", _uuid)
+                .tag("initiator", initiator)
                 .tag("input_rowsets", _input_rowsets.size())
                 .tag("input_rows", _input_row_num)
                 .tag("input_segments", _input_segments)
