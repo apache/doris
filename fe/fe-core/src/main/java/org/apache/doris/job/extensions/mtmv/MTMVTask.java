@@ -223,7 +223,7 @@ public class MTMVTask extends AbstractTask {
     private void exec(ConnectContext ctx, Set<String> refreshPartitionNames,
             Map<TableIf, String> tableWithPartKey)
             throws Exception {
-        Objects.requireNonNull(ctx);
+        Objects.requireNonNull(ctx, "ctx should not be null");
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);
         TUniqueId queryId = generateQueryId();
