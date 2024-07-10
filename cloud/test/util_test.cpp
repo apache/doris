@@ -76,7 +76,7 @@ TEST(StringUtilTest, test_string_strip) {
         {"/a///"         , "a///"  , "/"    },
         {"/a/b/c/"       , "a/b/c/", "/"    },
         {"a/b/c/"        , "a/b/c/", "/"    },
-        {"a/b/c"         , ""      , "/ \t" },
+        {"a/b/c"         , "a/b/c" , "/ \t" },
         {"\t/bbc///"     , "bbc"   , "/ \t" },
         {"\t////"        , "\t////", "abc"  },
         {"abc"           , ""      , "abc"  },
