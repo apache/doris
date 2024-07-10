@@ -1,3 +1,5 @@
+import java.util.stream.Collectors
+
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -33,6 +35,12 @@ suite("query51") {
     sql 'set runtime_filter_type=8'
     sql 'set dump_nereids_memo=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
+    def variables = sql "show variables"
+    def variableString = variables.stream()
+            .map { it.toString() }
+            .collect(Collectors.joining("\n"))
+    logger.info("Variables:\n${variableString}")
 
     def ds = """WITH web_v1 as (
 select
