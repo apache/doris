@@ -54,8 +54,8 @@ void SegmentCache::insert(const SegmentCache::CacheKey& key, SegmentCache::Cache
         meta_mem_usage += segment->meta_mem_usage();
     }
 
-    auto lru_handle = _cache->insert(key.encode(), &value, sizeof(SegmentCache::CacheValue),
-                                     deleter, CachePriority::NORMAL, meta_mem_usage);
+    auto lru_handle = _cache->insert(key.encode(), &value, meta_mem_usage, deleter,
+                                     CachePriority::NORMAL, meta_mem_usage);
     handle->init(_cache.get(), lru_handle);
 }
 
