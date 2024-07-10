@@ -140,7 +140,7 @@ private:
                                    RowsForTablet& rows_for_tablet);
 
     Status _write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
-                           const Rows& rows, const Streams& streams);
+                           const Rows& rows);
 
     Status _select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                            Streams& streams);
