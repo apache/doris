@@ -92,6 +92,10 @@ public:
                                          int64_t initiator);
 
 private:
+    bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
+                                            std::ranges::range auto&& rs_metas,
+                                            DeleteBitmap* delete_bitmap);
+
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap);

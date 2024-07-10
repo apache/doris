@@ -106,6 +106,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.NereidsSqlCacheManager;
@@ -189,6 +190,7 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
@@ -306,8 +308,7 @@ public class StmtExecutor {
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
         this.profile = new Profile("Query", this.context.getSessionVariable().enableProfile,
-                this.context.getSessionVariable().profileLevel,
-                this.context.getSessionVariable().getEnablePipelineXEngine());
+                this.context.getSessionVariable().profileLevel);
     }
 
     // for test
@@ -338,10 +339,11 @@ public class StmtExecutor {
         }
         this.context.setStatementContext(statementContext);
         this.profile = new Profile("Query", context.getSessionVariable().enableProfile(),
-                context.getSessionVariable().profileLevel, context.getSessionVariable().getEnablePipelineXEngine());
+                context.getSessionVariable().profileLevel);
     }
 
-    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
+    public static InternalService.PDataRow getRowStringValue(List<Expr> cols,
+            FormatOptions options) throws UserException {
         if (cols.isEmpty()) {
             return null;
         }
@@ -354,9 +356,9 @@ public class StmtExecutor {
             if (expr instanceof NullLiteral) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
-                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForStreamLoad()));
+                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForStreamLoad(options)));
             } else {
-                String stringValue = expr.getStringValueForStreamLoad();
+                String stringValue = expr.getStringValueForStreamLoad(options);
                 if (stringValue.equals(NULL_VALUE_FOR_LOAD) || stringValue.startsWith("\"") || stringValue.endsWith(
                         "\"")) {
                     row.addColBuilder().setValue(String.format("\"%s\"", stringValue));
@@ -399,7 +401,6 @@ public class StmtExecutor {
         builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
         builder.isNereids(context.getState().isNereids ? "Yes" : "No");
-        builder.isPipeline(context.getSessionVariable().getEnablePipelineEngine() ? "Yes" : "No");
         return builder.build();
     }
 
@@ -528,6 +529,9 @@ public class StmtExecutor {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         TUniqueId firstQueryId = queryId;
+        if (Config.enable_print_request_before_execution) {
+            LOG.info("begin to execute query {} {}", queryId, originStmt == null ? "null" : originStmt.originStmt);
+        }
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
         for (int i = 1; i <= retryTime; i++) {
@@ -847,13 +851,13 @@ public class StmtExecutor {
                 // cloud mode retry
                 LOG.debug("due to exception {} retry {} rpc {} user {}",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
-                String msg = e.getMessage();
-                boolean isNeedRetry = true;
+                boolean isNeedRetry = false;
                 if (Config.isCloudMode()) {
                     isNeedRetry = false;
                     // errCode = 2, detailMessage = There is no scanNode Backend available.[10003: not alive]
                     List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
                                 .map(id -> Long.toString(id)).collect(Collectors.toList());
+                    String msg = e.getMessage();
                     if (e instanceof UserException
                             && msg.contains(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG)) {
                         Matcher matcher = beIpPattern.matcher(msg);
@@ -878,6 +882,8 @@ public class StmtExecutor {
                             }
                         }
                     }
+                } else {
+                    isNeedRetry = e instanceof RpcException;
                 }
                 if (i != retryTime - 1 && isNeedRetry
                         && context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
@@ -1731,7 +1737,7 @@ public class StmtExecutor {
                 String originStmt = parsedStmt.getOrigStmt().originStmt;
                 NereidsSqlCacheManager sqlCacheManager = context.getEnv().getSqlCacheManager();
                 if (cacheResult != null) {
-                    sqlCacheManager.tryAddCache(context, originStmt, cacheAnalyzer, false);
+                    sqlCacheManager.tryAddBeCache(context, originStmt, cacheAnalyzer);
                 }
             }
         }
@@ -1872,9 +1878,17 @@ public class StmtExecutor {
             // this branch is for legacy planner, to be removed
             coordBase = new PointQueryExec(planner, analyzer,
                     context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+        } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
+            coord = new NereidsCoordinator(context, analyzer,
+                    planner, context.getStatsErrorEstimator(),
+                    (NereidsPlanner) planner);
+            profile.addExecutionProfile(coord.getExecutionProfile());
+            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                    new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+            coordBase = coord;
         } else {
-            coord =  EnvFactory.getInstance().createCoordinator(context, analyzer,
-                planner, context.getStatsErrorEstimator());
+            coord = EnvFactory.getInstance().createCoordinator(
+                    context, analyzer, planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
@@ -1950,11 +1964,7 @@ public class StmtExecutor {
                 Cache cache = cacheAnalyzer.getCache();
                 if (cache instanceof SqlCache && !cache.isDisableCache() && planner instanceof NereidsPlanner) {
                     String originStmt = parsedStmt.getOrigStmt().originStmt;
-                    LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
-                    boolean currentMissParseSqlFromSqlCache = !(logicalPlanAdapter.getLogicalPlan()
-                            instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache);
-                    context.getEnv().getSqlCacheManager().tryAddCache(
-                            context, originStmt, cacheAnalyzer, currentMissParseSqlFromSqlCache);
+                    context.getEnv().getSqlCacheManager().tryAddBeCache(context, originStmt, cacheAnalyzer);
                 }
             }
             if (!isSendFields) {
@@ -2072,9 +2082,8 @@ public class StmtExecutor {
                 context.setTxnEntry(new TransactionEntry());
             }
             context.getTxnEntry()
-                    .setTxnConf(new TTxnParams().setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
-                            .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("")
-                            .setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0
+                    .setTxnConf(new TTxnParams().setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("")
+                            .setTbl("").setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0
                                     : context.getSessionVariable().getInsertMaxFilterRatio()));
             StringBuilder sb = new StringBuilder();
             sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
@@ -2161,9 +2170,10 @@ public class StmtExecutor {
                     throw new TException("Column count doesn't match value count");
                 }
             }
+            FormatOptions options = FormatOptions.getDefault();
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
                 ++effectRows;
-                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
+                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row, options);
                 if (data == null) {
                     continue;
                 }
@@ -2197,9 +2207,10 @@ public class StmtExecutor {
         String label = txnEntry.getLabel();
         if (Env.getCurrentEnv().isMaster()) {
             long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    txnConf.getDbId(), Lists.newArrayList(tblObj.getId()),
-                    label, new TransactionState.TxnCoordinator(
-                            TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    txnConf.getDbId(), Lists.newArrayList(tblObj.getId()), label,
+                    new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                            FrontendOptions.getLocalHostAddress(),
+                            ExecuteEnv.getInstance().getStartupTime()),
                     sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
             String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
@@ -2861,6 +2872,15 @@ public class StmtExecutor {
         sendResultSet(resultSet);
     }
 
+    public void handleShowCreateMTMVStmt(List<List<String>> result) throws IOException {
+        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("Materialized View", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Create Materialized View", ScalarType.createVarchar(30)))
+                .build();
+        ResultSet resultSet = new ShowResultSet(metaData, result);
+        sendResultSet(resultSet);
+    }
+
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {
         ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
                 .addColumn(new Column("Rule", ScalarType.createVarchar(-1)))
@@ -3185,7 +3205,7 @@ public class StmtExecutor {
             Map<String, String> properties = new HashMap<>();
             properties.put("use_temp_partition_name", "false");
             ops.add(new ReplacePartitionClause(new PartitionNames(false, partitionNames),
-                    new PartitionNames(true, tempPartitionName), properties));
+                    new PartitionNames(true, tempPartitionName), true, properties));
             parsedStmt = new AlterTableStmt(targetTableName, ops);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
@@ -3339,9 +3359,14 @@ public class StmtExecutor {
             try {
                 while (true) {
                     batch = coord.getNext();
-                    if (batch == null || batch.isEos()) {
+                    Preconditions.checkNotNull(batch, "Batch is Null.");
+                    if (batch.isEos()) {
                         return resultRows;
                     } else {
+                        // For null and not EOS batch, continue to get the next batch.
+                        if (batch.getBatch() == null) {
+                            continue;
+                        }
                         resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
                     }
                 }

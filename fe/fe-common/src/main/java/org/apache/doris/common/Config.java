@@ -162,6 +162,10 @@ public class Config extends ConfigBase {
             "MySQL Jdbc Catalog mysql does not support pushdown functions"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
+    @ConfField(description = {"强制 SQLServer Jdbc Catalog 加密为 false",
+            "Force SQLServer Jdbc Catalog encrypt to false"})
+    public static boolean force_sqlserver_jdbc_encrypt_false = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 8;
@@ -1186,6 +1190,12 @@ public class Config extends ConfigBase {
     public static int max_routine_load_task_num_per_be = 1024;
 
     /**
+     * the max timeout of get kafka meta.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_get_kafka_meta_timeout_second = 60;
+
+    /**
      * The max number of files store in SmallFileMgr
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1377,12 +1387,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean recover_with_empty_tablet = false;
-
-    /**
-     * Whether to add a delete sign column when create unique table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_batch_delete_by_default = true;
 
     /**
      * Whether to add a version column when create unique table
@@ -1669,9 +1673,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
 
-    @ConfField(mutable = true)
-    public static boolean enable_pipeline_load = true;
-
     /*---------------------- JOB CONFIG START------------------------*/
     /**
      * The number of threads used to dispatch timer job.
@@ -1947,16 +1948,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static long max_hive_partition_cache_num = 100000;
 
-    @ConfField(mutable = false, masterOnly = false, description = {"Hive表到分区名列表缓存的最大数量。",
-        "Max cache number of hive table to partition names list."})
+    @ConfField(mutable = false, masterOnly = false, description = {"Hive表名缓存的最大数量。",
+            "Max cache number of hive table name list."})
     public static long max_hive_table_cache_num = 1000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "Hive分区表缓存的最大数量", "Max cache number of hive partition table"
+    })
+    public static long max_hive_partition_table_cache_num = 1000;
+
     @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
-        "Max number of hive partition values to return while list partitions, -1 means no limitation."})
+            "Max number of hive partition values to return while list partitions, -1 means no limitation."})
     public static short max_hive_list_partition_num = -1;
 
     @ConfField(mutable = false, masterOnly = false, description = {"远程文件系统缓存的最大数量",
-        "Max cache number of remote file system."})
+            "Max cache number of remote file system."})
     public static long max_remote_file_system_cache_num = 100;
 
     @ConfField(mutable = false, masterOnly = false, description = {"外表行数缓存最大数量",
@@ -2274,7 +2280,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false, description = {
         "Hive行数估算分区采样数",
         "Sample size for hive row count estimation."})
-    public static int hive_stats_partition_sample_size = 3000;
+    public static int hive_stats_partition_sample_size = 30;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "启用Hive分桶表",
@@ -2622,6 +2628,15 @@ public class Config extends ConfigBase {
     })
     public static String inverted_index_storage_format = "V2";
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
+                    + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
+            "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
+                    + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
+                    + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."
+    })
+    public static boolean enable_mow_light_delete = false;
+
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
             "Whether to enable proxy protocol"
@@ -2651,6 +2666,11 @@ public class Config extends ConfigBase {
             "如果 checkpoint 连续多次因内存不足而无法进行时，先尝试手动触发 GC",
             "The threshold to do manual GC when doing checkpoint but not enough memory"})
     public static int checkpoint_manual_gc_threshold = 0;
+
+    @ConfField(mutable = true, description = {
+            "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
+            "Should the request content be logged before each request starts, specifically the query statements"})
+    public static boolean enable_print_request_before_execution = false;
 
     //==========================================================================
     //                    begin of cloud config

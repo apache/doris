@@ -64,10 +64,10 @@ public:
     int64_t _query_start_time;
 };
 
-class RuntimeQueryStatiticsMgr {
+class RuntimeQueryStatisticsMgr {
 public:
-    RuntimeQueryStatiticsMgr() = default;
-    ~RuntimeQueryStatiticsMgr() = default;
+    RuntimeQueryStatisticsMgr() = default;
+    ~RuntimeQueryStatisticsMgr() = default;
 
     static TReportExecStatusParams create_report_exec_status_params(
             const TUniqueId& q_id,

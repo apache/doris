@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -119,6 +120,9 @@ public class FloatLiteral extends NumericLiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
         if (expr instanceof NullLiteral) {
             return 1;
         }
@@ -148,7 +152,7 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe() {
+    public String getStringValueInFe(FormatOptions options) {
         if (type == Type.TIME || type == Type.TIMEV2) {
             // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
             // for example '11:22:33' -> 11:22:33
@@ -160,13 +164,13 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
+    public String getStringValueForArray(FormatOptions options) {
         String ret = getStringValue();
         if (type == Type.TIME || type == Type.TIMEV2) {
             // here already wrapped in ''
             ret = ret.substring(1, ret.length() - 1);
         }
-        return "\"" + ret + "\"";
+        return options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
     }
 
     public static Type getDefaultTimeType(Type type) throws AnalysisException {
@@ -267,7 +271,7 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public void setupParamFromBinary(ByteBuffer data) {
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
         if (type.getPrimitiveType() == PrimitiveType.FLOAT) {
             value = data.getFloat();
             return;

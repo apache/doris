@@ -26,6 +26,7 @@
 #include <memory>
 #include <ostream>
 #include <roaring/roaring.hh>
+#include <string>
 #include <vector>
 
 #include "io/fs/local_file_system.h"
@@ -88,7 +89,7 @@ public:
         _parser_type = get_inverted_index_parser_type_from_string(
                 get_parser_string_from_properties(_index_meta->properties()));
         _value_key_coder = get_key_coder(field_type);
-        _field_name = std::wstring(field_name.begin(), field_name.end());
+        _field_name = StringUtil::string_to_wstring(field_name);
     }
 
     ~InvertedIndexColumnWriterImpl() override {
@@ -538,8 +539,6 @@ public:
         return 0;
     }
 
-    int64_t file_size() const override { return _dir->getCompoundFileSize(); }
-
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out) {
         // write null_bitmap file
         _null_bitmap.runOptimize();
@@ -653,7 +652,19 @@ Status InvertedIndexColumnWriter::create(const Field* field,
                                          const TabletIndex* index_meta) {
     const auto* typeinfo = field->type_info();
     FieldType type = typeinfo->type();
-    std::string field_name = field->name();
+    std::string field_name;
+    auto storage_format = index_file_writer->get_storage_format();
+    if (storage_format == InvertedIndexStorageFormatPB::V1) {
+        field_name = field->name();
+    } else {
+        if (field->is_extracted_column()) {
+            // variant sub col
+            // field_name format: parent_unique_id.sub_col_name
+            field_name = std::to_string(field->parent_unique_id()) + "." + field->name();
+        } else {
+            field_name = std::to_string(field->unique_id());
+        }
+    }
     bool single_field = true;
     if (type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         const auto* array_typeinfo = dynamic_cast<const ArrayTypeInfo*>(typeinfo);

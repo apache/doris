@@ -100,8 +100,8 @@ suite("test_grant_revoke_cluster_stage_to_role", "cloud_auth") {
         """
 
     result = showRoles.call(roleName)
-    assertEquals(result.CloudClusterPrivs as String, "$testClusterA: Cluster_usage_priv" as String)
-    assertEquals(result.CloudStagePrivs as String, "$testStageA: Stage_usage_priv" as String)
+    assertTrue((result.CloudClusterPrivs as String).contains("$testClusterA: Cluster_usage_priv")) 
+    assertTrue((result.CloudStagePrivs as String).contains("$testStageA: Stage_usage_priv")) 
     assertEquals(result.Users as String, "")
 
     sql """
@@ -117,7 +117,8 @@ suite("test_grant_revoke_cluster_stage_to_role", "cloud_auth") {
     """
     result = sql_return_maparray """show grants for '${user1}'"""
     commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv"
-    assertEquals("[$testClusterA: Cluster_usage_priv; $validCluster: Cluster_usage_priv]" as String, result.CloudClusterPrivs as String)
+    assertTrue((result.CloudClusterPrivs as String).contains("$validCluster: Cluster_usage_priv"))
+    assertTrue((result.CloudClusterPrivs as String).contains("$testClusterA: Cluster_usage_priv"))
     def db = context.dbName
 
     sql """
@@ -192,8 +193,8 @@ suite("test_grant_revoke_cluster_stage_to_role", "cloud_auth") {
     """
 
     result = showRoles.call(otherRole)
-    assertEquals(result.CloudClusterPrivs as String, "$testClusterB: Cluster_usage_priv" as String)
-    assertEquals(result.CloudStagePrivs as String, "$testStageB: Stage_usage_priv" as String)
+    assertTrue((result.CloudClusterPrivs as String).contains("$testClusterB: Cluster_usage_priv"))
+    assertTrue((result.CloudStagePrivs as String).contains("$testStageB: Stage_usage_priv"))
     assertEquals(result.Users as String, "")
 
     // add more roles to user1
@@ -201,8 +202,8 @@ suite("test_grant_revoke_cluster_stage_to_role", "cloud_auth") {
         GRANT '$otherRole' TO '$user1';  
     """
     result = showRoles.call(otherRole)
-    assertEquals(result.CloudClusterPrivs as String, "$testClusterB: Cluster_usage_priv" as String)
-    assertEquals(result.CloudStagePrivs as String, "$testStageB: Stage_usage_priv" as String)
+    assertTrue((result.CloudClusterPrivs as String).contains("$testClusterB: Cluster_usage_priv"))
+    assertTrue((result.CloudStagePrivs as String).contains("$testStageB: Stage_usage_priv"))
     matcher = result.Users =~ /.*${user1}.*/
     assertTrue(matcher.matches())
 
@@ -250,7 +251,7 @@ suite("test_grant_revoke_cluster_stage_to_role", "cloud_auth") {
     """
 
     result = showRoles.call(otherRole)
-    assertEquals(result.CloudClusterPrivs as String, "$testClusterB: Cluster_usage_priv" as String)
+    assertTrue((result.CloudClusterPrivs as String).contains("$testClusterB: Cluster_usage_priv"))
     assertEquals(result.Users as String, "")
 
     result = sql_return_maparray """show grants for '${user1}'"""

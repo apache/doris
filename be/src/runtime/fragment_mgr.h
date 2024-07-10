@@ -116,9 +116,6 @@ public:
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
 
-    Status apply_filter(const PPublishFilterRequest* request,
-                        butil::IOBufAsZeroCopyInputStream* attach_data);
-
     Status apply_filterv2(const PPublishFilterRequestV2* request,
                           butil::IOBufAsZeroCopyInputStream* attach_data);
 

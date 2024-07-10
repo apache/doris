@@ -51,6 +51,7 @@ import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
+import org.apache.doris.analysis.ShowCreateMTMVStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
 import org.apache.doris.analysis.ShowCreateRepositoryStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
@@ -132,6 +133,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -324,6 +326,8 @@ public class ShowExecutor {
             handleDescribe();
         } else if (stmt instanceof ShowCreateTableStmt) {
             handleShowCreateTable();
+        } else if (stmt instanceof ShowCreateMTMVStmt) {
+            handleShowCreateMTMV();
         } else if (stmt instanceof ShowCreateDbStmt) {
             handleShowCreateDb();
         } else if (stmt instanceof ShowProcesslistStmt) {
@@ -966,13 +970,13 @@ public class ShowExecutor {
             }
             if (showTableStmt.isVerbose()) {
                 String storageFormat = "NONE";
-                String invertedIndexStorageFormat = "NONE";
+                String invertedIndexFileStorageFormat = "NONE";
                 if (tbl instanceof OlapTable) {
                     storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
-                    invertedIndexStorageFormat = ((OlapTable) tbl).getInvertedIndexStorageFormat().toString();
+                    invertedIndexFileStorageFormat = ((OlapTable) tbl).getInvertedIndexFileStorageFormat().toString();
                 }
                 rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
-                        invertedIndexStorageFormat));
+                        invertedIndexFileStorageFormat));
             } else {
                 rows.add(Lists.newArrayList(tbl.getName()));
             }
@@ -1149,6 +1153,23 @@ public class ShowExecutor {
             }
         } finally {
             table.readUnlock();
+        }
+    }
+
+    private void handleShowCreateMTMV() throws AnalysisException {
+        ShowCreateMTMVStmt showStmt = (ShowCreateMTMVStmt) stmt;
+        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(showStmt.getCtl())
+                .getDbOrAnalysisException(showStmt.getDb());
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException(showStmt.getTable());
+        List<List<String>> rows = Lists.newArrayList();
+
+        mtmv.readLock();
+        try {
+            String mtmvDdl = Env.getMTMVDdl(mtmv);
+            rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
+            resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+        } finally {
+            mtmv.readUnlock();
         }
     }
 
@@ -2893,7 +2914,7 @@ public class ShowExecutor {
 
     private void handleShowAnalyze() {
         ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().showAnalysisJob(showStmt);
+        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().findAnalysisJobs(showStmt);
         List<List<String>> resultRows = Lists.newArrayList();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (AnalysisInfo analysisInfo : results) {
@@ -2930,6 +2951,7 @@ public class ShowExecutor {
                 row.add(startTime.format(formatter));
                 row.add(endTime.format(formatter));
                 row.add(analysisInfo.priority.name());
+                row.add(String.valueOf(analysisInfo.enablePartition));
                 resultRows.add(row);
             } catch (Exception e) {
                 LOG.warn("Failed to get analyze info for table {}.{}.{}, reason: {}",

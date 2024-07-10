@@ -857,7 +857,4 @@ suite("nested_mtmv") {
     }
     compare_res(sql_5 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
 
-
-
-
 }

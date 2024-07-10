@@ -483,7 +483,10 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 continue;
             }
             if (size == 0) {
-                // Read empty row, just continue
+                if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
+                    ++rows;
+                }
+                // Read empty line, continue
                 continue;
             }
 
@@ -516,7 +519,10 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 continue;
             }
             if (size == 0) {
-                // Read empty row, just continue
+                if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
+                    RETURN_IF_ERROR(_fill_empty_line(block, columns, &rows));
+                }
+                // Read empty line, continue
                 continue;
             }
 
@@ -656,6 +662,21 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     }
     ++(*rows);
 
+    return Status::OK();
+}
+
+Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns,
+                                   size_t* rows) {
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        IColumn* col_ptr = columns[i];
+        if (!_is_load) {
+            col_ptr = const_cast<IColumn*>(
+                    block->get_by_position(_file_slot_idx_map[i]).column.get());
+        }
+        auto& null_column = assert_cast<ColumnNullable&>(*col_ptr);
+        null_column.insert_data(nullptr, 0);
+    }
+    ++(*rows);
     return Status::OK();
 }
 

@@ -332,6 +332,11 @@ public class MTMVPartitionUtil {
         if (!relatedTable.needAutoRefresh()) {
             return true;
         }
+        // check if partitions of related table if changed
+        Set<String> snapshotPartitions = mtmv.getRefreshSnapshot().getSnapshotPartitions(mtmvPartitionName);
+        if (!Objects.equals(relatedPartitionNames, snapshotPartitions)) {
+            return false;
+        }
         for (String relatedPartitionName : relatedPartitionNames) {
             MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable
                     .getPartitionSnapshot(relatedPartitionName);

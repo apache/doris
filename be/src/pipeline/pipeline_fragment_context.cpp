@@ -105,6 +105,8 @@
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
+#include "vec/common/sort/heap_sorter.h"
+#include "vec/common/sort/topn_sorter.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
@@ -190,9 +192,6 @@ void PipelineFragmentContext::cancel(const Status reason) {
         stream_load_ctx->pipe->cancel(reason.to_string());
     }
 
-    // Cancel the result queue manager used by spark doris connector
-    // TODO pipeline incomp
-    // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
             task->clear_blocking_state();
@@ -458,6 +457,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
                                                            task_runtime_state.get(), this,
                                                            pipeline_id_to_profile[pip_idx].get(),
                                                            get_local_exchange_state(pipeline), i);
+                task_runtime_state->set_task(task.get());
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
                 _tasks[i].emplace_back(std::move(task));
             }
@@ -584,7 +584,6 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
             _runtime_state->runtime_profile()->compute_time_in_profile();
             _runtime_state->runtime_profile()->pretty_print(&ss);
             if (_runtime_state->load_channel_profile()) {
-                // _runtime_state->load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
                 _runtime_state->load_channel_profile()->pretty_print(&ss);
             }
 
@@ -601,7 +600,6 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
     }
 }
 
-// TODO: use virtual function to do abstruct
 Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool,
                                                  const doris::TPipelineFragmentParams& request,
                                                  const DescriptorTbl& descs, OperatorXPtr* root,
@@ -616,7 +614,6 @@ Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool,
                                         &node_idx, root, cur_pipe, 0));
 
     if (node_idx + 1 != request.fragment.plan.nodes.size()) {
-        // TODO: print thrift msg for diagnostic purposes.
         return Status::InternalError(
                 "Plan tree only partially reconstructed. Not all thrift nodes were used.");
     }
@@ -631,7 +628,6 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
                                                     PipelinePtr& cur_pipe, int child_idx) {
     // propagate error case
     if (*node_idx >= tnodes.size()) {
-        // TODO: print thrift msg
         return Status::InternalError(
                 "Failed to reconstruct plan tree from thrift. Node id: {}, number of nodes: {}",
                 *node_idx, tnodes.size());
@@ -660,7 +656,6 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
         // we are expecting a child, but have used all nodes
         // this means we have been given a bad tree and must fail
         if (*node_idx >= tnodes.size()) {
-            // TODO: print thrift msg
             return Status::InternalError(
                     "Failed to reconstruct plan tree from thrift. Node id: {}, number of nodes: {}",
                     *node_idx, tnodes.size());
@@ -960,7 +955,6 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             return Status::InternalError("Missing data buffer sink.");
         }
 
-        // TODO: figure out good buffer size based on size of output row
         _sink.reset(new ResultSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs,
                                             thrift_sink.result_sink));
         break;
@@ -968,7 +962,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node &&
-            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink) &&
+            !_has_inverted_index_v1_or_partial_update(thrift_sink.olap_table_sink) &&
             !config::is_cloud_mode()) {
             _sink.reset(new OlapTableSinkV2OperatorX(pool, next_sink_operator_id(), row_desc,
                                                      output_exprs));
@@ -1028,7 +1022,6 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             return Status::InternalError("Missing result file sink.");
         }
 
-        // TODO: figure out good buffer size based on size of output row
         // Result file sink is not the top sink
         if (params.__isset.destinations && !params.destinations.empty()) {
             _sink.reset(new ResultFileSinkOperatorX(next_sink_operator_id(), row_desc,
@@ -1043,7 +1036,6 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {
         DCHECK(thrift_sink.__isset.multi_cast_stream_sink);
         DCHECK_GT(thrift_sink.multi_cast_stream_sink.sinks.size(), 0);
-        // TODO: figure out good buffer size based on size of output row
         auto sink_id = next_sink_operator_id();
         auto sender_size = thrift_sink.multi_cast_stream_sink.sinks.size();
         // one sink has multiple sources.
@@ -1189,7 +1181,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         if (tnode.agg_node.aggregate_functions.empty() && !_runtime_state->enable_agg_spill() &&
             request.query_options.__isset.enable_distinct_streaming_aggregation &&
             request.query_options.enable_distinct_streaming_aggregation &&
-            !tnode.agg_node.grouping_exprs.empty()) {
+            !tnode.agg_node.grouping_exprs.empty() &&
+            !tnode.agg_node.__isset.agg_sort_info_by_group_key) {
             op.reset(new DistinctStreamingAggOperatorX(pool, next_operator_id(), tnode, descs,
                                                        _require_bucket_distribution));
             _require_bucket_distribution =
@@ -1341,7 +1334,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::SORT_NODE: {
-        if (_runtime_state->enable_sort_spill()) {
+        const auto should_spill = _runtime_state->enable_sort_spill() &&
+                                  tnode.sort_node.algorithm == TSortAlgorithm::FULL_SORT;
+        if (should_spill) {
             op.reset(new SpillSortSourceOperatorX(pool, tnode, next_operator_id(), descs));
         } else {
             op.reset(new SortSourceOperatorX(pool, tnode, next_operator_id(), descs));
@@ -1356,7 +1351,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        if (_runtime_state->enable_sort_spill()) {
+        if (should_spill) {
             sink.reset(new SpillSortSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
                                                   _require_bucket_distribution));
         } else {
@@ -1442,6 +1437,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::DATA_GEN_SCAN_NODE: {
         op.reset(new DataGenSourceOperatorX(pool, tnode, next_operator_id(), descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
+            op->set_ignore_data_distribution();
+        }
         break;
     }
     case TPlanNodeType::SCHEMA_SCAN_NODE: {
@@ -1613,8 +1612,7 @@ Status PipelineFragmentContext::send_report(bool done) {
         runtime_states.push_back(task_state.get());
     }
 
-    ReportStatusRequest req {true,
-                             exec_status,
+    ReportStatusRequest req {exec_status,
                              runtime_states,
                              _runtime_profile.get(),
                              _runtime_state->load_channel_profile(),

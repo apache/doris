@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -39,7 +40,8 @@ public abstract class AggFunctionRollUpHandler {
      */
     public boolean canRollup(AggregateFunction queryAggregateFunction,
             Expression queryAggregateFunctionShuttled,
-            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair) {
+            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair,
+            Map<Expression, Expression> mvExprToMvScanExprQueryBasedMap) {
         Expression viewExpression = mvExprToMvScanExprQueryBasedPair.key();
         if (!(viewExpression instanceof RollUpTrait) || !((RollUpTrait) viewExpression).canRollUp()) {
             return false;
@@ -54,7 +56,8 @@ public abstract class AggFunctionRollUpHandler {
     public abstract Function doRollup(
             AggregateFunction queryAggregateFunction,
             Expression queryAggregateFunctionShuttled,
-            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair);
+            Pair<Expression, Expression> mvExprToMvScanExprQueryBasedPair,
+            Map<Expression, Expression> mvExprToMvScanExprQueryBasedMap);
 
     /**
      * Extract the function arguments by functionWithAny pattern

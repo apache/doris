@@ -154,10 +154,11 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     DeleteBitmapPtr delete_bitmap;
     RowsetIdUnorderedSet rowset_ids;
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
+    std::shared_ptr<PublishStatus> publish_status;
     int64_t txn_expiration;
     Status status = _engine.txn_delete_bitmap_cache().get_tablet_txn_info(
             _transaction_id, _tablet_id, &rowset, &delete_bitmap, &rowset_ids, &txn_expiration,
-            &partial_update_info);
+            &partial_update_info, &publish_status);
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id
                      << ", txn_id=" << _transaction_id << ", status=" << status;
@@ -172,8 +173,16 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     txn_info.delete_bitmap = delete_bitmap;
     txn_info.rowset_ids = rowset_ids;
     txn_info.partial_update_info = partial_update_info;
-    status = CloudTablet::update_delete_bitmap(tablet, &txn_info, _transaction_id, txn_expiration);
-    auto update_delete_bitmap_time_us = MonotonicMicros() - t3;
+    txn_info.publish_status = publish_status;
+    auto update_delete_bitmap_time_us = 0;
+    if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED)) {
+        LOG(INFO) << "tablet=" << _tablet_id << ",txn=" << _transaction_id
+                  << ",publish_status=SUCCEED,not need to recalculate and update delete_bitmap.";
+    } else {
+        status = CloudTablet::update_delete_bitmap(tablet, &txn_info, _transaction_id,
+                                                   txn_expiration);
+        update_delete_bitmap_time_us = MonotonicMicros() - t3;
+    }
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to calculate delete bitmap. rowset_id=" << rowset->rowset_id()
                      << ", tablet_id=" << _tablet_id << ", txn_id=" << _transaction_id

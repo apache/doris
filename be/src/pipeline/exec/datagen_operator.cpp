@@ -67,6 +67,7 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
     }
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     Status res = local_state._table_func->get_next(state, block, eos);
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                            block->columns()));
@@ -75,6 +76,8 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
 }
 
 Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     auto& p = _parent->cast<DataGenSourceOperatorX>();
     _table_func = std::make_shared<VNumbersTVF>(p._tuple_id, p._tuple_desc);
@@ -84,14 +87,16 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // TODO: use runtime filter to filte result block, maybe this node need derive from vscan_node.
     for (const auto& filter_desc : p._runtime_filter_descs) {
         IRuntimeFilter* runtime_filter = nullptr;
-        RETURN_IF_ERROR(state->register_consumer_runtime_filter(filter_desc, false, p.node_id(),
-                                                                &runtime_filter));
+        RETURN_IF_ERROR(state->register_consumer_runtime_filter(
+                filter_desc, p.ignore_data_distribution(), p.node_id(), &runtime_filter));
         runtime_filter->init_profile(_runtime_profile.get());
     }
     return Status::OK();
 }
 
 Status DataGenLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
     }

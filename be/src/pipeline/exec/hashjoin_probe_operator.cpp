@@ -160,14 +160,6 @@ bool HashJoinProbeLocalState::_need_probe_null_map(vectorized::Block& block,
     return false;
 }
 
-void HashJoinProbeLocalState::init_for_probe(RuntimeState* state) {
-    if (_probe_inited) {
-        return;
-    }
-
-    _probe_inited = true;
-}
-
 void HashJoinProbeLocalState::add_tuple_is_null_column(vectorized::Block* block) {
     DCHECK(_parent->cast<HashJoinProbeOperatorX>()._is_outer_join);
     if (!_parent->cast<HashJoinProbeOperatorX>()._use_specific_projections) {
@@ -235,7 +227,6 @@ HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode
 Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
                                     bool* eos) const {
     auto& local_state = get_local_state(state);
-    local_state.init_for_probe(state);
     SCOPED_TIMER(local_state._probe_timer);
     if (local_state._shared_state->short_circuit_for_probe) {
         // If we use a short-circuit strategy, should return empty block directly.
@@ -527,13 +518,17 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.left, ctx));
         _probe_expr_ctxs.push_back(ctx);
         bool null_aware = eq_join_conjunct.__isset.opcode &&
-                          eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+                          eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL &&
+                          (eq_join_conjunct.right.nodes[0].is_nullable ||
+                           eq_join_conjunct.left.nodes[0].is_nullable);
         probe_not_ignore_null[conjuncts_index] =
                 null_aware ||
                 (_probe_expr_ctxs.back()->root()->is_nullable() && probe_dispose_null);
         conjuncts_index++;
         const bool is_null_safe_equal = eq_join_conjunct.__isset.opcode &&
-                                        eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+                                        (eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL) &&
+                                        (eq_join_conjunct.right.nodes[0].is_nullable ||
+                                         eq_join_conjunct.left.nodes[0].is_nullable);
 
         /// If it's right anti join,
         /// we should convert the probe to nullable if the build side is nullable.

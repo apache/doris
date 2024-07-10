@@ -58,6 +58,7 @@ public class S3Properties extends BaseProperties {
     public static final String MAX_CONNECTIONS = "s3.connection.maximum";
     public static final String REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
     public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
+    public static final String S3_PROVIDER = "S3";
 
     // required by storage policy
     public static final String ROOT_PATH = "s3.root.path";
@@ -68,6 +69,8 @@ public class S3Properties extends BaseProperties {
     public static final List<String> TVF_REQUIRED_FIELDS = Arrays.asList(ACCESS_KEY, SECRET_KEY);
     public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN,
             ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
+
+    public static final List<String> PROVIDERS = Arrays.asList("COS", "OSS", "S3", "OBS", "BOS", "AZURE", "GCP");
 
     public static final List<String> AWS_CREDENTIALS_PROVIDERS = Arrays.asList(
             DataLakeAWSCredentialsProvider.class.getName(),
@@ -181,6 +184,15 @@ public class S3Properties extends BaseProperties {
         return properties;
     }
 
+    private static void checkProvider(Map<String, String> properties) throws DdlException {
+        if (properties.containsKey(PROVIDER)) {
+            properties.put(PROVIDER, properties.get(PROVIDER).toUpperCase());
+            if (!PROVIDERS.stream().anyMatch(s -> s.equals(properties.get(PROVIDER)))) {
+                throw new DdlException("Provider must be one of OSS, OBS, AZURE, BOS, COS, S3, GCP");
+            }
+        }
+    }
+
     public static void requiredS3Properties(Map<String, String> properties) throws DdlException {
         // Try to convert env properties to uniform properties
         // compatible with old version
@@ -195,6 +207,7 @@ public class S3Properties extends BaseProperties {
                 checkRequiredProperty(properties, field);
             }
         }
+        checkProvider(properties);
     }
 
     public static void requiredS3PingProperties(Map<String, String> properties) throws DdlException {

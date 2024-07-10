@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
@@ -117,7 +118,6 @@ public class GroupCommitPlanner {
                         TFileCompressType.PLAIN);
             }
         }
-        tRequest.query_options.setEnablePipelineEngine(true);
         List<TScanRangeParams> scanRangeParams = tRequest.local_params.get(0).per_node_scan_ranges.values().stream()
                 .flatMap(Collection::stream).collect(Collectors.toList());
         Preconditions.checkState(scanRangeParams.size() == 1);
@@ -184,7 +184,7 @@ public class GroupCommitPlanner {
         SelectStmt selectStmt = (SelectStmt) (stmt.getQueryStmt());
         if (selectStmt.getValueList() != null) {
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
-                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
+                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row, FormatOptions.getDefault());
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
                             .collect(Collectors.joining(",")));
@@ -200,7 +200,7 @@ public class GroupCommitPlanner {
                     exprList.add(resultExpr);
                 }
             }
-            InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList);
+            InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList, FormatOptions.getDefault());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
                         .collect(Collectors.joining(",")));

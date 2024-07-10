@@ -41,7 +41,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.Maps;
 
@@ -52,7 +51,8 @@ import java.util.Map;
  * push down topn filter
  */
 public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownContext> {
-    private TopnFilterContext topnFilterContext;
+
+    private final TopnFilterContext topnFilterContext;
 
     public TopnFilterPushDownVisitor(TopnFilterContext topnFilterContext) {
         this.topnFilterContext = topnFilterContext;
@@ -109,10 +109,13 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalSetOperation(
             PhysicalSetOperation setOperation, PushDownContext ctx) {
-        boolean pushedDown = pushDownFilterToSetOperatorChild(setOperation, ctx, 0);
+        boolean pushedDown = false;
+        if (setOperation.arity() > 0) {
+            pushedDown = pushDownFilterToSetOperatorChild(setOperation, ctx, 0);
+        }
 
         if (setOperation instanceof Union) {
-            for (int i = 1; i < setOperation.children().size(); i++) {
+            for (int i = 1; i < setOperation.arity(); i++) {
                 // push down to the other children
                 pushedDown |= pushDownFilterToSetOperatorChild(setOperation, ctx, i);
             }
@@ -215,12 +218,8 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     public Boolean visitPhysicalRelation(PhysicalRelation relation, PushDownContext ctx) {
         if (supportPhysicalRelations(relation)
                 && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
-            if (relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
-                    && ctx.probeExpr.getInputSlots().stream().noneMatch(
-                            slot -> slot.getDataType() instanceof VariantType)) {
-                topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);
-                return true;
-            }
+            topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);
+            return true;
         }
         return false;
     }

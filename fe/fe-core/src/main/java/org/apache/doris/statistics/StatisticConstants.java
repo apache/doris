@@ -88,7 +88,6 @@ public class StatisticConstants {
 
     public static final long HUGE_TABLE_DEFAULT_SAMPLE_ROWS = 4194304;
     public static final long HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = 0;
-    public static final long HUGE_PARTITION_LOWER_BOUND_ROWS = 100000000L;
 
     public static final long HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(0);
 

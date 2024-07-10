@@ -68,8 +68,6 @@ public:
                                     parent->row_descriptor(), _conjuncts) {}
     ~ScanLocalStateBase() override = default;
 
-    virtual bool ready_to_read() = 0;
-
     [[nodiscard]] virtual bool should_run_serial() const = 0;
 
     virtual RuntimeProfile* scanner_profile() = 0;
@@ -113,8 +111,6 @@ protected:
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
-    // time of prefilter input block from scanner
-    RuntimeProfile::Counter* _prefilter_timer = nullptr;
     // time of convert input block to output block from scanner
     RuntimeProfile::Counter* _convert_block_timer = nullptr;
     // time of filter output block from scanner
@@ -145,8 +141,6 @@ class ScanLocalState : public ScanLocalStateBase {
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const final;
-
-    bool ready_to_read() override;
 
     [[nodiscard]] bool should_run_serial() const override;
 
@@ -300,16 +294,23 @@ protected:
                                      vectorized::VExprSPtr&)>& eq_predicate_checker);
 
     template <PrimitiveType T>
-    Status _normalize_binary_in_compound_predicate(vectorized::VExpr* expr,
-                                                   vectorized::VExprContext* expr_ctx,
-                                                   SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                   PushDownType* pdt);
+    Status _normalize_binary_compound_predicate(vectorized::VExpr* expr,
+                                                vectorized::VExprContext* expr_ctx,
+                                                SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                                PushDownType* pdt);
 
     template <PrimitiveType T>
-    Status _normalize_match_in_compound_predicate(vectorized::VExpr* expr,
-                                                  vectorized::VExprContext* expr_ctx,
-                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                  PushDownType* pdt);
+    Status _normalize_in_and_not_in_compound_predicate(vectorized::VExpr* expr,
+                                                       vectorized::VExprContext* expr_ctx,
+                                                       SlotDescriptor* slot,
+                                                       ColumnValueRange<T>& range,
+                                                       PushDownType* pdt);
+
+    template <PrimitiveType T>
+    Status _normalize_match_compound_predicate(vectorized::VExpr* expr,
+                                               vectorized::VExprContext* expr_ctx,
+                                               SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                               PushDownType* pdt);
 
     template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,

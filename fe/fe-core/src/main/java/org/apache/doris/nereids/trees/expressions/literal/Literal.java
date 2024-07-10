@@ -22,6 +22,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.ByteBufferUtil;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
@@ -44,6 +45,7 @@ import com.google.common.collect.ImmutableList;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -448,42 +450,68 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
      * Retrieves a Literal object based on the MySQL type and the data provided.
      *
      * @param mysqlType the MySQL type identifier
+     * @param isUnsigned true if it is an unsigned type
      * @param data      the ByteBuffer containing the data
      * @return a Literal object corresponding to the MySQL type
      * @throws AnalysisException if the MySQL type is unsupported or if data conversion fails
      * @link  <a href="https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html">...</a>.
      */
-    public static Literal getLiteralByMysqlType(MysqlColType mysqlType, ByteBuffer data) throws AnalysisException {
+    public static Literal getLiteralByMysqlType(MysqlColType mysqlType, boolean isUnsigned, ByteBuffer data)
+            throws AnalysisException {
+        Literal literal = null;
+        // If this is an unsigned numeric type, we convert it by using larger data types. For example, we can use
+        // small int to represent unsigned tiny int (0-255), big int to represent unsigned ints (0-2 ^ 32-1),
+        // and so on.
         switch (mysqlType) {
             case MYSQL_TYPE_TINY:
-                return new TinyIntLiteral(data.get());
+                literal = !isUnsigned
+                    ? new TinyIntLiteral(data.get()) :
+                        new SmallIntLiteral(ByteBufferUtil.getUnsignedByte(data));
+                break;
             case MYSQL_TYPE_SHORT:
-                return new SmallIntLiteral((short) data.getChar());
+                literal = !isUnsigned
+                    ? new SmallIntLiteral((short) data.getChar()) :
+                        new IntegerLiteral(ByteBufferUtil.getUnsignedShort(data));
+                break;
             case MYSQL_TYPE_LONG:
-                return new IntegerLiteral(data.getInt());
+                literal = !isUnsigned
+                    ? new IntegerLiteral(data.getInt()) :
+                        new BigIntLiteral(ByteBufferUtil.getUnsignedInt(data));
+                break;
             case MYSQL_TYPE_LONGLONG:
-                return new BigIntLiteral(data.getLong());
+                literal = !isUnsigned
+                    ? new BigIntLiteral(data.getLong()) :
+                        new LargeIntLiteral(new BigInteger(Long.toUnsignedString(data.getLong())));
+                break;
             case MYSQL_TYPE_FLOAT:
-                return new FloatLiteral(data.getFloat());
+                literal = new FloatLiteral(data.getFloat());
+                break;
             case MYSQL_TYPE_DOUBLE:
-                return new DoubleLiteral(data.getDouble());
+                literal = new DoubleLiteral(data.getDouble());
+                break;
             case MYSQL_TYPE_DECIMAL:
             case MYSQL_TYPE_NEWDECIMAL:
-                return handleDecimalLiteral(data);
+                literal = handleDecimalLiteral(data);
+                break;
             case MYSQL_TYPE_DATE:
-                return handleDateLiteral(data);
+                literal = handleDateLiteral(data);
+                break;
             case MYSQL_TYPE_DATETIME:
             case MYSQL_TYPE_TIMESTAMP:
             case MYSQL_TYPE_TIMESTAMP2:
-                return handleDateTimeLiteral(data);
+                literal = handleDateTimeLiteral(data);
+                break;
             case MYSQL_TYPE_STRING:
             case MYSQL_TYPE_VARSTRING:
-                return handleStringLiteral(data);
+                literal = handleStringLiteral(data);
+                break;
             case MYSQL_TYPE_VARCHAR:
-                return handleVarcharLiteral(data);
+                literal = handleVarcharLiteral(data);
+                break;
             default:
                 throw new AnalysisException("Unsupported MySQL type: " + mysqlType);
         }
+        return literal;
     }
 
     private static Literal handleDecimalLiteral(ByteBuffer data) throws AnalysisException {
@@ -555,7 +583,9 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         strLen = Math.min(strLen, data.remaining());
         byte[] bytes = new byte[strLen];
         data.get(bytes);
-        return new StringLiteral(new String(bytes));
+        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
+        // different environment
+        return new StringLiteral(new String(bytes, StandardCharsets.UTF_8));
     }
 
     private static Literal handleVarcharLiteral(ByteBuffer data) {
@@ -563,6 +593,8 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         strLen = Math.min(strLen, data.remaining());
         byte[] bytes = new byte[strLen];
         data.get(bytes);
-        return new VarcharLiteral(new String(bytes));
+        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
+        // different environment
+        return new VarcharLiteral(new String(bytes, StandardCharsets.UTF_8));
     }
 }

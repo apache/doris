@@ -34,8 +34,7 @@ class POpenStreamSinkRequest;
 
 class LoadStreamMgr {
 public:
-    LoadStreamMgr(uint32_t segment_file_writer_thread_num, FifoThreadPool* heavy_work_pool,
-                  FifoThreadPool* light_work_pool);
+    LoadStreamMgr(uint32_t segment_file_writer_thread_num);
     ~LoadStreamMgr();
 
     Status open_load_stream(const POpenLoadStreamRequest* request, LoadStream*& load_stream);
@@ -47,11 +46,24 @@ public:
         }
     }
 
+    std::vector<std::string> get_all_load_stream_ids() {
+        std::vector<std::string> result;
+        std::lock_guard<std::mutex> lock(_lock);
+
+        for (auto& [id, _] : _load_streams_map) {
+            result.push_back(id.to_string());
+        }
+        return result;
+    }
+
     // only used by ut
     size_t get_load_stream_num() { return _load_streams_map.size(); }
 
     FifoThreadPool* heavy_work_pool() { return _heavy_work_pool; }
     FifoThreadPool* light_work_pool() { return _light_work_pool; }
+
+    void set_heavy_work_pool(FifoThreadPool* pool) { _heavy_work_pool = pool; }
+    void set_light_work_pool(FifoThreadPool* pool) { _light_work_pool = pool; }
 
 private:
     std::mutex _lock;

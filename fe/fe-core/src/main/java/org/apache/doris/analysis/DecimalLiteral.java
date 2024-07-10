@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.SessionVariable;
@@ -242,6 +243,9 @@ public class DecimalLiteral extends NumericLiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
         if (expr instanceof NullLiteral) {
             return 1;
         }
@@ -259,7 +263,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe() {
+    public String getStringValueInFe(FormatOptions options) {
         return value.toPlainString();
     }
 
@@ -274,8 +278,8 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
-        return "\"" + getStringValue() + "\"";
+    public String getStringValueForArray(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 
     @Override
@@ -404,7 +408,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public void setupParamFromBinary(ByteBuffer data) {
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
         int len = getParmLen(data);
         BigDecimal v = null;
         try {

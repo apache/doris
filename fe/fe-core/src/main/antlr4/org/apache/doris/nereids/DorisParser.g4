@@ -43,32 +43,55 @@ statement
     ;
 
 statementBase
-    : explain? query outFileClause?                                    #statementDefault
-    | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
-        ON table=multipartIdentifier
-        AS type=(RESTRICTIVE | PERMISSIVE)
-        TO (user=userIdentify | ROLE roleName=identifier)
-        USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
-    | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
-        ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs (COMMA indexDefs)? COMMA? RIGHT_PAREN))
-        (ENGINE EQ engine=identifier)?
-        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList (CLUSTER BY clusterKeys=identifierList)?)?
+    : explain? query outFileClause?     #statementDefault
+    | supportedDmlStatement             #supportedDmlStatementAlias
+    | supportedCreateStatement          #supportedCreateStatementAlias
+    | supportedAlterStatement           #supportedAlterStatementAlias
+    | materailizedViewStatement         #materailizedViewStatementAlias
+    | constraintStatement               #constraintStatementAlias
+    | supportedDropStatement            #supportedDropStatementAlias
+    | unsupportedStatement              #unsupported
+    ;
+
+unsupportedStatement
+    : unsupportedSetStatement
+    | unsupportedUseStatement
+    ;
+
+materailizedViewStatement
+    : CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
+        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
+        (REFRESH refreshMethod? refreshTrigger?)?
+        ((DUPLICATE)? KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
-        (partition=partitionTable)?
-        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?
-        (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
-        properties=propertyClause?
-        (BROKER extProperties=propertyClause)?
-        (AS query)?                                                    #createTable
-    | CREATE VIEW (IF NOT EXISTS)? name=multipartIdentifier
-        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
-        (COMMENT STRING_LITERAL)? AS query                                #createView
-    | ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
-        AS query                                                          #alterView
-    | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
-      LIKE existedTable=multipartIdentifier
-      (WITH ROLLUP (rollupNames=identifierList)?)?           #createTableLike
-    | explain? cte? INSERT (INTO | OVERWRITE TABLE)
+        (PARTITION BY LEFT_PAREN mvPartition RIGHT_PAREN)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
+        (BUCKETS (INTEGER_VALUE | AUTO))?)?
+        propertyClause?
+        AS query                                                                                #createMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionRange | partitionSpec | COMPLETE | AUTO)    #refreshMTMV
+    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
+        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
+        | REPLACE WITH MATERIALIZED VIEW newName=identifier propertyClause?
+        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
+    | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier                            #dropMTMV
+    | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                 #pauseMTMV
+    | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier                                #resumeMTMV
+    | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier          #cancelMTMVTask
+    | SHOW CREATE MATERIALIZED VIEW mvName=multipartIdentifier                                  #showCreateMTMV
+    ;
+
+constraintStatement
+    : ALTER TABLE table=multipartIdentifier
+        ADD CONSTRAINT constraintName=errorCapturingIdentifier
+        constraint                                                        #addConstraint
+    | ALTER TABLE table=multipartIdentifier
+        DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
+    | SHOW CONSTRAINTS FROM table=multipartIdentifier                     #showConstraint
+    ;
+
+supportedDmlStatement
+    : explain? cte? INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
@@ -96,34 +119,45 @@ statementBase
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
-    | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
-        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
-        (REFRESH refreshMethod? refreshTrigger?)?
-        ((DUPLICATE)? KEY keys=identifierList)?
-        (COMMENT STRING_LITERAL)?
-        (PARTITION BY LEFT_PAREN mvPartition RIGHT_PAREN)?
-        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
-        propertyClause?
-        AS query                                                        #createMTMV
-    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionRange | partitionSpec | COMPLETE | AUTO)      #refreshMTMV
-    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
-       | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
-       | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
-    | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier      #dropMTMV
-    | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #pauseMTMV
-    | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #resumeMTMV
-    | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier      #cancelMTMVTask
-    | ALTER TABLE table=multipartIdentifier
-        ADD CONSTRAINT constraintName=errorCapturingIdentifier
-        constraint                                                        #addConstraint
-    | ALTER TABLE table=multipartIdentifier
-        DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
-    | SHOW CONSTRAINTS FROM table=multipartIdentifier                     #showConstraint
-    | DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
-    | unsupportedStatement                                                #unsupported
     ;
 
-unsupportedStatement
+supportedCreateStatement
+    : CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
+        ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs (COMMA indexDefs)? COMMA? RIGHT_PAREN))
+        (ENGINE EQ engine=identifier)?
+        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList
+        (CLUSTER BY clusterKeys=identifierList)?)?
+        (COMMENT STRING_LITERAL)?
+        (partition=partitionTable)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
+        (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?
+        (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
+        properties=propertyClause?
+        (BROKER extProperties=propertyClause)?
+        (AS query)?                                                       #createTable
+    | CREATE VIEW (IF NOT EXISTS)? name=multipartIdentifier
+        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
+        (COMMENT STRING_LITERAL)? AS query                                #createView
+    | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
+        LIKE existedTable=multipartIdentifier
+        (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
+    | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
+        ON table=multipartIdentifier
+        AS type=(RESTRICTIVE | PERMISSIVE)
+        TO (user=userIdentify | ROLE roleName=identifier)
+        USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
+    ;
+
+supportedAlterStatement
+    : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
+        AS query                                                          #alterView
+    ;
+
+supportedDropStatement
+    : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
+    ;
+
+unsupportedSetStatement
     : SET identifier AS DEFAULT STORAGE VAULT                              #setDefaultStorageVault
     | SET PROPERTY (FOR user=identifierOrText)? propertyItemList           #setUserProperties
     | SET (GLOBAL | LOCAL | SESSION)? identifier EQ (expression | DEFAULT) #setSystemVariableWithType
@@ -138,7 +172,10 @@ unsupportedStatement
     | SET NAMES (charsetName=identifierOrText | DEFAULT) (COLLATE collateName=identifierOrText | DEFAULT)?    #setCollate
     | SET PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN)) #setPassword
     | SET LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))          #setLdapAdminPassword
-    | USE (catalog=identifier DOT)? database=identifier                              #useDatabase
+    ;
+
+unsupportedUseStatement
+    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
     | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
     ;
 
@@ -265,6 +302,7 @@ planType
     | OPTIMIZED | PHYSICAL   // same type
     | SHAPE
     | MEMO
+    | DISTRIBUTED
     | ALL // default type
     ;
 
@@ -588,14 +626,15 @@ columnDef
     : colName=identifier type=dataType
         KEY?
         (aggType=aggTypeDef)?
+        ((GENERATED ALWAYS)? AS LEFT_PAREN generatedExpr=expression RIGHT_PAREN)?
         ((NOT)? nullable=NULL)?
         (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
-        (DEFAULT (nullValue=NULL | INTEGER_VALUE | DECIMAL_VALUE | stringValue=STRING_LITERAL
+        (DEFAULT (nullValue=NULL | INTEGER_VALUE | DECIMAL_VALUE | PI | stringValue=STRING_LITERAL
            | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
-    
+
 indexDefs
     : indexes+=indexDef (COMMA indexes+=indexDef)*
     ;
@@ -1031,6 +1070,7 @@ nonReserved
     | AGG_STATE
     | AGGREGATE
     | ALIAS
+    | ALWAYS
     | ANALYZED
     | ARRAY
     | ARRAY_RANGE
@@ -1145,6 +1185,7 @@ nonReserved
     | FREE
     | FRONTENDS
     | FUNCTION
+    | GENERATED
     | GENERIC
     | GLOBAL
     | GRAPH
@@ -1237,6 +1278,7 @@ nonReserved
     | PERIOD
     | PERMISSIVE
     | PHYSICAL
+    | PI
     | PLAN
     | PLUGIN
     | PLUGINS
