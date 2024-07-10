@@ -454,7 +454,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     + ", maybe it's too small, can use alter table sql to increase it. ";
             LOG.warn("Error in gen reservePartitionKeyRange. db: {}, table: {}. {}",
                     db.getFullName(), olapTable.getName(), hint, e);
-            recordDropPartitionFailedMsg(db.getFullName(), olapTable.getName(), hint + e.getMessage(),
+            recordDropPartitionFailedMsg(db.getFullName(), olapTable.getName(), hint + ", error: " + e.getMessage(),
                     olapTable.getId());
             return dropPartitionClauses;
         }
@@ -579,7 +579,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 tableName = olapTable.getName();
             } catch (Exception e) {
                 LOG.warn("db [{}-{}], table [{}-{}]'s dynamic partition has error",
-                        db.getId(), db.getName(), olapTable.getId(), olapTable.getName(), e);
+                        db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(), e);
                 if (executeFirstTime) {
                     throw new DdlException(e.getMessage());
                 }
@@ -596,7 +596,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 } catch (Exception e) {
                     recordDropPartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
                     LOG.warn("db [{}-{}], table [{}-{}]'s dynamic partition has error",
-                            db.getId(), db.getName(), olapTable.getId(), olapTable.getName(), e);
+                            db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(), e);
                     if (executeFirstTime) {
                         throw new DdlException(e.getMessage());
                     }
