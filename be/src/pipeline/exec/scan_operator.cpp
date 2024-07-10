@@ -1139,7 +1139,7 @@ template <typename Derived>
 template <PrimitiveType T>
 Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
         vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-        ColumnValueRange<T>& range, PushDownType* pdt) {
+        ColumnValueRange<T>& range, vectorized::VScanNode::PushDownType* pdt) {
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         std::string fn_name = expr->op() == TExprOpcode::type::FILTER_IN ? "in" : "not_in";
 
@@ -1147,7 +1147,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
         auto hybrid_set = expr->get_set_func();
 
         if (hybrid_set != nullptr) {
-            *pdt = PushDownType::UNACCEPTABLE;
+            *pdt = vectorized::VScanNode::PushDownType::UNACCEPTABLE;
             return Status::OK();
         } else {
             auto* pred = static_cast<vectorized::VInPredicate*>(expr);
@@ -1163,7 +1163,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
             iter = state->hybrid_set->begin();
 
             if (state->hybrid_set->contain_null()) {
-                *pdt = PushDownType::UNACCEPTABLE;
+                *pdt = vectorized::VScanNode::PushDownType::UNACCEPTABLE;
                 return Status::OK();
             }
         }
@@ -1178,7 +1178,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
                     range, value, ColumnValueRange<T>::add_compound_value_range, fn_name, 0));
             iter->next();
         }
-        *pdt = PushDownType::ACCEPTABLE;
+        *pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
     }
     return Status::OK();
 }

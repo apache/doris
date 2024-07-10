@@ -78,6 +78,8 @@ suite("test_index_inlist_fault_injection", "nonConcurrent") {
       try {
         GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._rowid_result_for_index")
 
+        sql """ set enable_common_expr_pushdown = true; """
+
         qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0) */ count() from ${indexTbName} where clientip in ('40.135.0.0', '232.0.0.0', '26.1.0.0'); """
         qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0) */ count() from ${indexTbName} where status in (1, 304, 200); """
         qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0) */ count() from ${indexTbName} where (request match 'hm' or clientip in ('40.135.0.0', '232.0.0.0', '26.1.0.0')); """
