@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_s3_load_properties", "load_p2") {
+suite("test_s3_load_properties", "p2") {
 
     sql "create workload group if not exists broker_load_test properties ( 'cpu_share'='1024'); "
 
