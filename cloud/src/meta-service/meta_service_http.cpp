@@ -449,6 +449,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"show_storage_vaults", process_get_obj_store_info},
             {"add_hdfs_vault", process_alter_obj_store_info},
             {"add_s3_vault", process_alter_obj_store_info},
+            {"alter_s3_vault", process_alter_obj_store_info},
             {"drop_s3_vault", process_alter_obj_store_info},
             {"drop_hdfs_vault", process_alter_obj_store_info},
             // for tools
