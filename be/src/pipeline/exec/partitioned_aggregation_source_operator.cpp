@@ -46,7 +46,6 @@ Status PartitionedAggLocalState::open(RuntimeState* state) {
         return Status::OK();
     }
     _opened = true;
-    RETURN_IF_ERROR(setup_in_memory_agg_op(state));
     return Base::open(state);
 }
 
@@ -129,6 +128,10 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
             local_state._shared_state->close();
         }
     }};
+
+    if (UNLIKELY(!local_state._runtime_state)) {
+        RETURN_IF_ERROR(local_state.setup_in_memory_agg_op(state));
+    }
 
     local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());

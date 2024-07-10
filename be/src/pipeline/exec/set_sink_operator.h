@@ -35,6 +35,9 @@ template <bool is_intersect>
 class SetSinkOperatorX;
 
 template <bool is_intersect>
+class PartitionedSetSinkLocalState;
+
+template <bool is_intersect>
 class SetSinkLocalState final : public PipelineXSinkLocalState<SetSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(SetSinkLocalState);
@@ -50,6 +53,7 @@ private:
     friend class SetSinkOperatorX<is_intersect>;
     template <class HashTableContext, bool is_intersected>
     friend struct vectorized::HashTableBuild;
+    friend class PartitionedSetSinkLocalState<is_intersect>;
 
     RuntimeProfile::Counter* _build_timer; // time to build hash table
     vectorized::MutableBlock _mutable_block;

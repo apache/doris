@@ -654,6 +654,15 @@ public:
                ms.get_buffer_size_in_bytes();
     }
 
+    size_t estimate_for_expanding(const size_t rows) const {
+        const auto new_size1 = m1.estimate_for_expanding(rows);
+        const auto new_size2 = m2.estimate_for_expanding(rows);
+        const auto new_size3 = m3.estimate_for_expanding(rows);
+        const auto new_size4 = ms.estimate_for_expanding(rows);
+
+        return std::max({new_size1, new_size2, new_size3, new_size4});
+    }
+
     class iterator : public iterator_base<iterator, false> {
     public:
         using iterator_base<iterator, false>::iterator_base;

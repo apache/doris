@@ -595,6 +595,11 @@ public:
                (_query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill);
     }
 
+    bool enable_set_spill() const {
+        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
+               (_query_options.__isset.enable_set_spill && _query_options.enable_set_spill);
+    }
+
     bool enable_force_spill() const {
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }

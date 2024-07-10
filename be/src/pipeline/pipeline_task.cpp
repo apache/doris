@@ -326,6 +326,9 @@ Status PipelineTask::execute(bool* eos) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
+
+        DEFER_RELEASE_RESERVED();
+
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
@@ -354,6 +357,12 @@ Status PipelineTask::execute(bool* eos) {
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             Status status = Status::OK();
+
+            if (sink_revocable_mem_size >= _state->min_revocable_mem() &&
+                !_sink->try_reserve_memory(_state, _block.get(), *eos)) {
+                RETURN_IF_ERROR(_sink->revoke_memory(_state));
+            }
+
             // Define a lambda function to catch sink exception, because sink will check
             // return error status with EOF, it is special, could not return directly.
             auto sink_function = [&]() -> Status {

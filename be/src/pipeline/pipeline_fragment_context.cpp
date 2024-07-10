@@ -73,6 +73,9 @@
 #include "pipeline/exec/partitioned_aggregation_source_operator.h"
 #include "pipeline/exec/partitioned_hash_join_probe_operator.h"
 #include "pipeline/exec/partitioned_hash_join_sink_operator.h"
+#include "pipeline/exec/partitioned_set_probe_sink_operator.h"
+#include "pipeline/exec/partitioned_set_sink_operator.h"
+#include "pipeline/exec/partitioned_set_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
@@ -1472,7 +1475,21 @@ template <bool is_intersect>
 Status PipelineFragmentContext::_build_operators_for_set_operation_node(
         ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs, OperatorXPtr& op,
         PipelinePtr& cur_pipe, int parent_idx, int child_idx) {
-    op.reset(new SetSourceOperatorX<is_intersect>(pool, tnode, next_operator_id(), descs));
+    const auto enable_spill = _runtime_state->enable_set_spill();
+
+    std::shared_ptr<PartitionedSetSourceOperatorX<is_intersect>> partitioned_source_operator;
+    auto set_source_operator = std::make_shared<SetSourceOperatorX<is_intersect>>(
+            pool, tnode, enable_spill ? 0 : next_operator_id(), descs);
+
+    if (enable_spill) {
+        partitioned_source_operator = std::make_shared<PartitionedSetSourceOperatorX<is_intersect>>(
+                pool, tnode, next_operator_id(), descs);
+        partitioned_source_operator->set_inner_source_operator(set_source_operator);
+        op = partitioned_source_operator;
+    } else {
+        op = std::move(set_source_operator);
+    }
+
     RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
     const auto downstream_pipeline_id = cur_pipe->id();
@@ -1480,23 +1497,57 @@ Status PipelineFragmentContext::_build_operators_for_set_operation_node(
         _dag.insert({downstream_pipeline_id, {}});
     }
 
+    std::vector<std::shared_ptr<SetProbeSinkOperatorX<is_intersect>>> probe_sink_operators;
     for (int child_id = 0; child_id < tnode.num_children; child_id++) {
         PipelinePtr probe_side_pipe = add_pipeline(cur_pipe);
         _dag[downstream_pipeline_id].push_back(probe_side_pipe->id());
 
         DataSinkOperatorXPtr sink;
         if (child_id == 0) {
-            sink.reset(new SetSinkOperatorX<is_intersect>(child_id, next_sink_operator_id(), pool,
-                                                          tnode, descs));
+            sink.reset(new SetSinkOperatorX<is_intersect>(
+                    child_id, enable_spill ? 0 : next_sink_operator_id(), pool, tnode, descs));
         } else {
-            sink.reset(new SetProbeSinkOperatorX<is_intersect>(child_id, next_sink_operator_id(),
-                                                               pool, tnode, descs));
+            sink.reset(new SetProbeSinkOperatorX<is_intersect>(
+                    child_id, enable_spill ? 0 : next_sink_operator_id(), pool, tnode, descs));
         }
         sink->set_dests_id({op->operator_id()});
-        RETURN_IF_ERROR(probe_side_pipe->set_sink(sink));
+
+        if (enable_spill) {
+            DataSinkOperatorXPtr partitioned_sink;
+            if (child_id == 0) {
+                auto sink_operator = std::make_shared<PartitionedSetSinkOperatorX<is_intersect>>(
+                        child_id, next_sink_operator_id(), pool, tnode, descs);
+                auto inner_sink_operator =
+                        std::dynamic_pointer_cast<SetSinkOperatorX<is_intersect>>(sink);
+                sink_operator->set_inner_operator(
+                        std::dynamic_pointer_cast<SetSinkOperatorX<is_intersect>>(sink),
+                        set_source_operator);
+                partitioned_sink = sink_operator;
+                partitioned_source_operator->set_inner_sink_operator(inner_sink_operator);
+            } else {
+                auto sink_operator =
+                        std::make_shared<PartitionedSetProbeSinkOperatorX<is_intersect>>(
+                                child_id, next_sink_operator_id(), pool, tnode, descs);
+                auto inner_sink_operator =
+                        std::dynamic_pointer_cast<SetProbeSinkOperatorX<is_intersect>>(sink);
+                sink_operator->set_inner_operator(inner_sink_operator);
+                probe_sink_operators.emplace_back(inner_sink_operator);
+                partitioned_sink = sink_operator;
+            }
+            partitioned_sink->set_dests_id({op->operator_id()});
+            RETURN_IF_ERROR(probe_side_pipe->set_sink(partitioned_sink));
+        } else {
+            RETURN_IF_ERROR(probe_side_pipe->set_sink(sink));
+        }
+
         RETURN_IF_ERROR(probe_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
         // prepare children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.
         _pipeline_parent_map.push(op->node_id(), probe_side_pipe);
+    }
+
+    if (enable_spill) {
+        partitioned_source_operator->set_inner_probe_sink_operators(
+                std::move(probe_sink_operators));
     }
 
     return Status::OK();

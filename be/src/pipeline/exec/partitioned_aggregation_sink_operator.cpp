@@ -258,67 +258,111 @@ Status PartitionedAggSinkLocalState::revoke_memory(RuntimeState* state) {
 
     MonotonicStopWatch submit_timer;
     submit_timer.start();
+
     DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::revoke_memory_submit_func", {
         status = Status::Error<INTERNAL_ERROR>(
                 "fault_inject partitioned_agg_sink revoke_memory submit_func failed");
         return status;
     });
 
-    auto spill_runnable = std::make_shared<SpillRunnable>(
-            state, _shared_state->shared_from_this(),
-            [this, &parent, state, query_id, submit_timer] {
-                DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::revoke_memory_cancel", {
-                    auto st = Status::InternalError(
-                            "fault_inject partitioned_agg_sink "
-                            "revoke_memory canceled");
-                    ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, st);
-                    return st;
-                });
-                _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
-                SCOPED_TIMER(Base::_spill_timer);
-                Defer defer {[&]() {
-                    if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
-                        if (!_shared_state->sink_status.ok()) {
-                            LOG(WARNING)
-                                    << "query " << print_id(query_id) << " agg node "
-                                    << Base::_parent->node_id()
-                                    << " revoke_memory error: " << Base::_shared_state->sink_status;
-                        }
-                        _shared_state->close();
-                    } else {
-                        VLOG_DEBUG << "query " << print_id(query_id) << " agg node "
-                                   << Base::_parent->node_id() << " revoke_memory finish"
-                                   << ", eos: " << _eos;
-                    }
+    std::shared_ptr<RuntimeState> inner_runtime_state(_runtime_state.release());
+    auto spill_func = [inner_runtime_state,
+                       inner_shared_state = std::move(_shared_state->in_mem_shared_state_sptr),
+                       this, &parent, state, query_id, submit_timer]() mutable {
+        DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::revoke_memory_cancel", {
+            auto st = Status::InternalError(
+                    "fault_inject partitioned_agg_sink "
+                    "revoke_memory canceled");
+            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id, st);
+            return;
+        });
 
-                    if (_eos) {
-                        Base::_dependency->set_ready_to_read();
-                        _finish_dependency->set_ready();
-                    } else {
-                        Base::_dependency->Dependency::set_ready();
-                    }
-                }};
-                auto* runtime_state = _runtime_state.get();
-                auto* agg_data = parent._agg_sink_operator->get_agg_data(runtime_state);
-                Base::_shared_state->sink_status =
-                        std::visit(vectorized::Overload {
-                                           [&](std::monostate& arg) -> Status {
-                                               return Status::InternalError("Unit hash table");
-                                           },
-                                           [&](auto& agg_method) -> Status {
-                                               auto& hash_table = *agg_method.hash_table;
-                                               RETURN_IF_CATCH_EXCEPTION(return _spill_hash_table(
-                                                       state, agg_method, hash_table, _eos));
-                                           }},
-                                   agg_data->method_variant);
-                RETURN_IF_ERROR(Base::_shared_state->sink_status);
-                Base::_shared_state->sink_status =
-                        parent._agg_sink_operator->reset_hash_table(runtime_state);
-                return Base::_shared_state->sink_status;
-            });
+        _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
+        SCOPED_TIMER(Base::_spill_timer);
+        Defer defer {[&]() {
+            if (!_shared_state->sink_status.ok() || state->is_cancelled()) {
+                if (!_shared_state->sink_status.ok()) {
+                    LOG(WARNING) << "query " << print_id(query_id) << " agg node "
+                                 << Base::_parent->node_id()
+                                 << " revoke_memory error: " << Base::_shared_state->sink_status;
+                }
+                _shared_state->close();
+            } else {
+                VLOG_DEBUG << "query " << print_id(query_id) << " agg node "
+                           << Base::_parent->node_id() << " revoke_memory finish"
+                           << ", eos: " << _eos;
+            }
 
-    return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
+            if (_eos) {
+                Base::_dependency->set_ready_to_read();
+                _finish_dependency->set_ready();
+            } else {
+                Base::_dependency->Dependency::set_ready();
+            }
+
+            inner_runtime_state.reset();
+            inner_shared_state.reset();
+        }};
+        auto* runtime_state = inner_runtime_state.get();
+        auto* agg_data = parent._agg_sink_operator->get_agg_data(runtime_state);
+        auto* inner_shared_state_ptr = assert_cast<AggSharedState*>(inner_shared_state.get());
+        Base::_shared_state->sink_status = std::visit(
+                vectorized::Overload {[&](std::monostate& arg) -> Status {
+                                          return Status::InternalError("Unit hash table");
+                                      },
+                                      [&](auto& agg_method) -> Status {
+                                          auto& hash_table = *agg_method.hash_table;
+                                          RETURN_IF_CATCH_EXCEPTION(return _spill_hash_table(
+                                                  state, agg_method, inner_shared_state_ptr,
+                                                  hash_table, _eos));
+                                      }},
+                agg_data->method_variant);
+        if (!Base::_shared_state->sink_status.ok()) {
+            return;
+        }
+        Base::_shared_state->sink_status =
+                parent._agg_sink_operator->reset_hash_table(runtime_state);
+    };
+
+    std::function<void()> exception_catch_func = [spill_func, this]() mutable {
+        auto status = [&]() {
+            RETURN_IF_CATCH_EXCEPTION(spill_func());
+            return Status::OK();
+        }();
+
+        if (!status.ok()) {
+            Base::_shared_state->sink_status = std::move(status);
+            _dependency->set_ready();
+        }
+    };
+    RETURN_IF_ERROR(setup_in_memory_agg_op(state));
+
+    auto spill_runnable = std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
+                                                          exception_catch_func);
+    status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
             std::move(spill_runnable));
+    return status;
+}
+
+bool PartitionedAggSinkOperatorX::try_reserve_memory(RuntimeState* state,
+                                                     vectorized::Block* input_block,
+                                                     bool /* eos */) {
+    auto& local_state = get_local_state(state);
+    if (local_state._shared_state->is_spilled) {
+        return true;
+    }
+
+    auto* local_thread_context = thread_context();
+    DCHECK(local_thread_context != nullptr);
+
+    const size_t estimated_size = _agg_sink_operator->estimate_memory_for_block(
+            local_state._runtime_state.get(), input_block);
+
+    if (estimated_size == 0) {
+        return true;
+    }
+
+    return local_thread_context->try_reserve_memory(estimated_size);
 }
 
 } // namespace doris::pipeline
