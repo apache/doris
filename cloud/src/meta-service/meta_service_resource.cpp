@@ -509,7 +509,7 @@ static void set_default_vault_log_helper(const InstanceInfoPB& instance,
     LOG(INFO) << vault_msg;
 }
 
-static int alter_storage_vault(InstanceInfoPB& instance, Transaction* txn,
+static int alter_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
                                const StorageVaultPB& vault, MetaServiceCode& code,
                                std::string& msg) {
     if (!vault.has_obj_info()) {
@@ -649,15 +649,6 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         break;
     }
-    case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
-        // It should at least has one hdfs info or obj info inside storage vault
-        if ((!request->has_vault())) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "hdfs info is not found " + proto_to_json(*request);
-            return;
-        }
-        break;
-    }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT:
         break;
     case AlterObjStoreInfoRequest::UNKNOWN: {
@@ -667,6 +658,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     } break;
     case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT:
         break;
+    default:
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "Unknown alter obj store info, request info " + proto_to_json(*request);
+        LOG_WARNING("Unknown alter obj store info, request info {}", request->DebugString());
+        return;
     }
 
     // TODO(dx): check s3 info right
@@ -860,22 +856,6 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         break;
     }
-    case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
-        // If the resource ids is empty then it would be the first vault
-        if (!instance.resource_ids().empty()) {
-            std::stringstream ss;
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            ss << "Default vault can not be modified";
-            msg = ss.str();
-            return;
-        }
-        if (auto ret = add_vault_into_instance(
-                    instance, txn.get(), const_cast<StorageVaultPB&>(request->vault()), code, msg);
-            ret != 0) {
-            return;
-        }
-        return;
-    }
     case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
         if (auto ret = remove_hdfs_storage_vault(instance, txn.get(), request->vault(), code, msg);
             ret != 0) {
@@ -912,7 +892,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
-        alter_storage_vault(instance, txn.get(), request->vault(), code, msg);
+        alter_storage_vault(instance, std::move(txn), request->vault(), code, msg);
         return;
     }
     case AlterObjStoreInfoRequest::DROP_S3_VAULT:
