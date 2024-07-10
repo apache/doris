@@ -150,7 +150,7 @@ public class TimeUtils {
 
     // return the time zone of current system
     public static TimeZone getSystemTimeZone() {
-        return TimeZone.getTimeZone(ZoneId.of(ZoneId.systemDefault().getId(), timeZoneAliasMap));
+        return TimeZone.getTimeZone(ZoneId.of(TimeZone.getDefault().getID(), timeZoneAliasMap));
     }
 
     // get time zone of given zone name, or return system time zone if name is null.
