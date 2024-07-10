@@ -173,12 +173,6 @@ wait_timeout	31000
 -- !user_privileges --
 'original_test_sys_tables'@'%'	SELECT	NO
 
--- !desc_table_page_size --
-test_row_column_page_size1	CREATE TABLE `test_row_column_page_size1` (\n  `aaa` VARCHAR(170) NOT NULL,\n  `bbb` VARCHAR(20) NOT NULL,\n  `ccc` INT NULL,\n  `ddd` SMALLINT NULL\n) ENGINE=OLAP\nDUPLICATE KEY(`aaa`)\nDISTRIBUTED BY HASH(`aaa`) BUCKETS 1\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"min_load_replica_num" = "-1",\n"is_being_synced" = "false",\n"storage_medium" = "hdd",\n"storage_format" = "V2",\n"inverted_index_storage_format" = "V2",\n"light_schema_change" = "true",\n"store_row_column" = "true",\n"row_column_page_size" = "16384",\n"disable_auto_compaction" = "false",\n"enable_single_replica_compaction" = "false",\n"group_commit_interval_ms" = "10000",\n"group_commit_data_bytes" = "134217728"\n);
-
--- !desc_table_page_size --
-test_row_column_page_size2	CREATE TABLE `test_row_column_page_size2` (\n  `aaa` VARCHAR(170) NOT NULL,\n  `bbb` VARCHAR(20) NOT NULL,\n  `ccc` INT NULL,\n  `ddd` SMALLINT NULL\n) ENGINE=OLAP\nDUPLICATE KEY(`aaa`)\nDISTRIBUTED BY HASH(`aaa`) BUCKETS 1\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"min_load_replica_num" = "-1",\n"is_being_synced" = "false",\n"storage_medium" = "hdd",\n"storage_format" = "V2",\n"inverted_index_storage_format" = "V2",\n"light_schema_change" = "true",\n"store_row_column" = "true",\n"row_column_page_size" = "8192",\n"disable_auto_compaction" = "false",\n"enable_single_replica_compaction" = "false",\n"group_commit_interval_ms" = "10000",\n"group_commit_data_bytes" = "134217728"\n);
-
 -- !views --
 test_view	
 

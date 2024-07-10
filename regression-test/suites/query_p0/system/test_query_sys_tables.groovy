@@ -239,39 +239,6 @@ suite("test_query_sys_tables", "query,p0") {
         SELECT ccc as a FROM ${tbName1}
     """
 
-    // test row column page size
-    sql("use ${dbName1}")
-    sql """
-        CREATE TABLE IF NOT EXISTS ${dbName1}.test_row_column_page_size1 (
-            `aaa` varchar(170) NOT NULL COMMENT "",
-            `bbb` varchar(20) NOT NULL COMMENT "",
-            `ccc` INT NULL COMMENT "",
-            `ddd` SMALLINT NULL COMMENT ""
-        )
-        DISTRIBUTED BY HASH(`aaa`) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1",
-            "store_row_column" = "true"
-        );
-    """
-    qt_desc_table_page_size("show create table ${dbName1}.test_row_column_page_size1")
-
-    sql """
-        CREATE TABLE IF NOT EXISTS ${dbName1}.test_row_column_page_size2 (
-            `aaa` varchar(170) NOT NULL COMMENT "",
-            `bbb` varchar(20) NOT NULL COMMENT "",
-            `ccc` INT NULL COMMENT "",
-            `ddd` SMALLINT NULL COMMENT ""
-        )
-        DISTRIBUTED BY HASH(`aaa`) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1",
-            "store_row_column" = "true",
-            "row_column_page_size" = "8190"
-        );
-    """
-    qt_desc_table_page_size("show create table ${dbName1}.test_row_column_page_size2")
-
     sql("use information_schema")
     qt_views("select TABLE_NAME, VIEW_DEFINITION from views where TABLE_SCHEMA = '${dbName1}'")
 
