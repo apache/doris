@@ -77,18 +77,17 @@ void MemTableMemoryLimiter::register_writer(std::weak_ptr<MemTableWriter> writer
     _writers.push_back(writer);
 }
 
-int64_t MemTableMemoryLimiter::_avail_mem_lack() {
-    auto avail_mem_lack = doris::MemInfo::sys_mem_available_warning_water_mark() -
-                          doris::GlobalMemoryArbitrator::sys_mem_available();
+bool MemTableMemoryLimiter::_sys_avail_mem_less_than_warning_water_mark() {
     // reserve a small amount of memory so we do not trigger MinorGC
-    return avail_mem_lack + config::memtable_limiter_reserved_memory_bytes;
+    return doris::GlobalMemoryArbitrator::sys_mem_available() <
+           doris::MemInfo::sys_mem_available_warning_water_mark() +
+                   config::memtable_limiter_reserved_memory_bytes;
 }
 
-int64_t MemTableMemoryLimiter::_proc_mem_extra() {
-    auto proc_mem_extra =
-            GlobalMemoryArbitrator::process_memory_usage() - MemInfo::soft_mem_limit();
+bool MemTableMemoryLimiter::_process_used_mem_more_than_soft_mem_limit() {
     // reserve a small amount of memory so we do not trigger MinorGC
-    return proc_mem_extra + config::memtable_limiter_reserved_memory_bytes;
+    return GlobalMemoryArbitrator::process_memory_usage() >
+           MemInfo::soft_mem_limit() - config::memtable_limiter_reserved_memory_bytes;
 }
 
 bool MemTableMemoryLimiter::_soft_limit_reached() {
@@ -96,8 +95,9 @@ bool MemTableMemoryLimiter::_soft_limit_reached() {
 }
 
 bool MemTableMemoryLimiter::_hard_limit_reached() {
-    return _mem_tracker->consumption() >= _load_hard_mem_limit || _avail_mem_lack() >= 0 ||
-           _proc_mem_extra() >= 0;
+    return _mem_tracker->consumption() >= _load_hard_mem_limit ||
+           _sys_avail_mem_less_than_warning_water_mark() ||
+           _process_used_mem_more_than_soft_mem_limit();
 }
 
 bool MemTableMemoryLimiter::_load_usage_low() {
