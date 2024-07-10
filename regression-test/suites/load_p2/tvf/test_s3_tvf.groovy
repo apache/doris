@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_s3_tvf", "load_p0") {
+suite("test_s3_tvf", "p2") {
 
     def tables = [
             "agg_tbl_basic_tvf",
