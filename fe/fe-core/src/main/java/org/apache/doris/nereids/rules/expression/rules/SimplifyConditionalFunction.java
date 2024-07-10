@@ -29,10 +29,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-/**
- * coalesce(null,null,expr,...) => coalesce(expr,...)
- * coalesce(expr1(not null able ), expr2, ...., expr_n) => expr1
- * */
+/**SimplifyConditionalFunction*/
 public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory {
     public static SimplifyConditionalFunction INSTANCE = new SimplifyConditionalFunction();
 
@@ -45,6 +42,12 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
         );
     }
 
+    /*
+     * coalesce(null,null,expr,...) => coalesce(expr,...)
+     * coalesce(expr1(not null able ), expr2, ...., expr_n) => expr1
+     * coalesce(null,null) => null
+     * coalesce(expr1) => expr1
+     * */
     private static Expression rewriteCoalesce(Coalesce expression) {
         if (1 == expression.arity()) {
             return expression.child(0);
@@ -75,6 +78,10 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
         }
     }
 
+    /*
+    * nvl(null,R) => R
+    * nvl(L(not-nullable ),R) => L
+    * */
     private static Expression rewriteNvl(Nvl nvl) {
         if (nvl.child(0) instanceof NullLiteral) {
             return nvl.child(1);
@@ -85,6 +92,10 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
         return nvl;
     }
 
+    /*
+    * nullif(null, R) => Null
+    * nullif(L, null) => Null
+     */
     private static Expression rewriteNullIf(NullIf nullIf) {
         if (nullIf.child(0) instanceof NullLiteral || nullIf.child(1) instanceof NullLiteral) {
             return nullIf.child(0);
