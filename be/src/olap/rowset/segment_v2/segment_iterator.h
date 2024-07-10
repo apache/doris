@@ -180,7 +180,6 @@ private:
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_inverted_index_iterators();
-
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -407,6 +406,8 @@ private:
     Status execute_func_expr(const vectorized::VExprSPtr& expr,
                              const vectorized::VExprContextSPtr& expr_ctx,
                              std::shared_ptr<roaring::Roaring>& result);
+    void _initialize_predicate_results();
+    bool _check_all_predicates_passed_inverted_index_for_column(ColumnId cid);
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
