@@ -60,6 +60,7 @@ add_thirdparty(thrift)
 add_thirdparty(crypto)
 add_thirdparty(openssl LIBNAME "lib/libssl.a")
 add_thirdparty(jemalloc LIBNAME "lib/libjemalloc_doris.a")
+
 if (USE_JEMALLOC)
     add_thirdparty(jemalloc LIBNAME "lib/libjemalloc_doris.a")
 else()
