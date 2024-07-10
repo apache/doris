@@ -19,6 +19,9 @@ package org.apache.doris.datasource.lakesoul.source;
 
 import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
 import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
+import com.lakesoul.shaded.com.fasterxml.jackson.core.JsonProcessingException;
+import com.lakesoul.shaded.com.fasterxml.jackson.core.type.TypeReference;
+import com.lakesoul.shaded.com.fasterxml.jackson.databind.ObjectMapper;
 import io.substrait.proto.Plan;
 import lombok.SneakyThrows;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -74,6 +77,9 @@ public class LakeSoulScanNode extends FileQueryScanNode {
     Schema tableArrowSchema;
 
     Schema partitionArrowSchema;
+    private Map<String, String> properties;
+
+    String readType;
 
     public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "planNodeName", StatisticalType.LAKESOUL_SCAN_NODE, needCheckColumnPriv);
@@ -87,12 +93,14 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         location = tableInfo.getTablePath();
         tableName = tableInfo.getTableName();
         partitions = tableInfo.getPartitions();
+        readType = LakeSoulOptions.ReadType$.MODULE$.FULL_READ();
         try {
+            properties = new ObjectMapper().readValue(tableInfo.getProperties(), new TypeReference<Map<String, String>>() {});
             tableArrowSchema = Schema.fromJSON(tableInfo.getTableSchema());
             List<Field> partitionFields = DBUtil.parseTableInfoPartitions(partitions).rangeKeys.stream().map(tableArrowSchema::findField).collect(Collectors.toList());
             partitionArrowSchema = new Schema(partitionFields);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new UserException(e);
         }
     }
 
@@ -154,10 +162,17 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         fileDesc.setPrimaryKeys(lakeSoulSplit.getPrimaryKeys());
         fileDesc.setTableSchema(lakeSoulSplit.getTableSchema());
 
+
         JSONObject options = new JSONObject();
-        Plan predicate = LakeSoulUtils.getPushPredicate(conjuncts, tableName, tableArrowSchema, partitionArrowSchema);
+        Plan predicate = LakeSoulUtils.getPushPredicate(
+            conjuncts,
+            tableName,
+            tableArrowSchema,
+            partitionArrowSchema,
+            properties,
+            readType.equals(LakeSoulOptions.ReadType$.MODULE$.INCREMENTAL_READ()));
         if (predicate != null) {
-            options.put("substrait_predicate", SubstraitUtil.encodeBase64String(predicate));
+            options.put(LakeSoulUtils.SUBSTRAIT_PREDICATE, SubstraitUtil.encodeBase64String(predicate));
         }
         fileDesc.setOptions(JSON.toJSONString(options));
 

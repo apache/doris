@@ -25,6 +25,18 @@ import java.util.stream.Collectors;
 
 
 public class LakeSoulUtils {
+
+    public static final String FILE_NAMES = "file_paths";
+    public static final String PRIMARY_KEYS = "primary_keys";
+    public static final String SCHEMA_JSON = "table_schema";
+    public static final String PARTITION_DESC = "partition_descs";
+    public static final String REQUIRED_FIELDS = "required_fields";
+    public static final String OPTIONS = "options";
+    public static final String SUBSTRAIT_PREDICATE = "substrait_predicate";
+    public static final String CDC_COLUMN = "lakesoul_cdc_change_column";
+    public static final String LIST_DELIM = ";";
+    public static final String PARTITIONS_KV_DELIM = "=";
+
     public static List<PartitionInfo> applyPartitionFilters(List<PartitionInfo> allPartitionInfo, String tableName, Schema partitionArrowSchema, Map<String, ColumnRange> columnNameToRange) throws IOException {
 
         Expression conjunctionFilter = null;
@@ -92,9 +104,21 @@ public class LakeSoulUtils {
         }
     }
 
-    public static io.substrait.proto.Plan getPushPredicate(List<Expr> conjuncts, String tableName, Schema tableSchema,Schema partitionArrowSchema) throws IOException {
+    public static io.substrait.proto.Plan getPushPredicate(
+        List<Expr> conjuncts,
+        String tableName,
+        Schema tableSchema,
+        Schema partitionArrowSchema,
+        Map<String, String> properties,
+        boolean incRead
+    ) throws IOException {
+
         Set<String> partitionColumn = partitionArrowSchema.getFields().stream().map(Field::getName).collect(Collectors.toSet());
         Expression conjunctionFilter = null;
+        String cdcColumn = properties.get(CDC_COLUMN);
+        if (cdcColumn != null && !incRead) {
+            conjunctionFilter = SubstraitUtil.cdcColumnMergeOnReadFilter(tableSchema.findField(cdcColumn));
+        }
         for (Expr expr:conjuncts) {
             if (!isAllPartitionPredicate(expr, partitionColumn)) {
                 Expression predicate = convertToSubstraitExpr(expr, tableSchema);
