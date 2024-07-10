@@ -118,6 +118,7 @@ set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(ENV{DORIS_HOME} "${BASE_DIR}/..")
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
+set(COMMON_SRC_DIR "${BASE_DIR}/../common")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
@@ -436,6 +437,7 @@ include_directories(
 
 include_directories(
     SYSTEM
+    ${COMMON_SRC_DIR}
     ${GENSRC_DIR}/
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
@@ -500,6 +502,7 @@ set(DORIS_LINK_LIBS
     Pipeline
     Cloud
     ${WL_END_GROUP}
+    CommonCPP
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
@@ -764,6 +767,8 @@ add_subdirectory(${SRC_DIR}/pipeline)
 if (MAKE_TEST)
     add_subdirectory(${TEST_DIR})
 endif ()
+
+add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
 # Install be
 install(DIRECTORY DESTINATION ${OUTPUT_DIR})

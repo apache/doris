@@ -121,6 +121,11 @@ public class PaimonExternalTable extends ExternalTable {
                     if (scale > 6) {
                         scale = 6;
                     }
+                } else if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+                    scale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
+                    if (scale > 6) {
+                        scale = 6;
+                    }
                 }
                 return ScalarType.createDatetimeV2Type(scale);
             case ARRAY:
