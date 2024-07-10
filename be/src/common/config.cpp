@@ -118,6 +118,8 @@ DEFINE_mInt32(double_resize_threshold, "23");
 
 DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "6871947673");
 
+DEFINE_Int64(memtable_limiter_reserved_memory_bytes, "838860800");
+
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 DEFINE_mString(process_minor_gc_size, "10%");
 DEFINE_mString(process_full_gc_size, "20%");
@@ -1265,9 +1267,6 @@ DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
 
-// enable injection point in regression-test
-DEFINE_mBool(enable_injection_point, "false");
-
 DEFINE_mBool(ignore_schema_change_check, "false");
 
 DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t>::max()
@@ -1324,6 +1323,8 @@ DEFINE_mInt64(compaction_batch_size, "-1");
 DEFINE_mBool(enable_parquet_page_index, "true");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
+
+DEFINE_mBool(enable_hdfs_mem_limiter, "true");
 
 // clang-format off
 #ifdef BE_TEST

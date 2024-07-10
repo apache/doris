@@ -24,7 +24,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/cloud.pb.h"
 #include "olap/compaction.h"
 #include "olap/rowset/beta_rowset.h"

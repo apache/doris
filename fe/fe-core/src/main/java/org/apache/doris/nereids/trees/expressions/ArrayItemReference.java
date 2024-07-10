@@ -157,7 +157,12 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
         }
 
         @Override
-        public SlotReference withNullable(boolean newNullable) {
+        public SlotReference withNullable(boolean nullable) {
+            return new ArrayItemSlot(exprId, name.get(), dataType, this.nullable);
+        }
+
+        @Override
+        public Slot withNullableAndDataType(boolean nullable, DataType dataType) {
             return new ArrayItemSlot(exprId, name.get(), dataType, nullable);
         }
 

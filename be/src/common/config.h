@@ -165,6 +165,9 @@ DECLARE_mInt32(double_resize_threshold);
 // Turn down max. will use as much memory as possible.
 DECLARE_Int64(max_sys_mem_available_low_water_mark_bytes);
 
+// reserve a small amount of memory so we do not trigger MinorGC
+DECLARE_Int64(memtable_limiter_reserved_memory_bytes);
+
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 DECLARE_mString(process_minor_gc_size);
 DECLARE_mString(process_full_gc_size);
@@ -1350,9 +1353,6 @@ DECLARE_mInt32(thrift_client_open_num_tries);
 // http scheme in S3Client to use. E.g. http or https
 DECLARE_String(s3_client_http_scheme);
 
-// enable injection point in regression-test
-DECLARE_mBool(enable_injection_point);
-
 DECLARE_mBool(ignore_schema_change_check);
 
 /** Only use in fuzzy test **/
@@ -1414,6 +1414,8 @@ DECLARE_mBool(enable_parquet_page_index);
 // Wheather to ignore not found file in external teble(eg, hive)
 // Default is true, if set to false, the not found file will result in query failure.
 DECLARE_mBool(ignore_not_found_file_in_external_table);
+
+DECLARE_mBool(enable_hdfs_mem_limiter);
 
 #ifdef BE_TEST
 // test s3

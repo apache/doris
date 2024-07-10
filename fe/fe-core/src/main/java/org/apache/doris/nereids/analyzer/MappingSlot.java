@@ -99,7 +99,12 @@ public class MappingSlot extends Slot {
     }
 
     @Override
-    public Slot withNullable(boolean newNullable) {
+    public Slot withNullable(boolean nullable) {
+        return this;
+    }
+
+    @Override
+    public Slot withNullableAndDataType(boolean nullable, DataType dataType) {
         return this;
     }
 
