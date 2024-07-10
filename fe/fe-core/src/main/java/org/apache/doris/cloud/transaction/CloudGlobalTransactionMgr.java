@@ -1086,6 +1086,42 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         throw new UserException("Disallow to call finishTransaction()");
     }
 
+    public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId, long dbId, List<Long> tableIdList)
+            throws UserException {
+        LOG.info("getUnFinishedPreviousLoad(), endTransactionId:{}, dbId:{}, tableIdList:{}",
+                endTransactionId, dbId, tableIdList);
+
+        if (endTransactionId <= 0) {
+            throw new UserException("Invaid endTransactionId:" + endTransactionId);
+        }
+        CheckTxnConflictRequest.Builder builder = CheckTxnConflictRequest.newBuilder();
+        builder.setDbId(dbId);
+        builder.setEndTxnId(endTransactionId);
+        builder.addAllTableIds(tableIdList);
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+
+        final CheckTxnConflictRequest checkTxnConflictRequest = builder.build();
+        CheckTxnConflictResponse checkTxnConflictResponse = null;
+        try {
+            LOG.info("CheckTxnConflictRequest:{}", checkTxnConflictRequest);
+            checkTxnConflictResponse = MetaServiceProxy
+                .getInstance().checkTxnConflict(checkTxnConflictRequest);
+            LOG.info("CheckTxnConflictResponse: {}", checkTxnConflictResponse);
+        } catch (RpcException e) {
+            throw new UserException(e.getMessage());
+        }
+
+        if (checkTxnConflictResponse.getStatus().getCode() != MetaServiceCode.OK) {
+            throw new UserException(checkTxnConflictResponse.getStatus().getMsg());
+        }
+        List<TxnInfoPB> conflictTxnInfoPbs = checkTxnConflictResponse.getConflictTxnsList();
+        List<TransactionState> conflictTxns = new ArrayList<>();
+        for (TxnInfoPB infoPb : conflictTxnInfoPbs) {
+            conflictTxns.add(TxnUtil.transactionStateFromPb(infoPb));
+        }
+        return conflictTxns;
+    }
+
     @Override
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList)
             throws AnalysisException {

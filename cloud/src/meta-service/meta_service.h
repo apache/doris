@@ -89,6 +89,11 @@ public:
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override;
 
+    void abort_txn_by_coordinate_be(::google::protobuf::RpcController* controller,
+                                    const AbortTxnByCoordinateBeRequest* request,
+                                    AbortTxnBycoordinateBeResponse* response,
+                                    ::google::protobuf::Closure* done) override;
+
     void clean_txn_label(::google::protobuf::RpcController* controller,
                          const CleanTxnLabelRequest* request, CleanTxnLabelResponse* response,
                          ::google::protobuf::Closure* done) override;
