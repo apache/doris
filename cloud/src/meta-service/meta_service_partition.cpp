@@ -625,6 +625,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
                         const CheckKVRequest* request, CheckKVResponse* response,
                         MetaServiceCode* code, std::string* msg,
                         check_create_table_type get_check_info) {
+    StopWatch watch;
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -639,16 +640,30 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
         return;
     }
 
-    for (auto id : keys) {
-        auto key = key_func(instance_id, id);
+    for (int i = 0; i < keys.size();) {
+        auto key = key_func(instance_id, keys.Get(i));
         err = check_recycle_key_exist(txn.get(), key);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            i++;
             continue;
         } else if (err == TxnErrorCode::TXN_OK) {
             // find not match, prepare commit
-            *code = MetaServiceCode::ALREADY_EXISTED;
+            *code = MetaServiceCode::UNDEFINED_ERR;
             *msg = "prepare and commit rpc not match, recycle key remained";
             return;
+        } else if (err == TxnErrorCode::TXN_TOO_OLD) {
+            //  separate it to several txn for rubustness
+            txn.reset();
+            TxnErrorCode err = txn_kv->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                *code = cast_as<ErrCategory::READ>(err);
+                *msg = "failed to create txn in cycle";
+                return;
+            }
+            LOG_INFO("meet txn too long err, gen a new txn, and retry, size={} idx={}", keys.size(),
+                     i);
+            bthread_usleep(50);
+            continue;
         } else {
             // err != TXN_OK, fdb read err
             *code = cast_as<ErrCategory::READ>(err);
@@ -656,7 +671,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
             return;
         }
     }
-    LOG_INFO("check {} success key.size={}", hint, keys.size());
+    LOG_INFO("check {} success key.size={}, cost(us)={}", hint, keys.size(), watch.elapsed_us());
 }
 
 void MetaServiceImpl::check_kv(::google::protobuf::RpcController* controller,

@@ -1810,9 +1810,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else {
                     LOG.info("postpone creating partition[{}], temp: {}", partitionId, isTempPartition);
                 }
-                if (!isCreateTable) {
-                    checkCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds);
-                }
                 return info;
             } finally {
                 olapTable.writeUnlock();
@@ -2173,11 +2170,6 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
                                          boolean isCreateTable)
             throws DdlException {
-    }
-
-    public void checkCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
-            throws DdlException {
-
     }
 
     public void checkAvailableCapacity(Database db) throws DdlException {
@@ -2869,7 +2861,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                         keysDesc.getClusterKeysColumnIds());
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);
-                checkCreatePartitions(db.getId(), olapTable.getId(), null, olapTable.getIndexIdList());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
@@ -2957,7 +2948,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);
-                checkCreatePartitions(db.getId(), olapTable.getId(), null, olapTable.getIndexIdList());
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
             }
@@ -3410,7 +3400,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             afterCreatePartitions(db.getId(), copiedTbl.getId(), newPartitionIds, indexIds, true);
-            checkCreatePartitions(db.getId(), copiedTbl.getId(), newPartitionIds, indexIds);
 
         } catch (DdlException e) {
             // create partition failed, remove all newly created tablets

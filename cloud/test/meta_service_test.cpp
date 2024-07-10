@@ -5281,7 +5281,7 @@ TEST(MetaServiceTest, PartitionRequest) {
     check_keys_pb.add_partition_ids(partition_id + 2);
     req_check.mutable_check_keys()->CopyFrom(check_keys_pb);
     meta_service->check_kv(&ctrl, &req_check, &res_check, nullptr);
-    ASSERT_EQ(res_check.status().code(), MetaServiceCode::ALREADY_EXISTED);
+    ASSERT_EQ(res_check.status().code(), MetaServiceCode::UNDEFINED_ERR);
 
     // ------------Test check index-----------
     // Normal

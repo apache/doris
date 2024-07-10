@@ -414,13 +414,14 @@ public class CloudInternalCatalog extends InternalCatalog {
         } else {
             commitPartition(dbId, tableId, partitionIds, indexIds);
         }
-    }
-
-    public void checkCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
-            throws DdlException {
         if (!Config.check_create_table_recycle_key_remained) {
             return;
         }
+        checkCreatePartitions(dbId, tableId, partitionIds, indexIds);
+    }
+
+    private void checkCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+            throws DdlException {
         if (partitionIds == null) {
             checkMaterializedIndex(dbId, tableId, indexIds);
         } else {
@@ -581,9 +582,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().checkKv(checkKVRequest);
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
-                    break;
-                }
+                break;
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, checkPartition RpcException", tryTimes, e);
                 if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
@@ -618,9 +617,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
                 response = MetaServiceProxy.getInstance().checkKv(checkKVRequest);
-                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
-                    break;
-                }
+                break;
             } catch (RpcException e) {
                 LOG.warn("tryTimes:{}, checkIndex RpcException", tryTimes, e);
                 if (tryTimes + 1 >= Config.metaServiceRpcRetryTimes()) {
