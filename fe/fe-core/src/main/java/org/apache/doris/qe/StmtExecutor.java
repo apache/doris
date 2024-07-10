@@ -769,7 +769,8 @@ public class StmtExecutor {
             // Query following createting table would throw table not exist error.
             // For example.
             // t1: client issues create table to master fe
-            // t2: client issues query sql to observer fe, the query would fail due to not exist table in plan phase.
+            // t2: client issues query sql to observer fe, the query would fail due to not exist table in
+            //     plan phase.
             // t3: observer fe receive editlog creating the table from the master fe
             syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
@@ -970,7 +971,8 @@ public class StmtExecutor {
                 // Query following createting table would throw table not exist error.
                 // For example.
                 // t1: client issues create table to master fe
-                // t2: client issues query sql to observer fe, the query would fail due to not exist table in plan phase.
+                // t2: client issues query sql to observer fe, the query would fail due to not exist table
+                //     in plan phase.
                 // t3: observer fe receive editlog creating the table from the master fe
                 syncJournalIfNeeded();
                 analyzer = new Analyzer(context.getEnv(), context);
