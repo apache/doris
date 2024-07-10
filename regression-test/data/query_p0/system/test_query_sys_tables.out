@@ -173,6 +173,12 @@ wait_timeout	31000
 -- !user_privileges --
 'original_test_sys_tables'@'%'	SELECT	NO
 
+-- !desc_table_page_size --
+test_row_column_page_size1	CREATE TABLE `test_row_column_page_size1` (\n  `aaa` VARCHAR(170) NOT NULL,\n  `bbb` VARCHAR(20) NOT NULL,\n  `ccc` INT NULL,\n  `ddd` SMALLINT NULL\n) ENGINE=OLAP\nDUPLICATE KEY(`aaa`)\nDISTRIBUTED BY HASH(`aaa`) BUCKETS 1\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"min_load_replica_num" = "-1",\n"is_being_synced" = "false",\n"storage_medium" = "hdd",\n"storage_format" = "V2",\n"inverted_index_storage_format" = "V2",\n"light_schema_change" = "true",\n"store_row_column" = "true",\n"row_column_page_size" = "16384",\n"disable_auto_compaction" = "false",\n"enable_single_replica_compaction" = "false",\n"group_commit_interval_ms" = "10000",\n"group_commit_data_bytes" = "134217728"\n);
+
+-- !desc_table_page_size --
+test_row_column_page_size2	CREATE TABLE `test_row_column_page_size2` (\n  `aaa` VARCHAR(170) NOT NULL,\n  `bbb` VARCHAR(20) NOT NULL,\n  `ccc` INT NULL,\n  `ddd` SMALLINT NULL\n) ENGINE=OLAP\nDUPLICATE KEY(`aaa`)\nDISTRIBUTED BY HASH(`aaa`) BUCKETS 1\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"min_load_replica_num" = "-1",\n"is_being_synced" = "false",\n"storage_medium" = "hdd",\n"storage_format" = "V2",\n"inverted_index_storage_format" = "V2",\n"light_schema_change" = "true",\n"store_row_column" = "true",\n"row_column_page_size" = "8192",\n"disable_auto_compaction" = "false",\n"enable_single_replica_compaction" = "false",\n"group_commit_interval_ms" = "10000",\n"group_commit_data_bytes" = "134217728"\n);
+
 -- !views --
 test_view	
 
@@ -183,13 +189,6 @@ test_view
 -- !sql --
 
 -- !sql --
-TEST_PLSQL_SHOW_PROC1	0	plsql_show_procedure_db	TEST_PLSQL_SHOW_PROC1	PROCEDURE		CREATE OR REPLACE PROCEDURE test_plsql_show_proc1() BEGIN DECLARE a int = 1; print a; END		NULL		SQL			NULL	DEFINER	2024-06-05T09:55:29	2024-06-05T09:55:29			root			
-TEST_PLSQL_ROUTINE1	0	plsql_routine	TEST_PLSQL_ROUTINE1	PROCEDURE		CREATE OR REPLACE PROCEDURE test_plsql_routine1() BEGIN DECLARE a int = 1; print a; END		NULL		SQL			NULL	DEFINER	2024-06-05T09:55:29	2024-06-05T09:55:29			root			
-TEST_PLSQL_ROUTINE2	0	plsql_routine	TEST_PLSQL_ROUTINE2	PROCEDURE		CREATE OR REPLACE PROCEDURE test_plsql_routine2() BEGIN DECLARE a int = 1; print a; END		NULL		SQL			NULL	DEFINER	2024-06-05T09:55:29	2024-06-05T09:55:29			root			
-TEST_PLSQL_ROUTINE3	0	plsql_routine	TEST_PLSQL_ROUTINE3	PROCEDURE		CREATE OR REPLACE PROCEDURE test_plsql_routine3() BEGIN DECLARE a int = 1; print a; END		NULL		SQL			NULL	DEFINER	2024-06-05T09:55:29	2024-06-05T09:55:29			root			
-PLSQL_VARIABLE1	0	regression_test_plsql_p0	PLSQL_VARIABLE1	PROCEDURE		CREATE OR REPLACE PROCEDURE plsql_variable1()\n        BEGIN\n            DECLARE a STRING;\n            a:="hello world!";\n            PRINT a;\n            PRINT upper(a);\n\n            DECLARE b = 10;\n            PRINT b;\n            b = length(a);\n            PRINT b;\n\n            DECLARE c = a;\n            PRINT c;\n            c:=b;\n            PRINT c;\n            c = "hello kudo!"\n            PRINT c;\n\n            DECLARE d STRING;\n            PRINT d;\n            d = NOW();\n            PRINT d;\n        END		NULL		SQL			NULL	DEFINER	2024-06-05T09:55:29	2024-06-05T09:55:29			root			
-PROCEDURE_INSERT	0	regression_test_plsql_p0	PROCEDURE_INSERT	PROCEDURE		CREATE OR REPLACE PROCEDURE procedure_insert(IN id int, IN name STRING)\n        BEGIN\n            INSERT INTO plsql_tbl VALUES(id, name);\n        END		NULL		SQL			NULL	DEFINER	2024-06-05T09:55:29	2024-06-05T09:55:29			root			
-PLSQL_VARIABLE_INSERT	0	regression_test_plsql_p0	PLSQL_VARIABLE_INSERT	PROCEDURE		CREATE OR REPLACE PROCEDURE plsql_variable_insert(IN id int, IN name STRING)\n        BEGIN\n            INSERT INTO plsql_variable VALUES(id, name);\n        END		NULL		SQL			NULL	DEFINER	2024-06-05T09:55:30	2024-06-05T09:55:30			root			
 
 -- !sql --
 
