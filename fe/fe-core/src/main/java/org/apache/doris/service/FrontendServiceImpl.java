@@ -2611,6 +2611,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    private static List<TReplicaInfo> getReplicaInfos(List<Replica> replicas) {
+        return replicas.stream()
+            .filter(Replica::isAlive)
+            .map(replica -> {
+                Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(replica.getBackendId());
+                if (backend != null) {
+                    TReplicaInfo replicaInfo = new TReplicaInfo();
+                    replicaInfo.setHost(backend.getHost());
+                    replicaInfo.setBePort(backend.getBePort());
+                    replicaInfo.setHttpPort(backend.getHttpPort());
+                    replicaInfo.setBrpcPort(backend.getBrpcPort());
+                    replicaInfo.setReplicaId(replica.getId());
+                    return replicaInfo;
+                } else {
+                    return null;
+                }
+            })
+            .filter(replicaInfo -> replicaInfo != null)
+            .collect(Collectors.toList());
+    }
+
     public TGetTabletReplicaInfosResult getTabletReplicaInfos(TGetTabletReplicaInfosRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
@@ -2624,25 +2645,38 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 LOG.info("enable getTabletReplicaInfos.returnEmpty");
                 continue;
             }
-            List<TReplicaInfo> replicaInfos = Lists.newArrayList();
-            List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
-                    .getReplicasByTabletId(tabletId);
-            for (Replica replica : replicas) {
-                if (!replica.isNormal()) {
-                    LOG.warn("replica {} not normal", replica.getId());
-                    continue;
-                }
-                Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(replica.getBackendId());
-                if (backend != null) {
-                    TReplicaInfo replicaInfo = new TReplicaInfo();
-                    replicaInfo.setHost(backend.getHost());
-                    replicaInfo.setBePort(backend.getBePort());
-                    replicaInfo.setHttpPort(backend.getHttpPort());
-                    replicaInfo.setBrpcPort(backend.getBrpcPort());
-                    replicaInfo.setReplicaId(replica.getId());
-                    replicaInfos.add(replicaInfo);
-                }
+            TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(tabletId);
+            if (tabletMeta == null) {
+                LOG.warn("tablet {} not found", tabletId);
+                return;
             }
+            Tablet tablet;
+            try {
+                OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
+                        .getTable(tabletMeta.getTableId()).get();
+                table.readLock();
+                try {
+                    tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
+                            .getTablet(tabletId);
+                } finally {
+                    table.readUnlock();
+                }
+            } catch (RuntimeException e) {
+                LOG.warn("tablet {} not found", tabletId);
+                return;
+            }
+            Replica cooldownReplica = tablet.getCooldownReplica();
+            List<TReplicaInfo> replicaInfos = null;
+            // 1. use cooldown replica to do single compaction
+            if (cooldownReplica != null) {
+                replicaInfos = getReplicaInfos(Collections.singletonList(cooldownReplica));
+            }
+            // 2. find all replicas
+            if (replicaInfos == null) {
+                List<Replica> replicas = tablet.getReplicas();
+                replicaInfos = getReplicaInfos(replicas);
+            }
+            // 3. set result
             tabletReplicaInfos.put(tabletId, replicaInfos);
         }
         result.setTabletReplicaInfos(tabletReplicaInfos);

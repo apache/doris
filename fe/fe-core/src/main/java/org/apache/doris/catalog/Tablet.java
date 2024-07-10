@@ -761,4 +761,16 @@ public class Tablet extends MetaObject {
     public void setLastStatusCheckTime(long lastStatusCheckTime) {
         this.lastStatusCheckTime = lastStatusCheckTime;
     }
+
+    public Replica getCooldownReplica() {
+        if (cooldownTerm < 0 || cooldownReplicaId < 0) {
+            return null;
+        }
+        for (Replica replica : replicas) {
+            if (replica.getId() == cooldownReplicaId) {
+                return replica;
+            }
+        }
+        return null;
+    }
 }
