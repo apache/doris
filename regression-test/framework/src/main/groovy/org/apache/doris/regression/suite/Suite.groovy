@@ -1332,8 +1332,4 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    boolean isCloudMode() {
-        return false
-    }
-
 }
