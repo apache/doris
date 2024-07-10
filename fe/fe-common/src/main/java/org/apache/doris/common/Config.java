@@ -1467,7 +1467,7 @@ public class Config extends ConfigBase {
 
     /**
      * sets the time without read activity before sending a keepalive ping
-	 * the smaller the value, the sooner the channel is unavailable, but it will increase network io
+     * the smaller the value, the sooner the channel is unavailable, but it will increase network io
      */
     @ConfField
     public static int grpc_keep_alive_second = 10;
