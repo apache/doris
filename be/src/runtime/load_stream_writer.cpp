@@ -216,7 +216,13 @@ Status LoadStreamWriter::close() {
     if (_is_canceled) {
         return Status::InternalError("flush segment failed");
     }
-
+    if (_inverted_file_writers.size() > 0 &&
+        _inverted_file_writers.size() != _segment_file_writers.size()) {
+        return Status::Corruption(
+                "LoadStreamWriter close failed, inverted file writer size is {},"
+                "segment file writer size is {}",
+                _inverted_file_writers.size(), _segment_file_writers.size());
+    }
     for (const auto& writer : _segment_file_writers) {
         if (writer->state() != io::FileWriter::State::CLOSED) {
             return Status::Corruption("LoadStreamWriter close failed, segment {} is not closed",
