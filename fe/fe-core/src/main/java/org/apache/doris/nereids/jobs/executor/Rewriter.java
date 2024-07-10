@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
@@ -573,7 +574,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         ),
                         topic("whole plan check",
                                 custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
-                        )
+                        ),
+                        // NullableDependentExpressionRewrite need to be done after nullable fixed
+                        topic("condition function", bottomUp(ImmutableList.of(
+                                new NullableDependentExpressionRewrite())))
                 ));
                 return rewriteJobs;
             }
