@@ -2648,7 +2648,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(tabletId);
             if (tabletMeta == null) {
                 LOG.warn("tablet {} not found", tabletId);
-                return;
+                continue;
             }
             Tablet tablet;
             try {
@@ -2663,7 +2663,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             } catch (RuntimeException e) {
                 LOG.warn("tablet {} not found", tabletId);
-                return;
+                continue;
             }
             Replica cooldownReplica = tablet.getCooldownReplica();
             List<TReplicaInfo> replicaInfos = null;
