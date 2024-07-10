@@ -108,9 +108,29 @@ public:
         return 0;
     }
 
+    static inline unsigned get_je_unsigned_metrics(const std::string& name) {
+#ifdef USE_JEMALLOC
+        unsigned value = 0;
+        size_t sz = sizeof(value);
+        if (jemallctl(name.c_str(), &value, &sz, nullptr, 0) == 0) {
+            return value;
+        }
+#endif
+        return 0;
+    }
+
     static inline int64_t get_je_all_arena_metrics(const std::string& name) {
 #ifdef USE_JEMALLOC
         return get_je_metrics(fmt::format("stats.arenas.{}.{}", MALLCTL_ARENAS_ALL, name));
+#endif
+        return 0;
+    }
+
+    static inline int64_t get_je_all_arena_extents_metrics(int64_t page_size_index,
+                                                           const std::string& extent_type) {
+#ifdef USE_JEMALLOC
+        return get_je_metrics(fmt::format("stats.arenas.{}.extents.{}.{}", MALLCTL_ARENAS_ALL,
+                                          page_size_index, extent_type));
 #endif
         return 0;
     }
