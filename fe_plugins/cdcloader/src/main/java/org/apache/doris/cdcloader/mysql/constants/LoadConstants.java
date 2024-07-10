@@ -25,6 +25,9 @@ public class LoadConstants {
     public static final String PASSWORD = "password";
     public static final String DATABASE_NAME = "database_name";
     public static final String INCLUDE_TABLES_LIST = "include_tables_list";
+    public static final String EXCLUDE_TABLES_LIST = "exclude_tables_list";
+    public static final String INCLUDE_SCHEMA_CHANGES = "include_schema_changes";
+    public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
     public static final String SCAN_STARTUP_MODE = "scan.startup.mode";
     public static final String SCAN_STARTUP_SPECIFIC_OFFSET = "scan.startup.specific-offset";
     public static final String SCAN_STARTIP_TIMESTAMP = "scan.startup.timestamp-millis";

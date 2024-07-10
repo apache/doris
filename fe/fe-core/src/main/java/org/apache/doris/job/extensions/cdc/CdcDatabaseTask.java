@@ -30,6 +30,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.cdc.utils.RestService;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TCell;
@@ -125,7 +126,7 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
     }
 
     private void createLoadTask() throws JobException {
-        long txnId = beginTxn();
+        // long txnId = beginTxn();
         // 参数
         // jobid， meta， config，txnid，sourcetype
 
@@ -139,8 +140,8 @@ public class CdcDatabaseTask extends AbstractTask implements TxnStateChangeCallb
         try {
             txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(dbId,
                     Lists.newArrayList(), DebugUtil.printId(id), null,
-                    new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE,
-                            FrontendOptions.getLocalHostAddress()),
+                    new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                            FrontendOptions.getLocalHostAddress(), ExecuteEnv.getInstance().getStartupTime()),
                     TransactionState.LoadJobSourceType.BACKEND_STREAMING, getJobId(),
                     60000);
         } catch (Exception ex) {

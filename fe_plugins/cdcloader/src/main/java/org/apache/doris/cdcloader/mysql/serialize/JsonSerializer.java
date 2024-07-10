@@ -17,17 +17,35 @@
 
 package org.apache.doris.cdcloader.mysql.serialize;
 
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.debezium.data.Envelope;
 import io.debezium.data.SpecialValueDecimal;
 import io.debezium.data.VariableScaleDecimal;
+import io.debezium.relational.Tables;
+import io.debezium.relational.history.HistoryRecord;
 import io.debezium.time.Date;
 import io.debezium.time.MicroTimestamp;
 import io.debezium.time.NanoTimestamp;
 import io.debezium.time.Timestamp;
 import io.debezium.time.ZonedTimestamp;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.cdcloader.common.utils.SchemaChangeHelper;
+import org.apache.flink.cdc.common.event.SchemaChangeEvent;
+import org.apache.flink.cdc.connectors.mysql.source.parser.CustomMySqlAntlrDdlParser;
+import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
+import static org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils.getHistoryRecord;
 import org.apache.flink.cdc.debezium.utils.TemporalConversions;
 import org.apache.flink.table.data.TimestampData;
 import org.apache.kafka.connect.data.Decimal;
@@ -37,27 +55,56 @@ import org.apache.kafka.connect.source.SourceRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 public class JsonSerializer implements DorisRecordSerializer<SourceRecord, List<String>>{
     private static final long serialVersionUID = 1L;
     private static final Logger LOG = LoggerFactory.getLogger(JsonSerializer.class);
     private static final String DELETE_SIGN_KEY = "__DORIS_DELETE_SIGN__";
     private static ObjectMapper objectMapper = new ObjectMapper();
+    private Map<String, String> config;
+    private transient Tables tables;
+    private transient CustomMySqlAntlrDdlParser customParser;
 
     public JsonSerializer() {
     }
 
     @Override
-    public List<String> serialize(SourceRecord record) throws IOException {
+    public List<String> serialize(Map<String, String> context, SourceRecord record) throws IOException {
+        if(RecordUtils.isDataChangeRecord(record)) {
+            LOG.trace("Process data change record: {}", record);
+            return deserializeDataChangeRecord(record);
+        } else if(RecordUtils.isSchemaChangeEvent(record)) {
+            LOG.debug("Process schema change record: {}", record);
+            return deserializeSchemaChangeRecord(context, record);
+        } else {
+            LOG.trace("Ignored other record: {}", record);
+            return Collections.emptyList();
+        }
+    }
+
+    private List<String> deserializeSchemaChangeRecord(Map<String, String> context, SourceRecord element) {
+        if (customParser == null) {
+            customParser = new CustomMySqlAntlrDdlParser();
+            tables = new Tables();
+        }
+        try {
+            HistoryRecord historyRecord = getHistoryRecord(element);
+
+            String databaseName =
+                historyRecord.document().getString(HistoryRecord.Fields.DATABASE_NAME);
+            String ddl =
+                historyRecord.document().getString(HistoryRecord.Fields.DDL_STATEMENTS);
+            LOG.info("Parsing schema change event, ddl: {}", ddl);
+            customParser.setCurrentDatabase(databaseName);
+            customParser.parse(ddl, tables);
+            List<SchemaChangeEvent> schemaChangeEvents = customParser.getAndClearParsedEvents();
+            List<String> dorisSql = SchemaChangeHelper.parserSchemaChangeEvents(context, schemaChangeEvents);
+            return dorisSql;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to deserialize the schema change, " + e.getMessage(), e);
+        }
+    }
+
+    private List<String> deserializeDataChangeRecord(SourceRecord record) throws IOException {
         List<String> rows = new ArrayList<>();
         Envelope.Operation op = Envelope.operationFor(record);
         Struct value = (Struct) record.value();

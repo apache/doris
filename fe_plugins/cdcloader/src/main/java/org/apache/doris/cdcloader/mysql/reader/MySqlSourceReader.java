@@ -1,4 +1,33 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.cdcloader.mysql.reader;
+
+import java.io.IOException;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -6,15 +35,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.shyiko.mysql.binlog.BinaryLogClient;
 import io.debezium.connector.mysql.MySqlConnection;
 import io.debezium.connector.mysql.MySqlPartition;
+import io.debezium.document.Array;
 import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
+import io.debezium.relational.history.HistoryRecord;
 import io.debezium.relational.history.TableChanges;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.cdcloader.mysql.constants.LoadConstants;
 import org.apache.doris.cdcloader.mysql.rest.model.FetchRecordReq;
 import org.apache.doris.cdcloader.mysql.rest.model.JobConfig;
-import org.apache.doris.cdcloader.mysql.serialize.JsonSerializer;
 import org.apache.doris.cdcloader.mysql.serialize.DorisRecordSerializer;
+import org.apache.doris.cdcloader.mysql.serialize.JsonSerializer;
 import org.apache.doris.cdcloader.mysql.utils.ConfigUtil;
 import org.apache.doris.job.extensions.cdc.state.AbstractSourceSplit;
 import org.apache.doris.job.extensions.cdc.state.BinlogSplit;
@@ -24,6 +55,7 @@ import org.apache.flink.cdc.connectors.mysql.debezium.reader.BinlogSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.DebeziumReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.SnapshotSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.task.context.StatefulTaskContext;
+import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
 import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlSnapshotSplitAssigner;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
@@ -38,23 +70,11 @@ import org.apache.flink.cdc.connectors.mysql.source.utils.ChunkUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.TableDiscoveryUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
+import org.apache.flink.cdc.debezium.history.FlinkJsonTableChangeSerializer;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-
-import static org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlBinlogSplitAssigner.BINLOG_SPLIT_ID;
 
 public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchRecordReq> {
     private static final Logger LOG = LoggerFactory.getLogger(MySqlSourceReader.class);
@@ -63,6 +83,8 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
     private static final String FINISH_SPLITS = "finishSplits";
     private static final String ASSIGNED_SPLITS = "assignedSplits";
     private static final String SNAPSHOT_TABLE = "snapshotTable";
+    private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
+        new FlinkJsonTableChangeSerializer();
     private Map<Long, MySqlSourceConfig> sourceConfigMap;
     private Map<Long, SnapshotSplitReader> reusedSnapshotReaderMap;
     private Map<Long, BinlogSplitReader> reusedBinlogReaderMap;
@@ -131,7 +153,7 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
         JobConfig jobConfig = new JobConfig(fetchRecord.getJobId(), fetchRecord.getConfig());
         int count=0;
         Map<String, String> lastMeta = new HashMap<>();
-        RecordWithMeta recordResponse = new RecordWithMeta(lastMeta, new ArrayList<>());
+        RecordWithMeta recordResponse = new RecordWithMeta(lastMeta);
         int fetchSize = fetchRecord.getFetchSize();
         boolean schedule = fetchRecord.isSchedule();
         MySqlSplit split = null;
@@ -141,22 +163,7 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
             if(offset.isEmpty()){
                 throw new RuntimeException("miss meta offset");
             }
-            String splitId = offset.get(SPLIT_ID);
-            if(!BINLOG_SPLIT_ID.equals(splitId)){
-                SnapshotSplit snapshotSplit = objectMapper.convertValue(offset, SnapshotSplit.class);
-                TableId tableId = TableId.parse(snapshotSplit.getTableId());
-                Object[] splitStart = snapshotSplit.getSplitStart() == null ? null : objectMapper.readValue(snapshotSplit.getSplitStart(), Object[].class);
-                Object[] splitEnd = snapshotSplit.getSplitEnd() == null ? null : objectMapper.readValue(snapshotSplit.getSplitEnd(), Object[].class);
-                String splitKey = snapshotSplit.getSplitKey();
-                Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(jobConfig);
-                TableChanges.TableChange tableChange = tableSchemas.get(tableId);
-                Column splitColumn = tableChange.getTable().columnWithName(splitKey);
-                RowType splitType = ChunkUtils.getChunkKeyColumnType(splitColumn);
-                split = new MySqlSnapshotSplit(tableId,splitId, splitType, splitStart, splitEnd, null, tableSchemas);
-
-            }else{
-                split = createBinlogSplit(offset,jobConfig);
-            }
+            split = createMySqlSplit(offset, jobConfig);
             //reset current reader
             closeBinlogReader(jobConfig.getJobId());
             SplitRecords currentSplitRecords = pollSplitRecords(split, jobConfig);
@@ -185,9 +192,9 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
                         currentSplitState.asSnapshotSplitState().setHighWatermark(watermark);
                     }
                 }else if (RecordUtils.isHeartbeatEvent(element)) {
-                    //updateStartingOffsetForSplit(currentSplitState, element);
+                    LOG.debug("Receive heartbeat event: {}", element);
                 } else if (RecordUtils.isDataChangeRecord(element)) {
-                    List<String> serialize = serializer.serialize(element);
+                    List<String> serialize = serializer.serialize(jobConfig.getConfig(), element);
                     if(CollectionUtils.isEmpty(serialize)){
                         continue;
                     }
@@ -201,9 +208,21 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
                     if(count >= fetchSize){
                         return recordResponse;
                     }
+                } else if(RecordUtils.isSchemaChangeEvent(element) && split.isBinlogSplit()) {
+                    refreshTableChanges(element, jobConfig.getJobId());
+                    MySqlSourceConfig sourceConfig = getSourceConfig(jobConfig);
+                    if(sourceConfig.isIncludeSchemaChanges()){
+                        List<String> sqls = serializer.serialize(jobConfig.getConfig(), element);
+                        if(!sqls.isEmpty()){
+                            recordResponse.setSqls(sqls);
+                            lastMeta = RecordUtils.getBinlogPosition(element).getOffset();
+                            lastMeta.put(SPLIT_ID, BINLOG_SPLIT_ID);
+                            recordResponse.setMeta(lastMeta);
+                            return recordResponse;
+                        }
+                    }
                 } else {
-                    // unknown element
-                    System.out.println("Meet unknown element {}, just skip." + element);
+                    LOG.debug("Ignore event: {}", element);
                 }
             }
         }
@@ -223,6 +242,49 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
             }
         }
         return recordResponse;
+    }
+
+    /**
+     * refresh table changes after schema change
+     * @param element
+     * @param jobId
+     * @throws IOException
+     */
+    private void refreshTableChanges(SourceRecord element, Long jobId) throws IOException {
+        HistoryRecord historyRecord = RecordUtils.getHistoryRecord(element);
+        Array tableChanges =
+            historyRecord.document().getArray(HistoryRecord.Fields.TABLE_CHANGES);
+        TableChanges changes = TABLE_CHANGE_SERIALIZER.deserialize(tableChanges, true);
+        Map<TableId, TableChanges.TableChange> tableChangeMap = tableSchemaMaps.get(jobId);
+        for(TableChanges.TableChange tblChange : changes){
+            tableChangeMap.put(tblChange.getTable().id(), tblChange);
+        }
+    }
+
+    private MySqlSplit createMySqlSplit(Map<String, String> offset, JobConfig jobConfig) throws JsonProcessingException {
+        MySqlSplit split = null;
+        String splitId = offset.get(SPLIT_ID);
+        if(!BINLOG_SPLIT_ID.equals(splitId)){
+            split = createSnapshotSplit(offset, jobConfig);
+        }else{
+            split = createBinlogSplit(offset,jobConfig);
+        }
+        return split;
+    }
+
+    private MySqlSnapshotSplit createSnapshotSplit(Map<String, String> offset, JobConfig jobConfig) throws JsonProcessingException {
+        String splitId = offset.get(SPLIT_ID);
+        SnapshotSplit snapshotSplit = objectMapper.convertValue(offset, SnapshotSplit.class);
+        TableId tableId = TableId.parse(snapshotSplit.getTableId());
+        Object[] splitStart = snapshotSplit.getSplitStart() == null ? null : objectMapper.readValue(snapshotSplit.getSplitStart(), Object[].class);
+        Object[] splitEnd = snapshotSplit.getSplitEnd() == null ? null : objectMapper.readValue(snapshotSplit.getSplitEnd(), Object[].class);
+        String splitKey = snapshotSplit.getSplitKey();
+        Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(jobConfig);
+        TableChanges.TableChange tableChange = tableSchemas.get(tableId);
+        Column splitColumn = tableChange.getTable().columnWithName(splitKey);
+        RowType splitType = ChunkUtils.getChunkKeyColumnType(splitColumn);
+        MySqlSnapshotSplit split = new MySqlSnapshotSplit(tableId,splitId, splitType, splitStart, splitEnd, null, tableSchemas);
+        return split;
     }
 
     private MySqlBinlogSplit createBinlogSplit(Map<String, String> meta, JobConfig config) throws JsonProcessingException {
@@ -327,31 +389,6 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
             }
             return dataIt == null ? null : new SplitRecords(currentSplitId, dataIt.next());
         }
-
-//        else if (currentReader instanceof SnapshotSplitReader) {
-//            dataIt = currentReader.pollSplitRecords();
-//            if (dataIt != null) {
-//                if (split != null) {
-//                    currentReader.submitSplit(split);
-//                    currentSplitId = split.splitId();
-//                } else {
-//                    closeSnapshotReader(jobConfig.getJobId());
-//                }
-//                return new SplitRecords(currentSplitId, dataIt.next());
-//            }
-//            return null;
-//        } else if (currentReader instanceof BinlogSplitReader) {
-//            dataIt = currentReader.pollSplitRecords();
-//            if (dataIt != null) {
-//                return new SplitRecords(BINLOG_SPLIT_ID, dataIt.next());
-//            } else {
-//                // null will be returned after receiving suspend binlog event
-//                // finish current binlog split reading
-//                closeBinlogReader(jobConfig.getJobId());
-//                return null;
-//            }
-//        }
-
         else {
             throw new IllegalStateException("Unsupported reader type.");
         }
@@ -398,14 +435,6 @@ public class MySqlSourceReader implements SourceReader<RecordWithMeta, FetchReco
                 currentReaderMap.remove(jobId);
             }
             reusedSnapshotReader = null;
-        }
-    }
-
-    private void stopBinlogReadTask(Long jobId) {
-        BinlogSplitReader reusedBinlogReader = reusedBinlogReaderMap.get(jobId);
-        if (reusedBinlogReader != null) {
-            LOG.debug("Stop binlog read task {}", reusedBinlogReader.getClass().getCanonicalName());
-            reusedBinlogReader.stopBinlogReadTask();
         }
     }
 

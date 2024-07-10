@@ -19,8 +19,10 @@ package org.apache.doris.cdcloader.mysql.serialize;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.Map;
 
 public interface DorisRecordSerializer<T, C> extends Serializable {
 
-    C serialize(T record) throws IOException;
+
+    C serialize(Map<String, String> context, T record) throws IOException;
 }

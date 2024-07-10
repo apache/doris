@@ -17,12 +17,14 @@
 
 package org.apache.doris.cdcloader.mysql.config;
 
+import java.util.Map;
+
 import org.apache.doris.cdcloader.mysql.reader.SourceReader;
 
 public class LoadContext {
     private static volatile LoadContext INSTANCE;
-//    private LoaderOptions loaderOptions;
     private SourceReader sourceReader;
+    private Map<String, String> options;
 
     private LoadContext() {
     }
@@ -45,6 +47,14 @@ public class LoadContext {
 
     public void setSourceReader(SourceReader sourceReader) {
         this.sourceReader = sourceReader;
+    }
+
+    public Map<String, String> getOptions() {
+        return options;
+    }
+
+    public void setOptions(Map<String, String> options) {
+        this.options = options;
     }
 
 }

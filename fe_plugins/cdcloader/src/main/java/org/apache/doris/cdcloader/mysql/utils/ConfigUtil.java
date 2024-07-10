@@ -1,5 +1,25 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.cdcloader.mysql.utils;
 
+import java.util.Map;
+
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.cdcloader.mysql.constants.LoadConstants;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
@@ -7,8 +27,6 @@ import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceOptions;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetBuilder;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
-
-import java.util.Map;
 
 public class ConfigUtil {
 
@@ -21,10 +39,20 @@ public class ConfigUtil {
 
         String databaseName = cdcConfig.get(LoadConstants.DATABASE_NAME);
         configFactory.databaseList(databaseName);
-        String includingTables = cdcConfig.get(LoadConstants.INCLUDE_TABLES_LIST);
+
+        configFactory.includeSchemaChanges(Boolean.parseBoolean(cdcConfig.get(LoadConstants.INCLUDE_SCHEMA_CHANGES)));
+
+        String includingTables = cdcConfig.getOrDefault(LoadConstants.INCLUDE_TABLES_LIST, ".*");
         String includingPattern = String.format("(%s)\\.(%s)", databaseName, includingTables);
-        configFactory.tableList(includingPattern);
-        configFactory.includeSchemaChanges(false);
+        String excludingTables = cdcConfig.get(LoadConstants.EXCLUDE_TABLES_LIST);
+        if(StringUtils.isEmpty(excludingTables)){
+            configFactory.tableList(includingPattern);
+        }else{
+            String excludingPattern =
+                String.format("?!(%s\\.(%s))$", databaseName, excludingTables);
+            String tableList =  String.format("(%s)(%s)", excludingPattern, includingPattern);
+            configFactory.tableList(tableList);
+        }
 
         //setting startMode
         String startupMode = cdcConfig.get(MySqlSourceOptions.SCAN_STARTUP_MODE.key());

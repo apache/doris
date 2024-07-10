@@ -17,15 +17,14 @@
 
 package org.apache.flink.cdc.connectors.mysql.debezium.task;
 
-import org.apache.flink.cdc.connectors.mysql.debezium.DebeziumUtils;
-import org.apache.flink.cdc.connectors.mysql.debezium.dispatcher.EventDispatcherImpl;
-import org.apache.flink.cdc.connectors.mysql.debezium.dispatcher.SignalEventDispatcher;
-import org.apache.flink.cdc.connectors.mysql.debezium.reader.SnapshotSplitReader;
-import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
-import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
-import org.apache.flink.cdc.connectors.mysql.source.split.MySqlSnapshotSplit;
-import org.apache.flink.cdc.connectors.mysql.source.utils.StatementUtils;
-import org.apache.flink.cdc.connectors.mysql.source.utils.hooks.SnapshotPhaseHooks;
+import java.io.UnsupportedEncodingException;
+import java.sql.Blob;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Types;
+import java.time.Duration;
+import java.util.Calendar;
 
 import io.debezium.DebeziumException;
 import io.debezium.connector.mysql.MySqlConnection;
@@ -49,22 +48,24 @@ import io.debezium.util.Clock;
 import io.debezium.util.ColumnUtils;
 import io.debezium.util.Strings;
 import io.debezium.util.Threads;
+import org.apache.flink.cdc.connectors.mysql.debezium.DebeziumUtils;
+import org.apache.flink.cdc.connectors.mysql.debezium.dispatcher.EventDispatcherImpl;
+import org.apache.flink.cdc.connectors.mysql.debezium.dispatcher.SignalEventDispatcher;
+import org.apache.flink.cdc.connectors.mysql.debezium.reader.SnapshotSplitReader;
+import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
+import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
+import org.apache.flink.cdc.connectors.mysql.source.split.MySqlSnapshotSplit;
+import org.apache.flink.cdc.connectors.mysql.source.utils.StatementUtils;
+import org.apache.flink.cdc.connectors.mysql.source.utils.hooks.SnapshotPhaseHooks;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.UnsupportedEncodingException;
-import java.sql.Blob;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Types;
-import java.time.Duration;
-import java.util.Calendar;
-
 /**
- * copy flinkcdc from https://github.com/apache/flink-cdc/blob/release-3.1.1/flink-cdc-connect/flink-cdc-source-connectors/flink-connector-mysql-cdc/src/main/java/org/apache/flink/cdc/connectors/mysql/debezium/task/MySqlSnapshotSplitReadTask.java
- * add 160 and 194
+ * Copied from:
+ * https://github.com/apache/flink-cdc/blob/release-3.1.1/flink-cdc-connect/flink-cdc-source-connectors/flink-connector-mysql-cdc/src/main/java/org/apache/flink/cdc/connectors/mysql/debezium/task/MySqlSnapshotSplitReadTask.java
+ *
+ * <p>Line 160, Line 194: add timestamp for watermark.
  * */
 public class MySqlSnapshotSplitReadTask
     extends AbstractSnapshotChangeEventSource<MySqlPartition, MySqlOffsetContext> {
