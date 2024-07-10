@@ -28,6 +28,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
@@ -64,14 +65,19 @@ public class InitMaterializationContextHook implements PlannerHook {
         initMaterializationContext(planner.getCascadesContext());
     }
 
-    /**
-     * init materialization context
-     */
     @VisibleForTesting
     public void initMaterializationContext(CascadesContext cascadesContext) {
         if (!cascadesContext.getConnectContext().getSessionVariable().isEnableMaterializedViewRewrite()) {
             return;
         }
+        doInitMaterializationContext(cascadesContext);
+    }
+
+    /**
+     * Init materialization context
+     * @param cascadesContext current cascadesContext in the planner
+     */
+    protected void doInitMaterializationContext(CascadesContext cascadesContext) {
         TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), true);
         try {
             Plan rewritePlan = cascadesContext.getRewritePlan();
@@ -88,7 +94,7 @@ public class InitMaterializationContextHook implements PlannerHook {
         if (collectedTables.isEmpty()) {
             return;
         }
-
+        // Create sync materialization context
         if (cascadesContext.getConnectContext().getSessionVariable()
                 .isEnableSyncMvCostBasedRewrite()) {
             for (TableIf tableIf : collectedTables) {
@@ -100,16 +106,33 @@ public class InitMaterializationContextHook implements PlannerHook {
                 }
             }
         }
+        // Create async materialization context
+        for (MaterializationContext context : createAsyncMaterializationContext(cascadesContext,
+                collectorContext.getCollectedTables())) {
+            cascadesContext.addMaterializationContext(context);
+        }
+    }
 
+    protected Set<MTMV> getAvailableMTMVs(Set<TableIf> usedTables, CascadesContext cascadesContext) {
         List<BaseTableInfo> usedBaseTables =
-                collectedTables.stream().map(BaseTableInfo::new).collect(Collectors.toList());
-        Set<MTMV> availableMTMVs = Env.getCurrentEnv().getMtmvService().getRelationManager()
-                .getAvailableMTMVs(usedBaseTables, cascadesContext.getConnectContext());
+                usedTables.stream().map(BaseTableInfo::new).collect(Collectors.toList());
+        return Env.getCurrentEnv().getMtmvService().getRelationManager()
+                .getAvailableMTMVs(usedBaseTables, cascadesContext.getConnectContext(),
+                        false, ((connectContext, mtmv) -> {
+                            return MTMVUtil.mtmvContainsExternalTable(mtmv) && (!connectContext.getSessionVariable()
+                                    .isEnableMaterializedViewRewriteWhenBaseTableUnawareness());
+                        }));
+    }
+
+    private List<MaterializationContext> createAsyncMaterializationContext(CascadesContext cascadesContext,
+            Set<TableIf> usedTables) {
+        Set<MTMV> availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
         if (availableMTMVs.isEmpty()) {
             LOG.debug(String.format("Enable materialized view rewrite but availableMTMVs is empty, current queryId "
                     + "is %s", cascadesContext.getConnectContext().getQueryIdentifier()));
-            return;
+            return ImmutableList.of();
         }
+        List<MaterializationContext> asyncMaterializationContext = new ArrayList<>();
         for (MTMV materializedView : availableMTMVs) {
             MTMVCache mtmvCache = null;
             try {
@@ -124,7 +147,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                 BitSet tableBitSetInCurrentCascadesContext = new BitSet();
                 mvStructInfo.getRelations().forEach(relation -> tableBitSetInCurrentCascadesContext.set(
                         cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt()));
-                cascadesContext.addMaterializationContext(new AsyncMaterializationContext(materializedView,
+                asyncMaterializationContext.add(new AsyncMaterializationContext(materializedView,
                         mtmvCache.getLogicalPlan(), mtmvCache.getOriginalPlan(), ImmutableList.of(),
                         ImmutableList.of(), cascadesContext,
                         mtmvCache.getStructInfo().withTableBitSet(tableBitSetInCurrentCascadesContext)));
@@ -133,6 +156,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                         cascadesContext.getConnectContext().getQueryIdentifier()), e);
             }
         }
+        return asyncMaterializationContext;
     }
 
     private List<SyncMaterializationContext> createSyncMvContexts(OlapTable olapTable,
@@ -277,5 +301,4 @@ public class InitMaterializationContextHook implements PlannerHook {
             stringBuilder.delete(stringBuilder.length() - 2, stringBuilder.length());
         }
     }
-
 }

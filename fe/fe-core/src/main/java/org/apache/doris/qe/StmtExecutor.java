@@ -784,7 +784,7 @@ public class StmtExecutor {
             syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
             if (context.getSessionVariable().isEnableMaterializedViewRewrite()) {
-                planner.addHook(InitMaterializationContextHook.INSTANCE);
+                statementContext.addPlannerHook(InitMaterializationContextHook.INSTANCE);
             }
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());

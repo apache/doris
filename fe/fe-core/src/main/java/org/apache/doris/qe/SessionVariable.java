@@ -560,10 +560,16 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
+    public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE
+            = "enable_dml_materialized_view_rewrite";
+
+    public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS
+            = "enable_dml_materialized_view_rewrite_when_base_table_unawareness";
+
     public static final String ALLOW_MODIFY_MATERIALIZED_VIEW_DATA
             = "allow_modify_materialized_view_data";
 
-    public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
+    public static final String ENABLE_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS
             = "materialized_view_rewrite_enable_contain_external_table";
 
     public static final String MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM
@@ -1816,15 +1822,26 @@ public class SessionVariable implements Serializable, Writable {
                     "Is it allowed to modify the data of the materialized view"})
     public boolean allowModifyMaterializedViewData = false;
 
-    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
-            description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
-                    "Whether to use a materialized view that contains the foreign table "
-                            + "when using rewriting based on struct info"})
-    public boolean materializedViewRewriteEnableContainExternalTable = false;
+    @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS,
+            needForward = true,
+            description = {"查询时，当物化视图存在无法实时感知数据的外表时，是否开启基于结构信息的物化视图透明改写",
+                    ""})
+    public boolean enableMaterializedViewRewriteWhenBaseTableUnawareness = false;
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_SUCCESS_CANDIDATE_NUM, needForward = true,
             description = {"异步物化视图透明改写成功的结果集合，允许参与到CBO候选的最大数量",
                     "The max candidate num which participate in CBO when using asynchronous materialized views"})
     public int materializedViewRewriteSuccessCandidateNum = 3;
+
+    @VariableMgr.VarAttr(name = ENABLE_DML_MATERIALIZED_VIEW_REWRITE, needForward = true,
+            description = {"DML 时, 是否开启基于结构信息的物化视图透明改写",
+                    "Whether to enable materialized view rewriting based on struct info"})
+    public boolean enableDmlMaterializedViewRewrite = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_DML_MATERIALIZED_VIEW_REWRITE_WHEN_BASE_TABLE_UNAWARENESS,
+            needForward = true,
+            description = {"DML 时，当物化视图存在无法实时感知数据的外表时，是否开启基于结构信息的物化视图透明改写",
+                    ""})
+    public boolean enableDmlMaterializedViewRewriteWhenBaseTableUnawareness = false;
 
     @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT, needForward = true,
             description = {"透明改写过程中，relation mapping最大允许数量，如果超过，进行截取",
@@ -4082,12 +4099,21 @@ public class SessionVariable implements Serializable, Writable {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
     }
 
+    public boolean isEnableDmlMaterializedViewRewrite() {
+        return enableDmlMaterializedViewRewrite;
+    }
+
+    public boolean isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness() {
+        return enableDmlMaterializedViewRewriteWhenBaseTableUnawareness;
+    }
+
+
     public boolean isAllowModifyMaterializedViewData() {
         return allowModifyMaterializedViewData;
     }
 
-    public boolean isMaterializedViewRewriteEnableContainExternalTable() {
-        return materializedViewRewriteEnableContainExternalTable;
+    public boolean isEnableMaterializedViewRewriteWhenBaseTableUnawareness() {
+        return enableMaterializedViewRewriteWhenBaseTableUnawareness;
     }
 
     public int getMaterializedViewRewriteSuccessCandidateNum() {
