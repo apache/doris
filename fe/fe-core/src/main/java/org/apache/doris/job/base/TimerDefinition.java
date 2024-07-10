@@ -38,13 +38,7 @@ public class TimerDefinition {
     private Long latestSchedulerTimeMs;
 
 
-    public void checkParams(boolean immediate) {
-        if (null != startTimeMs && immediate) {
-            throw new IllegalArgumentException("startTimeMs must be null when immediate is true");
-        }
-        if (null == startTimeMs && immediate) {
-            startTimeMs = System.currentTimeMillis();
-        }
+    public void checkParams() {
         if (null == startTimeMs) {
             startTimeMs = System.currentTimeMillis() + intervalUnit.getIntervalMs(interval);
         }

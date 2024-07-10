@@ -361,40 +361,34 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
         }
     }
 
-    // find columns that definitely require reading data, such as functions that are not pushed down.
-    {
-        std::set<std::string> push_down_preds;
-        for (auto* pred : _col_predicates) {
-            if (!_check_apply_by_inverted_index(pred)) {
-                //column predicate, like column predicate etc. always need read data
-                auto cid = pred->column_id();
-                _need_read_data_indices[cid] = true;
-                continue;
-            }
-            push_down_preds.insert(_gen_predicate_result_sign(pred));
-        }
-        for (auto* pred : _col_preds_except_leafnode_of_andnode) {
-            if (!_check_apply_by_inverted_index(pred)) {
-                //column predicate, like column predicate etc. always need read data
-                auto cid = pred->column_id();
-                _need_read_data_indices[cid] = true;
-                continue;
-            }
-            push_down_preds.insert(_gen_predicate_result_sign(pred));
-        }
-        for (auto& preds_in_remaining_vconjuct : _column_pred_in_remaining_vconjunct) {
-            const auto& column_name = preds_in_remaining_vconjuct.first;
-            for (auto& pred_info : preds_in_remaining_vconjuct.second) {
-                auto column_sign = _gen_predicate_result_sign(&pred_info);
-                if (!push_down_preds.contains(column_sign)) {
-                    auto cid = _opts.tablet_schema->field_index(column_name);
-                    _need_read_data_indices[cid] = true;
-                }
-            }
-        }
-    }
+    _initialize_predicate_results();
 
     return Status::OK();
+}
+
+void SegmentIterator::_initialize_predicate_results() {
+    // Initialize from _col_predicates
+    for (auto* pred : _col_predicates) {
+        int cid = pred->column_id();
+        std::string pred_sign = _gen_predicate_result_sign(pred);
+        _column_predicate_inverted_index_status[cid][pred_sign] = false;
+    }
+
+    // Initialize from _col_preds_except_leafnode_of_andnode
+    for (auto* pred : _col_preds_except_leafnode_of_andnode) {
+        int cid = pred->column_id();
+        std::string pred_sign = _gen_predicate_result_sign(pred);
+        _column_predicate_inverted_index_status[cid][pred_sign] = false;
+    }
+
+    // Initialize from _column_pred_in_remaining_vconjunct
+    for (auto& preds_in_remaining_vconjuct : _column_pred_in_remaining_vconjunct) {
+        for (auto& pred_info : preds_in_remaining_vconjuct.second) {
+            int cid = _schema->column_id(pred_info.column_id);
+            std::string pred_sign = _gen_predicate_result_sign(&pred_info);
+            _column_predicate_inverted_index_status[cid][pred_sign] = false;
+        }
+    }
 }
 
 Status SegmentIterator::init_iterators() {
@@ -579,7 +573,13 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     RETURN_IF_ERROR(_apply_bitmap_index());
     RETURN_IF_ERROR(_apply_inverted_index());
+    for (auto cid : _schema->column_ids()) {
+        bool result_true = _check_all_predicates_passed_inverted_index_for_column(cid);
 
+        if (result_true) {
+            _need_read_data_indices[cid] = false;
+        }
+    }
     if (!_row_bitmap.isEmpty() &&
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
@@ -734,13 +734,6 @@ Status SegmentIterator::_apply_bitmap_index() {
         } else {
             RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[cid].get(), _segment->num_rows(),
                                            &_row_bitmap));
-
-            auto column_name = _schema->column(pred->column_id())->name();
-            if (_check_column_pred_all_push_down(column_name) &&
-                !pred->predicate_params()->marked_by_runtime_filter) {
-                _need_read_data_indices[cid] = false;
-            }
-
             if (_row_bitmap.isEmpty()) {
                 break; // all rows have been pruned, no need to process further predicates
             }
@@ -966,7 +959,6 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
                           pred_type == PredicateType::IN_LIST ||
                           pred_type == PredicateType::NOT_IN_LIST;
         if (!is_support) {
-            _need_read_data_indices[column_id] = true;
             continue;
         }
 
@@ -976,7 +968,6 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         if (can_apply_by_inverted_index) {
             res = _apply_inverted_index_except_leafnode_of_andnode(pred, &bitmap);
         } else {
-            _need_read_data_indices[column_id] = true;
             continue;
         }
 
@@ -986,7 +977,6 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 // downgrade without index query
                 _not_apply_index_pred.insert(column_id);
-                _need_read_data_indices[column_id] = true;
                 continue;
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -997,11 +987,8 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
 
         std::string pred_result_sign = _gen_predicate_result_sign(pred);
         _rowid_result_for_index.emplace(pred_result_sign, std::make_pair(true, std::move(bitmap)));
-
         if (!pred->predicate_params()->marked_by_runtime_filter) {
-            if (!_need_read_data_indices.contains(column_id)) {
-                _need_read_data_indices[column_id] = false;
-            }
+            _column_predicate_inverted_index_status[column_id][pred_result_sign] = true;
         }
     }
 
@@ -1090,11 +1077,6 @@ inline bool SegmentIterator::_inverted_index_not_support_pred_type(const Predica
     std::all_of(predicate_set.begin(), predicate_set.end(), \
                 [](const ColumnPredicate* p) { return PredicateTypeTraits::is_range(p->type()); })
 
-#define all_predicates_are_marked_by_runtime_filter(predicate_set)                            \
-    std::all_of(predicate_set.begin(), predicate_set.end(), [](const ColumnPredicate* p) {    \
-        return const_cast<ColumnPredicate*>(p)->predicate_params()->marked_by_runtime_filter; \
-    })
-
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
         bool* continue_apply) {
@@ -1109,7 +1091,6 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         if (!res.ok()) {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 remaining_predicates.emplace_back(pred);
-                _need_read_data_indices[pred->column_id()] = true;
                 return Status::OK();
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -1131,18 +1112,11 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
 
         if (need_remaining_after_evaluate) {
             remaining_predicates.emplace_back(pred);
-            _need_read_data_indices[pred->column_id()] = true;
             return Status::OK();
         }
-
-        auto column_name = _schema->column(pred->column_id())->name();
-        if (_check_column_pred_all_push_down(column_name, false,
-                                             pred->type() == PredicateType::MATCH) &&
-            !pred->predicate_params()->marked_by_runtime_filter) {
-            // if column's need_read_data already set true, we can not set it to false now.
-            if (_need_read_data_indices.find(pred->column_id()) == _need_read_data_indices.end()) {
-                _need_read_data_indices[pred->column_id()] = false;
-            }
+        if (!pred->predicate_params()->marked_by_runtime_filter) {
+            std::string pred_result_sign = _gen_predicate_result_sign(pred);
+            _column_predicate_inverted_index_status[pred->column_id()][pred_result_sign] = true;
         }
     }
     return Status::OK();
@@ -1172,12 +1146,6 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
                                   num_rows(), &_row_bitmap);
 
         if (res.ok()) {
-            if (_check_column_pred_all_push_down(column_name) &&
-                !all_predicates_are_marked_by_runtime_filter(predicate_set)) {
-                if (_need_read_data_indices.find(column_id) == _need_read_data_indices.end()) {
-                    _need_read_data_indices[column_id] = false;
-                }
-            }
             no_need_to_pass_column_predicate_set.insert(predicate_set.begin(), predicate_set.end());
             if (_row_bitmap.isEmpty()) {
                 // all rows have been pruned, no need to process further predicates
@@ -1375,6 +1343,21 @@ Status SegmentIterator::_apply_inverted_index() {
     _col_predicates = std::move(remaining_predicates);
     _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     return Status::OK();
+}
+
+bool SegmentIterator::_check_all_predicates_passed_inverted_index_for_column(ColumnId cid) {
+    auto it = _column_predicate_inverted_index_status.find(cid);
+    if (it != _column_predicate_inverted_index_status.end()) {
+        const auto& pred_map = it->second;
+
+        bool all_true = std::all_of(pred_map.begin(), pred_map.end(),
+                                    [](const auto& pred_entry) { return pred_entry.second; });
+
+        if (all_true) {
+            return true;
+        }
+    }
+    return false;
 }
 
 Status SegmentIterator::_init_return_column_iterators() {

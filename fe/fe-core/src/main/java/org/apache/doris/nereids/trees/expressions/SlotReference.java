@@ -246,11 +246,20 @@ public class SlotReference extends Slot {
     }
 
     @Override
-    public SlotReference withNullable(boolean newNullable) {
-        if (this.nullable == newNullable) {
+    public SlotReference withNullable(boolean nullable) {
+        if (this.nullable == nullable) {
             return this;
         }
-        return new SlotReference(exprId, name, dataType, newNullable,
+        return new SlotReference(exprId, name, dataType, nullable,
+                qualifier, table, column, internalName, subPath);
+    }
+
+    @Override
+    public Slot withNullableAndDataType(boolean nullable, DataType dataType) {
+        if (this.nullable == nullable && this.dataType.equals(dataType)) {
+            return this;
+        }
+        return new SlotReference(exprId, name, dataType, nullable,
                 qualifier, table, column, internalName, subPath);
     }
 

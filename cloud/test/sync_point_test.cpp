@@ -19,7 +19,7 @@
 #ifndef UNIT_TEST
 #define UNIT_TEST
 #endif
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 
 #include <cassert>
 #include <condition_variable>
@@ -58,7 +58,7 @@ void foo() {
 }
 
 void test_foo_single_thread() {
-    auto sp = doris::cloud::SyncPoint::get_instance();
+    auto sp = doris::SyncPoint::get_instance();
     std::cout << "========== default behavior ==========" << std::endl;
     foo(); // first run, nothing changed
 
@@ -108,7 +108,7 @@ void test_foo_data_race() {
 
     std::mutex mtx;
     std::condition_variable cv;
-    auto sp = doris::cloud::SyncPoint::get_instance();
+    auto sp = doris::SyncPoint::get_instance();
 
     bool go = false;
     std::unique_lock<std::mutex> lk(mtx);
@@ -266,7 +266,7 @@ void foo_return_with_void(int* in) {
 }
 
 void test_return_point() {
-    auto sp = doris::cloud::SyncPoint::get_instance();
+    auto sp = doris::SyncPoint::get_instance();
     sp->clear_all_call_backs();
     sp->enable_processing();
 
