@@ -86,6 +86,7 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String DEFAULT_LINE_DELIMITER = "\n";
     public static final String PROP_SEPARATOR_CHAR = "separatorChar";
     public static final String PROP_QUOTE_CHAR = "quoteChar";
+    public static final String PROP_SERIALIZATION_FORMAT = "serialization.format";
 
     public static final String PROP_COLLECTION_DELIMITER_HIVE2 = "colelction.delim";
     public static final String PROP_COLLECTION_DELIMITER_HIVE3 = "collection.delim";
@@ -447,12 +448,14 @@ public class HiveScanNode extends FileQueryScanNode {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
 
         // 1. set column separator
-        Optional<String> fieldDelim =
-                HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(), PROP_FIELD_DELIMITER);
-        Optional<String> columnSeparator =
-                HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(), PROP_SEPARATOR_CHAR);
+        Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_FIELD_DELIMITER);
+        Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_SERIALIZATION_FORMAT);
+        Optional<String> columnSeparator = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_SEPARATOR_CHAR);
         textParams.setColumnSeparator(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_FIELD_DELIMITER, fieldDelim, columnSeparator)));
+                DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat, columnSeparator)));
         // 2. set line delimiter
         Optional<String> lineDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
                 PROP_LINE_DELIMITER);
