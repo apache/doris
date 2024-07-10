@@ -108,8 +108,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final double DEFAULT_MAX_FILTER_RATIO = 1.0;
 
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
-    public static final long DEFAULT_MAX_BATCH_ROWS = 200000;
-    public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
+    public static final long DEFAULT_MAX_BATCH_ROWS = 20000000;
+    public static final long DEFAULT_MAX_BATCH_SIZE = 1024 * 1024 * 1024; // 1GB
     public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
     public static final boolean DEFAULT_STRICT_MODE = false; // default is false
     public static final int DEFAULT_SEND_BATCH_PARALLELISM = 1;
@@ -220,9 +220,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
 
-    protected long firstResumeTimestamp; // the first resume time
+    protected long latestResumeTimestamp; // the latest resume time
     protected long autoResumeCount;
-    protected boolean autoResumeLock = false; //it can't auto resume iff true
     // some other msg which need to show to user;
     protected String otherMsg = "";
     protected ErrorReason pauseReason;
@@ -1010,6 +1009,16 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 // find task in job
                 Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
                         entity -> entity.getTxnId() == txnState.getTransactionId()).findFirst();
+                if (!routineLoadTaskInfoOptional.isPresent()) {
+                    // not find task in routineLoadTaskInfoList. this may happen in following case:
+                    //      the routine load job has been paused and before transaction committed.
+                    //      The routineLoadTaskInfoList will be cleared when job being paused.
+                    //      So the task can not be found here.
+                    // This is a normal case, we just print a log here to observe.
+                    LOG.info("Can not find task with transaction {} after committed, job: {}",
+                            txnState.getTransactionId(), id);
+                    return;
+                }
                 RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
                 taskBeId = routineLoadTaskInfo.getBeId();
                 executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.COMMITTED, null);
@@ -1076,7 +1085,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 return;
             }
             RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
-            if (routineLoadTaskInfo.getTxnStatus() != TransactionStatus.COMMITTED) {
+            if (routineLoadTaskInfo.getTxnStatus() != TransactionStatus.COMMITTED
+                        && routineLoadTaskInfo.getTxnStatus() != TransactionStatus.VISIBLE) {
                 // TODO(cmy): Normally, this should not happen. But for safe reason, just pause the job
                 String msg = String.format(
                         "should not happen, we find that task %s is not COMMITTED when handling afterVisble."

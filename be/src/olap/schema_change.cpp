@@ -349,7 +349,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                         assert_cast<vectorized::ColumnNullable*>(new_col->assume_mutable().get());
 
                 new_nullable_col->change_nested_column(ref_col);
-                new_nullable_col->get_null_map_data().resize_fill(new_nullable_col->size());
+                new_nullable_col->get_null_map_data().resize_fill(ref_col->size());
             } else {
                 // nullable to not nullable:
                 // suppose column `c_phone` is originally varchar(16) NOT NULL,
@@ -397,11 +397,24 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                 return Status::DataQualityError("Null data is changed to not nullable");
             }
         } else {
-            auto* new_null_map =
+            const auto& null_map_column =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
-                            ->get_null_map_column()
-                            .get_data()
-                            .data();
+                            ->get_null_map_column();
+            const auto& nested_column =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
+                            ->get_nested_column();
+            const auto* new_null_map = null_map_column.get_data().data();
+
+            if (null_map_column.size() != new_column->size() ||
+                nested_column.size() != new_column->size()) {
+                DCHECK(false) << "null_map_column_size=" << null_map_column.size()
+                              << " new_column_size=" << new_column->size()
+                              << " nested_column_size=" << nested_column.size();
+                return Status::InternalError(
+                        "null_map_column size is changed, null_map_column_size={}, "
+                        "new_column_size={}",
+                        null_map_column.size(), new_column->size());
+            }
 
             bool is_changed = false;
             for (size_t i = 0; i < ref_column->size(); i++) {
@@ -627,12 +640,6 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     RETURN_IF_ERROR(new_tablet->create_rowset_writer(context, &rowset_writer));
-
-    Defer defer {[&]() {
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
-    }};
-
     RETURN_IF_ERROR(merger.merge(blocks, rowset_writer.get(), &merged_rows));
 
     _add_merged_rows(merged_rows);
@@ -1108,12 +1115,8 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first << "-"
                          << rs_reader->version().second << ", " << res.to_string();
-            new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                       rowset_writer->rowset_id().to_string());
             return process_alter_exit();
         }
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
         // Add the new version of the data to the header
         // In order to prevent the occurrence of deadlock, we must first lock the old table, and then lock the new table
         std::lock_guard<std::mutex> lock(sc_params.new_tablet->get_push_lock());

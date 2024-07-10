@@ -295,6 +295,8 @@ struct RowLocation {
         }
     }
 };
+using RowLocationSet = std::set<RowLocation>;
+using RowLocationPairList = std::list<std::pair<RowLocation, RowLocation>>;
 
 struct GlobalRowLoacation {
     GlobalRowLoacation(int64_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)

@@ -112,7 +112,11 @@ Status VJdbcTableSink::close(RuntimeState* state, Status exec_status) {
     if (exec_status.ok() && _use_transaction) {
         RETURN_IF_ERROR(_writer->finish_trans());
     }
-    RETURN_IF_ERROR(_writer->close());
+    if (_writer == nullptr) {
+        LOG(WARNING) << "debug invalid nullptr writer when close";
+    } else {
+        RETURN_IF_ERROR(_writer->close());
+    }
     return DataSink::close(state, exec_status);
 }
 } // namespace vectorized

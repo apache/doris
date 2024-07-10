@@ -172,7 +172,6 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "progress", progress);
         try {
             routineLoadJob.afterCommitted(transactionState, true);
-            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
         } catch (TransactionException e) {
             Assert.fail();
         }
@@ -341,7 +340,6 @@ public class RoutineLoadJobTest {
                 11, "localhost:9092", "test_topic", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
-        Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
         String showCreateInfo = routineLoadJob.getShowCreateInfo();
         String expect = "CREATE ROUTINE LOAD test_load ON 11\n"
                 + "WITH APPEND\n"
@@ -352,7 +350,7 @@ public class RoutineLoadJobTest {
                 + "\"max_filter_ratio\" = \"1.0\",\n"
                 + "\"max_batch_interval\" = \"10\",\n"
                 + "\"max_batch_rows\" = \"10\",\n"
-                + "\"max_batch_size\" = \"104857600\",\n"
+                + "\"max_batch_size\" = \"1073741824\",\n"
                 + "\"format\" = \"csv\",\n"
                 + "\"strip_outer_array\" = \"false\",\n"
                 + "\"num_as_string\" = \"false\",\n"

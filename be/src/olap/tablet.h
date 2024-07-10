@@ -491,8 +491,8 @@ public:
     void prepare_to_read(const RowLocation& row_location, size_t pos,
                          PartialUpdateReadPlan* read_plan);
     Status generate_new_block_for_partial_update(
-            TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
-            const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
+            TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
+            const PartialUpdateReadPlan& read_plan_ori,
             const PartialUpdateReadPlan& read_plan_update,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             vectorized::Block* output_block);

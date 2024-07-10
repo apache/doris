@@ -153,12 +153,7 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& 
 }
 
 Status EngineCloneTask::execute() {
-    // register the tablet to avoid it is deleted by gc thread during clone process
-    if (!StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
-        return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
-    }
     Status st = _do_clone();
-    StorageEngine::instance()->tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
     return st;
 }
 
@@ -166,6 +161,13 @@ Status EngineCloneTask::_do_clone() {
     Status status = Status::OK();
     string src_file_path;
     TBackend src_host;
+    RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->register_transition_tablet(
+            _clone_req.tablet_id, "clone"));
+    Defer defer {[&]() {
+        StorageEngine::instance()->tablet_manager()->unregister_transition_tablet(
+                _clone_req.tablet_id, "clone");
+    }};
+
     // Check local tablet exist or not
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(_clone_req.tablet_id);
@@ -176,14 +178,8 @@ Status EngineCloneTask::_do_clone() {
     if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
                      << tablet->tablet_id();
-        // can not drop tablet when under clone. so unregister clone tablet firstly.
-        StorageEngine::instance()->tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
         RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->drop_tablet(
                 tablet->tablet_id(), tablet->replica_id(), false));
-        if (!StorageEngine::instance()->tablet_manager()->register_clone_tablet(
-                    _clone_req.tablet_id)) {
-            return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
-        }
         tablet.reset();
     }
     bool is_new_tablet = tablet == nullptr;
@@ -267,7 +263,20 @@ Status EngineCloneTask::_do_clone() {
                       << ". signature: " << _signature;
             WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_dir),
                           "failed to delete useless clone dir ");
+            WARN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(tablet_dir),
+                          "failed to delete parent dir");
         }};
+
+        bool exists = true;
+        Status exists_st = io::global_local_filesystem()->exists(tablet_dir, &exists);
+        if (!exists_st) {
+            LOG(WARNING) << "cant get path=" << tablet_dir << " state, st=" << exists_st;
+            return exists_st;
+        }
+        if (exists) {
+            LOG(WARNING) << "before clone dest path=" << tablet_dir << " exist, remote it first";
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_dir));
+        }
 
         bool allow_incremental_clone = false;
         RETURN_IF_ERROR_(status,
@@ -597,7 +606,13 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 /// 2. Call _finish_xx_clone() to revise the tablet meta.
 Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_dir,
                                       int64_t committed_version, bool is_incremental_clone) {
-    Defer remove_clone_dir {[&]() { std::filesystem::remove_all(clone_dir); }};
+    Defer remove_clone_dir {[&]() {
+        std::error_code ec;
+        std::filesystem::remove_all(clone_dir, ec);
+        if (ec) {
+            LOG(WARNING) << "failed to remove=" << clone_dir << " msg=" << ec.message();
+        }
+    }};
 
     // check clone dir existed
     bool exists = true;
@@ -628,7 +643,13 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     bool contain_binlog = false;
     RowsetBinlogMetasPB rowset_binlog_metas_pb;
     if (binlog_metas_file_exists) {
-        auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file);
+        std::error_code ec;
+        auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file, ec);
+        if (ec) {
+            LOG(WARNING) << "get file size error" << ec.message();
+            return Status::IOError("can't retrive file_size of {}, due to {}", binlog_metas_file,
+                                   ec.message());
+        }
         if (binlog_meta_filesize > 0) {
             contain_binlog = true;
             RETURN_IF_ERROR(read_pb(binlog_metas_file, &rowset_binlog_metas_pb));

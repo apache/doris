@@ -834,6 +834,10 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     // we don't need to wait last rpc finished, cause closure's release/reset will join.
     // But do we need brpc::StartCancel(call_id)?
     _cancel_with_msg(cancel_msg);
+    // if not inited, _stub will be nullptr, skip sending cancel rpc
+    if (_stub == nullptr) {
+        return;
+    }
 
     PTabletWriterCancelRequest request;
     request.set_allocated_id(&_parent->_load_id);
@@ -1532,7 +1536,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                          &actual_consume_ns, &total_add_batch_exec_time_ns, &add_batch_exec_time,
                          &total_wait_exec_time_ns, &wait_exec_time,
                          &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
-                            if (!status.ok() || ch->is_closed()) {
+                            if (!status.ok() || (ch->is_closed() && !ch->is_cancelled())) {
                                 return;
                             }
                             // in pipeline, all node channels are done or canceled, will not block.

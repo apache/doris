@@ -112,6 +112,7 @@ kafka_port=19193
 iceberg_rest_uri_port=18181
 
 enableEsTest=true
+es_5_port=59200
 es_6_port=19200
 es_7_port=29200
 es_8_port=39200

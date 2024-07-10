@@ -156,10 +156,25 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     }
 
     std::vector<std::string> binlog_info_parts = strings::Split(binlog_info, ":");
-    // TODO(Drogon): check binlog info content is right
-    DCHECK(binlog_info_parts.size() == 2);
-    const std::string& remote_rowset_id = binlog_info_parts[0];
-    int64_t num_segments = std::stoll(binlog_info_parts[1]);
+    if (binlog_info_parts.size() != 2) {
+        status = Status::RuntimeError("failed to parse binlog info into 2 parts: {}", binlog_info);
+        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
+                     << ", status=" << status.to_string();
+        status.to_thrift(&tstatus);
+        return;
+    }
+    std::string remote_rowset_id = std::move(binlog_info_parts[0]);
+    int64_t num_segments = -1;
+    try {
+        num_segments = std::stoll(binlog_info_parts[1]);
+    } catch (std::exception& e) {
+        status = Status::RuntimeError("failed to parse num segments from binlog info {}: {}",
+                                      binlog_info, e.what());
+        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
+                     << ", status=" << status;
+        status.to_thrift(&tstatus);
+        return;
+    }
 
     // Step 4: get rowset meta
     auto get_rowset_meta_url = fmt::format(

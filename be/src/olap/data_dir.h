@@ -156,6 +156,8 @@ public:
     // Move tablet to trash.
     Status move_to_trash(const std::string& tablet_path);
 
+    static Status delete_tablet_parent_path_if_empty(const std::string& tablet_path);
+
 private:
     Status _init_cluster_id();
     Status _init_capacity_and_create_shards();
@@ -174,7 +176,7 @@ private:
 
     void _remove_check_paths(const std::set<std::string>& paths);
 
-    bool _check_pending_ids(const std::string& id);
+    void _perform_tablet_gc(const std::string& tablet_schema_hash_path, int16_t shard_name);
 
     void _perform_path_gc_by_tablet();
 

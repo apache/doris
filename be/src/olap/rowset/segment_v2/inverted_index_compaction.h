@@ -25,7 +25,7 @@
 namespace doris {
 
 namespace segment_v2 {
-Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_num,
+Status compact_column(int64_t index_id, int src_segment_num, int dest_segment_num,
                       std::vector<std::string> src_index_files,
                       std::vector<std::string> dest_index_files, const io::FileSystemSPtr& fs,
                       std::string index_writer_path, std::string tablet_path,

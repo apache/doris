@@ -98,6 +98,9 @@ public class JdbcExecutor {
             throw new InternalException(e.getMessage());
         }
         tableType = request.table_type;
+        if (tableType == TOdbcTableType.MYSQL) {
+            System.setProperty("com.mysql.cj.disableAbandonedConnectionCleanup", "true");
+        }
         this.config = new JdbcDataSourceConfig()
                 .setCatalogId(request.catalog_id)
                 .setJdbcUser(request.jdbc_user)

@@ -625,7 +625,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     const vectorized::Int8* delete_sign_column_data = nullptr;
     if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
                 old_value_block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr && _tablet_schema->has_sequence_col()) {
+        delete_sign_column != nullptr) {
         auto& delete_sign_col =
                 reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
         delete_sign_column_data = delete_sign_col.get_data().data();
@@ -635,19 +635,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
         for (auto i = 0; i < cids_missing.size(); ++i) {
             const auto& column = _tablet_schema->column(cids_missing[i]);
             if (column.has_default_value()) {
-                std::string default_value;
-                if (UNLIKELY(_tablet_schema->column(cids_missing[i]).type() ==
-                                     FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
-                             to_lower(_tablet_schema->column(cids_missing[i]).default_value())
-                                             .find(to_lower("CURRENT_TIMESTAMP")) !=
-                                     std::string::npos)) {
-                    vectorized::DateV2Value<vectorized::DateTimeV2ValueType> dtv;
-                    dtv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
-                                      _opts.rowset_ctx->partial_update_info->timezone);
-                    default_value = dtv.debug_string();
-                } else {
-                    default_value = _tablet_schema->column(cids_missing[i]).default_value();
-                }
+                const auto& default_value =
+                        _opts.rowset_ctx->partial_update_info->default_values[i];
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
                 old_value_block.get_by_position(i).type->from_string(

@@ -501,6 +501,13 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                     ++it;
                 }
             }
+            // 1. if all conditions in the compound hit the inverted index and there are no other expr to handle.
+            // 2. then there is no need to generate index_result_column.
+            if (_enable_common_expr_pushdown && _remaining_conjunct_roots.empty()) {
+                for (auto& iter : _rowid_result_for_index) {
+                    iter.second.first = false;
+                }
+            }
         }
         _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     }
@@ -1009,6 +1016,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
 
         if (need_remaining_after_evaluate) {
             remaining_predicates.emplace_back(pred);
+            _need_read_data_indices[pred->column_id()] = true;
             return Status::OK();
         }
 
@@ -2553,6 +2561,9 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
 
     // If the key is present in expr, data needs to be read.
     if (cids.contains(cid)) {
+        return false;
+    }
+    if (_column_pred_in_remaining_vconjunct.contains(_opts.tablet_schema->column(cid).name())) {
         return false;
     }
 

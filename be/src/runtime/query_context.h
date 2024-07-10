@@ -182,7 +182,7 @@ public:
 
     void register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
         _exec_env->runtime_query_statistics_mgr()->register_query_statistics(print_id(query_id), qs,
-                                                                             coord_addr);
+                                                                             current_connect_fe);
     }
 
     std::shared_ptr<QueryStatistics> get_query_statistics() {
@@ -198,7 +198,7 @@ public:
                 if (_exec_env &&
                     _exec_env->runtime_query_statistics_mgr()) { // for ut FragmentMgrTest.normal
                     _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                            query_id_str, qs, coord_addr);
+                            query_id_str, qs, current_connect_fe);
                 }
             } else {
                 LOG(INFO) << " query " << query_id_str << " get memory query statistics failed ";
@@ -212,7 +212,7 @@ public:
             if (_exec_env &&
                 _exec_env->runtime_query_statistics_mgr()) { // for ut FragmentMgrTest.normal
                 _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                        print_id(query_id), _cpu_statistics, coord_addr);
+                        print_id(query_id), _cpu_statistics, current_connect_fe);
             }
         }
     }
@@ -226,6 +226,7 @@ public:
     std::string user;
     std::string group;
     TNetworkAddress coord_addr;
+    TNetworkAddress current_connect_fe;
     TQueryGlobals query_globals;
 
     /// In the current implementation, for multiple fragments executed by a query on the same BE node,

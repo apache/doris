@@ -975,7 +975,9 @@ public class TabletScheduler extends MasterDaemon {
         if (chosenReplica == null) {
             return false;
         }
+
         deleteReplicaInternal(tabletCtx, chosenReplica, "src replica of rebalance", force);
+        rebalancer.invalidateToDeleteReplicaId(tabletCtx);
 
         return true;
     }
@@ -1822,36 +1824,64 @@ public class TabletScheduler extends MasterDaemon {
      * If task is timeout, remove the tablet.
      */
     public void handleRunningTablets() {
+        Set<Long> aliveBeIds = Sets.newHashSet(Env.getCurrentSystemInfo().getAllBackendIds(true));
         // 1. remove the tablet ctx if timeout
-        List<TabletSchedCtx> timeoutTablets = Lists.newArrayList();
+        List<TabletSchedCtx> cancelTablets = Lists.newArrayList();
         synchronized (this) {
-            runningTablets.values().stream().filter(TabletSchedCtx::isTimeout).forEach(timeoutTablets::add);
+            for (TabletSchedCtx tabletCtx : runningTablets.values()) {
+                long srcBeId = tabletCtx.getSrcBackendId();
+                long destBeId = tabletCtx.getDestBackendId();
+                if (Config.disable_tablet_scheduler) {
+                    tabletCtx.setErrMsg("tablet scheduler is disabled");
+                    cancelTablets.add(tabletCtx);
+                } else if (Config.disable_balance && tabletCtx.getType() == Type.BALANCE) {
+                    tabletCtx.setErrMsg("balance is disabled");
+                    cancelTablets.add(tabletCtx);
+                } else if (tabletCtx.isTimeout()) {
+                    tabletCtx.setErrMsg("timeout");
+                    cancelTablets.add(tabletCtx);
+                    stat.counterCloneTaskTimeout.incrementAndGet();
+                } else if (destBeId > 0 && !aliveBeIds.contains(destBeId)) {
+                    tabletCtx.setErrMsg("dest be " + destBeId + " is dead");
+                    cancelTablets.add(tabletCtx);
+                } else if (srcBeId > 0 && !aliveBeIds.contains(srcBeId)) {
+                    tabletCtx.setErrMsg("src be " + srcBeId + " is dead");
+                    cancelTablets.add(tabletCtx);
+                }
+            }
         }
 
         // 2. release ctx
-        timeoutTablets.forEach(t -> {
+        cancelTablets.forEach(t -> {
             // Set "resetReplicaState" to true because
             // the timeout task should also be considered as UNRECOVERABLE,
             // so need to reset replica state.
-            t.setErrMsg("timeout");
-            finalizeTabletCtx(t, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, "timeout");
-            stat.counterCloneTaskTimeout.incrementAndGet();
+            finalizeTabletCtx(t, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, t.getErrMsg());
         });
     }
 
     public List<List<String>> getPendingTabletsInfo(int limit) {
-        List<TabletSchedCtx> tabletCtxs = getCopiedTablets(pendingTablets, limit);
-        return collectTabletCtx(tabletCtxs);
+        return collectTabletCtx(getPendingTablets(limit));
+    }
+
+    public List<TabletSchedCtx> getPendingTablets(int limit) {
+        return getCopiedTablets(pendingTablets, limit);
     }
 
     public List<List<String>> getRunningTabletsInfo(int limit) {
-        List<TabletSchedCtx> tabletCtxs = getCopiedTablets(runningTablets.values(), limit);
-        return collectTabletCtx(tabletCtxs);
+        return collectTabletCtx(getRunningTablets(limit));
+    }
+
+    public List<TabletSchedCtx> getRunningTablets(int limit) {
+        return getCopiedTablets(runningTablets.values(), limit);
     }
 
     public List<List<String>> getHistoryTabletsInfo(int limit) {
-        List<TabletSchedCtx> tabletCtxs = getCopiedTablets(schedHistory, limit);
-        return collectTabletCtx(tabletCtxs);
+        return collectTabletCtx(getHistoryTablets(limit));
+    }
+
+    public List<TabletSchedCtx> getHistoryTablets(int limit) {
+        return getCopiedTablets(schedHistory, limit);
     }
 
     private List<List<String>> collectTabletCtx(List<TabletSchedCtx> tabletCtxs) {
@@ -1933,6 +1963,8 @@ public class TabletScheduler extends MasterDaemon {
         // path hash -> slot num
         private Map<Long, Slot> pathSlots = Maps.newConcurrentMap();
         private long beId;
+        // only use in takeAnAvailBalanceSlotFrom, make pick RR
+        private Map<TStorageMedium, Long> lastPickPathHashs = Maps.newHashMap();
 
         public PathSlot(Map<Long, TStorageMedium> paths, long beId) {
             this.beId = beId;
@@ -2046,19 +2078,6 @@ public class TabletScheduler extends MasterDaemon {
             return num;
         }
 
-        /**
-         * get path whose balance slot num is larger than 0
-         */
-        public synchronized Set<Long> getAvailPathsForBalance() {
-            Set<Long> pathHashs = Sets.newHashSet();
-            for (Map.Entry<Long, Slot> entry : pathSlots.entrySet()) {
-                if (entry.getValue().getAvailableBalance() > 0) {
-                    pathHashs.add(entry.getKey());
-                }
-            }
-            return pathHashs;
-        }
-
         public synchronized List<List<String>> getSlotInfo(long beId) {
             List<List<String>> results = Lists.newArrayList();
             pathSlots.forEach((key, value) -> {
@@ -2091,15 +2110,31 @@ public class TabletScheduler extends MasterDaemon {
             return -1;
         }
 
-        public synchronized long takeAnAvailBalanceSlotFrom(Set<Long> pathHashs) {
-            for (Long pathHash : pathHashs) {
-                Slot slot = pathSlots.get(pathHash);
-                if (slot == null) {
-                    continue;
+        public long takeAnAvailBalanceSlotFrom(List<Long> pathHashs, TStorageMedium medium) {
+            if (pathHashs.isEmpty()) {
+                return -1;
+            }
+
+            Collections.sort(pathHashs);
+            synchronized (this) {
+                int preferSlotIndex = pathHashs.indexOf(lastPickPathHashs.getOrDefault(medium, -1L)) + 1;
+                if (preferSlotIndex < 0 || preferSlotIndex >= pathHashs.size()) {
+                    preferSlotIndex = 0;
                 }
-                if (slot.balanceUsed < slot.getBalanceTotal()) {
-                    slot.balanceUsed++;
-                    return pathHash;
+
+                for (int i = preferSlotIndex; i < pathHashs.size(); i++) {
+                    long pathHash = pathHashs.get(i);
+                    if (takeBalanceSlot(pathHash) != -1) {
+                        lastPickPathHashs.put(medium, pathHash);
+                        return pathHash;
+                    }
+                }
+                for (int i = 0; i < preferSlotIndex; i++) {
+                    long pathHash = pathHashs.get(i);
+                    if (takeBalanceSlot(pathHash) != -1) {
+                        lastPickPathHashs.put(medium, pathHash);
+                        return pathHash;
+                    }
                 }
             }
             return -1;

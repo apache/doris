@@ -543,6 +543,7 @@ bool VecDateTimeValue::from_date_daynr(uint64_t daynr) {
     return true;
 }
 
+/// @return: tail
 static char* int_to_str(uint64_t val, char* to) {
     char buf[64];
     char* ptr = buf;
@@ -555,7 +556,6 @@ static char* int_to_str(uint64_t val, char* to) {
     while (ptr > buf) {
         *to++ = *--ptr;
     }
-
     return to;
 }
 
@@ -566,18 +566,17 @@ static char* append_string(const char* from, char* to) {
     return to;
 }
 
-static char* append_with_prefix(const char* str, int str_len, char prefix, int full_len, char* to) {
-    int len = (str_len > full_len) ? str_len : full_len;
-    len -= str_len;
-    while (len-- > 0) {
-        // push prefix;
+static char* append_with_prefix(const char* str, int str_len, char prefix, int target_len,
+                                char* to) {
+    // full_len is the lower bound. if less, use prefix to pad. if greater, accept all.
+    int diff = target_len - str_len;
+    // use prefix to pad
+    while (diff-- > 0) { // won't be INT_MIN. it's ok
         *to++ = prefix;
     }
-    while (str_len-- > 0) {
-        *to++ = *str++;
-    }
 
-    return to;
+    memcpy(to, str, str_len);
+    return to + str_len;
 }
 
 int VecDateTimeValue::compute_format_len(const char* format, int len) {
@@ -673,10 +672,12 @@ char* write_four_digits_to_string(int number, char* dst) {
     return dst + 4;
 }
 
-bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) const {
+bool VecDateTimeValue::to_format_string_conservative(const char* format, int len, char* to,
+                                                     int max_valid_length) const {
     if (check_range(_year, _month, _day, _hour, _minute, _second, _type)) {
         return false;
     }
+    char* const begin = to; // to check written bytes
     char buf[64];
     char* cursor = buf;
     char* pos = nullptr;
@@ -685,6 +686,9 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
     char ch = '\0';
 
     while (ptr < end) {
+        if (to - begin + SAFE_FORMAT_STRING_MARGIN > max_valid_length) [[unlikely]] {
+            return false;
+        }
         if (*ptr != '%' || (ptr + 1) == end) {
             *to++ = *ptr++;
             continue;
@@ -932,6 +936,7 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             break;
         }
         default:
+            // put it literal
             *to++ = ch;
             break;
         }
@@ -1970,18 +1975,20 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, nullptr);
+bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/,
+                                   bool convert_zero) {
+    return from_date_str_base(date_str, len, scale, nullptr, convert_zero);
 }
 // when we parse
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
-                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, &local_time_zone);
+                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/,
+                                   bool convert_zero) {
+    return from_date_str_base(date_str, len, scale, &local_time_zone, convert_zero);
 }
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
-                                        const cctz::time_zone* local_time_zone) {
+                                        const cctz::time_zone* local_time_zone, bool convert_zero) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -2183,7 +2190,12 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         return false;
     }
     if (is_invalid(date_val[0], date_val[1], date_val[2], 0, 0, 0, 0)) {
-        return false;
+        if (date_val[0] == 0 && date_val[1] == 0 && date_val[2] == 0 && convert_zero) {
+            date_val[1] = 1;
+            date_val[2] = 1;
+        } else {
+            return false;
+        }
     }
 
     // In check_range_and_set_time, for Date type the time part will be truncated. So if the timezone offset should make
@@ -3380,10 +3392,12 @@ void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
 }
 
 template <typename T>
-bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) const {
+bool DateV2Value<T>::to_format_string_conservative(const char* format, int len, char* to,
+                                                   int max_valid_length) const {
     if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
         return false;
     }
+    char* const begin = to; // to check written bytes
     char buf[64];
     char* pos = nullptr;
     char* cursor = buf;
@@ -3392,6 +3406,9 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
     char ch = '\0';
 
     while (ptr < end) {
+        if (to - begin + SAFE_FORMAT_STRING_MARGIN > max_valid_length) [[unlikely]] {
+            return false;
+        }
         if (*ptr != '%' || (ptr + 1) == end) {
             *to++ = *ptr++;
             continue;
@@ -3625,6 +3642,7 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             break;
         }
         default:
+            // put it literal
             *to++ = ch;
             break;
         }

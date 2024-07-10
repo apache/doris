@@ -325,7 +325,6 @@ public abstract class JdbcClient {
                    We used this method to retrieve the key column of the JDBC table, but since we only tested mysql,
                    we kept the default key behavior in the parent class and only overwrite it in the mysql subclass
                 */
-                field.setKey(true);
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
                 field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
@@ -354,7 +353,7 @@ public abstract class JdbcClient {
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
             dorisTableSchema.add(new Column(field.getColumnName(),
-                    jdbcTypeToDoris(field), field.isKey, null,
+                    jdbcTypeToDoris(field), true, null,
                     field.isAllowNull(), field.getRemarks(),
                     true, -1));
         }
@@ -457,7 +456,6 @@ public abstract class JdbcClient {
         protected int dataType;
         // The SQL type of the corresponding java.sql.types (Type Name)
         protected String dataTypeName;
-        protected boolean isKey;
         // For CHAR/DATA, columnSize means the maximum number of chars.
         // For NUMERIC/DECIMAL, columnSize means precision.
         protected int columnSize;
@@ -471,8 +469,6 @@ public abstract class JdbcClient {
         // because for utf8 encoding, a Chinese character takes up 3 bytes
         protected int charOctetLength;
         protected boolean isAllowNull;
-        protected boolean isAutoincrement;
-        protected String defaultValue;
     }
 
     protected abstract Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema);

@@ -5038,6 +5038,7 @@ public class Env {
                 saveImage(dumpFile, journalId);
             } catch (IOException e) {
                 LOG.error("failed to dump image to {}", dumpFilePath, e);
+                return null;
             }
         } finally {
             // unlock all
@@ -5520,6 +5521,10 @@ public class Env {
 
     public static boolean isTableNamesCaseInsensitive() {
         return GlobalVariable.lowerCaseTableNames == 2;
+    }
+
+    public static boolean isTableNamesCaseSensitive() {
+        return GlobalVariable.lowerCaseTableNames == 0;
     }
 
     private static void getTableMeta(OlapTable olapTable, TGetMetaDBMeta dbMeta) {

@@ -127,6 +127,9 @@ public abstract class Rebalancer {
         return -1L;
     }
 
+    public void invalidateToDeleteReplicaId(TabletSchedCtx tabletCtx) {
+    }
+
     public void onTabletFailed(TabletSchedCtx tabletCtx) {
     }
 

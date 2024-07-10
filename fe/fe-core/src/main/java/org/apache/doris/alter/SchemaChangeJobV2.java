@@ -72,10 +72,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -238,6 +240,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
+            Map<Object, Object> objectPool = new HashMap<Object, Object>();
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 if (partition == null) {
@@ -286,7 +289,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getTimeSeriesCompactionLevelThreshold(),
                                     tbl.storeRowColumn(),
                                     tbl.isDynamicSchema(),
-                                    binlogConfig);
+                                    binlogConfig, objectPool);
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -410,7 +413,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         tbl.readLock();
-
+        Map<Object, Object> objectPool = new ConcurrentHashMap<Object, Object>();
         try {
             Map<String, Column> indexColumnMap = Maps.newHashMap();
             for (Map.Entry<Long, List<Column>> entry : indexSchemaMap.entrySet()) {
@@ -433,7 +436,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                 if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {
                     Column newColumn = indexColumnMap.get(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName());
-                    if (newColumn.getType() != column.getType()) {
+                    if (!newColumn.getType().equals(column.getType())) {
                         try {
                             SlotRef slot = new SlotRef(destSlotDesc);
                             slot.setCol(column.getName());
@@ -468,7 +471,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             AlterReplicaTask rollupTask = new AlterReplicaTask(shadowReplica.getBackendId(), dbId,
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
-                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, null);
+                                    JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, null,
+                                    objectPool);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }

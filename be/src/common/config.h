@@ -285,6 +285,9 @@ DECLARE_mInt32(thrift_connect_timeout_seconds);
 DECLARE_mInt32(fetch_rpc_timeout_seconds);
 // default thrift client retry interval (in milliseconds)
 DECLARE_mInt64(thrift_client_retry_interval_ms);
+// max message size of thrift request
+// default: 100 * 1024 * 1024
+DECLARE_mInt64(thrift_max_message_size);
 // max row count number for single scan range, used in segmentv1
 DECLARE_mInt32(doris_scan_range_row_count);
 // max bytes number for single scan range, used in segmentv2
@@ -652,9 +655,9 @@ DECLARE_Bool(enable_metric_calculator);
 // max consumer num in one data consumer group, for routine load
 DECLARE_mInt32(max_consumer_num_per_group);
 
-// the size of thread pool for routine load task.
+// the max size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
-DECLARE_Int32(routine_load_thread_pool_size);
+DECLARE_Int32(max_routine_load_thread_pool_size);
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
@@ -1108,6 +1111,8 @@ DECLARE_mBool(enable_delete_when_cumu_compaction);
 // max_write_buffer_number for rocksdb
 DECLARE_Int32(rocksdb_max_write_buffer_number);
 
+// Convert date 0000-00-00 to 0000-01-01. It's recommended to set to false.
+DECLARE_mBool(allow_zero_date);
 // Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
 DECLARE_mBool(allow_invalid_decimalv2_literal);
 // Allow to specify kerberos credentials cache path.
@@ -1141,6 +1146,8 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
+// missing rows correctness check when compaction for mow table
+DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
@@ -1217,6 +1224,8 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
+
+DECLARE_mBool(ignore_schema_change_check);
 
 #ifdef BE_TEST
 // test s3

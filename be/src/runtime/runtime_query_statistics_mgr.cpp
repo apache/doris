@@ -83,8 +83,8 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
 
         if (!coord_status.ok()) {
             std::stringstream ss;
-            LOG(WARNING) << "could not get client " << add_str
-                         << " when report workload runtime stats, reason is "
+            LOG(WARNING) << "[report_query_statistics]could not get client " << add_str
+                         << " when report workload runtime stats, reason:"
                          << coord_status.to_string();
             continue;
         }
@@ -103,26 +103,38 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
             coord->reportExecStatus(res, params);
             rpc_result[addr] = true;
         } catch (apache::thrift::TApplicationException& e) {
-            LOG(WARNING) << "fe " << add_str
-                         << " throw exception when report statistics, reason=" << e.what()
+            LOG(WARNING) << "[report_query_statistics]fe " << add_str
+                         << " throw exception when report statistics, reason:" << e.what()
                          << " , you can see fe log for details.";
         } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "report workload runtime statistics to " << add_str
-                         << " failed,  err: " << e.what();
+            LOG(WARNING) << "[report_query_statistics]report workload runtime statistics to "
+                         << add_str << " failed,  reason: " << e.what();
             rpc_status = coord.reopen();
             if (!rpc_status.ok()) {
-                LOG(WARNING)
-                        << "reopen thrift client failed when report workload runtime statistics to"
-                        << add_str;
+                LOG(WARNING) << "[report_query_statistics]reopen thrift client failed when report "
+                                "workload runtime statistics to"
+                             << add_str;
             } else {
                 try {
                     coord->reportExecStatus(res, params);
                     rpc_result[addr] = true;
                 } catch (apache::thrift::transport::TTransportException& e2) {
-                    LOG(WARNING) << "retry report workload runtime stats to " << add_str
-                                 << " failed,  err: " << e2.what();
+                    LOG(WARNING)
+                            << "[report_query_statistics]retry report workload runtime stats to "
+                            << add_str << " failed,  reason: " << e2.what();
+                } catch (std::exception& e) {
+                    LOG_WARNING(
+                            "[report_query_statistics]unknow exception when report workload "
+                            "runtime statistics to {}, "
+                            "reason:{}. ",
+                            add_str, e.what());
                 }
             }
+        } catch (std::exception& e) {
+            LOG_WARNING(
+                    "[report_query_statistics]unknown exception when report workload runtime "
+                    "statistics to {}, reason:{}. ",
+                    add_str, e.what());
         }
     }
 

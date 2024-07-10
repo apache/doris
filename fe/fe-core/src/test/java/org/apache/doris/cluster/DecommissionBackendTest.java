@@ -22,6 +22,10 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.clone.RebalancerTestUtil;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -39,13 +43,12 @@ import java.util.List;
 public class DecommissionBackendTest extends TestWithFeService {
     @Override
     protected int backendNum() {
-        return 3;
+        return 4;
     }
 
     @Override
     protected void beforeCluster() {
         FeConstants.runningUnitTest = true;
-        needCleanDir = false;
     }
 
     @BeforeAll
@@ -56,10 +59,14 @@ public class DecommissionBackendTest extends TestWithFeService {
     @Override
     protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 1000;
-        FeConstants.tablet_checker_interval_ms = 1000;
+        FeConstants.tablet_checker_interval_ms = 100;
+        FeConstants.tablet_schedule_interval_ms = 100;
         Config.tablet_repair_delay_factor_second = 1;
         Config.allow_replica_on_same_host = true;
         Config.disable_balance = true;
+        Config.schedule_batch_size = 1000;
+        Config.schedule_slot_num_per_hdd_path = 1000;
+        FeConstants.heartbeat_interval_second = 5;
     }
 
     @Test
@@ -76,6 +83,7 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         // 3. create table tbl1
         createTable("create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
+        RebalancerTestUtil.updateReplicaPathHash();
 
         // 4. query tablet num
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
@@ -133,6 +141,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         createTable("create table db2.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '"
                 + availableBeNum + "');");
         createTable("create table db2.tbl2(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
+        RebalancerTestUtil.updateReplicaPathHash();
 
         // 4. query tablet num
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
@@ -180,9 +189,81 @@ public class DecommissionBackendTest extends TestWithFeService {
         // recover tbl1, because tbl1 has more than one replica, so it still can be recovered
         Assertions.assertDoesNotThrow(() -> recoverTable("db2.tbl1"));
         Assertions.assertDoesNotThrow(() -> showCreateTable(sql));
+        dropTable("db2.tbl1", false);
 
         addNewBackend();
         Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
     }
 
+    @Test
+    public void testDecommissionBackendWithColocateGroup() throws Exception {
+        // 1. create connect context
+        connectContext = createDefaultCtx();
+
+        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
+        Assertions.assertEquals(backendNum(), idToBackendRef.size());
+
+        // 2. create database db1
+        createDatabase("db4");
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
+
+        // 3. create table
+        createTable("CREATE TABLE db4.table1 (\n"
+                + " `c1` varchar(20) NULL,\n"
+                + " `c2` bigint(20) NULL,\n"
+                + " `c3` int(20) not NULL,\n"
+                + " `k4` bitmap BITMAP_UNION NULL,\n"
+                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
+                + "COMMENT 'OLAP'\n"
+                + "DISTRIBUTED BY HASH(`c2`) BUCKETS 20\n"
+                + "PROPERTIES(\n"
+                + "  'colocate_with' = 'foo',\n"
+                + "  'replication_num' = '3'\n"
+                + ")"
+                + ";");
+
+        RebalancerTestUtil.updateReplicaPathHash();
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db4");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("table1");
+        Assertions.assertNotNull(tbl);
+
+        Partition partition = tbl.getPartitions().iterator().next();
+        Tablet tablet = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)
+                .iterator().next().getTablets().iterator().next();
+        Assertions.assertNotNull(tablet);
+        Backend srcBackend = Env.getCurrentSystemInfo().getBackend(tablet.getReplicas().get(0).getBackendId());
+        Assertions.assertNotNull(srcBackend);
+
+        // 4. query tablet num
+        int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
+
+        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:"
+                + srcBackend.getHeartbeatPort() + "\"";
+        AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
+
+        Assertions.assertTrue(srcBackend.isDecommissioned());
+        long startTimestamp = System.currentTimeMillis();
+        while (System.currentTimeMillis() - startTimestamp < 90000
+            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+            Thread.sleep(1000);
+        }
+
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+
+        // For now, we have pre-built internal table: analysis_job and column_statistics
+        Assertions.assertEquals(tabletNum,
+                Env.getCurrentInvertedIndex().getTabletMetaMap().size());
+
+        for (Replica replica : tablet.getReplicas()) {
+            Assertions.assertTrue(replica.getBackendId() != srcBackend.getId());
+        }
+
+        // 6. add backend
+        addNewBackend();
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+    }
 }

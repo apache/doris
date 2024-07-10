@@ -173,8 +173,6 @@ Status NewOlapScanNode::_init_profile() {
     _inverted_index_query_timer = ADD_TIMER(_segment_profile, "InvertedIndexQueryTime");
     _inverted_index_query_null_bitmap_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexQueryNullBitmapTime");
-    _inverted_index_query_file_exists_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexQueryFileExistsTime");
     _inverted_index_query_bitmap_copy_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapCopyTime");
     _inverted_index_query_bitmap_op_timer =
@@ -513,8 +511,8 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                                      const std::vector<OlapScanRange*>& key_ranges,
                                      TabletReader::ReadSource read_source) {
             std::shared_ptr<NewOlapScanner> scanner = NewOlapScanner::create_shared(
-                    _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation, scan_range,
-                    key_ranges, std::move(read_source), _scanner_profile.get());
+                    _state, this, _limit, _olap_scan_node.is_preaggregation, scan_range, key_ranges,
+                    std::move(read_source), _scanner_profile.get());
 
             RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
             scanner->set_compound_filters(_compound_filters);
@@ -605,8 +603,8 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         auto build_new_scanner = [&](const TPaloScanRange& scan_range,
                                      const std::vector<OlapScanRange*>& key_ranges) {
             std::shared_ptr<NewOlapScanner> scanner = NewOlapScanner::create_shared(
-                    _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation, scan_range,
-                    key_ranges, _scanner_profile.get());
+                    _state, this, _limit, _olap_scan_node.is_preaggregation, scan_range, key_ranges,
+                    _scanner_profile.get());
 
             RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
             scanner->set_compound_filters(_compound_filters);

@@ -148,6 +148,10 @@ public class Config extends ConfigBase {
                     + "The default is * to allow all, if set to empty, all are not allowed"})
     public static String jdbc_driver_secure_path = "*";
 
+    @ConfField(description = {"强制 SQLServer Jdbc Catalog 加密为 false",
+            "Force SQLServer Jdbc Catalog encrypt to false"})
+    public static boolean force_sqlserver_jdbc_encrypt_false = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 1;
@@ -1126,16 +1130,22 @@ public class Config extends ConfigBase {
      * the max concurrent routine load task num of a single routine load job
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_concurrent_num = 5;
+    public static int max_routine_load_task_concurrent_num = 256;
 
     /**
      * the max concurrent routine load task num per BE.
      * This is to limit the num of routine load tasks sending to a BE, and it should also less
-     * than BE config 'routine_load_thread_pool_size'(default 10),
-     * which is the routine load task thread pool size on BE.
+     * than BE config 'max_routine_load_thread_pool_size'(default 1024),
+     * which is the routine load task thread pool max size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_num_per_be = 5;
+    public static int max_routine_load_task_num_per_be = 1024;
+
+    /**
+     * the max timeout of get kafka meta.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_get_kafka_meta_timeout_second = 60;
 
     /**
      * The max number of files store in SmallFileMgr
@@ -1221,7 +1231,7 @@ public class Config extends ConfigBase {
      * a period for auto resume routine load
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int period_of_auto_resume_min = 5;
+    public static int period_of_auto_resume_min = 10;
 
     /**
      * If set to true, the backend will be automatically dropped after finishing decommission.

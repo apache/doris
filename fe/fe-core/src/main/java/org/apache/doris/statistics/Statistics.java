@@ -191,4 +191,22 @@ public class Statistics {
         }
         return builder.toString();
     }
+
+    public Statistics normalizeByRatio(double originRowCount) {
+        if (rowCount >= originRowCount || rowCount <= 0) {
+            return this;
+        }
+        StatisticsBuilder builder = new StatisticsBuilder(this);
+        double ratio = rowCount / originRowCount;
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            ColumnStatistic colStats = entry.getValue();
+            if (colStats.numNulls != 0 || colStats.ndv > rowCount) {
+                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(colStats);
+                colStatsBuilder.setNumNulls(colStats.numNulls * ratio);
+                colStatsBuilder.setNdv(Math.min(rowCount - colStatsBuilder.getNumNulls(), colStats.ndv));
+                builder.putColumnStatistics(entry.getKey(), colStatsBuilder.build());
+            }
+        }
+        return builder.build();
+    }
 }

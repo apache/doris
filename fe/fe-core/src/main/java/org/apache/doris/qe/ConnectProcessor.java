@@ -214,7 +214,9 @@ public class ConnectProcessor {
     // process COM_EXECUTE, parse binary row data
     // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
     private void handleExecute() {
-        // debugPacket();
+        if (LOG.isDebugEnabled()) {
+            debugPacket();
+        }
         packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
         // parse stmt_id, flags, params
         int stmtId = packetBuf.getInt();
@@ -430,7 +432,11 @@ public class ConnectProcessor {
                 executor.execute();
                 if (i != stmts.size() - 1) {
                     ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
-                    if (ctx.getState().getStateType() != MysqlStateType.ERR) {
+                    // here, doris do different with mysql.
+                    // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
+                    // single statement. Doris treat it with multi statement, but only return
+                    // the last statement result.
+                    if (ctx.getCapability().isClientMultiStatements()) {
                         finalizeCommand();
                     }
                 }

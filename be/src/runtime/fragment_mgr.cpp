@@ -692,9 +692,16 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
 
         query_ctx->coord_addr = params.coord;
+        if (params.__isset.current_connect_fe) {
+            query_ctx->current_connect_fe = params.current_connect_fe;
+        } else {
+            // for upgrade, fe may not set current_connect_fe, we use coord instead
+            query_ctx->current_connect_fe = params.coord;
+        }
         LOG(INFO) << "query_id: " << UniqueId(query_ctx->query_id.hi, query_ctx->query_id.lo)
                   << " coord_addr " << query_ctx->coord_addr
-                  << " total fragment num on current host: " << params.fragment_num_on_host;
+                  << " total fragment num on current host: " << params.fragment_num_on_host
+                  << " report audit fe:" << query_ctx->current_connect_fe;
         query_ctx->query_globals = params.query_globals;
 
         if (params.__isset.resource_info) {

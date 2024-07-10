@@ -627,16 +627,6 @@ Status DataDir::load() {
     return Status::OK();
 }
 
-void DataDir::add_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.insert(id);
-}
-
-void DataDir::remove_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.erase(id);
-}
-
 void DataDir::perform_path_gc() {
     std::unique_lock<std::mutex> lck(_check_path_mutex);
     _check_path_cv.wait(lck, [this] {
@@ -684,6 +674,8 @@ void DataDir::_perform_path_gc_by_tablet() {
             // could find the tablet, then skip check it
             continue;
         }
+        // data_dir_path/data/8/10031/1785511963
+        // data_dir_path/
         std::string data_dir_path =
                 io::Path(path).parent_path().parent_path().parent_path().parent_path();
         DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_path);
@@ -691,7 +683,19 @@ void DataDir::_perform_path_gc_by_tablet() {
             LOG(WARNING) << "could not find data dir for tablet path " << path;
             continue;
         }
-        _tablet_manager->try_delete_unused_tablet_path(data_dir, tablet_id, schema_hash, path);
+        // data_dir_path/data/8
+        std::string shard_path = io::Path(path).parent_path().parent_path();
+        std::filesystem::path sp(shard_path);
+        int16_t shard_id = -1;
+        try {
+            // 8
+            shard_id = std::stoi(sp.filename().string());
+        } catch (const std::exception&) {
+            LOG(WARNING) << "failed to stoi shard_id, shard name=" << sp.filename().string();
+            continue;
+        }
+        _tablet_manager->try_delete_unused_tablet_path(data_dir, tablet_id, schema_hash, path,
+                                                       shard_id);
     }
     _all_tablet_schemahash_paths.clear();
     LOG(INFO) << "finished one time path gc by tablet.";
@@ -840,11 +844,6 @@ void DataDir::_process_garbage_path(const std::string& path) {
     }
 }
 
-bool DataDir::_check_pending_ids(const std::string& id) {
-    std::shared_lock rd_lock(_pending_path_mutex);
-    return _pending_path_ids.find(id) != _pending_path_ids.end();
-}
-
 Status DataDir::update_capacity() {
     RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path, &_disk_capacity_bytes,
                                                                   &_available_bytes));
@@ -947,8 +946,16 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     }
 
     // 5. check parent dir of source file, delete it when empty
+    RETURN_IF_ERROR(delete_tablet_parent_path_if_empty(tablet_path));
+
+    return Status::OK();
+}
+
+Status DataDir::delete_tablet_parent_path_if_empty(const std::string& tablet_path) {
+    auto fs_tablet_path = io::Path(tablet_path);
     std::string source_parent_dir = fs_tablet_path.parent_path(); // tablet_id level
     std::vector<io::FileInfo> sub_files;
+    bool exists = true;
     RETURN_IF_ERROR(
             io::global_local_filesystem()->list(source_parent_dir, false, &sub_files, &exists));
     if (sub_files.empty()) {
@@ -956,7 +963,6 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
         // no need to exam return status
         io::global_local_filesystem()->delete_directory(source_parent_dir);
     }
-
     return Status::OK();
 }
 

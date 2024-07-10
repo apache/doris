@@ -39,7 +39,7 @@ public final class FunctionAlias implements ExprRewriteRule {
             .put("schema", "database").put("day", "dayofmonth").put("date_add", "days_add").put("adddate", "days_add")
             .put("date_sub", "days_sub").put("subdate", "days_sub").put("lcase", "lower")
             .put("add_months", "months_add")
-            .put("current_timestamp", "now").put("localtime", "now").put("localtimestamp", "now").put("ifnull", "nvl")
+            .put("current_timestamp", "now").put("localtime", "now").put("localtimestamp", "now").put("nvl", "ifnull")
             .put("rand", "random").put("sha", "sha1").put("substr", "substring").put("ucase", "upper").build();
 
     @Override
