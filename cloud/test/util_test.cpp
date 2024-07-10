@@ -73,13 +73,13 @@ TEST(StringUtilTest, test_string_strip) {
         {""              , ""      , "/"    },
         {"/"             , ""      , "/"    },
         {"\t////"        , ""      , "/ \t" },
-        {"/a///"         , "a///"  , "/"    },
+        {"/a ///"        , "a "    , "/"    },
         {"/a/b/c/"       , "a/b/c/", "/"    },
         {"a/b/c/"        , "a/b/c/", "/"    },
         {"a/b/c"         , "a/b/c" , "/ \t" },
         {"\t/bbc///"     , "bbc"   , "/ \t" },
         {"\t////"        , "\t////", "abc"  },
-        {"abc"           , ""      , "abc"  },
+        {"ab c"          , " "     , "abc"  },
         {"\t  /a/b/c \t/", "a/b/c" , " \t /"},
     };
     for (auto&& i : trim_inputs) {
