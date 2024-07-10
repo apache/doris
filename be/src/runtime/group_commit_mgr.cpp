@@ -23,6 +23,7 @@
 #include <chrono>
 
 #include "client_cache.h"
+#include "cloud/config.h"
 #include "common/compiler_util.h"
 #include "common/config.h"
 #include "common/status.h"
