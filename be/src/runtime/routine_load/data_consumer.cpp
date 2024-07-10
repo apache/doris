@@ -268,6 +268,7 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             LOG(WARNING) << "kafka consume failed: " << _id << ", msg: " << ss.str();
             st = Status::InternalError<false>(ss.str());
             break;
+        }
         case RdKafka::ERR__PARTITION_EOF: {
             LOG(INFO) << "consumer meet partition eof: " << _id
                       << " partition offset: " << msg->offset();
