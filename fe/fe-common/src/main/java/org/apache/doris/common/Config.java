@@ -2901,7 +2901,7 @@ public class Config extends ConfigBase {
     public static String streamload_redirect_policy = "";
 
     @ConfField(mutable = true)
-    public static boolean cool_query_replica_affinity = true;
+    public static boolean enable_cooldown_replica_affinity = true;
 
     //==========================================================================
     //                      end of cloud config

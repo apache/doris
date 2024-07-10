@@ -864,7 +864,7 @@ public class OlapScanNode extends ScanNode {
                 }
             }
 
-            if (Config.cool_query_replica_affinity) {
+            if (Config.enable_cooldown_replica_affinity) {
                 final long coolDownReplicaId = tablet.getCooldownReplicaId();
                 // we prefer to query using cooldown replica to make sure the cache is fully utilized
                 // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
