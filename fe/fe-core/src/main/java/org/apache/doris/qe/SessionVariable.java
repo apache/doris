@@ -1039,7 +1039,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
-    public boolean enableFoldConstantByBe = true;
+    public boolean enableFoldConstantByBe = false;
     @VariableMgr.VarAttr(name = DEBUG_SKIP_FOLD_CONSTANT)
     public boolean debugSkipFoldConstant = false;
 
@@ -3855,6 +3855,15 @@ public class SessionVariable implements Serializable, Writable {
         setIsSingleSetVar(true);
         VariableMgr.setVar(this,
                 new SetVar(SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, new StringLiteral("true")));
+    }
+
+    public void disableConstantFoldingByBEOnce() throws DdlException {
+        if (!enableFoldConstantByBe) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, new StringLiteral("false")));
     }
 
     public void disableNereidsPlannerOnce() throws DdlException {

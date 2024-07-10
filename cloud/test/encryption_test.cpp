@@ -21,8 +21,8 @@
 #include "common/config.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/mem_txn_kv.h"
 #include "meta-service/txn_kv.h"
@@ -188,9 +188,11 @@ TEST(EncryptionTest, RootKeyTestWithKms2) {
         auto sp = SyncPoint::get_instance();
         std::unique_ptr<int, std::function<void(int*)>> defer(
                 (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-        sp->set_call_back("alikms::generate_data_key::ret::pred",
-                          [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
-        sp->set_call_back("alikms::generate_data_key::ret", [](void* p) { *((int*)p) = -1; });
+        sp->set_call_back("alikms::generate_data_key", [](auto&& args) {
+            auto* ret = try_any_cast_ret<int>(args);
+            ret->first = -1;
+            ret->second = true;
+        });
         sp->enable_processing();
 
         auto ret = init_global_encryption_key_info_map(mem_kv.get());
@@ -207,14 +209,16 @@ TEST(EncryptionTest, RootKeyTestWithKms2) {
         // mock succ to generate key
         auto sp = SyncPoint::get_instance();
         std::unique_ptr<int, std::function<void(int*)>> defer(
-                (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-        sp->set_call_back("alikms::generate_data_key::plaintext",
-                          [&](void* p) { *((std::string*)p) = mock_encoded_plaintext; });
-        sp->set_call_back("alikms::generate_data_key::ciphertext",
-                          [&](void* p) { *((std::string*)p) = mock_encoded_ciphertext; });
-        sp->set_call_back("alikms::generate_data_key::ret::pred",
-                          [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
-        sp->set_call_back("alikms::generate_data_key::ret", [](void* p) { *((int*)p) = 0; });
+                (int*)0x01, [&](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+        sp->set_call_back("alikms::generate_data_key", [&](auto&& args) {
+            auto* ciphertext = try_any_cast<std::string*>(args[0]);
+            *ciphertext = mock_encoded_ciphertext;
+            auto* plaintext = try_any_cast<std::string*>(args[1]);
+            *plaintext = mock_encoded_plaintext;
+            auto* ret = try_any_cast_ret<int>(args);
+            ret->first = 0;
+            ret->second = true;
+        });
         sp->enable_processing();
         auto ret = init_global_encryption_key_info_map(mem_kv.get());
         ASSERT_EQ(ret, 0);
@@ -244,12 +248,14 @@ TEST(EncryptionTest, RootKeyTestWithKms2) {
         global_encryption_key_info_map.clear();
 
         // mock abnormal decryption
-        auto sp = SyncPoint::get_instance();
+        auto* sp = SyncPoint::get_instance();
         std::unique_ptr<int, std::function<void(int*)>> defer(
                 (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-        sp->set_call_back("alikms::decrypt::ret::pred",
-                          [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
-        sp->set_call_back("alikms::decrypt::ret", [](void* p) { *((int*)p) = -1; });
+        sp->set_call_back("alikms::decrypt", [](auto&& args) {
+            auto* ret = try_any_cast_ret<int>(args);
+            ret->first = -1;
+            ret->second = true;
+        });
         sp->enable_processing();
 
         // memkv already has key info
@@ -263,11 +269,13 @@ TEST(EncryptionTest, RootKeyTestWithKms2) {
         auto sp = SyncPoint::get_instance();
         std::unique_ptr<int, std::function<void(int*)>> defer(
                 (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-        sp->set_call_back("alikms::decrypt::output",
-                          [&](void* p) { *((std::string*)p) = mock_encoded_plaintext; });
-        sp->set_call_back("alikms::decrypt::ret::pred",
-                          [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
-        sp->set_call_back("alikms::decrypt::ret", [](void* p) { *((int*)p) = 0; });
+        sp->set_call_back("alikms::decrypt", [&](auto&& args) {
+            auto* output = try_any_cast<std::string*>(args[0]);
+            *output = mock_encoded_plaintext;
+            auto* ret = try_any_cast_ret<int>(args);
+            ret->first = 0;
+            ret->second = true;
+        });
         sp->enable_processing();
         auto ret = init_global_encryption_key_info_map(mem_kv.get());
         ASSERT_EQ(ret, 0);
@@ -314,19 +322,23 @@ TEST(EncryptionTest, RootKeyTestWithKms3) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("alikms::generate_data_key::plaintext",
-                      [&](void* p) { *((std::string*)p) = mock_encoded_plaintext; });
-    sp->set_call_back("alikms::generate_data_key::ciphertext",
-                      [&](void* p) { *((std::string*)p) = mock_encoded_ciphertext; });
-    sp->set_call_back("alikms::generate_data_key::ret::pred",
-                      [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
-    sp->set_call_back("alikms::generate_data_key::ret", [](void* p) { *((int*)p) = 0; });
+    sp->set_call_back("alikms::generate_data_key", [&](auto&& args) {
+        auto* ciphertext = try_any_cast<std::string*>(args[0]);
+        *ciphertext = mock_encoded_ciphertext;
+        auto* plaintext = try_any_cast<std::string*>(args[1]);
+        *plaintext = mock_encoded_plaintext;
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = 0;
+        ret->second = true;
+    });
 
-    sp->set_call_back("alikms::decrypt::output",
-                      [&](void* p) { *((std::string*)p) = mock_encoded_plaintext; });
-    sp->set_call_back("alikms::decrypt::ret::pred",
-                      [](void* pred) { *reinterpret_cast<bool*>(pred) = true; });
-    sp->set_call_back("alikms::decrypt::ret", [](void* p) { *((int*)p) = 0; });
+    sp->set_call_back("alikms::decrypt", [&](auto&& args) {
+        auto* output = try_any_cast<std::string*>(args[0]);
+        *output = mock_encoded_plaintext;
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = 0;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     global_encryption_key_info_map.clear();

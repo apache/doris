@@ -85,6 +85,7 @@ else()
     set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed-$ENV{DORIS_BRANCH}")
 endif()
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
+set(COMMON_SRC_DIR "${BASE_DIR}/../common")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
@@ -260,6 +261,7 @@ include_directories(
 include_directories(
     SYSTEM
     ${GENSRC_DIR}/
+    ${COMMON_SRC_DIR}
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
@@ -329,6 +331,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     Recycler
     RateLimiter
     ${WL_END_GROUP}
+    CommonCPP
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
@@ -456,6 +459,8 @@ add_subdirectory(${SRC_DIR}/resource-manager)
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR})
 endif ()
+
+add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
 if (${MAKE_TEST} STREQUAL "OFF")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
