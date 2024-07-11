@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_tvf_based_broker_load_p2", "p2") {
+suite("test_tvf_based_broker_load", "p2") {
 
     def tables = ["part",
                   "upper_case",
@@ -249,8 +249,8 @@ suite("test_tvf_based_broker_load_p2", "p2") {
         try {
             def i = 0
             for (String table in tables) {
-                sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
-                sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
+                sql new File("""${context.file.parent}/../ddl/${table}_drop.sql""").text
+                sql new File("""${context.file.parent}/../ddl/${table}_create.sql""").text
                 def uuid = UUID.randomUUID().toString().replace("-", "0")
                 uuids.add(uuid)
                 do_load_job.call(uuid, paths[i], table, columns_list[i], column_in_paths[i], preceding_filters[i],
@@ -304,7 +304,7 @@ suite("test_tvf_based_broker_load_p2", "p2") {
 
         } finally {
             for (String table in tables) {
-                sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
+                sql new File("""${context.file.parent}/../ddl/${table}_drop.sql""").text
             }
         }
     }
