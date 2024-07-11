@@ -285,12 +285,9 @@ public class CreateFunctionTest {
         testFunctionQuery(ctx, queryStr, true);
 
         queryStr = "select to_char(k1, 4) from db2.tbl1;";
-<<<<<<< HEAD
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
-=======
+
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
                 "CAST(`k1` AS CHARACTER(255))"));
->>>>>>> a317eba747 ([Fix](planner) fix bug of char(255) toSql (#37340))
     }
 
     private void testFunctionQuery(ConnectContext ctx, String queryStr, Boolean isStringLiteral) throws Exception {
