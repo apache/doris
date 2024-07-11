@@ -904,13 +904,14 @@ void FragmentMgr::cancel_worker() {
                             bool fe_host_is_standing = std::any_of(
                                     running_fes.begin(), running_fes.end(),
                                     [&q_ctx](const auto& fe) {
-                                        return fe.first.hostname == q_ctx->coord_addr.hostname;
+                                        return fe.first.hostname == q_ctx->coord_addr.hostname &&
+                                               fe.first.port == 0;
                                     });
                             if (fe_host_is_standing) {
                                 LOG_WARNING(
                                         "Coordinator {}:{} is not found, but its host is still "
-                                        "running, "
-                                        "not going to cancel it.",
+                                        "running with an unstable brpc port, not going to cancel "
+                                        "it.",
                                         q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
                                         print_id(q_ctx->query_id()));
                                 continue;
