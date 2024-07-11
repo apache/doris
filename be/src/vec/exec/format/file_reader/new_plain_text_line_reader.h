@@ -72,7 +72,7 @@ public:
         return static_cast<Ctx*>(this)->read_line_impl(start, len);
     }
 
-    [[nodiscard]] inline size_t line_delimiter_length() const {
+    [[nodiscard]] inline size_t line_delimiter_length() const final {
         return line_delimiter_len + line_crlf;
     }
 

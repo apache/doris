@@ -585,6 +585,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
 
+    public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
+
     public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
 
     // When set use fix replica = true, the fixed replica maybe bad, try to use the health one if
@@ -596,8 +598,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
-
-    public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
 
     public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
 
