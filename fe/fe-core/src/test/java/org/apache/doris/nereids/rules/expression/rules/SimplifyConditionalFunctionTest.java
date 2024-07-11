@@ -29,7 +29,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import cfjd.com.google.common.collect.ImmutableList;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper {
     @Test
