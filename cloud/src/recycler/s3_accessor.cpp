@@ -41,6 +41,22 @@
 #include "recycler/s3_obj_client.h"
 #include "recycler/storage_vault_accessor.h"
 
+namespace {
+class CustomRetryStrategy final : public Aws::Client::DefaultRetryStrategy {
+public:
+    CustomRetryStrategy(int maxRetries) : DefaultRetryStrategy(maxRetries) {}
+
+    bool ShouldRetry(const Aws::Client::AWSError<Aws::Client::CoreErrors>& error,
+                     long attemptedRetries) const override {
+        if (attemptedRetries < m_maxRetries &&
+            error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS) {
+            return true;
+        }
+        return Aws::Client::DefaultRetryStrategy::ShouldRetry(error, attemptedRetries);
+    }
+};
+} // namespace
+
 namespace doris::cloud {
 
 struct AccessorRateLimiter {
@@ -231,12 +247,15 @@ int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
 int S3Accessor::init() {
     switch (conf_.provider) {
     case S3Conf::AZURE: {
+        Azure::Storage::Blobs::BlobClientOptions options;
+        options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
+        options.Retry.MaxRetries = config::max_s3_client_retry;
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
         uri_ = fmt::format("{}://{}.blob.core.windows.net/{}", config::s3_client_http_scheme,
                            conf_.ak, conf_.bucket);
-        auto container_client =
-                std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri_, cred);
+        auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+                uri_, cred, std::move(options));
         // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}
         uri_ = uri_ + '/' + conf_.prefix;
         obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
@@ -255,8 +274,8 @@ int S3Accessor::init() {
         if (config::s3_client_http_scheme == "http") {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
-        aws_config.retryStrategy = std::make_shared<Aws::Client::DefaultRetryStrategy>(
-                /*maxRetries = 10, scaleFactor = 25*/);
+        aws_config.retryStrategy = std::make_shared<CustomRetryStrategy>(
+                config::max_s3_client_retry /*scaleFactor = 25*/);
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
                 std::move(aws_cred), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
