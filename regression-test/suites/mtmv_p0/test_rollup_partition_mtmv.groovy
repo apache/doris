@@ -667,7 +667,7 @@ suite("test_rollup_partition_mtmv") {
     sql """
         CREATE TABLE `${tableName}` (
           `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `k2` DATE NOT NULL COMMENT '\"数据灌入日期时间\"'
+          `k2` DATETIME NOT NULL COMMENT '\"数据灌入日期时间\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`k1`)
         COMMENT 'OLAP'
