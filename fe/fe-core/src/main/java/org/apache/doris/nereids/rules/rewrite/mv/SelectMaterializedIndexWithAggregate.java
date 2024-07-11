@@ -71,6 +71,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -96,7 +101,6 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
 
 /**
  * Select materialized index, i.e., both for rollup and materialized view when aggregate is present.
@@ -1466,7 +1470,14 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 return result;
             }
             if (!sum.isDistinct()) {
-                Expression expr = castIfNeed(sum.child(), BigIntType.INSTANCE);
+                Expression expr = sum.child();
+                if (sum.child().getDataType().equals(TinyIntType.INSTANCE)
+                        || sum.child().getDataType().equals(SmallIntType.INSTANCE)
+                        || sum.child().getDataType().equals(IntegerType.INSTANCE)) {
+                    expr = castIfNeed(sum.child(), BigIntType.INSTANCE);
+                } else if (sum.child().getDataType().equals(FloatType.INSTANCE)) {
+                    expr = castIfNeed(sum.child(), DoubleType.INSTANCE);
+                }
                 String sumColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM,
                         CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql())));
                 Column mvColumn = context.checkContext.getColumn(sumColumn);
