@@ -223,8 +223,10 @@ public class Utils {
             if (!correlatedToLeft && !correlatedToRight) {
                 throw new AnalysisException(
                         "Unsupported correlated subquery with correlated predicate " + predicate);
-            } else {
-                unCorrelatedExprs.add(correlatedToLeft ? right : left);
+            } else if (correlatedToLeft && !rightInputSlots.isEmpty()) {
+                unCorrelatedExprs.add(right);
+            } else if (correlatedToRight && !leftInputSlots.isEmpty()) {
+                unCorrelatedExprs.add(left);
             }
         });
         return unCorrelatedExprs;
