@@ -21,6 +21,7 @@
 #include "vec/columns/column_object.h"
 
 #include <assert.h>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
@@ -34,6 +35,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -677,8 +679,6 @@ void ColumnObject::check_consistency() const {
     }
     for (const auto& leaf : subcolumns) {
         if (num_rows != leaf->data.size()) {
-            // LOG(FATAL) << "unmatched column:" << leaf->path.get_path()
-            //            << ", expeted rows:" << num_rows << ", but meet:" << leaf->data.size();
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "unmatched column: {}, expeted rows: {}, but meet: {}",
                                    leaf->path.get_path(), num_rows, leaf->data.size());
@@ -1552,9 +1552,11 @@ void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
     }
     for_each_imutable_subcolumn([&](const auto& subcolumn) {
         if (n >= subcolumn.size()) {
-            LOG(FATAL) << n << " greater than column size " << subcolumn.size()
-                       << " sub_column_info:" << subcolumn.dump_structure()
-                       << " total lines of this column " << num_rows;
+            std::stringstream ss;
+            ss << n << " greater than column size " << subcolumn.size()
+               << " sub_column_info:" << subcolumn.dump_structure()
+               << " total lines of this column " << num_rows;
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, ss.str());
         }
         return subcolumn.update_hash_with_value(n, hash);
     });
@@ -1598,10 +1600,6 @@ Status ColumnObject::sanitize() const {
 
     VLOG_DEBUG << "sanitized " << debug_string();
     return Status::OK();
-}
-
-void ColumnObject::replace_column_data(const IColumn& col, size_t row, size_t self_row) {
-    LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
 }
 
 } // namespace doris::vectorized
