@@ -304,7 +304,7 @@ void MemInfo::init() {
         // upper sys_mem_available_low_water_mark, avoid wasting too much memory.
         _s_sys_mem_available_low_water_mark = std::max<int64_t>(
                 std::min<int64_t>(std::min<int64_t>(_s_physical_mem - _s_mem_limit,
-                                                    int64_t(_s_physical_mem * 0.1)),
+                                                    int64_t(_s_physical_mem * 0.05)),
                                   config::max_sys_mem_available_low_water_mark_bytes),
                 0);
         _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark * 2;
