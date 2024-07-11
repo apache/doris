@@ -2474,6 +2474,10 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setEnableMemtableOnSinkNode(enableMemTableOnSinkNode);
     }
 
+    public void setBatchSize(int batchSize) {
+        this.queryOptions.setBatchSize(batchSize);
+    }
+
     // map from a BE host address to the per-node assigned scan ranges;
     // records scan range assignment for a single fragment
     static class FragmentScanRangeAssignment
