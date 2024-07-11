@@ -96,6 +96,10 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         if (it != _tablets_channels.end()) {
             channel = it->second;
         } else {
+            // just for VLOG
+            if (_txn_id == 0) [[unlikely]] {
+                _txn_id = params.txn_id();
+            }
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
             // TODO(plat1ko): CloudTabletsChannel
@@ -187,7 +191,8 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     // for init node, we close waiting(hang on) all close request and let them return together.
     if (request.has_hang_wait() && request.hang_wait()) {
         DCHECK(!channel->is_incremental_channel());
-        VLOG_TRACE << "reciever close waiting!" << request.sender_id();
+        VLOG_DEBUG << fmt::format("txn {}: reciever index {} close waiting by sender {}", _txn_id,
+                                  request.index_id(), request.sender_id());
         int count = 0;
         while (!channel->is_finished()) {
             bthread_usleep(1000);
@@ -209,7 +214,7 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
                     std::make_pair(channel->total_received_rows(), channel->num_rows_filtered())));
             _tablets_channels.erase(index_id);
         }
-        VLOG_NOTICE << "load " << _load_id.to_string() << " closed tablets_channel " << index_id;
+        LOG(INFO) << "txn " << _txn_id << " closed tablets_channel " << index_id;
         _finished_channel_ids.emplace(index_id);
     }
     return Status::OK();

@@ -45,8 +45,7 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     _kv_cache.reset(new vectorized::ShardedKVCache(shard_num));
     for (int i = 0; i < _max_scanners; ++i) {
         std::unique_ptr<vectorized::VFileScanner> scanner = vectorized::VFileScanner::create_unique(
-                state(), this, p._limit_per_scanner, _split_source, _scanner_profile.get(),
-                _kv_cache.get());
+                state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get());
         RETURN_IF_ERROR(
                 scanner->prepare(_conjuncts, &_colname_to_value_range, &_colname_to_slot_id));
         scanners->push_back(std::move(scanner));
@@ -72,8 +71,9 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         auto scan_range = scan_ranges[0].scan_range.ext_scan_range.file_scan_range;
         if (scan_range.__isset.split_source) {
             auto split_source = scan_range.split_source;
+            RuntimeProfile::Counter* get_split_timer = ADD_TIMER(_runtime_profile, "GetSplitTime");
             _split_source = std::make_shared<vectorized::RemoteSplitSourceConnector>(
-                    state, split_source.split_source_id, split_source.num_splits);
+                    state, get_split_timer, split_source.split_source_id, split_source.num_splits);
         }
     }
     if (_split_source == nullptr) {

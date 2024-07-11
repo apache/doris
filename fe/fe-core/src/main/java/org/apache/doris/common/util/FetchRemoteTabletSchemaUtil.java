@@ -32,6 +32,7 @@ import org.apache.doris.proto.InternalService.PFetchRemoteSchemaResponse;
 import org.apache.doris.proto.InternalService.PTabletsLocation;
 import org.apache.doris.proto.OlapFile.ColumnPB;
 import org.apache.doris.proto.OlapFile.TabletSchemaPB;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -91,6 +92,8 @@ public class FetchRemoteTabletSchemaUtil {
             Long backendId = entry.getKey();
             Set<Long> tabletIds = entry.getValue();
             Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(backendId);
+            LOG.debug("fetch schema from coord backend {}, sample tablets count {}",
+                            backend.getId(), tabletIds.size());
             // only need alive be
             if (!backend.isAlive()) {
                 continue;
@@ -116,7 +119,8 @@ public class FetchRemoteTabletSchemaUtil {
                                             .fetchRemoteTabletSchemaAsync(be.getBrpcAddress(), request);
                 PFetchRemoteSchemaResponse response = null;
                 try {
-                    response = future.get(60, TimeUnit.SECONDS);
+                    response = future.get(
+                        ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds, TimeUnit.SECONDS);
                     TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
                     String errMsg;
                     if (code != TStatusCode.OK) {

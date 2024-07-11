@@ -23,6 +23,7 @@
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "util/time.h"
+#include "vec/common/schema_util.h"
 
 namespace doris {
 
@@ -30,7 +31,16 @@ static bvar::Adder<size_t> g_total_rowset_num("doris_total_rowset_num");
 
 Rowset::Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta)
         : _rowset_meta(rowset_meta), _refs_by_reader(0) {
-    _is_pending = !_rowset_meta->has_version();
+    _is_pending = true;
+
+    // Generally speaking, as long as a rowset has a version, it can be considered not to be in a pending state.
+    // However, if the rowset was created through ingesting binlogs, it will have a version but should still be
+    // considered in a pending state because the ingesting txn has not yet been committed.
+    if (_rowset_meta->has_version() && _rowset_meta->start_version() > 0 &&
+        _rowset_meta->rowset_state() != COMMITTED) {
+        _is_pending = false;
+    }
+
     if (_is_pending) {
         _is_cumulative = false;
     } else {
@@ -97,6 +107,21 @@ void Rowset::merge_rowset_meta(const RowsetMetaSharedPtr& other) {
     other->get_segments_key_bounds(&key_bounds);
     for (auto key_bound : key_bounds) {
         _rowset_meta->add_segment_key_bounds(key_bound);
+    }
+
+    // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
+    // Otherwise the schema is stale and lead to wrong data read
+    if (tablet_schema()->num_variant_columns() > 0) {
+        // merge extracted columns
+        TabletSchemaSPtr merged_schema;
+        static_cast<void>(vectorized::schema_util::get_least_common_schema(
+                {tablet_schema(), other->tablet_schema()}, nullptr, merged_schema));
+        if (*_schema != *merged_schema) {
+            _rowset_meta->set_tablet_schema(merged_schema);
+        }
+        // rowset->meta_meta()->tablet_schema() maybe updated so make sure _schema is
+        // consistent with rowset meta
+        _schema = _rowset_meta->tablet_schema();
     }
 }
 

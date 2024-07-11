@@ -36,10 +36,12 @@ void QueryStatisticsCtx::collect_query_statistics(TQueryStatistics* tq_s) {
 
 void RuntimeQueryStatiticsMgr::register_query_statistics(std::string query_id,
                                                          std::shared_ptr<QueryStatistics> qs_ptr,
-                                                         TNetworkAddress fe_addr) {
+                                                         TNetworkAddress fe_addr,
+                                                         TQueryType::type query_type) {
     std::lock_guard<std::shared_mutex> write_lock(_qs_ctx_map_lock);
     if (_query_statistics_ctx_map.find(query_id) == _query_statistics_ctx_map.end()) {
-        _query_statistics_ctx_map[query_id] = std::make_unique<QueryStatisticsCtx>(fe_addr);
+        _query_statistics_ctx_map[query_id] =
+                std::make_unique<QueryStatisticsCtx>(fe_addr, query_type);
     }
     _query_statistics_ctx_map.at(query_id)->_qs_list.push_back(qs_ptr);
 }
@@ -54,6 +56,9 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
         int64_t current_time = MonotonicMillis();
         int64_t conf_qs_timeout = config::query_statistics_reserve_timeout_ms;
         for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
+            if (qs_ctx_ptr->_query_type == TQueryType::EXTERNAL) {
+                continue;
+            }
             if (fe_qs_map.find(qs_ctx_ptr->_fe_addr) == fe_qs_map.end()) {
                 std::map<std::string, TQueryStatistics> tmp_map;
                 fe_qs_map[qs_ctx_ptr->_fe_addr] = std::move(tmp_map);
@@ -84,8 +89,8 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
         std::string add_str = PrintThriftNetworkAddress(addr);
         if (!coord_status.ok()) {
             std::stringstream ss;
-            LOG(WARNING) << "could not get client " << add_str
-                         << " when report workload runtime stats, reason is "
+            LOG(WARNING) << "[report_query_statistics]could not get client " << add_str
+                         << " when report workload runtime stats, reason:"
                          << coord_status.to_string();
             continue;
         }
@@ -104,26 +109,38 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
             coord->reportExecStatus(res, params);
             rpc_result[addr] = true;
         } catch (apache::thrift::TApplicationException& e) {
-            LOG(WARNING) << "fe " << add_str
-                         << " throw exception when report statistics, reason=" << e.what()
+            LOG(WARNING) << "[report_query_statistics]fe " << add_str
+                         << " throw exception when report statistics, reason:" << e.what()
                          << " , you can see fe log for details.";
         } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "report workload runtime statistics to " << add_str
-                         << " failed,  err: " << e.what();
+            LOG(WARNING) << "[report_query_statistics]report workload runtime statistics to "
+                         << add_str << " failed,  reason: " << e.what();
             rpc_status = coord.reopen();
             if (!rpc_status.ok()) {
-                LOG(WARNING)
-                        << "reopen thrift client failed when report workload runtime statistics to"
-                        << add_str;
+                LOG(WARNING) << "[report_query_statistics]reopen thrift client failed when report "
+                                "workload runtime statistics to"
+                             << add_str;
             } else {
                 try {
                     coord->reportExecStatus(res, params);
                     rpc_result[addr] = true;
                 } catch (apache::thrift::transport::TTransportException& e2) {
-                    LOG(WARNING) << "retry report workload runtime stats to " << add_str
-                                 << " failed,  err: " << e2.what();
+                    LOG(WARNING)
+                            << "[report_query_statistics]retry report workload runtime stats to "
+                            << add_str << " failed,  reason: " << e2.what();
+                } catch (std::exception& e) {
+                    LOG_WARNING(
+                            "[report_query_statistics]unknow exception when report workload "
+                            "runtime statistics to {}, "
+                            "reason:{}. ",
+                            add_str, e.what());
                 }
             }
+        } catch (std::exception& e) {
+            LOG_WARNING(
+                    "[report_query_statistics]unknown exception when report workload runtime "
+                    "statistics to {}, reason:{}. ",
+                    add_str, e.what());
         }
     }
 
@@ -247,6 +264,10 @@ void RuntimeQueryStatiticsMgr::get_active_be_tasks_block(vectorized::Block* bloc
         insert_int_value(8, tqs.current_used_memory_bytes, block);
         insert_int_value(9, tqs.shuffle_send_bytes, block);
         insert_int_value(10, tqs.shuffle_send_rows, block);
+
+        std::stringstream ss;
+        ss << qs_ctx_ptr->_query_type;
+        insert_string_value(11, ss.str(), block);
     }
 }
 

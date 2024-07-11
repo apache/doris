@@ -77,6 +77,7 @@ public class ExternalMetaCacheMgr {
     private ExecutorService rowCountRefreshExecutor;
     private ExecutorService commonRefreshExecutor;
     private ExecutorService fileListingExecutor;
+    private ExecutorService scheduleExecutor;
 
     // catalog id -> HiveMetaStoreCache
     private final Map<Long, HiveMetaStoreCache> cacheMap = Maps.newConcurrentMap();
@@ -109,6 +110,11 @@ public class ExternalMetaCacheMgr {
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "FileListingExecutor", 10, true);
 
+        scheduleExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                Config.max_external_cache_loader_thread_pool_size,
+                Config.max_external_cache_loader_thread_pool_size * 1000,
+                "scheduleExecutor", 10, true);
+
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
 
@@ -119,6 +125,10 @@ public class ExternalMetaCacheMgr {
 
     public ExecutorService getFileListingExecutor() {
         return fileListingExecutor;
+    }
+
+    public ExecutorService getScheduleExecutor() {
+        return scheduleExecutor;
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {

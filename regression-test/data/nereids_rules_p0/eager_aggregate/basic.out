@@ -5,11 +5,11 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------hashAgg[LOCAL]
-----------filter((a.event_id = 'ad_click'))
-------------PhysicalOlapScan[com_dd_library]
---------hashAgg[LOCAL]
 ----------filter((cast(experiment_id as DOUBLE) = 37.0))
 ------------PhysicalOlapScan[shunt_log_com_dd_library]
+--------hashAgg[LOCAL]
+----------filter((a.event_id = 'ad_click'))
+------------PhysicalOlapScan[com_dd_library]
 
 -- !2 --
 PhysicalResultSink
@@ -37,7 +37,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------hashAgg[LOCAL]
-----------PhysicalOlapScan[com_dd_library]
---------hashAgg[LOCAL]
 ----------PhysicalOlapScan[shunt_log_com_dd_library]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[com_dd_library]
 

@@ -79,7 +79,7 @@ Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_
             {_max_version_schema, update_schema}, _max_version_schema, final_schema,
             check_column_size));
     _max_version_schema = final_schema;
-    VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_structure();
+    VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_full_schema();
     return Status::OK();
 }
 

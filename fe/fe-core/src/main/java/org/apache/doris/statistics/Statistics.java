@@ -65,6 +65,10 @@ public class Statistics {
         return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
     }
 
+    public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+    }
+
     /**
      * Update by count.
      */
@@ -118,7 +122,7 @@ public class Statistics {
                         && expressionToColumnStats.get(s).isUnKnown);
     }
 
-    private double computeTupleSize() {
+    public double computeTupleSize() {
         if (tupleSize <= 0) {
             double tempSize = 0.0;
             for (ColumnStatistic s : expressionToColumnStats.values()) {
@@ -199,5 +203,23 @@ public class Statistics {
 
     public int getWidthInJoinCluster() {
         return widthInJoinCluster;
+    }
+
+    public Statistics normalizeByRatio(double originRowCount) {
+        if (rowCount >= originRowCount || rowCount <= 0) {
+            return this;
+        }
+        StatisticsBuilder builder = new StatisticsBuilder(this);
+        double ratio = rowCount / originRowCount;
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            ColumnStatistic colStats = entry.getValue();
+            if (colStats.numNulls != 0 || colStats.ndv > rowCount) {
+                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(colStats);
+                colStatsBuilder.setNumNulls(colStats.numNulls * ratio);
+                colStatsBuilder.setNdv(Math.min(rowCount - colStatsBuilder.getNumNulls(), colStats.ndv));
+                builder.putColumnStatistics(entry.getKey(), colStatsBuilder.build());
+            }
+        }
+        return builder.build();
     }
 }

@@ -105,9 +105,6 @@ public class UnboundTableSinkCreator {
                     isPartialUpdate, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
         } else if (curCatalog instanceof HMSExternalCatalog && !isAutoDetectPartition) {
-            if (!partitions.isEmpty()) {
-                throw new AnalysisException("Not support insert with partition spec in hive catalog.");
-            }
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
         } else if (curCatalog instanceof IcebergExternalCatalog && !isAutoDetectPartition) {

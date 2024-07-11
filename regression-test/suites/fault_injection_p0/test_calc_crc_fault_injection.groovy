@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_calc_crc") {
+suite("test_calc_crc", "nonConcurrent") {
     def calc_file_crc_on_tablet = { ip, port, tablet ->
         return curl("GET", String.format("http://%s:%s/api/calc_crc?tablet_id=%s", ip, port, tablet))
     }

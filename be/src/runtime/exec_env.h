@@ -212,6 +212,7 @@ public:
         return _function_client_cache;
     }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
+    LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr.get(); }
     std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
@@ -262,7 +263,9 @@ public:
         this->_dummy_lru_cache = dummy_lru_cache;
     }
     void set_write_cooldown_meta_executors();
-
+    static void set_tracking_memory(bool tracking_memory) {
+        _s_tracking_memory.store(tracking_memory, std::memory_order_acquire);
+    }
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
@@ -375,6 +378,7 @@ private:
     BfdParser* _bfd_parser = nullptr;
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
+    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
     // TODO(zhiqiang): Do not use shared_ptr in exec_env, we can not control its life cycle.
     std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;

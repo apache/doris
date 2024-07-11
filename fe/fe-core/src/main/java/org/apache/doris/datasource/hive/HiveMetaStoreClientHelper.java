@@ -51,6 +51,7 @@ import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
@@ -66,6 +67,7 @@ import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
 import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -78,6 +80,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -755,6 +758,13 @@ public class HiveMetaStoreClientHelper {
                 output.append("ROW FORMAT SERDE\n")
                         .append(String.format("  '%s'\n", descriptor.getSerdeInfo().getSerializationLib()));
             }
+            if (descriptor.getSerdeInfo().isSetParameters()) {
+                output.append("WITH SERDEPROPERTIES (\n")
+                        .append(descriptor.getSerdeInfo().getParameters().entrySet().stream()
+                        .map(entry -> String.format("  '%s' = '%s'", entry.getKey(), entry.getValue()))
+                        .collect(Collectors.joining(",\n")))
+                        .append(")\n");
+            }
             if (descriptor.isSetInputFormat()) {
                 output.append("STORED AS INPUTFORMAT\n")
                         .append(String.format("  '%s'\n", descriptor.getInputFormat()));
@@ -819,6 +829,15 @@ public class HiveMetaStoreClientHelper {
     public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
         String hudiBasePath = table.getRemoteTable().getSd().getLocation();
         Configuration conf = getConfiguration(table);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try setting 'fs.xxx.impl.disable.cache' to true for hudi's base path: {}", hudiBasePath);
+        }
+        URI hudiBasePathUri = URI.create(hudiBasePath);
+        String scheme = hudiBasePathUri.getScheme();
+        if (!Strings.isNullOrEmpty(scheme)) {
+            // Avoid using Cache in Hadoop FileSystem, which may cause FE OOM.
+            conf.set("fs." + scheme + ".impl.disable.cache", "true");
+        }
         return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf),
                 () -> HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build());
     }
@@ -829,5 +848,29 @@ public class HiveMetaStoreClientHelper {
             conf.set(entry.getKey(), entry.getValue());
         }
         return conf;
+    }
+
+    public static Optional<String> getSerdeProperty(Table table, String key) {
+        String valueFromSd = table.getSd().getSerdeInfo().getParameters().get(key);
+        String valueFromTbl = table.getParameters().get(key);
+        return firstNonNullable(valueFromTbl, valueFromSd);
+    }
+
+    private static Optional<String> firstNonNullable(String... values) {
+        for (String value : values) {
+            if (!Strings.isNullOrEmpty(value)) {
+                return Optional.of(value);
+            }
+        }
+        return Optional.empty();
+    }
+
+    public static String firstPresentOrDefault(String defaultValue, Optional<String>... values) {
+        for (Optional<String> value : values) {
+            if (value.isPresent()) {
+                return value.get();
+            }
+        }
+        return defaultValue;
     }
 }

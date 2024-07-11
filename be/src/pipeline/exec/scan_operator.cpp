@@ -642,9 +642,12 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(
             if (hybrid_set->size() <=
                 _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
                 iter = hybrid_set->begin();
-            } else {
+            } else if (_is_key_column(slot->col_name()) || _storage_no_merge()) {
                 _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
                 *pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
+                return Status::OK();
+            } else {
+                *pdt = vectorized::VScanNode::PushDownType::UNACCEPTABLE;
                 return Status::OK();
             }
         } else {
@@ -786,6 +789,14 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
             vectorized::VScanNode::PushDownType::UNACCEPTABLE;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
+        /// `VDirectInPredicate` here should not be pushed down.
+        /// here means the `VDirectInPredicate` is too big to be converted into `ColumnValueRange`.
+        /// For non-key columns and `_storage_no_merge()` is false, this predicate should not be pushed down.
+        if (expr->get_set_func() != nullptr) {
+            *pdt = vectorized::VScanNode::PushDownType::UNACCEPTABLE;
+            return Status::OK();
+        }
+
         vectorized::VInPredicate* pred = static_cast<vectorized::VInPredicate*>(expr);
         if ((temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, true)) ==
             vectorized::VScanNode::PushDownType::UNACCEPTABLE) {

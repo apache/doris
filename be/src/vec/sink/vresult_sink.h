@@ -67,6 +67,7 @@ struct ResultFileOptions {
     //Now the code version is 1.1.2, so when the version is after 1.2, could remove this code.
     bool is_refactor_before_flag = false;
     std::string orc_schema;
+    TFileCompressType::type orc_compression_type;
 
     bool delete_existing_files = false;
     std::string file_suffix;
@@ -118,6 +119,9 @@ struct ResultFileOptions {
         }
         if (t_opt.__isset.orc_schema) {
             orc_schema = t_opt.orc_schema;
+        }
+        if (t_opt.__isset.orc_compression_type) {
+            orc_compression_type = t_opt.orc_compression_type;
         }
     }
 };

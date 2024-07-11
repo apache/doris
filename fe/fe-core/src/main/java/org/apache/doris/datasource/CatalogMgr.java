@@ -726,9 +726,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         long dbId;
         if (hmsCatalog.getUseMetaCache().get()) {
-            dbId = Env.getCurrentEnv().getExternalMetaIdMgr().getDbId(catalog.getId(), dbName);
-        } else {
             dbId = Util.genTableIdByName(dbName);
+        } else {
+            dbId = Env.getCurrentEnv().getExternalMetaIdMgr().getDbId(catalog.getId(), dbName);
         }
         // -1L means it will be dropped later, ignore
         if (dbId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {

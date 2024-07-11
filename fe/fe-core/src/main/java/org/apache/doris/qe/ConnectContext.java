@@ -35,6 +35,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -233,6 +234,10 @@ public class ConnectContext {
     private Exec exec;
     private boolean runProcedure = false;
 
+    // isProxy used for forward request from other FE and used in one thread
+    // it's default thread-safe
+    private boolean isProxy = false;
+
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);
@@ -246,7 +251,12 @@ public class ConnectContext {
     }
 
     private StatementContext statementContext;
+
+    // legacy planner
     private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
+
+    // new planner
+    private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
 
     private List<TableIf> tables = null;
 
@@ -350,6 +360,7 @@ public class ConnectContext {
             mysqlChannel = new MysqlChannel(connection, this);
         } else if (isProxy) {
             mysqlChannel = new ProxyMysqlChannel();
+            this.isProxy = isProxy;
         } else {
             mysqlChannel = new DummyMysqlChannel();
         }
@@ -384,12 +395,26 @@ public class ConnectContext {
         this.preparedStmtCtxs.put(stmtName, ctx);
     }
 
+    public void addPreparedStatementContext(String stmtName, PreparedStatementContext ctx) throws UserException {
+        if (this.preparedStatementContextMap.size() > sessionVariable.maxPreparedStmtCount) {
+            throw new UserException("Failed to create a server prepared statement"
+                    + "possibly because there are too many active prepared statements on server already."
+                    + "set max_prepared_stmt_count with larger number than " + sessionVariable.maxPreparedStmtCount);
+        }
+        this.preparedStatementContextMap.put(stmtName, ctx);
+    }
+
     public void removePrepareStmt(String stmtName) {
         this.preparedStmtCtxs.remove(stmtName);
+        this.preparedStatementContextMap.remove(stmtName);
     }
 
     public PrepareStmtContext getPreparedStmt(String stmtName) {
         return this.preparedStmtCtxs.get(stmtName);
+    }
+
+    public PreparedStatementContext getPreparedStementContext(String stmtName) {
+        return this.preparedStatementContextMap.get(stmtName);
     }
 
     public List<TableIf> getTables() {
@@ -934,8 +959,8 @@ public class ConnectContext {
             // to ms
             long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
-                LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
-                        timeoutTag, getRemoteHostPortString(), timeout);
+                LOG.warn("kill {} timeout, remote: {}, query timeout: {}, query id: {}",
+                        timeoutTag, getRemoteHostPortString(), timeout, queryId);
                 killFlag = true;
             }
         }
@@ -1010,7 +1035,7 @@ public class ConnectContext {
             if (connId == connectionId) {
                 row.add("Yes");
             } else {
-                row.add("");
+                row.add("No");
             }
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
@@ -1132,5 +1157,9 @@ public class ConnectContext {
 
     public void setUserVars(Map<String, LiteralExpr> userVars) {
         this.userVars = userVars;
+    }
+
+    public boolean isProxy() {
+        return isProxy;
     }
 }

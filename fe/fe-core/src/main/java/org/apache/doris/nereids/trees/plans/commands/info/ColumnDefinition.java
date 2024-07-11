@@ -226,6 +226,9 @@ public class ColumnDefinition {
             } else if (type.isJsonType()) {
                 throw new AnalysisException(
                         "JsonType type should not be used in key column[" + getName() + "].");
+            } else if (type.isVariantType()) {
+                throw new AnalysisException(
+                        "Variant type should not be used in key column[" + getName() + "].");
             } else if (type.isMapType()) {
                 throw new AnalysisException("Map can only be used in the non-key column of"
                         + " the duplicate table at present.");
@@ -261,7 +264,7 @@ public class ColumnDefinition {
         }
 
         if (isOlap) {
-            if (!isKey && keysType.equals(KeysType.UNIQUE_KEYS)) {
+            if (!isKey && (keysType.equals(KeysType.UNIQUE_KEYS) || keysType.equals(KeysType.DUP_KEYS))) {
                 aggTypeImplicit = true;
             }
 

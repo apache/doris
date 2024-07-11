@@ -36,6 +36,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TQueryType;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -195,13 +196,14 @@ public class LoadLoadingTask extends LoadTask {
         curCoordinator.exec();
         if (curCoordinator.join(waitSecond)) {
             Status status = curCoordinator.getExecStatus();
-            if (status.ok()) {
+            if (status.ok() || status.getErrorCode() == TStatusCode.DATA_QUALITY_ERROR) {
                 attachment = new BrokerLoadingTaskAttachment(signature,
                         curCoordinator.getLoadCounters(),
                         curCoordinator.getTrackingUrl(),
                         TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()),
                         ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()
-                                .stream().limit(Config.max_error_tablet_of_broker_load).collect(Collectors.toList())));
+                                .stream().limit(Config.max_error_tablet_of_broker_load).collect(Collectors.toList())),
+                        status);
                 curCoordinator.getErrorTabletInfos().clear();
             } else {
                 throw new LoadException(status.getErrorMsg());

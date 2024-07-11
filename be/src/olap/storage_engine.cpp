@@ -181,6 +181,7 @@ Status StorageEngine::_open() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
     auto dirs = get_stores<false>();
+    _disk_num = dirs.size();
     RETURN_IF_ERROR(load_data_dirs(dirs));
 
     _memtable_flush_executor.reset(new MemTableFlushExecutor());
@@ -709,8 +710,14 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
                           << ", tablet_uid=" << tablet_info.first.tablet_uid;
                 continue;
             }
-            static_cast<void>(StorageEngine::instance()->txn_manager()->delete_txn(
-                    partition_id, tablet, transaction_id));
+            Status s = StorageEngine::instance()->txn_manager()->delete_txn(partition_id, tablet,
+                                                                            transaction_id);
+            if (!s.ok()) {
+                LOG(WARNING) << "failed to clear transaction. txn_id=" << transaction_id
+                             << ", partition_id=" << partition_id
+                             << ", tablet_id=" << tablet_info.first.tablet_id
+                             << ", status=" << s.to_string();
+            }
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
@@ -1034,6 +1041,8 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
                 res = io::global_local_filesystem()->delete_directory(path_name);
+                LOG(INFO) << "do sweep delete directory " << path_name << " local_now " << local_now
+                          << "actual_expire " << actual_expire << " res " << res;
                 if (!res.ok()) {
                     continue;
                 }
@@ -1345,9 +1354,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
@@ -1369,9 +1378,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj2.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
@@ -1393,9 +1402,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj3.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
@@ -1460,26 +1469,6 @@ Status StorageEngine::_persist_broken_paths() {
     }
 
     return Status::OK();
-}
-
-bool StorageEngine::_increase_low_priority_task_nums(DataDir* dir) {
-    if (!config::enable_compaction_priority_scheduling) {
-        return true;
-    }
-    std::lock_guard l(_low_priority_task_nums_mutex);
-    if (_low_priority_task_nums[dir] < config::low_priority_compaction_task_num_per_disk) {
-        _low_priority_task_nums[dir]++;
-        return true;
-    }
-    return false;
-}
-
-void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
-    if (config::enable_compaction_priority_scheduling) {
-        std::lock_guard l(_low_priority_task_nums_mutex);
-        _low_priority_task_nums[dir]--;
-        DCHECK(_low_priority_task_nums[dir] >= 0);
-    }
 }
 
 int CreateTabletIdxCache::get_index(const std::string& key) {

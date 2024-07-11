@@ -140,7 +140,8 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     }
 }
 
-Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column) {
+Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column,
+                                                    const TabletSchemaSPtr& tablet_schema) {
     ColumnWriterOptions opts;
     opts.meta = _footer.add_columns();
 
@@ -148,9 +149,9 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
 
     // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
     // except for columns whose type don't support zone map.
-    opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
+    opts.need_zone_map = column.is_key() || tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opts.need_bloom_filter = column.is_bf_column();
-    auto* tablet_index = _tablet_schema->get_ngram_bf_index(column.unique_id());
+    auto* tablet_index = tablet_schema->get_ngram_bf_index(column.unique_id());
     if (tablet_index) {
         opts.need_bloom_filter = true;
         opts.is_ngram_bf_index = true;
@@ -166,12 +167,12 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     }
     // skip write inverted index on load if skip_write_index_on_load is true
     if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
-        _tablet_schema->skip_write_index_on_load()) {
+        tablet_schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
     // indexes for this column
-    opts.indexes = _tablet_schema->get_indexes_for_column(column);
-    if (!InvertedIndexColumnWriter::check_column_valid(column)) {
+    opts.indexes = tablet_schema->get_indexes_for_column(column);
+    if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
         // skip inverted index if invalid
         opts.indexes.clear();
         opts.need_zone_map = false;
@@ -304,7 +305,8 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
 //       2.2 build read plan to read by batch
 //       2.3 fill block
 // 3. set columns to data convertor and then write all columns
-Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data) {
+Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data,
+                                                                 vectorized::Block& full_block) {
     if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
         // TODO(plat1ko): CloudStorageEngine
         return Status::NotSupported("append_block_with_partial_content");
@@ -315,7 +317,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     auto tablet = static_cast<Tablet*>(_tablet.get());
     // create full block and fill with input columns
-    auto full_block = _tablet_schema->create_block();
+    full_block = _tablet_schema->create_block();
     const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
     size_t input_id = 0;
     for (auto i : including_cids) {
@@ -609,7 +611,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
     const vectorized::Int8* delete_sign_column_data = nullptr;
     if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
                 old_value_block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr && _tablet_schema->has_sequence_col()) {
+        delete_sign_column != nullptr) {
         auto& delete_sign_col =
                 reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
         delete_sign_column_data = delete_sign_col.get_data().data();
@@ -619,29 +621,8 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         for (auto i = 0; i < missing_cids.size(); ++i) {
             const auto& column = _tablet_schema->column(missing_cids[i]);
             if (column.has_default_value()) {
-                std::string default_value;
-                if (UNLIKELY(_tablet_schema->column(missing_cids[i]).type() ==
-                                     FieldType::OLAP_FIELD_TYPE_DATETIMEV2 &&
-                             to_lower(_tablet_schema->column(missing_cids[i]).default_value())
-                                             .find(to_lower("CURRENT_TIMESTAMP")) !=
-                                     std::string::npos)) {
-                    DateV2Value<DateTimeV2ValueType> dtv;
-                    dtv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
-                                      _opts.rowset_ctx->partial_update_info->timezone);
-                    default_value = dtv.debug_string();
-                } else if (UNLIKELY(
-                                   _tablet_schema->column(missing_cids[i]).type() ==
-                                           FieldType::OLAP_FIELD_TYPE_DATEV2 &&
-                                   to_lower(_tablet_schema->column(missing_cids[i]).default_value())
-                                                   .find(to_lower("CURRENT_DATE")) !=
-                                           std::string::npos)) {
-                    DateV2Value<DateV2ValueType> dv;
-                    dv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
-                                     _opts.rowset_ctx->partial_update_info->timezone);
-                    default_value = dv.debug_string();
-                } else {
-                    default_value = _tablet_schema->column(missing_cids[i]).default_value();
-                }
+                const auto& default_value =
+                        _opts.rowset_ctx->partial_update_info->default_values[i];
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
                 RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
@@ -718,9 +699,115 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
     } else if (block->columns() != _tablet_schema->num_columns()) {
         return Status::InternalError(
                 "illegal block columns, block columns = {}, tablet_schema columns = {}",
-                block->columns(), _tablet_schema->num_columns());
+                block->dump_structure(), _tablet_schema->dump_structure());
     }
+    LOG(INFO) << "add a single block " << block->rows();
     _batched_blocks.emplace_back(block, row_pos, num_rows);
+    return Status::OK();
+}
+
+// for variant type, we should do following steps to fill content of block:
+// 1. set block data to data convertor, and get all flattened columns from variant subcolumns
+// 2. get sparse columns from previous sparse columns stripped in OlapColumnDataConvertorVariant
+// 3. merge current columns info(contains extracted columns) with previous merged_tablet_schema
+//    which will be used to contruct the new schema for rowset
+Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock& data) {
+    if (_tablet_schema->num_variant_columns() == 0) {
+        return Status::OK();
+    }
+    size_t column_id = _tablet_schema->num_columns();
+    for (int i = 0; i < _tablet_schema->columns().size(); ++i) {
+        if (!_tablet_schema->columns()[i]->is_variant_type()) {
+            continue;
+        }
+        if (_flush_schema == nullptr) {
+            _flush_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+        }
+        auto column_ref = data.block->get_by_position(i).column;
+        const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
+                remove_nullable(column_ref)->assume_mutable_ref());
+        const TabletColumnPtr& parent_column = _tablet_schema->columns()[i];
+
+        // generate column info by entry info
+        auto generate_column_info = [&](const auto& entry) {
+            const std::string& column_name =
+                    parent_column->name_lower_case() + "." + entry->path.get_path();
+            const vectorized::DataTypePtr& final_data_type_from_object =
+                    entry->data.get_least_common_type();
+            vectorized::PathInDataBuilder full_path_builder;
+            auto full_path = full_path_builder.append(parent_column->name_lower_case(), false)
+                                     .append(entry->path.get_parts(), false)
+                                     .build();
+            return vectorized::schema_util::get_column_by_type(
+                    final_data_type_from_object, column_name,
+                    vectorized::schema_util::ExtraInfo {
+                            .unique_id = -1,
+                            .parent_unique_id = parent_column->unique_id(),
+                            .path_info = full_path});
+        };
+
+        CHECK(object_column.is_finalized());
+        // common extracted columns
+        for (const auto& entry :
+             vectorized::schema_util::get_sorted_subcolumns(object_column.get_subcolumns())) {
+            if (entry->path.empty()) {
+                // already handled by parent column
+                continue;
+            }
+            CHECK(entry->data.is_finalized());
+            int current_column_id = column_id++;
+            TabletColumn tablet_column = generate_column_info(entry);
+            vectorized::schema_util::inherit_column_attributes(*parent_column, tablet_column,
+                                                               _flush_schema);
+            RETURN_IF_ERROR(_create_column_writer(current_column_id /*unused*/, tablet_column,
+                                                  _flush_schema));
+            RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
+                    {entry->data.get_finalized_column_ptr()->get_ptr(),
+                     entry->data.get_least_common_type(), tablet_column.name()},
+                    data.row_pos, data.num_rows, current_column_id));
+            // convert column data from engine format to storage layer format
+            auto [status, column] = _olap_data_convertor->convert_column_data(current_column_id);
+            if (!status.ok()) {
+                return status;
+            }
+            RETURN_IF_ERROR(_column_writers[current_column_id]->append(
+                    column->get_nullmap(), column->get_data(), data.num_rows));
+            _flush_schema->append_column(tablet_column);
+            _olap_data_convertor->clear_source_content();
+        }
+        // sparse_columns
+        for (const auto& entry : vectorized::schema_util::get_sorted_subcolumns(
+                     object_column.get_sparse_subcolumns())) {
+            TabletColumn sparse_tablet_column = generate_column_info(entry);
+            _flush_schema->mutable_column_by_uid(parent_column->unique_id())
+                    .append_sparse_column(sparse_tablet_column);
+
+            // add sparse column to footer
+            auto* column_pb = _footer.mutable_columns(i);
+            _init_column_meta(column_pb->add_sparse_columns(), -1, sparse_tablet_column);
+        }
+    }
+
+    // Update rowset schema, tablet's tablet schema will be updated when build Rowset
+    // Eg. flush schema:    A(int),    B(float),  C(int), D(int)
+    // ctx.tablet_schema:  A(bigint), B(double)
+    // => update_schema:   A(bigint), B(double), C(int), D(int)
+    std::lock_guard<std::mutex> lock(*(_opts.rowset_ctx->schema_lock));
+    if (_opts.rowset_ctx->merged_tablet_schema == nullptr) {
+        _opts.rowset_ctx->merged_tablet_schema = _opts.rowset_ctx->tablet_schema;
+    }
+    TabletSchemaSPtr update_schema;
+    RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
+            {_opts.rowset_ctx->merged_tablet_schema, _flush_schema}, nullptr, update_schema));
+    CHECK_GE(update_schema->num_columns(), _flush_schema->num_columns())
+            << "Rowset merge schema columns count is " << update_schema->num_columns()
+            << ", but flush_schema is larger " << _flush_schema->num_columns()
+            << " update_schema: " << update_schema->dump_structure()
+            << " flush_schema: " << _flush_schema->dump_structure();
+    _opts.rowset_ctx->merged_tablet_schema.swap(update_schema);
+    VLOG_DEBUG << "dump block " << data.block->dump_data();
+    VLOG_DEBUG << "dump rs schema: " << _opts.rowset_ctx->merged_tablet_schema->dump_full_schema();
+    VLOG_DEBUG << "rowset : " << _opts.rowset_ctx->rowset_id << ", seg id : " << _segment_id;
     return Status::OK();
 }
 
@@ -730,10 +817,16 @@ Status VerticalSegmentWriter::write_batch() {
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
         !_opts.rowset_ctx->is_transient_rowset_writer) {
         for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
-            RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
+            RETURN_IF_ERROR(
+                    _create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
+        }
+        vectorized::Block full_block;
+        for (auto& data : _batched_blocks) {
+            RETURN_IF_ERROR(_append_block_with_partial_content(data, full_block));
         }
         for (auto& data : _batched_blocks) {
-            RETURN_IF_ERROR(_append_block_with_partial_content(data));
+            RowsInBlock full_rows_block {&full_block, data.row_pos, data.num_rows};
+            RETURN_IF_ERROR(_append_block_with_variant_subcolumns(full_rows_block));
         }
         for (auto& column_writer : _column_writers) {
             RETURN_IF_ERROR(column_writer->finish());
@@ -755,7 +848,7 @@ Status VerticalSegmentWriter::write_batch() {
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
-        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
+        RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         for (auto& data : _batched_blocks) {
             RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
                     data.block, data.row_pos, data.num_rows, std::vector<uint32_t> {cid}));
@@ -826,6 +919,19 @@ Status VerticalSegmentWriter::write_batch() {
         }
         _olap_data_convertor->clear_source_content();
         _num_rows_written += data.num_rows;
+    }
+
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
+        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
+        size_t original_writers_cnt = _column_writers.size();
+        // handle variant dynamic sub columns
+        for (auto& data : _batched_blocks) {
+            RETURN_IF_ERROR(_append_block_with_variant_subcolumns(data));
+        }
+        for (size_t i = original_writers_cnt; i < _column_writers.size(); ++i) {
+            RETURN_IF_ERROR(_column_writers[i]->finish());
+            RETURN_IF_ERROR(_column_writers[i]->write_data());
+        }
     }
 
     _batched_blocks.clear();

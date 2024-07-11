@@ -426,6 +426,14 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
         break; // while (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write())
     }
 
+    DBUG_EXECUTE_IF("Tablet.revise_tablet_meta_fail", {
+        auto ptablet_id = dp->param("tablet_id", 0);
+        if (tablet_id() == ptablet_id) {
+            LOG(INFO) << "injected revies_tablet_meta failure for tabelt: " << ptablet_id;
+            calc_bm_status = Status::InternalError("fault injection error");
+        }
+    });
+
     // error handling
     if (!calc_bm_status.ok()) {
         if (is_incremental_clone) {
@@ -1349,25 +1357,41 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compac
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return candidate_rowsets;
     }
-    {
-        std::shared_lock rlock(_meta_lock);
-        for (const auto& [version, rs] : _rs_version_map) {
-            if (version.first >= _cumulative_point && rs->is_local()) {
-                candidate_rowsets.push_back(rs);
-            }
-        }
-    }
-    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
-    return candidate_rowsets;
+    return _pick_visible_rowsets_to_compaction(_cumulative_point,
+                                               std::numeric_limits<int64_t>::max());
 }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_base_compaction() {
+    return _pick_visible_rowsets_to_compaction(std::numeric_limits<int64_t>::min(),
+                                               _cumulative_point - 1);
+}
+
+std::vector<RowsetSharedPtr> Tablet::_pick_visible_rowsets_to_compaction(
+        int64_t min_start_version, int64_t max_start_version) {
+    auto [visible_version, update_ts] = get_visible_version_and_time();
+    bool update_time_long = MonotonicMillis() - update_ts >
+                            config::compaction_keep_invisible_version_timeout_sec * 1000L;
+    int32_t keep_invisible_version_limit =
+            update_time_long ? config::compaction_keep_invisible_version_min_count
+                             : config::compaction_keep_invisible_version_max_count;
+
     std::vector<RowsetSharedPtr> candidate_rowsets;
     {
         std::shared_lock rlock(_meta_lock);
         for (const auto& [version, rs] : _rs_version_map) {
-            // Do compaction on local rowsets only.
-            if (version.first < _cumulative_point && rs->is_local()) {
+            int64_t version_start = version.first;
+            // rowset is remote or rowset is not in given range
+            if (!rs->is_local() || version_start < min_start_version ||
+                version_start > max_start_version) {
+                continue;
+            }
+
+            // can compact, met one of the conditions:
+            // 1. had been visible;
+            // 2. exceeds the limit of keep invisible versions.
+            int64_t version_end = version.second;
+            if (version_end <= visible_version ||
+                version_end > visible_version + keep_invisible_version_limit) {
                 candidate_rowsets.push_back(rs);
             }
         }
@@ -1390,13 +1414,8 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction()
 
 std::vector<RowsetSharedPtr> Tablet::pick_first_consecutive_empty_rowsets(int limit) {
     std::vector<RowsetSharedPtr> consecutive_empty_rowsets;
-    std::vector<RowsetSharedPtr> candidate_rowsets;
-    traverse_rowsets([&candidate_rowsets, this](const auto& rs) {
-        if (rs->is_local() && rs->start_version() >= _cumulative_point) {
-            candidate_rowsets.emplace_back(rs);
-        }
-    });
-    std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
+    std::vector<RowsetSharedPtr> candidate_rowsets =
+            pick_candidate_rowsets_to_cumulative_compaction();
     int len = candidate_rowsets.size();
     for (int i = 0; i < len - 1; ++i) {
         auto rowset = candidate_rowsets[i];
@@ -1473,6 +1492,19 @@ std::string Tablet::_get_rowset_info_str(RowsetSharedPtr rowset, bool delete_fla
                                rowset->num_segments(), (delete_flag ? "DELETE" : "DATA"),
                                SegmentsOverlapPB_Name(rowset->rowset_meta()->segments_overlap()),
                                rowset->rowset_id().to_string(), disk_size);
+}
+
+std::tuple<int64_t, int64_t> Tablet::get_visible_version_and_time() const {
+    // some old tablet has bug, its partition_id is 0, fe couldn't update its visible version.
+    // so let this tablet's visible version become int64 max.
+    auto version_info = std::atomic_load_explicit(&_visible_version, std::memory_order_relaxed);
+    if (version_info != nullptr && partition_id() != 0) {
+        return std::make_tuple(version_info->version.load(std::memory_order_relaxed),
+                               version_info->update_ts);
+    } else {
+        return std::make_tuple(std::numeric_limits<int64_t>::max(),
+                               std::numeric_limits<int64_t>::max());
+    }
 }
 
 // For http compaction action
@@ -1837,13 +1869,23 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         }
     });
 
+    int64_t total_version_count = _tablet_meta->version_count();
+
+    // For compatibility.
+    // For old fe, it wouldn't send visible version request to be, then be's visible version is always 0.
+    // Let visible_version_count set to total_version_count in be's report.
+    int64_t visible_version_count = total_version_count;
+    if (auto [visible_version, _] = get_visible_version_and_time(); visible_version > 0) {
+        visible_version_count = _tablet_meta->version_count_cross_with_range({0, visible_version});
+    }
     // the report version is the largest continuous version, same logic as in FE side
     tablet_info->__set_version(cversion.second);
     // Useless but it is a required filed in TTabletInfo
     tablet_info->__set_version_hash(0);
     tablet_info->__set_partition_id(_tablet_meta->partition_id());
     tablet_info->__set_storage_medium(_data_dir->storage_medium());
-    tablet_info->__set_version_count(_tablet_meta->version_count());
+    tablet_info->__set_total_version_count(total_version_count);
+    tablet_info->__set_visible_version_count(visible_version_count);
     tablet_info->__set_path_hash(_data_dir->path_hash());
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema()->is_in_memory());
     tablet_info->__set_replica_id(replica_id());
@@ -1967,9 +2009,11 @@ void Tablet::execute_single_replica_compaction(SingleReplicaCompaction& compacti
         set_last_failure_time(this, compaction, UnixMillis());
         set_last_single_compaction_failure_status(res.to_string());
         if (res.is<CANCELLED>()) {
+            DorisMetrics::instance()->single_compaction_request_cancelled->increment(1);
             VLOG_CRITICAL << "Cannel fetching from the remote peer. res=" << res
                           << ", tablet=" << tablet_id();
         } else {
+            DorisMetrics::instance()->single_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to do single replica compaction. res=" << res
                          << ", tablet=" << tablet_id();
         }
@@ -2076,7 +2120,11 @@ Status Tablet::create_transient_rowset_writer(
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = std::make_shared<TabletSchema>();
-    context.tablet_schema->copy_from(*(rowset_ptr->tablet_schema()));
+    // During a partial update, the extracted columns of a variant should not be included in the tablet schema.
+    // This is because the partial update for a variant needs to ignore the extracted columns.
+    // Otherwise, the schema types in different rowsets might be inconsistent. When performing a partial update,
+    // the complete variant is constructed by reading all the sub-columns of the variant.
+    context.tablet_schema = rowset_ptr->tablet_schema()->copy_without_variant_extracted_columns();
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = table_id();
     context.enable_segcompaction = false;
@@ -2901,6 +2949,13 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 (std::find(including_cids.cbegin(), including_cids.cend(),
                            rowset_schema->sequence_col_idx()) != including_cids.cend());
     }
+    if (rowset_schema->num_variant_columns() > 0) {
+        // During partial updates, the extracted columns of a variant should not be included in the rowset schema.
+        // This is because the partial update for a variant needs to ignore the extracted columns.
+        // Otherwise, the schema types in different rowsets might be inconsistent. When performing a partial update,
+        // the complete variant is constructed by reading all the sub-columns of the variant.
+        rowset_schema = rowset_schema->copy_without_variant_extracted_columns();
+    }
     // use for partial update
     PartialUpdateReadPlan read_plan_ori;
     PartialUpdateReadPlan read_plan_update;
@@ -3067,8 +3122,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         auto partial_update_info = rowset_writer->get_partial_update_info();
         DCHECK(partial_update_info);
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
-                rowset_schema, partial_update_info->missing_cids, partial_update_info->update_cids,
-                read_plan_ori, read_plan_update, rsid_to_rowset, &block));
+                rowset_schema, partial_update_info.get(), read_plan_ori, read_plan_update,
+                rsid_to_rowset, &block));
         RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
         if (new_generated_rows != rowset_writer->num_rows()) {
@@ -3155,9 +3210,8 @@ std::vector<RowsetSharedPtr> Tablet::get_rowset_by_ids(
 }
 
 Status Tablet::generate_new_block_for_partial_update(
-        TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
-        const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
-        const PartialUpdateReadPlan& read_plan_update,
+        TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
+        const PartialUpdateReadPlan& read_plan_ori, const PartialUpdateReadPlan& read_plan_update,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         vectorized::Block* output_block) {
     // do partial update related works
@@ -3167,6 +3221,8 @@ Status Tablet::generate_new_block_for_partial_update(
     // 4. mark current keys deleted
     CHECK(output_block);
     auto full_mutable_columns = output_block->mutate_columns();
+    const auto& missing_cids = partial_update_info->missing_cids;
+    const auto& update_cids = partial_update_info->update_cids;
     auto old_block = rowset_schema->create_block_by_cids(missing_cids);
     auto update_block = rowset_schema->create_block_by_cids(update_cids);
 
@@ -3178,10 +3234,57 @@ Status Tablet::generate_new_block_for_partial_update(
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, update_cids, read_plan_update,
                                          rsid_to_rowset, update_block, &read_index_update));
 
+    const vectorized::Int8* delete_sign_column_data = nullptr;
+    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
+                old_block.try_get_by_name(DELETE_SIGN);
+        delete_sign_column != nullptr) {
+        auto& delete_sign_col =
+                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+        delete_sign_column_data = delete_sign_col.get_data().data();
+    }
+
+    // build default value block
+    auto default_value_block = old_block.clone_empty();
+    auto mutable_default_value_columns = default_value_block.mutate_columns();
+    if (delete_sign_column_data != nullptr) {
+        for (auto i = 0; i < missing_cids.size(); ++i) {
+            const auto& column = rowset_schema->column(missing_cids[i]);
+            if (column.has_default_value()) {
+                const auto& default_value = partial_update_info->default_values[i];
+                vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
+                                          default_value.size());
+                RETURN_IF_ERROR(old_block.get_by_position(i).type->from_string(
+                        rb, mutable_default_value_columns[i].get()));
+            }
+        }
+    }
+
     // build full block
     CHECK(read_index_old.size() == read_index_update.size());
+
     for (auto i = 0; i < missing_cids.size(); ++i) {
+        const auto& rs_column = rowset_schema->column(missing_cids[i]);
         for (auto idx = 0; idx < read_index_old.size(); ++idx) {
+            // if the conflict update is a delete sign, which means that the key is
+            // not exist now, we should not read old values from the deleted data,
+            // and should use default value instead.
+            // NOTE: since now we are in the publishing phase, all data is commited
+            // before, even the `strict_mode` is true (which requires partial update
+            // load job can't insert new keys), this "new" key MUST be written into
+            // the new generated segment file.
+            if (delete_sign_column_data != nullptr &&
+                delete_sign_column_data[read_index_old[idx]] != 0) {
+                auto& mutable_column = full_mutable_columns[missing_cids[i]];
+                if (rs_column.has_default_value()) {
+                    mutable_column->insert_from(*mutable_default_value_columns[i].get(), 0);
+                } else if (rs_column.is_nullable()) {
+                    assert_cast<vectorized::ColumnNullable*>(mutable_column.get())
+                            ->insert_null_elements(1);
+                } else {
+                    mutable_column->insert_default();
+                }
+                continue;
+            }
             full_mutable_columns[missing_cids[i]]->insert_from(
                     *old_block.get_columns_with_type_and_name()[i].column.get(),
                     read_index_old[idx]);
@@ -3535,7 +3638,9 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
                                       << " src loaction: |" << src.rowset_id << "|"
                                       << src.segment_id << "|" << src.row_id
                                       << " version: " << cur_version;
-                        missed_rows->insert(src);
+                        if (missed_rows) {
+                            missed_rows->insert(src);
+                        }
                         continue;
                     }
                     VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
@@ -3543,7 +3648,9 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
                                << " src location: |" << src.rowset_id << "|" << src.segment_id
                                << "|" << src.row_id << " start version: " << start_version
                                << "end version" << end_version;
-                    (*location_map)[rowset].emplace_back(src, dst);
+                    if (location_map) {
+                        (*location_map)[rowset].emplace_back(src, dst);
+                    }
                     output_rowset_delete_bitmap->add({dst.rowset_id, dst.segment_id, cur_version},
                                                      dst.row_id);
                 }

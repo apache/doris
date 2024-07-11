@@ -66,14 +66,16 @@ std::string LocalExchangeSourceLocalState::debug_string(int indentation_level) c
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
                    "{}, _channel_id: {}, _num_partitions: {}, _num_senders: {}, _num_sources: {}, "
-                   "_running_sink_operators: {}, _running_source_operators: {}",
+                   "_running_sink_operators: {}, _running_source_operators: {}, mem_usage: {}",
                    Base::debug_string(indentation_level), _channel_id, _exchanger->_num_partitions,
                    _exchanger->_num_senders, _exchanger->_num_sources,
-                   _exchanger->_running_sink_operators, _exchanger->_running_source_operators);
+                   _exchanger->_running_sink_operators, _exchanger->_running_source_operators,
+                   _shared_state->mem_usage.load());
     size_t i = 0;
     fmt::format_to(debug_string_buffer, ", MemTrackers: ");
     for (auto* mem_tracker : _shared_state->mem_trackers) {
         fmt::format_to(debug_string_buffer, "{}: {}, ", i, mem_tracker->consumption());
+        i++;
     }
     return fmt::to_string(debug_string_buffer);
 }

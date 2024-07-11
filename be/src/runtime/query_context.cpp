@@ -43,7 +43,7 @@ public:
 
 QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
-                           bool is_pipeline, bool is_nereids)
+                           bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe)
         : fragment_num(total_fragment_num),
           timeout_second(-1),
           _query_id(query_id),
@@ -53,7 +53,7 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
           _query_options(query_options) {
     _init_query_mem_tracker();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker);
-    this->coord_addr = coord_addr;
+
     _start_time = VecDateTimeValue::local_time();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _shared_scanner_controller.reset(new vectorized::SharedScannerController());
@@ -63,6 +63,21 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
 
     timeout_second = query_options.execution_timeout;
+
+    bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
+                               query_options.query_type == TQueryType::LOAD ||
+                               query_options.query_type == TQueryType::EXTERNAL;
+    DCHECK_EQ(is_query_type_valid, true);
+
+    this->coord_addr = coord_addr;
+    // current_connect_fe is used for report query statistics
+    this->current_connect_fe = current_connect_fe;
+    // external query has no current_connect_fe
+    if (query_options.query_type != TQueryType::EXTERNAL) {
+        bool is_report_fe_addr_valid =
+                !this->current_connect_fe.hostname.empty() && this->current_connect_fe.port != 0;
+        DCHECK_EQ(is_report_fe_addr_valid, true);
+    }
 
     register_memory_statistics();
     register_cpu_statistics();
@@ -252,8 +267,8 @@ void QueryContext::set_pipeline_context(
 }
 
 void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
-    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(print_id(_query_id), qs,
-                                                                         coord_addr);
+    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+            print_id(_query_id), qs, current_connect_fe, _query_options.query_type);
 }
 
 std::shared_ptr<QueryStatistics> QueryContext::get_query_statistics() {
@@ -266,8 +281,8 @@ void QueryContext::register_memory_statistics() {
         std::shared_ptr<QueryStatistics> qs = query_mem_tracker->get_query_statistics();
         std::string query_id = print_id(_query_id);
         if (qs) {
-            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(query_id, qs,
-                                                                                 coord_addr);
+            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+                    query_id, qs, current_connect_fe, _query_options.query_type);
         } else {
             LOG(INFO) << " query " << query_id << " get memory query statistics failed ";
         }
@@ -278,7 +293,8 @@ void QueryContext::register_cpu_statistics() {
     if (!_cpu_statistics) {
         _cpu_statistics = std::make_shared<QueryStatistics>();
         _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                print_id(_query_id), _cpu_statistics, coord_addr);
+                print_id(_query_id), _cpu_statistics, current_connect_fe,
+                _query_options.query_type);
     }
 }
 
@@ -291,9 +307,9 @@ doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     return _exec_env->pipeline_task_scheduler();
 }
 
-ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
+ThreadPool* QueryContext::get_memtable_flush_pool() {
     if (_workload_group) {
-        return _non_pipe_thread_pool;
+        return _memtable_flush_pool;
     } else {
         return nullptr;
     }
@@ -305,7 +321,7 @@ Status QueryContext::set_workload_group(WorkloadGroupPtr& tg) {
     // see task_group_manager::delete_workload_group_by_ids
     _workload_group->add_mem_tracker_limiter(query_mem_tracker);
     _workload_group->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
-                                         &_non_pipe_thread_pool, &_remote_scan_task_scheduler);
+                                         &_memtable_flush_pool, &_remote_scan_task_scheduler);
     return Status::OK();
 }
 

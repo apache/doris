@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
     doris::ExecEnv::GetInstance()->set_dummy_lru_cache(std::make_shared<doris::DummyLRUCache>());
     doris::ExecEnv::GetInstance()->set_storage_page_cache(
             doris::StoragePageCache::create_global_cache(1 << 30, 10, 0));
-    doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000));
+    doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000, 1000));
     std::string conf = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     auto st = doris::config::init(conf.c_str(), false);
     doris::ExecEnv::GetInstance()->set_tablet_schema_cache(
@@ -68,6 +68,8 @@ int main(int argc, char** argv) {
     auto service = std::make_unique<doris::HttpService>(doris::ExecEnv::GetInstance(), 0, 1);
     static_cast<void>(service->start());
     doris::global_test_http_host = "http://127.0.0.1:" + std::to_string(service->get_real_port());
+
+    doris::ExecEnv::GetInstance()->set_tracking_memory(false);
 
     int res = RUN_ALL_TESTS();
     return res;

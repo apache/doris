@@ -544,15 +544,9 @@ Status RuntimeState::register_consumer_runtime_filter(const doris::TRuntimeFilte
                                                       bool need_local_merge, int node_id,
                                                       doris::IRuntimeFilter** consumer_filter) {
     if (desc.has_remote_targets || need_local_merge) {
-        LOG(WARNING) << "registe global ins:" << _profile.name()
-                     << " ,mgr: " << global_runtime_filter_mgr()
-                     << " ,filter id:" << desc.filter_id;
         return global_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
                                                                      consumer_filter, false, true);
     } else {
-        LOG(WARNING) << "registe local ins:" << _profile.name()
-                     << " ,mgr: " << global_runtime_filter_mgr()
-                     << " ,filter id:" << desc.filter_id;
         return local_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
                                                                     consumer_filter, false, false);
     }

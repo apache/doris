@@ -283,7 +283,7 @@ TEST(function_string_test, function_lpad_test) {
                         {{std::string("hi"), 0, std::string("?")}, std::string("")},
                         {{std::string("hi"), -1, std::string("?")}, Null()},
                         {{std::string("h"), 1, std::string("")}, std::string("h")},
-                        {{std::string("hi"), 5, std::string("")}, Null()},
+                        {{std::string("hi"), 5, std::string("")}, std::string("")},
                         {{std::string("hi"), 5, std::string("ab")}, std::string("abahi")},
                         {{std::string("hi"), 5, std::string("呵呵")}, std::string("呵呵呵hi")},
                         {{std::string("呵呵"), 5, std::string("hi")}, std::string("hih呵呵")}};
@@ -304,7 +304,7 @@ TEST(function_string_test, function_rpad_test) {
                         {{std::string("hi"), 0, std::string("?")}, std::string("")},
                         {{std::string("hi"), -1, std::string("?")}, Null()},
                         {{std::string("h"), 1, std::string("")}, std::string("h")},
-                        {{std::string("hi"), 5, std::string("")}, Null()},
+                        {{std::string("hi"), 5, std::string("")}, std::string("")},
                         {{std::string("hi"), 5, std::string("ab")}, std::string("hiaba")},
                         {{std::string("hi"), 5, std::string("呵呵")}, std::string("hi呵呵呵")},
                         {{std::string("呵呵"), 5, std::string("hi")}, std::string("呵呵hih")}};
@@ -1152,6 +1152,24 @@ TEST(function_string_test, function_replace) {
                         {{VARCHAR("aaaaa"), VARCHAR("a"), VARCHAR("")}, {VARCHAR("")}},
                         {{VARCHAR("aaaaa"), VARCHAR("aa"), VARCHAR("")}, {VARCHAR("a")}},
                         {{VARCHAR("aaaaa"), VARCHAR("aa"), VARCHAR("a")}, {VARCHAR("aaa")}}};
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
+TEST(function_string_test, function_replace_empty) {
+    std::string func_name = "replace_empty";
+    InputTypeSet input_types = {
+            TypeIndex::String,
+            TypeIndex::String,
+            TypeIndex::String,
+    };
+    DataSet data_set = {
+            {{Null(), VARCHAR("9090"), VARCHAR("")}, {Null()}},
+            {{VARCHAR("http://www.baidu.com:9090"), VARCHAR("9090"), VARCHAR("")},
+             {VARCHAR("http://www.baidu.com:")}},
+            {{VARCHAR("aaaaa"), VARCHAR("a"), VARCHAR("")}, {VARCHAR("")}},
+            {{VARCHAR("abc"), VARCHAR(""), VARCHAR("xyz")}, {VARCHAR("xyzaxyzbxyzcxyz")}},
+            {{VARCHAR("aaaaa"), VARCHAR("aa"), VARCHAR("")}, {VARCHAR("a")}},
+            {{VARCHAR("aaaaa"), VARCHAR("aa"), VARCHAR("a")}, {VARCHAR("aaa")}}};
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 

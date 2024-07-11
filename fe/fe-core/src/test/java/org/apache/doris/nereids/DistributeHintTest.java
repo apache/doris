@@ -117,21 +117,20 @@ class DistributeHintTest extends TestWithFeService implements MemoPatternMatchSu
             MatchingUtils.assertMatches(plan,
                     physicalResultSink(
                             physicalDistribute(
-                                    physicalProject(
-                                            physicalHashJoin(
-                                                    physicalHashJoin(physicalDistribute().when(dis -> {
-                                                        DistributionSpec spec = dis.getDistributionSpec();
-                                                        Assertions.assertTrue(spec instanceof DistributionSpecHash);
-                                                        DistributionSpecHash hashSpec = (DistributionSpecHash) spec;
-                                                        Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED,
-                                                                hashSpec.getShuffleType());
-                                                        return true;
-                                                    }), physicalDistribute()),
-                                                    physicalDistribute()
-                                            ).when(join -> join.getDistributeHint().distributeType == DistributeType.SHUFFLE_RIGHT)
+                                    physicalHashJoin(
+                                            physicalHashJoin(physicalDistribute().when(dis -> {
+                                                DistributionSpec spec = dis.getDistributionSpec();
+                                                Assertions.assertTrue(spec instanceof DistributionSpecHash);
+                                                DistributionSpecHash hashSpec = (DistributionSpecHash) spec;
+                                                Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED,
+                                                        hashSpec.getShuffleType());
+                                                return true;
+                                            }), physicalDistribute()),
+                                            physicalDistribute()).when(join -> join.getDistributeHint().distributeType
+                                                    == DistributeType.SHUFFLE_RIGHT)
                                     )
                             )
-                    ));
+            );
         });
     }
 

@@ -10,9 +10,9 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
+--------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=()
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=()
+------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
 ------------------------------PhysicalDistribute[DistributionSpecHash]
@@ -25,12 +25,12 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------filter((p_name like '%green%'))
 ------------------------------------PhysicalOlapScan[part]
---------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[partsupp]
-----------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------------------PhysicalOlapScan[supplier]
+----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[supplier]
+--------------------------PhysicalOlapScan[partsupp]
 ------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[nation]

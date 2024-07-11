@@ -88,7 +88,7 @@ public:
 
     void finalize() override;
 
-    bool is_finished() const { return _finished.load(); }
+    bool is_finished() const override { return _finished.load(); }
 
     std::string debug_string() override;
 

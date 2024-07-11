@@ -143,6 +143,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
         int formatVersion = icebergSplit.getFormatVersion();
         fileDesc.setFormatVersion(formatVersion);
+        fileDesc.setOriginalFilePath(icebergSplit.getOriginalPath());
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
         } else {
@@ -253,7 +254,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                         new String[0],
                         formatVersion,
                         source.getCatalog().getProperties(),
-                        partitionValues);
+                        partitionValues,
+                        splitTask.file().path().toString());
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
                     split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
                 }

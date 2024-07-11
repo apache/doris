@@ -241,27 +241,11 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                 exception "errCode = 2, detailMessage = Unknown column 'pt00' in target table."
             }
 
-            test {
-                sql """ INSERT INTO ex_tbl_${file_format} partition(`pt1`,`pt2`) (`col1`, `col9`) 
-                    VALUES 
-                    ('abcdefghij', 'error', true, 123);
-                """
-                exception "errCode = 2, detailMessage = Not support insert with partition spec in hive catalog"
-            }
-
             // TODO: support partition spec
             test {
                 sql """ INSERT INTO ex_tbl_${file_format} partition(`pt1`,`pt2`) (`col3`, `col6`, `col9`) 
                     VALUES 
                     (9876543210, 6.28, 'no_error');
-                """
-                exception "errCode = 2, detailMessage = Not support insert with partition spec in hive catalog"
-            }
-
-            test {
-                sql """ INSERT INTO ex_tbl_${file_format} partition(`pt0`, `pt1`,`pt3`) (`col3`, `col6`, `col9`) 
-                    VALUES 
-                    ('err', 'err', 'err', 9876543210, 6.28, 'error');
                 """
                 exception "errCode = 2, detailMessage = Not support insert with partition spec in hive catalog"
             }

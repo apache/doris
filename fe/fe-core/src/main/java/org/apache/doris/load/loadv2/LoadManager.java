@@ -451,15 +451,21 @@ public class LoadManager implements Writable {
     }
 
     private void jobRemovedTrigger(LoadJob job) {
-        Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
-        List<LoadJob> list = map.get(job.getLabel());
-        list.remove(job);
         if (job instanceof SparkLoadJob) {
             ((SparkLoadJob) job).clearSparkLauncherLog();
         }
         if (job instanceof BulkLoadJob) {
             ((BulkLoadJob) job).recycleProgress();
         }
+        Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
+        if (map == null) {
+            return;
+        }
+        List<LoadJob> list = map.get(job.getLabel());
+        if (list == null) {
+            return;
+        }
+        list.remove(job);
         if (list.isEmpty()) {
             map.remove(job.getLabel());
         }

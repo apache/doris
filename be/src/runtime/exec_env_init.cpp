@@ -60,6 +60,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
+#include "runtime/load_stream_mgr.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -223,6 +224,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
+    auto num_flush_threads = _store_paths.size() * config::flush_thread_num_per_store;
+    _load_stream_mgr = std::make_unique<LoadStreamMgr>(num_flush_threads);
     _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
@@ -447,8 +450,8 @@ Status ExecEnv::_init_mem_env() {
     // SegmentLoader caches segments in rowset granularity. So the size of
     // opened files will greater than segment_cache_capacity.
     int64_t segment_cache_capacity = config::segment_cache_capacity;
-    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 2 / 5) {
-        segment_cache_capacity = fd_number * 2 / 5;
+    if (segment_cache_capacity < 0 || segment_cache_capacity > fd_number * 1 / 5) {
+        segment_cache_capacity = fd_number * 1 / 5;
     }
 
     int64_t segment_cache_mem_limit =
@@ -458,8 +461,8 @@ Status ExecEnv::_init_mem_env() {
             min(segment_cache_mem_limit, segment_cache_capacity *
                                                  config::estimated_num_columns_per_segment *
                                                  config::estimated_mem_per_column_reader);
-    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit);
-    LOG(INFO) << "segment_cache_capacity <= fd_number * 2 / 5, fd_number: " << fd_number
+    _segment_loader = new SegmentLoader(min_segment_cache_mem_limit, segment_cache_capacity);
+    LOG(INFO) << "segment_cache_capacity <= fd_number * 1 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity
               << " min_segment_cache_mem_limit " << min_segment_cache_mem_limit;
 

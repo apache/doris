@@ -140,7 +140,7 @@ export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
-#echo ${DORIS_CLASSPATH}
+# log ${DORIS_CLASSPATH}
 
 export LD_LIBRARY_PATH="${DORIS_HOME}/lib/hadoop_hdfs/native:${LD_LIBRARY_PATH}"
 
@@ -181,16 +181,6 @@ PID_DIR="$(
 )"
 export PID_DIR
 
-# set odbc conf path
-export ODBCSYSINI="${DORIS_HOME}/conf"
-
-# support utf8 for oracle database
-export NLS_LANG='AMERICAN_AMERICA.AL32UTF8'
-
-# filter known leak.
-export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/lsan_suppr.conf"
-export ASAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
-
 while read -r line; do
     envline="$(echo "${line}" |
         sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
@@ -202,6 +192,27 @@ while read -r line; do
         eval 'export "${envline}"'
     fi
 done <"${DORIS_HOME}/conf/be.conf"
+
+STDOUT_LOGGER="${LOG_DIR}/be.out"
+log() {
+    # same datetime format as in fe.log: 2024-06-03 14:54:41,478
+    cur_date=$(date +"%Y-%m-%d %H:%M:%S,$(date +%3N)")
+    if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+        echo "StdoutLogger ${cur_date} $1"
+    else
+        echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
+    fi
+}
+
+# set odbc conf path
+export ODBCSYSINI="${DORIS_HOME}/conf"
+
+# support utf8 for oracle database
+export NLS_LANG='AMERICAN_AMERICA.AL32UTF8'
+
+# filter known leak.
+export LSAN_OPTIONS="suppressions=${DORIS_HOME}/conf/lsan_suppr.conf"
+export ASAN_OPTIONS="suppressions=${DORIS_HOME}/conf/asan_suppr.conf"
 
 if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     # shellcheck disable=1091
@@ -220,7 +231,7 @@ fi
 
 for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
     if [[ -n ${!var} ]]; then
-        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        log "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
         exit 1
     fi
 done
@@ -241,7 +252,7 @@ if [[ -f "${pidfile}" ]]; then
 fi
 
 chmod 550 "${DORIS_HOME}/lib/doris_be"
-echo "start time: $(date)" >>"${LOG_DIR}/be.out"
+log "Start time: $(date)"
 
 if [[ ! -f '/bin/limit3' ]]; then
     LIMIT=''
@@ -287,7 +298,7 @@ set_tcmalloc_heap_limit() {
     fi
 
     if [[ "${mem_limit_mb}" -gt "${total_mem_mb}" ]]; then
-        echo "mem_limit is larger than whole memory of the server. ${mem_limit_mb} > ${total_mem_mb}."
+        log "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
         return 1
     fi
     export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}
@@ -342,9 +353,9 @@ fi
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"
 
-#echo "CLASSPATH: ${CLASSPATH}"
-#echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
-#echo "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
+# log "CLASSPATH: ${CLASSPATH}"
+# log "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
+# log "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 if [[ -z ${JEMALLOC_CONF} ]]; then
     JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,lg_tcache_max:20,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"

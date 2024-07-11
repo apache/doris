@@ -74,7 +74,7 @@ suite("test_backup_restore_inverted_index", "backup_restore") {
 
     def restore_index_comment = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
 
-    assertTrue(restore_index_comment[0][1].contains("USING INVERTED PROPERTIES(\"parser\" = \"english\")"))
+    assertTrue(restore_index_comment[0][1].contains("USING INVERTED PROPERTIES(\"parser\" = \"english\", \"lower_case\" = \"true\")"))
 
     result = sql "SELECT id, TOKENIZE(comment,'\"parser\"=\"english\"') as token FROM ${dbName}.${tableName}"
     assertEquals(result.size(), 2)

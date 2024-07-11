@@ -71,6 +71,8 @@ public:
 
     bool is_timeout(const VecDateTimeValue& now) const;
 
+    int timeout_second() const { return _timeout; }
+
     PipelinePtr add_pipeline();
 
     PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
@@ -111,9 +113,6 @@ public:
     void close_a_pipeline();
 
     virtual void clear_finished_tasks() {}
-
-    virtual void add_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
 
     virtual Status send_report(bool);
 

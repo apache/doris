@@ -443,7 +443,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t3 { t1 t2 } )
-UnUsed: [shuffle]_2
+UnUsed: [shuffle]_2 
 SyntaxError:
 
 -- !select6_2 --

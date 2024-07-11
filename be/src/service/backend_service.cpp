@@ -160,10 +160,25 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     }
 
     std::vector<std::string> binlog_info_parts = strings::Split(binlog_info, ":");
-    // TODO(Drogon): check binlog info content is right
-    DCHECK(binlog_info_parts.size() == 2);
-    const std::string& remote_rowset_id = binlog_info_parts[0];
-    int64_t num_segments = std::stoll(binlog_info_parts[1]);
+    if (binlog_info_parts.size() != 2) {
+        status = Status::RuntimeError("failed to parse binlog info into 2 parts: {}", binlog_info);
+        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
+                     << ", status=" << status.to_string();
+        status.to_thrift(&tstatus);
+        return;
+    }
+    std::string remote_rowset_id = std::move(binlog_info_parts[0]);
+    int64_t num_segments = -1;
+    try {
+        num_segments = std::stoll(binlog_info_parts[1]);
+    } catch (std::exception& e) {
+        status = Status::RuntimeError("failed to parse num segments from binlog info {}: {}",
+                                      binlog_info, e.what());
+        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
+                     << ", status=" << status;
+        status.to_thrift(&tstatus);
+        return;
+    }
 
     // Step 4: get rowset meta
     auto get_rowset_meta_url = fmt::format(
@@ -252,7 +267,8 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     // Step 5.3: get all segment files
     for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
         auto segment_file_size = segment_file_sizes[segment_index];
-        auto get_segment_file_url = segment_file_urls[segment_index];
+        auto get_segment_file_url =
+                fmt::format("{}&acquire_md5=true", segment_file_urls[segment_index]);
 
         uint64_t estimate_timeout =
                 segment_file_size / config::download_low_speed_limit_kbps / 1024;
@@ -271,6 +287,12 @@ void _ingest_binlog(IngestBinlogArg* arg) {
             RETURN_IF_ERROR(client->download(local_segment_path));
             download_success_files.push_back(local_segment_path);
 
+            std::string remote_file_md5;
+            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+            LOG(INFO) << "download segment file to " << local_segment_path
+                      << ", remote md5: " << remote_file_md5
+                      << ", remote size: " << segment_file_size;
+
             std::error_code ec;
             // Check file length
             uint64_t local_file_size = std::filesystem::file_size(local_segment_path, ec);
@@ -279,13 +301,32 @@ void _ingest_binlog(IngestBinlogArg* arg) {
                 return Status::IOError("can't retrive file_size of {}, due to {}",
                                        local_segment_path, ec.message());
             }
+
             if (local_file_size != segment_file_size) {
                 LOG(WARNING) << "download file length error"
                              << ", get_segment_file_url=" << get_segment_file_url
                              << ", file_size=" << segment_file_size
                              << ", local_file_size=" << local_file_size;
-                return Status::InternalError("downloaded file size is not equal");
+                return Status::RuntimeError(
+                        "downloaded file size is not equal, local={}, remote={}", local_file_size,
+                        segment_file_size);
             }
+
+            if (!remote_file_md5.empty()) { // keep compatibility
+                std::string local_file_md5;
+                RETURN_IF_ERROR(
+                        io::global_local_filesystem()->md5sum(local_segment_path, &local_file_md5));
+                if (local_file_md5 != remote_file_md5) {
+                    LOG(WARNING) << "download file md5 error"
+                                 << ", get_segment_file_url=" << get_segment_file_url
+                                 << ", remote_file_md5=" << remote_file_md5
+                                 << ", local_file_md5=" << local_file_md5;
+                    return Status::RuntimeError(
+                            "download file md5 is not equal, local={}, remote={}", local_file_md5,
+                            remote_file_md5);
+                }
+            }
+
             return io::global_local_filesystem()->permission(local_segment_path,
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
@@ -400,7 +441,8 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     DCHECK(segment_index_file_names.size() == segment_index_file_urls.size());
     for (int64_t i = 0; i < segment_index_file_urls.size(); ++i) {
         auto segment_index_file_size = segment_index_file_sizes[i];
-        auto get_segment_index_file_url = segment_index_file_urls[i];
+        auto get_segment_index_file_url =
+                fmt::format("{}&acquire_md5=true", segment_index_file_urls[i]);
 
         uint64_t estimate_timeout =
                 segment_index_file_size / config::download_low_speed_limit_kbps / 1024;
@@ -419,6 +461,9 @@ void _ingest_binlog(IngestBinlogArg* arg) {
             RETURN_IF_ERROR(client->download(local_segment_index_path));
             download_success_files.push_back(local_segment_index_path);
 
+            std::string remote_file_md5;
+            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+
             std::error_code ec;
             // Check file length
             uint64_t local_index_file_size =
@@ -433,8 +478,26 @@ void _ingest_binlog(IngestBinlogArg* arg) {
                              << ", get_segment_index_file_url=" << get_segment_index_file_url
                              << ", index_file_size=" << segment_index_file_size
                              << ", local_index_file_size=" << local_index_file_size;
-                return Status::InternalError("downloaded index file size is not equal");
+                return Status::RuntimeError(
+                        "downloaded index file size is not equal, local={}, remote={}",
+                        local_index_file_size, segment_index_file_size);
             }
+
+            if (!remote_file_md5.empty()) { // keep compatibility
+                std::string local_file_md5;
+                RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(local_segment_index_path,
+                                                                      &local_file_md5));
+                if (local_file_md5 != remote_file_md5) {
+                    LOG(WARNING) << "download file md5 error"
+                                 << ", get_segment_index_file_url=" << get_segment_index_file_url
+                                 << ", remote_file_md5=" << remote_file_md5
+                                 << ", local_file_md5=" << local_file_md5;
+                    return Status::RuntimeError(
+                            "download file md5 is not equal, local={}, remote={}", local_file_md5,
+                            remote_file_md5);
+                }
+            }
+
             return io::global_local_filesystem()->permission(local_segment_index_path,
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };

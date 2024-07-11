@@ -353,7 +353,10 @@ public:
     bool has_inverted_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
     const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
                                                         const std::string& suffix_name) const;
-    const TabletIndex* get_inverted_index(const TabletColumn& col) const;
+    // check_valid: check if this column supports inverted index
+    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
+    // If returned, the index file will not be found.
+    const TabletIndex* get_inverted_index(const TabletColumn& col, bool check_valid = true) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id,
                                           const std::string& suffix_path) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
@@ -451,7 +454,7 @@ public:
 
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
-    std::shared_ptr<TabletSchema> copy_without_extracted_columns();
+    std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
     InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
         return _inverted_index_storage_format;
     }

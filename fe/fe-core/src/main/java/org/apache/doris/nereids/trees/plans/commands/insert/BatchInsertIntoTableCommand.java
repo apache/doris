@@ -53,7 +53,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -111,7 +110,7 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
             }
 
             Optional<TreeNode<?>> plan = planner.getPhysicalPlan()
-                    .<Set<TreeNode<?>>>collect(PhysicalOlapTableSink.class::isInstance).stream().findAny();
+                    .<TreeNode<?>>collect(PhysicalOlapTableSink.class::isInstance).stream().findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
             sink = ((PhysicalOlapTableSink<?>) plan.get());
             Table targetTable = sink.getTargetTable();
@@ -141,14 +140,14 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
             }
 
             Optional<PhysicalUnion> union = planner.getPhysicalPlan()
-                    .<Set<PhysicalUnion>>collect(PhysicalUnion.class::isInstance).stream().findAny();
+                    .<PhysicalUnion>collect(PhysicalUnion.class::isInstance).stream().findAny();
             if (union.isPresent()) {
                 InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
                         targetTable.getName(), targetSchema, union.get().getConstantExprsList());
                 return;
             }
             Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
-                    .<Set<PhysicalOneRowRelation>>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
+                    .<PhysicalOneRowRelation>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
             if (oneRowRelation.isPresent()) {
                 InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
                         targetTable.getName(), targetSchema, ImmutableList.of(oneRowRelation.get().getProjects()));

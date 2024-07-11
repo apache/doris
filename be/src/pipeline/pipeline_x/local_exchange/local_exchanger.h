@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 
 namespace doris::pipeline {
@@ -24,28 +25,34 @@ namespace doris::pipeline {
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
 struct ShuffleBlockWrapper;
+class SortSourceOperatorX;
 
-class Exchanger {
+class ExchangerBase {
 public:
-    Exchanger(int running_sink_operators, int num_partitions)
+    ExchangerBase(int running_sink_operators, int num_partitions, int free_block_limit)
             : _running_sink_operators(running_sink_operators),
               _running_source_operators(num_partitions),
               _num_partitions(num_partitions),
               _num_senders(running_sink_operators),
-              _num_sources(num_partitions) {}
-    Exchanger(int running_sink_operators, int num_sources, int num_partitions)
+              _num_sources(num_partitions),
+              _free_block_limit(free_block_limit) {}
+    ExchangerBase(int running_sink_operators, int num_sources, int num_partitions,
+                  int free_block_limit)
             : _running_sink_operators(running_sink_operators),
               _running_source_operators(num_partitions),
               _num_partitions(num_partitions),
               _num_senders(running_sink_operators),
-              _num_sources(num_sources) {}
-    virtual ~Exchanger() = default;
+              _num_sources(num_sources),
+              _free_block_limit(free_block_limit) {}
+    virtual ~ExchangerBase() = default;
     virtual Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                              LocalExchangeSourceLocalState& local_state) = 0;
     virtual Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                         LocalExchangeSinkLocalState& local_state) = 0;
     virtual ExchangeType get_type() const = 0;
-    virtual void close(LocalExchangeSourceLocalState& local_state) {}
+    virtual void close(LocalExchangeSourceLocalState& local_state) = 0;
+
+    virtual DependencySPtr get_local_state_dependency(int _channel_id) { return nullptr; }
 
 protected:
     friend struct LocalExchangeSharedState;
@@ -58,7 +65,58 @@ protected:
     const int _num_partitions;
     const int _num_senders;
     const int _num_sources;
+    const int _free_block_limit = 0;
     moodycamel::ConcurrentQueue<vectorized::Block> _free_blocks;
+};
+
+struct PartitionedRowIdxs {
+    std::shared_ptr<vectorized::PODArray<uint32_t>> row_idxs;
+    uint32_t offset_start;
+    uint32_t length;
+};
+
+using PartitionedBlock = std::pair<std::shared_ptr<ShuffleBlockWrapper>, PartitionedRowIdxs>;
+
+template <typename BlockType>
+struct BlockQueue {
+    std::atomic<bool> eos = false;
+    moodycamel::ConcurrentQueue<BlockType> data_queue;
+    BlockQueue() : eos(false), data_queue(moodycamel::ConcurrentQueue<BlockType>()) {}
+    BlockQueue(BlockQueue<BlockType>&& other)
+            : eos(other.eos.load()), data_queue(std::move(other.data_queue)) {}
+    inline bool enqueue(BlockType const& item) {
+        if (!eos) {
+            data_queue.enqueue(item);
+            return true;
+        }
+        return false;
+    }
+
+    inline bool enqueue(BlockType&& item) {
+        if (!eos) {
+            data_queue.enqueue(std::move(item));
+            return true;
+        }
+        return false;
+    }
+
+    bool try_dequeue(BlockType& item) { return data_queue.try_dequeue(item); }
+
+    void set_eos() { eos = true; }
+};
+
+template <typename BlockType>
+class Exchanger : public ExchangerBase {
+public:
+    Exchanger(int running_sink_operators, int num_partitions, int free_block_limit)
+            : ExchangerBase(running_sink_operators, num_partitions, free_block_limit) {}
+    Exchanger(int running_sink_operators, int num_sources, int num_partitions, int free_block_limit)
+            : ExchangerBase(running_sink_operators, num_sources, num_partitions, free_block_limit) {
+    }
+    ~Exchanger() override = default;
+
+protected:
+    std::vector<BlockQueue<BlockType>> _data_queue;
 };
 
 class LocalExchangeSourceLocalState;
@@ -71,23 +129,25 @@ struct ShuffleBlockWrapper {
     void unref(LocalExchangeSharedState* shared_state) {
         if (ref_count.fetch_sub(1) == 1) {
             shared_state->sub_total_mem_usage(data_block.allocated_bytes());
-            data_block.clear_column_data();
-            shared_state->exchanger->_free_blocks.enqueue(std::move(data_block));
+            if (shared_state->exchanger->_free_block_limit == 0 ||
+                shared_state->exchanger->_free_blocks.size_approx() <
+                        shared_state->exchanger->_free_block_limit *
+                                shared_state->exchanger->_num_sources) {
+                data_block.clear_column_data();
+                shared_state->exchanger->_free_blocks.enqueue(std::move(data_block));
+            }
         }
     }
     std::atomic<int> ref_count = 0;
     vectorized::Block data_block;
 };
 
-class ShuffleExchanger : public Exchanger {
-    using PartitionedBlock =
-            std::pair<std::shared_ptr<ShuffleBlockWrapper>,
-                      std::tuple<std::shared_ptr<std::vector<uint32_t>>, size_t, size_t>>;
-
+class ShuffleExchanger : public Exchanger<PartitionedBlock> {
 public:
     ENABLE_FACTORY_CREATOR(ShuffleExchanger);
-    ShuffleExchanger(int running_sink_operators, int num_partitions)
-            : Exchanger(running_sink_operators, num_partitions) {
+    ShuffleExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
+            : Exchanger<PartitionedBlock>(running_sink_operators, num_partitions,
+                                          free_block_limit) {
         _data_queue.resize(num_partitions);
     }
     ~ShuffleExchanger() override = default;
@@ -101,8 +161,9 @@ public:
 
 protected:
     ShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
-                     bool ignore_source_data_distribution)
-            : Exchanger(running_sink_operators, num_sources, num_partitions),
+                     bool ignore_source_data_distribution, int free_block_limit)
+            : Exchanger<PartitionedBlock>(running_sink_operators, num_sources, num_partitions,
+                                          free_block_limit),
               _ignore_source_data_distribution(ignore_source_data_distribution) {
         _data_queue.resize(num_partitions);
     }
@@ -110,26 +171,25 @@ protected:
                        vectorized::Block* block, bool eos,
                        LocalExchangeSinkLocalState& local_state);
 
-    std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> _data_queue;
-
     const bool _ignore_source_data_distribution = false;
 };
 
-class BucketShuffleExchanger : public ShuffleExchanger {
+class BucketShuffleExchanger final : public ShuffleExchanger {
     ENABLE_FACTORY_CREATOR(BucketShuffleExchanger);
     BucketShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
-                           bool ignore_source_data_distribution)
+                           bool ignore_source_data_distribution, int free_block_limit)
             : ShuffleExchanger(running_sink_operators, num_sources, num_partitions,
-                               ignore_source_data_distribution) {}
+                               ignore_source_data_distribution, free_block_limit) {}
     ~BucketShuffleExchanger() override = default;
     ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
 };
 
-class PassthroughExchanger final : public Exchanger {
+class PassthroughExchanger final : public Exchanger<vectorized::Block> {
 public:
     ENABLE_FACTORY_CREATOR(PassthroughExchanger);
-    PassthroughExchanger(int running_sink_operators, int num_partitions)
-            : Exchanger(running_sink_operators, num_partitions) {
+    PassthroughExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
+            : Exchanger<vectorized::Block>(running_sink_operators, num_partitions,
+                                           free_block_limit) {
         _data_queue.resize(num_partitions);
     }
     ~PassthroughExchanger() override = default;
@@ -140,16 +200,14 @@ public:
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::PASSTHROUGH; }
     void close(LocalExchangeSourceLocalState& local_state) override;
-
-private:
-    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
 };
 
-class PassToOneExchanger final : public Exchanger {
+class PassToOneExchanger final : public Exchanger<vectorized::Block> {
 public:
     ENABLE_FACTORY_CREATOR(PassToOneExchanger);
-    PassToOneExchanger(int running_sink_operators, int num_partitions)
-            : Exchanger(running_sink_operators, num_partitions) {
+    PassToOneExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
+            : Exchanger<vectorized::Block>(running_sink_operators, num_partitions,
+                                           free_block_limit) {
         _data_queue.resize(num_partitions);
     }
     ~PassToOneExchanger() override = default;
@@ -159,16 +217,15 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::PASS_TO_ONE; }
-
-private:
-    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
+    void close(LocalExchangeSourceLocalState& local_state) override {}
 };
 
-class BroadcastExchanger final : public Exchanger {
+class BroadcastExchanger final : public Exchanger<vectorized::Block> {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastExchanger);
-    BroadcastExchanger(int running_sink_operators, int num_partitions)
-            : Exchanger(running_sink_operators, num_partitions) {
+    BroadcastExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
+            : Exchanger<vectorized::Block>(running_sink_operators, num_partitions,
+                                           free_block_limit) {
         _data_queue.resize(num_partitions);
     }
     ~BroadcastExchanger() override = default;
@@ -179,18 +236,17 @@ public:
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::BROADCAST; }
     void close(LocalExchangeSourceLocalState& local_state) override;
-
-private:
-    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
 };
 
 //The code in AdaptivePassthroughExchanger is essentially
 // a copy of ShuffleExchanger and PassthroughExchanger.
-class AdaptivePassthroughExchanger : public Exchanger {
+class AdaptivePassthroughExchanger : public Exchanger<vectorized::Block> {
 public:
     ENABLE_FACTORY_CREATOR(AdaptivePassthroughExchanger);
-    AdaptivePassthroughExchanger(int running_sink_operators, int num_partitions)
-            : Exchanger(running_sink_operators, num_partitions) {
+    AdaptivePassthroughExchanger(int running_sink_operators, int num_partitions,
+                                 int free_block_limit)
+            : Exchanger<vectorized::Block>(running_sink_operators, num_partitions,
+                                           free_block_limit) {
         _data_queue.resize(num_partitions);
     }
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
@@ -200,6 +256,8 @@ public:
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::ADAPTIVE_PASSTHROUGH; }
 
+    void close(LocalExchangeSourceLocalState& local_state) override {}
+
 private:
     Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
                              LocalExchangeSinkLocalState& local_state);
@@ -208,7 +266,6 @@ private:
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                        vectorized::Block* block, bool eos,
                        LocalExchangeSinkLocalState& local_state);
-    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
 
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;

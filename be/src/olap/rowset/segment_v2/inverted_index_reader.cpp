@@ -123,7 +123,7 @@ void InvertedIndexReader::get_analyse_result(std::vector<std::string>& analyse_r
                                              bool drop_duplicates) {
     analyse_result.clear();
 
-    std::wstring field_ws = std::wstring(field_name.begin(), field_name.end());
+    std::wstring field_ws = StringUtil::string_to_wstring(field_name);
     std::unique_ptr<lucene::analysis::TokenStream> token_stream(
             analyzer->tokenStream(field_ws.c_str(), reader));
 
@@ -159,8 +159,6 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         if (cache->lookup(cache_key, cache_handle)) {
             return Status::OK();
         }
-
-        RETURN_IF_ERROR(check_file_exist(index_file_key));
 
         if (!dir) {
             // TODO: ugly code here, try to refact.
@@ -210,7 +208,7 @@ Status InvertedIndexReader::handle_searcher_cache(
         auto mem_tracker = std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         IndexSearcherPtr searcher;
-        RETURN_IF_ERROR(check_file_exist(index_file_key));
+
         auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
         // try to reuse index_searcher's directory to read null_bitmap to cache
         // to avoid open directory additionally for null_bitmap
@@ -239,19 +237,10 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     if (std::string(dir->getObjectName()) == "DorisCompoundReader") {
         static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput()->setIdxFileCache(false);
     }
+    // NOTE: before mem_tracker hook becomes active, we caculate reader memory size by hand.
+    mem_tracker->consume(index_searcher_builder->get_reader_size());
     return Status::OK();
 };
-
-Status InvertedIndexReader::check_file_exist(const std::string& index_file_key) {
-    bool exists = false;
-    RETURN_IF_ERROR(_inverted_index_file_reader->index_file_exist(&_index_meta, &exists));
-    if (!exists) {
-        LOG(WARNING) << "inverted index: " << index_file_key << " not exist.";
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "inverted index input file {} not found", index_file_key);
-    }
-    return Status::OK();
-}
 
 Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                                          std::unique_ptr<InvertedIndexIterator>* iterator) {
@@ -266,8 +255,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
     SCOPED_RAW_TIMER(&stats->inverted_index_query_timer);
 
     std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
-    LOG(INFO) << column_name << " begin to search the fulltext index from clucene, query_str ["
-              << search_str << "]";
+    VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
+               << search_str << "]";
 
     try {
         InvertedIndexQueryInfo query_info;
@@ -309,7 +298,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
         }
 
         std::unique_ptr<lucene::search::Query> query;
-        query_info.field_name = std::wstring(column_name.begin(), column_name.end());
+        query_info.field_name = StringUtil::string_to_wstring(column_name);
 
         if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
@@ -420,7 +409,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
-    std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
+    std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
     std::wstring search_str_ws = StringUtil::string_to_wstring(search_str);
     // unique_ptr with custom deleter
     std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {

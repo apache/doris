@@ -63,6 +63,9 @@ public final class GlobalVariable {
     public static final String DEFAULT_USING_META_CACHE_FOR_EXTERNAL_CATALOG
             = "default_using_meta_cache_for_external_catalog";
 
+    public static final String ENABLE_FETCH_ICEBERG_STATS = "enable_fetch_iceberg_stats";
+
+
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
             + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
@@ -154,6 +157,12 @@ public final class GlobalVariable {
             description = {"仅用于兼容MySQL生态，暂无实际意义",
                     "Only for compatibility with MySQL ecosystem, no practical meaning"})
     public static boolean super_read_only = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_FETCH_ICEBERG_STATS, flag = VariableMgr.GLOBAL,
+            description = {
+                "当HMS catalog中的Iceberg表没有统计信息时，是否通过Iceberg Api获取统计信息",
+                "Enable fetch stats for HMS Iceberg table when it's not analyzed."})
+    public static boolean enableFetchIcebergStats = false;
 
     // Don't allow creating instance.
     private GlobalVariable() {

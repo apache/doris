@@ -208,7 +208,7 @@ public abstract class BaseAnalysisTask {
         int retriedTimes = 0;
         while (retriedTimes < StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
             if (killed) {
-                break;
+                throw new RuntimeException("Task is Killed or Timeout");
             }
             try {
                 doExecute();

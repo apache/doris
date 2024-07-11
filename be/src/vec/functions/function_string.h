@@ -792,10 +792,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        DCHECK_GE(arguments.size(), 1);
-        DCHECK_LE(arguments.size(), 2);
-
-        int n = -1;
+        int n = -1; // means unassigned
 
         auto res = ColumnString::create();
         auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -803,17 +800,20 @@ public:
 
         if (arguments.size() == 2) {
             const auto& col = *block.get_by_position(arguments[1]).column;
+            // the 2nd arg is const. checked in fe.
+            if (col.get_int(0) < 0) [[unlikely]] {
+                return Status::InvalidArgument(
+                        "function {} only accept non-negative input for 2nd argument but got {}",
+                        name, col.get_int(0));
+            }
             n = col.get_int(0);
-        } else if (arguments.size() > 2) {
-            return Status::InvalidArgument(
-                    fmt::format("too many arguments for function {}", get_name()));
         }
 
-        if (n == -1) {
+        if (n == -1) { // no 2nd arg, just mask all
             FunctionMask::vector_mask(source_column, *res, FunctionMask::DEFAULT_UPPER_MASK,
                                       FunctionMask::DEFAULT_LOWER_MASK,
                                       FunctionMask::DEFAULT_NUMBER_MASK);
-        } else if (n >= 0) {
+        } else { // n >= 0
             vector(source_column, n, *res);
         }
 
@@ -2901,19 +2901,18 @@ public:
 
         ColumnPtr argument_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto* length_col = check_and_get_column<ColumnInt32>(argument_column.get());
-
-        if (!length_col) {
-            return Status::InternalError("Not supported input argument type");
-        }
+        const auto* length_col = assert_cast<const ColumnInt32*>(argument_column.get());
 
         std::vector<uint8_t> random_bytes;
         std::random_device rd;
         std::mt19937 gen(rd());
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            UInt64 length = length_col->get64(i);
-            random_bytes.resize(length);
+            if (length_col->get_element(i) < 0) [[unlikely]] {
+                return Status::InvalidArgument("argument {} of function {} at row {} was invalid.",
+                                               length_col->get_element(i), name, i);
+            }
+            random_bytes.resize(length_col->get_element(i));
 
             std::uniform_int_distribution<uint8_t> distribution(0, 255);
             for (auto& byte : random_bytes) {
@@ -3019,7 +3018,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
         auto multiplier = common::exp10_i128(std::abs(static_cast<int>(scale - 3)));
         // do devide first to avoid overflow
         // after round frac_value will be positive by design.
-        frac_value = std::abs(frac_value / multiplier) + 5;
+        frac_value = std::abs(static_cast<int>(frac_value / multiplier)) + 5;
         frac_value /= 10;
     } else if (scale < 2) {
         DCHECK(frac_value < 100);
@@ -3060,8 +3059,8 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
 
     memcpy(result_data + (append_sign_manually ? 1 : 0), p, integer_str_len);
     *(result_data + whole_decimal_str_len - 3) = '.';
-    *(result_data + whole_decimal_str_len - 2) = '0' + std::abs(frac_value / 10);
-    *(result_data + whole_decimal_str_len - 1) = '0' + std::abs(frac_value % 10);
+    *(result_data + whole_decimal_str_len - 2) = '0' + std::abs(static_cast<int>(frac_value / 10));
+    *(result_data + whole_decimal_str_len - 1) = '0' + std::abs(static_cast<int>(frac_value % 10));
     return result;
 };
 
@@ -3377,10 +3376,19 @@ private:
     }
 };
 
+struct ReplaceImpl {
+    static constexpr auto name = "replace";
+};
+
+struct ReplaceEmptyImpl {
+    static constexpr auto name = "replace_empty";
+};
+
+template <typename Impl, bool empty>
 class FunctionReplace : public IFunction {
 public:
-    static constexpr auto name = "replace";
-    static FunctionPtr create() { return std::make_shared<FunctionReplace>(); }
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionReplace<Impl, empty>>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 3; }
 
@@ -3422,16 +3430,33 @@ public:
 private:
     std::string replace(std::string str, std::string_view old_str, std::string_view new_str) const {
         if (old_str.empty()) {
+            if constexpr (empty) {
+                return str;
+            } else {
+                // Different from "Replace" only when the search string is empty.
+                // it will insert `new_str` in front of every character and at the end of the old str.
+                if (new_str.empty()) {
+                    return str;
+                }
+                std::string result;
+                result.reserve(str.length() * (new_str.length() + 1) + new_str.length());
+                for (char c : str) {
+                    result += new_str;
+                    result += c;
+                }
+                result += new_str;
+                return result;
+            }
+        } else {
+            std::string::size_type pos = 0;
+            std::string::size_type oldLen = old_str.size();
+            std::string::size_type newLen = new_str.size();
+            while ((pos = str.find(old_str, pos)) != std::string::npos) {
+                str.replace(pos, oldLen, new_str);
+                pos += newLen;
+            }
             return str;
         }
-        std::string::size_type pos = 0;
-        std::string::size_type oldLen = old_str.size();
-        std::string::size_type newLen = new_str.size();
-        while ((pos = str.find(old_str, pos)) != std::string::npos) {
-            str.replace(pos, oldLen, new_str);
-            pos += newLen;
-        }
-        return str;
     }
 };
 

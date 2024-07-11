@@ -42,9 +42,10 @@ TEST_F(DeltaWriterV2PoolTest, test_pool) {
     EXPECT_EQ(2, pool.size());
     EXPECT_EQ(map, map3);
     EXPECT_NE(map, map2);
-    EXPECT_TRUE(map->close().ok());
-    EXPECT_TRUE(map2->close().ok());
-    EXPECT_TRUE(map3->close().ok());
+    std::unordered_map<int64_t, int32_t> sft;
+    EXPECT_TRUE(map->close(sft).ok());
+    EXPECT_TRUE(map2->close(sft).ok());
+    EXPECT_TRUE(map3->close(sft).ok());
     EXPECT_EQ(0, pool.size());
 }
 
@@ -57,16 +58,23 @@ TEST_F(DeltaWriterV2PoolTest, test_map) {
     EXPECT_EQ(1, pool.size());
     WriteRequest req;
     RuntimeState state;
-    auto writer = map->get_or_create(
-            100, [&req, &state]() { return DeltaWriterV2::open(&req, {}, &state); });
-    auto writer2 = map->get_or_create(
-            101, [&req, &state]() { return DeltaWriterV2::open(&req, {}, &state); });
-    auto writer3 = map->get_or_create(
-            100, [&req, &state]() { return DeltaWriterV2::open(&req, {}, &state); });
+    auto writer = map->get_or_create(100, [&req, &state]() {
+        return std::make_unique<DeltaWriterV2>(
+                &req, std::vector<std::shared_ptr<LoadStreamStub>> {}, &state);
+    });
+    auto writer2 = map->get_or_create(101, [&req, &state]() {
+        return std::make_unique<DeltaWriterV2>(
+                &req, std::vector<std::shared_ptr<LoadStreamStub>> {}, &state);
+    });
+    auto writer3 = map->get_or_create(100, [&req, &state]() {
+        return std::make_unique<DeltaWriterV2>(
+                &req, std::vector<std::shared_ptr<LoadStreamStub>> {}, &state);
+    });
     EXPECT_EQ(2, map->size());
     EXPECT_EQ(writer, writer3);
     EXPECT_NE(writer, writer2);
-    static_cast<void>(map->close());
+    std::unordered_map<int64_t, int32_t> sft;
+    static_cast<void>(map->close(sft));
     EXPECT_EQ(0, pool.size());
 }
 
