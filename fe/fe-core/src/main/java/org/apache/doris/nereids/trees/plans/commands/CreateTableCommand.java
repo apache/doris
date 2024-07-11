@@ -137,6 +137,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                             // so we replace it to varchar
                             dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                                     StringType.class, VarcharType.MAX_VARCHAR_TYPE);
+                            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                    CharacterType.class, VarcharType.MAX_VARCHAR_TYPE);
                         } else {
                             dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                                     CharacterType.class, StringType.INSTANCE);
