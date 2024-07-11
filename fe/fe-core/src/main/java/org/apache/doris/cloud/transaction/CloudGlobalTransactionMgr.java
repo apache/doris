@@ -702,6 +702,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             Map<Long, List<Long>> tableToTabletList, Map<Long, TabletMeta> tabletToTabletMeta,
                     Map<Long, Long> baseCompactionCnts, Map<Long, Long> cumulativeCompactionCnts,
                             Map<Long, Long> cumulativePoints) throws UserException {
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep");
+            int t = debugPoint.param("sleep_time", 8);
+            try {
+                Thread.sleep(t * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("error ", e);
+            }
+        }
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (Map.Entry<Long, Set<Long>> entry : tableToParttions.entrySet()) {
