@@ -97,6 +97,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+
 /**
  * Select materialized index, i.e., both for rollup and materialized view when aggregate is present.
  * TODO: optimize queries with aggregate not on top of scan directly, e.g., aggregate -> join -> scan
