@@ -69,21 +69,20 @@ TEST(StringUtilTest, test_string_strip) {
 
     idx = 0;
     std::vector<std::tuple<std::string, std::string, std::string>> trim_inputs {
-        {""              , ""      , ""     },
-        {""              , ""      , "/"    },
-        {"/"             , ""      , "/"    },
-        {"\t////"        , ""      , "/ \t" },
-        {"/a ///"        , "a "    , "/"    },
-        {"/a/b/c/"       , "a/b/c/", "/"    },
-        {"a/b/c/"        , "a/b/c/", "/"    },
-        {"a/b/c"         , "a/b/c" , "/ \t" },
-        {"\t/bbc///"     , "bbc"   , "/ \t" },
-        {"\t////"        , "\t////", "abc"  },
-        {"ab c"          , " "     , "abc"  },
-        {"\t  /a/b/c \t/", "a/b/c" , " \t /"},
+        {""              , ""     },
+        {""              , ""     },
+        {"/"             , ""     },
+        {"\t////"        , ""     },
+        {"/a ///"        , "a "   },
+        {"/a/b/c/"       , "a/b/c"},
+        {"a/b/c/"        , "a/b/c"},
+        {"a/b/c"         , "a/b/c"},
+        {"\t/bbc///"     , "bbc"  },
+        {"ab c"          , "ab c" },
+        {"\t  /a/b/c \t/", "a/b/c"},
     };
     for (auto&& i : trim_inputs) {
-        doris::cloud::trim(std::get<0>(i), std::get<2>(i));
+        doris::cloud::trim(std::get<0>(i));
         EXPECT_EQ(std::get<0>(i), std::get<1>(i)) << " index=" << idx;
         ++idx;
     }
