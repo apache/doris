@@ -482,6 +482,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         for (SlotReference slot : outputSlotReferences) {
             ColumnStatistic cache = getColumnStatsFromTableCache(olapScan, slot);
             ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
+            if (cache.isUnKnown) {
+                colStatsBuilder.setCount(rowCount);
+            }
             adjustColStats(olapScan, slot, colStatsBuilder);
             builder.putColumnStatistics(slot, colStatsBuilder.build());
             rowCount = Math.max(rowCount, colStatsBuilder.getCount());
@@ -1051,6 +1054,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         for (SlotReference slot : slotSet) {
             ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);
             ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache);
+            if (cache.isUnKnown) {
+                colStatsBuilder.setCount(rowCount);
+            }
             adjustColStats(catalogRelation, slot, colStatsBuilder);
             rowCount = Math.max(rowCount, colStatsBuilder.getCount());
             builder.putColumnStatistics(slot, colStatsBuilder.build());
