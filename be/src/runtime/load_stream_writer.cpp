@@ -187,13 +187,6 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
         if (!_is_init) {
             return Status::Corruption("add_segment failed, LoadStreamWriter is not inited");
         }
-        if (_inverted_file_writers.size() > 0 &&
-            _inverted_file_writers.size() != _segment_file_writers.size()) {
-            return Status::Corruption(
-                    "add_segment failed, inverted file writer size is {},"
-                    "segment file writer size is {}",
-                    _inverted_file_writers.size(), _segment_file_writers.size());
-        }
         DBUG_EXECUTE_IF("LoadStreamWriter.add_segment.bad_segid",
                         { segid = _segment_file_writers.size(); });
         RETURN_IF_ERROR(_calc_file_size(segid, FileType::SEGMENT_FILE, &segment_file_size));
