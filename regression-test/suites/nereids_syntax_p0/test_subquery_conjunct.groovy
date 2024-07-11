@@ -17,6 +17,7 @@
 
 suite("test_subquery_conjunct") {
     sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=false"
     sql """drop table if exists subquery_conjunct_table;"""
     sql """CREATE TABLE `subquery_conjunct_table` (
             `id` INT NOT NULL,
