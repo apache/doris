@@ -62,7 +62,7 @@ suite("test_agg_foreach_not_null") {
    """
 
    qt_select_sum_not_null """
-      select sum_foreach(a) from foreach_table_not_null group by id;
+      select sum_foreach(a) from foreach_table_not_null group by id order by id;
    """
 
    // this case also test combinator should be case-insensitive
