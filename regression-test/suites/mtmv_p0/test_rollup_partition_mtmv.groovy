@@ -720,18 +720,18 @@ suite("test_rollup_partition_mtmv") {
         sql """
             CREATE MATERIALIZED VIEW ${mvName}
                 BUILD DEFERRED REFRESH AUTO ON MANUAL
-                partition by (hour_alias)
+                partition by (minute_alias)
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES (
                 'replication_num' = '1'
                 )
                 AS
-                SELECT date_trunc(`k2`,'hour') as hour_alias, * FROM ${tableName};
+                SELECT date_trunc(`k2`,'minute') as minute_alias, * FROM ${tableName};
             """
         Assert.fail();
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("timeUnit not support: hour"))
+        assertTrue(e.getMessage().contains("timeUnit not support: minute"))
     }
 
     sql """drop materialized view if exists ${mvName};"""
@@ -739,7 +739,7 @@ suite("test_rollup_partition_mtmv") {
         sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD IMMEDIATE REFRESH AUTO ON MANUAL
-            partition by (date_trunc(minute_alias, 'hour'))
+            partition by (date_trunc(minute_alias, 'minute'))
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES (
             'replication_num' = '1'
@@ -750,6 +750,6 @@ suite("test_rollup_partition_mtmv") {
         Assert.fail();
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("timeUnit not support: hour"))
+        assertTrue(e.getMessage().contains("timeUnit not support: minute"))
     }
 }
