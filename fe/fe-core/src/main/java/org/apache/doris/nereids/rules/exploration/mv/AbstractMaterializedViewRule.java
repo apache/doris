@@ -43,7 +43,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
@@ -149,7 +148,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<StructInfo> uncheckedStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, cascadesContext,
                 materializedViewTableSet);
         uncheckedStructInfos.forEach(queryStructInfo -> {
-            boolean valid = checkPattern(queryStructInfo, cascadesContext) && queryStructInfo.isValid();
+            boolean valid = checkQueryPattern(queryStructInfo, cascadesContext) && queryStructInfo.isValid();
             if (!valid) {
                 cascadesContext.getMaterializationContexts().forEach(ctx ->
                         ctx.recordFailReason(queryStructInfo, "Query struct info is invalid",
@@ -346,7 +345,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
     }
 
-    private boolean needUnionRewrite(
+    protected boolean needUnionRewrite(
             Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> invalidPartitions,
             CascadesContext cascadesContext) {
         return invalidPartitions != null
@@ -689,11 +688,15 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     /**
      * Check the pattern of query or materializedView is supported or not.
      */
-    protected boolean checkPattern(StructInfo structInfo, CascadesContext cascadesContext) {
+    protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         if (structInfo.getRelations().isEmpty()) {
             return false;
         }
         return true;
+    }
+
+    protected boolean checkMaterializationPattern(StructInfo structInfo, CascadesContext cascadesContext) {
+        return checkQueryPattern(structInfo, cascadesContext);
     }
 
     protected void recordIfRewritten(Plan plan, MaterializationContext context) {
@@ -708,11 +711,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 && context.alreadyRewrite(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
     }
 
-    protected boolean isEmptyVirtualSlot(Expression expression) {
-        return expression instanceof VirtualSlotReference
-                && ((VirtualSlotReference) expression).getRealExpressions().isEmpty();
-    }
-
     // check mv plan is valid or not, this can use cache for performance
     private boolean isMaterializationValid(CascadesContext cascadesContext, MaterializationContext context) {
         long materializationId = context.getMaterializationQualifier().hashCode();
@@ -720,7 +718,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 materializationId);
         if (cachedCheckResult == null) {
             // need check in real time
-            boolean checkResult = checkPattern(context.getStructInfo(), cascadesContext);
+            boolean checkResult = checkMaterializationPattern(context.getStructInfo(), cascadesContext);
             if (!checkResult) {
                 context.recordFailReason(context.getStructInfo(),
                         "View struct info is invalid", () -> String.format("view plan is %s",
