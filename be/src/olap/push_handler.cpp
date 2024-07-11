@@ -351,9 +351,12 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
     _file_params.expr_of_dest_slot = _params.expr_of_dest_slot;
     _file_params.dest_sid_to_src_sid_without_trans = _params.dest_sid_to_src_sid_without_trans;
     _file_params.strict_mode = _params.strict_mode;
-    // _file_params.__isset.broker_addresses = true;
-    // _file_params.broker_addresses = t_scan_range.broker_addresses;
-    _file_params.hdfs_params = parse_properties(_params.properties);
+    if (_ranges[0].file_type == TFileType::FILE_HDFS) {
+        _file_params.hdfs_params = parse_properties(_params.properties);
+    } else {
+        _file_params.__isset.broker_addresses = true;
+        _file_params.broker_addresses = t_scan_range.broker_addresses;
+    }
 
     for (const auto& range : _ranges) {
         TFileRangeDesc file_range;
