@@ -384,6 +384,15 @@ private:
 
     bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size) const;
 
+    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
+
+    void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
+            std::lock_guard<std::mutex>&);
+
+    void find_evict_candidates(LRUQueue &queue, size_t size, size_t cur_cache_size,
+                               size_t &removed_size,
+                               std::vector<FileBlockCell*> &to_evict,
+                               std::lock_guard<std::mutex> &cache_lock);
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;
