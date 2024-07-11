@@ -455,7 +455,7 @@ public class HiveScanNode extends FileQueryScanNode {
         Optional<String> columnSeparator = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
                 PROP_SEPARATOR_CHAR);
         textParams.setColumnSeparator(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat, columnSeparator)));
+                DEFAULT_FIELD_DELIMITER, fieldDelim, columnSeparator, serFormat)));
         // 2. set line delimiter
         Optional<String> lineDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
                 PROP_LINE_DELIMITER);
