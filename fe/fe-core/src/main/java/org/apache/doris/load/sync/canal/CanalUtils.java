@@ -69,7 +69,7 @@ public class CanalUtils {
         String startPosition = buildPositionForDump(entries.get(0));
         String endPosition = buildPositionForDump(entries.get(entries.size() - 1));
         logger.info(context_format, dataEvents.getId(), entries.size(), dataEvents.getMemSize(),
-                TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()), startPosition, endPosition);
+                TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()), startPosition, endPosition);
     }
 
     public static void printSummary(Message message, int size, long memsize) {
@@ -80,7 +80,7 @@ public class CanalUtils {
         String startPosition = buildPositionForDump(message.getEntries().get(0));
         String endPosition = buildPositionForDump(message.getEntries().get(message.getEntries().size() - 1));
         logger.info(context_format, message.getId(), size, memsize,
-                TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()), startPosition, endPosition);
+                TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()), startPosition, endPosition);
     }
 
     public static String buildPositionForDump(CanalEntry.Entry entry) {
@@ -94,7 +94,7 @@ public class CanalUtils {
                 .append(":")
                 .append(header.getExecuteTime())
                 .append("(")
-                .append(TimeUtils.DATETIME_FORMAT.format(date))
+                .append(TimeUtils.getDatetimeFormatWithTimeZone().format(date))
                 .append(")");
         if (StringUtils.isNotEmpty(entry.getHeader().getGtid())) {
             sb.append(" gtid(").append(entry.getHeader().getGtid())
@@ -120,8 +120,8 @@ public class CanalUtils {
         logger.info(row_format, header.getLogfileName(),
                 String.valueOf(header.getLogfileOffset()), header.getSchemaName(),
                 header.getTableName(), eventType,
-                String.valueOf(header.getExecuteTime()), TimeUtils.DATETIME_FORMAT.format(date),
-                header.getGtid(), String.valueOf(delayTime));
+                String.valueOf(header.getExecuteTime()), TimeUtils.getDatetimeFormatWithTimeZone().format(date),
+                        header.getGtid(), String.valueOf(delayTime));
         if (eventType == CanalEntry.EventType.QUERY || rowChange.getIsDdl()) {
             logger.info(" sql ----> " + rowChange.getSql() + SEP);
             return;
@@ -197,8 +197,9 @@ public class CanalUtils {
         // print transaction begin info, thread ID, time consumption
         logger.info(transaction_format, entry.getHeader().getLogfileName(),
                 String.valueOf(entry.getHeader().getLogfileOffset()),
-                String.valueOf(entry.getHeader().getExecuteTime()), TimeUtils.DATETIME_FORMAT.format(date),
-                entry.getHeader().getGtid(), String.valueOf(delayTime));
+                String.valueOf(entry.getHeader().getExecuteTime()),
+                TimeUtils.getDatetimeFormatWithTimeZone().format(date),
+                        entry.getHeader().getGtid(), String.valueOf(delayTime));
         logger.info(" BEGIN ----> Thread id: {}", begin.getThreadId());
         printXAInfo(begin.getPropsList());
     }
@@ -219,8 +220,9 @@ public class CanalUtils {
         printXAInfo(end.getPropsList());
         logger.info(transaction_format, entry.getHeader().getLogfileName(),
                 String.valueOf(entry.getHeader().getLogfileOffset()),
-                String.valueOf(entry.getHeader().getExecuteTime()), TimeUtils.DATETIME_FORMAT.format(date),
-                entry.getHeader().getGtid(), String.valueOf(delayTime));
+                String.valueOf(entry.getHeader().getExecuteTime()),
+                TimeUtils.getDatetimeFormatWithTimeZone().format(date),
+                        entry.getHeader().getGtid(), String.valueOf(delayTime));
     }
 
     public static boolean isDML(CanalEntry.EventType eventType) {

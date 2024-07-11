@@ -129,9 +129,11 @@ public class QueryQueue {
     public void releaseAndNotify(QueueToken releaseToken) {
         queueLock.lock();
         try {
-            //NOTE:token's tokenState need to be locked by queueLock
+            // NOTE:token's tokenState need to be locked by queueLock
             if (releaseToken.isReadyToRun()) {
                 currentRunningQueryNum--;
+            } else {
+                priorityTokenQueue.remove(releaseToken);
             }
             Preconditions.checkArgument(currentRunningQueryNum >= 0);
             while (currentRunningQueryNum < maxConcurrency) {
@@ -161,15 +163,6 @@ public class QueryQueue {
             if (LOG.isDebugEnabled()) {
                 LOG.debug(this.debugString());
             }
-            queueLock.unlock();
-        }
-    }
-
-    public void removeToken(QueueToken queueToken) {
-        queueLock.lock();
-        try {
-            priorityTokenQueue.remove(queueToken);
-        } finally {
             queueLock.unlock();
         }
     }
