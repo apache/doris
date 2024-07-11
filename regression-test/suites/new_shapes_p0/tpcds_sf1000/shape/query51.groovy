@@ -35,6 +35,18 @@ suite("query51") {
     sql 'set runtime_filter_type=8'
     sql 'set dump_nereids_memo=false'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    sql "set enable_common_expr_pushdown=false"
+    sql "set enable_function_pushdown=true"
+    sql "set enable_parallel_result_sink=false"
+    sql "set experimental_parallel_scan_max_scanners_count=16"
+    sql "set experimental_parallel_scan_min_rows_per_scanner=128"
+    sql "set fragment_transmission_compression_codec=lz4"
+    sql "set insert_visible_timeout_ms=60000"
+    sql "set partitioned_hash_agg_rows_threshold=1048576"
+    sql "set partitioned_hash_join_rows_threshold=8"
+    sql "set topn_opt_limit_threshold=1"
+    sql "set wait_timeout=31000"
+
 
     def variables = sql "show variables"
     def variableString = variables.stream()
