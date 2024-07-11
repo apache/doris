@@ -165,13 +165,4 @@ public class QueryQueue {
         }
     }
 
-    public void removeToken(QueueToken queueToken) {
-        queueLock.lock();
-        try {
-            priorityTokenQueue.remove(queueToken);
-        } finally {
-            queueLock.unlock();
-        }
-    }
-
 }
