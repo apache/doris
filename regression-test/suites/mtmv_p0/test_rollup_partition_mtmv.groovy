@@ -702,7 +702,7 @@ suite("test_rollup_partition_mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD DEFERRED REFRESH AUTO ON MANUAL
-            partition by (date_trunc(`k2`,'minute'))
+            partition by (date_trunc(`k2`,'hour'))
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES (
             'replication_num' = '1'
