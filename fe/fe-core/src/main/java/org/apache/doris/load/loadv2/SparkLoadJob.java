@@ -512,7 +512,6 @@ public class SparkLoadJob extends BulkLoadJob {
                                                 params.tBrokerScanRange);
                                         // update filePath fileSize
                                         TBrokerRangeDesc tBrokerRangeDesc = tBrokerScanRange.getRanges().get(0);
-                                        tBrokerRangeDesc.setFileType(TFileType.FILE_HDFS);
                                         tBrokerRangeDesc.setPath("");
                                         tBrokerRangeDesc.setFileSize(-1);
                                         if (tabletMetaToFileInfo.containsKey(tabletMetaStr)) {
