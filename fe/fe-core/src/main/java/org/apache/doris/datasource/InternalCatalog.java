@@ -2491,6 +2491,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (info != null) {
                     storageVaultName = info.first;
                     storageVaultId = info.second;
+                } else {
+                    throw new DdlException("No Default Storage Vault. You can use show storage vault stmt to"
+                            + "get full vaults, and set one as default storage vault");
                 }
             }
 
