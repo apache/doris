@@ -29,7 +29,7 @@ suite('test_tvf_in_cloud', 'multi_cluster') {
     options.cloudMode = true
 
     def testCase = {
-        for (i = 0; i < 100; i++) {
+        for (def i = 0; i < 100; i++) {
             def ret = sql """select * from numbers("number" = "100")"""
             assertEquals(ret.size(), 100)
             test {
