@@ -47,7 +47,6 @@ public:
     // info about the current line may be record to the ctx, like column seprator pos.
     /// @return line delimiter pos if found, otherwise return nullptr.
     virtual const uint8_t* read_line(const uint8_t* start, const size_t len) = 0;
-
     /// @return length of line delimiter
     [[nodiscard]] virtual size_t line_delimiter_length() const = 0;
 
@@ -62,31 +61,46 @@ class BaseTextLineReaderContext : public TextLineReaderContextIf {
 
 public:
     explicit BaseTextLineReaderContext(const std::string& line_delimiter_,
-                                       const size_t line_delimiter_len_)
-            : line_delimiter(line_delimiter_), line_delimiter_len(line_delimiter_len_) {}
+                                       const size_t line_delimiter_len_, const bool keep_cr_)
+            : line_delimiter(line_delimiter_),
+              line_delimiter_len(line_delimiter_len_),
+              keep_cr(keep_cr_) {
+        use_memmem = line_delimiter_len != 1 || line_delimiter != "\n" || keep_cr;
+    }
 
     inline const uint8_t* read_line(const uint8_t* start, const size_t len) final {
         return static_cast<Ctx*>(this)->read_line_impl(start, len);
     }
 
-    [[nodiscard]] inline size_t line_delimiter_length() const final { return line_delimiter_len; }
+    [[nodiscard]] inline size_t line_delimiter_length() const {
+        return line_delimiter_len + line_crlf;
+    }
 
     inline void refresh() final { return static_cast<Ctx*>(this)->refresh_impl(); };
 
 protected:
     const std::string line_delimiter;
     const size_t line_delimiter_len;
+    bool keep_cr = false;
+    bool line_crlf = false;
+    bool use_memmem = true;
 };
 
 class PlainTextLineReaderCtx final : public BaseTextLineReaderContext<PlainTextLineReaderCtx> {
 public:
     explicit PlainTextLineReaderCtx(const std::string& line_delimiter_,
-                                    const size_t line_delimiter_len_)
-            : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_) {}
+                                    const size_t line_delimiter_len_, const bool keep_cr_)
+            : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_, keep_cr_) {}
 
     inline const uint8_t* read_line_impl(const uint8_t* start, const size_t length) {
-        return (uint8_t*)memmem(start, length, line_delimiter.c_str(), line_delimiter_len);
+        if (use_memmem) {
+            return (uint8_t*)memmem(start, length, line_delimiter.c_str(), line_delimiter_len);
+        } else {
+            return read_csv_line(start, length);
+        }
     }
+
+    const uint8_t* read_csv_line(const uint8_t* start, const size_t length);
 
     inline void refresh_impl() {}
 };
@@ -119,8 +133,8 @@ public:
                                          const size_t line_delimiter_len_,
                                          const std::string& column_sep_,
                                          const size_t column_sep_len_, size_t col_sep_num,
-                                         const char enclose, const char escape)
-            : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_),
+                                         const char enclose, const char escape, const bool keep_cr_)
+            : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_, keep_cr_),
               _enclose(enclose),
               _escape(escape),
               _column_sep_len(column_sep_len_),

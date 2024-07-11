@@ -21,6 +21,9 @@
 #include <glog/logging.h>
 #include <string.h>
 
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
@@ -42,6 +45,78 @@
 // leave these 2 size small for debugging
 
 namespace doris {
+
+const uint8_t* PlainTextLineReaderCtx::read_csv_line(const uint8_t* start, const size_t length) {
+    line_crlf = false;
+    if (start == nullptr || length == 0) {
+        return nullptr;
+    }
+    size_t i = 0;
+#ifdef __AVX2__
+    // const uint8_t* end = start + length;
+    const __m256i newline = _mm256_set1_epi8('\n');
+    const __m256i carriage_return = _mm256_set1_epi8('\r');
+
+    const size_t simd_width = 32;
+
+    // Process 32 bytes at a time using AVX2
+    for (; i + simd_width < length; i += simd_width) {
+        __m256i data = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(start + i));
+
+        // Compare with '\n' and '\r'
+        __m256i cmp_newline = _mm256_cmpeq_epi8(data, newline);
+        __m256i cmp_carriage_return = _mm256_cmpeq_epi8(data, carriage_return);
+
+        // Check if there is a match
+        int mask_newline = _mm256_movemask_epi8(cmp_newline);
+        int mask_carriage_return = _mm256_movemask_epi8(cmp_carriage_return);
+
+        int loc = -1;
+        if (mask_newline != 0) {
+            // Find the position of the first '\n'
+            int pos = __builtin_ffs(mask_newline) - 1;
+            loc = i + pos;
+        }
+        int loc2 = -1;
+        if (mask_carriage_return != 0) {
+            // Find the position of the first '\r'
+            int pos = __builtin_ffs(mask_carriage_return) - 1;
+            // Check if the next character is '\n'
+            if (i + pos + 1 < length && start[i + pos + 1] == '\n') {
+                loc2 = i + pos;
+            }
+        }
+
+        if (loc == -1 && loc2 == -1) {
+            continue;
+        } else if (loc == -1) {
+            line_crlf = true;
+            return start + loc2;
+        } else if (loc2 == -1) {
+            return start + loc;
+        } else {
+            if (loc < loc2) {
+                return start + loc;
+            } else {
+                line_crlf = true;
+                return start + loc2;
+            }
+        }
+    }
+
+    // Process remaining bytes
+#endif
+    for (i = 0; i < length; ++i) {
+        if (start[i] == '\n') {
+            return &start[i];
+        }
+        if (start[i] == '\r' && (i + 1 < length) && start[i + 1] == '\n') {
+            line_crlf = true;
+            return &start[i];
+        }
+    }
+    return nullptr;
+}
 
 const uint8_t* EncloseCsvLineReaderContext::read_line_impl(const uint8_t* start,
                                                            const size_t length) {
