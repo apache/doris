@@ -2498,7 +2498,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (storageVaultName == null || storageVaultName.isEmpty()) {
-                throw new DdlException("Invalid Storage Vault, please set one useful storage vault");
+                throw new DdlException("Invalid Storage Vault. You can use show storage vault stmt to"
+                        + "get full vaults, and pick one to set the table's property");
             }
 
             // Check if user has storage vault usage privilege
