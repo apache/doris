@@ -39,6 +39,7 @@
 #include <thrift/transport/TTransportException.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 
 #include "common/status.h"
@@ -896,11 +897,31 @@ void FragmentMgr::cancel_worker() {
                                         print_id(q_ctx->query_id()));
                             }
                         } else {
-                            LOG_WARNING(
-                                    "Could not find target coordinator {}:{} of query {}, going to "
-                                    "cancel it.",
-                                    q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
-                                    print_id(q_ctx->query_id()));
+                            // In some rear cases, the rpc port of follower is not updated in time,
+                            // then the port of this follower will be zero, but acutally it is still running,
+                            // and be has already received the query from follower.
+                            // So we need to check if host is in running_fes.
+                            bool fe_host_is_standing = std::any_of(
+                                    running_fes.begin(), running_fes.end(),
+                                    [&q_ctx](const auto& fe) {
+                                        return fe.first.hostname == q_ctx->coord_addr.hostname;
+                                    });
+                            if (fe_host_is_standing) {
+                                LOG_WARNING(
+                                        "Coordinator {}:{} is not found, but its host is still "
+                                        "running, "
+                                        "not going to cancel it.",
+                                        q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
+                                        print_id(q_ctx->query_id()));
+                                continue;
+                            } else {
+                                LOG_WARNING(
+                                        "Could not find target coordinator {}:{} of query {}, "
+                                        "going to "
+                                        "cancel it.",
+                                        q_ctx->coord_addr.hostname, q_ctx->coord_addr.port,
+                                        print_id(q_ctx->query_id()));
+                            }
                         }
                     }
                     // Coordinator of this query has already dead or query context has been released.
