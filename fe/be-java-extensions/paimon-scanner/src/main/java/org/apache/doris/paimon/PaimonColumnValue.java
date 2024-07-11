@@ -184,7 +184,6 @@ public class PaimonColumnValue implements ColumnValue {
         // todo: support pruned struct fields
         InternalRow row = record.getRow(idx, structFieldIndex.size());
         for (int i : structFieldIndex) {
-            LOG.info("mmc struct i:{}, dataType:{}", i, dataType);
             values.add(new PaimonColumnValue(row, i, dorisType.getChildTypes().get(i),
                     ((RowType) dataType).getFields().get(i).type()));
         }

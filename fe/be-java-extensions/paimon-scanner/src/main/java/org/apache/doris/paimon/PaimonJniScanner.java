@@ -51,7 +51,7 @@ public class PaimonJniScanner extends JniScanner {
     private final String paimonPredicate;
     private Table table;
     private RecordReader<InternalRow> reader;
-    private PaimonColumnValue columnValue = new PaimonColumnValue();
+    private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<String> paimonAllFieldNames;
     private List<DataType> paimonDataTypeList;
 
