@@ -455,116 +455,148 @@ public:
 
     std::string debug_string() const;
 
-#define THROW_NOT_IMPLEMENTED_ERROR(method_name)             \
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, \
-                           std::string(method_name) + std::string(get_family_name()))
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override;
 
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+
+    void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                uint32_t offset = 0,
+                                const uint8_t* __restrict null_data = nullptr) const override;
+
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+
+    // Not implemented
     MutableColumnPtr get_shrinked_column() override {
-        THROW_NOT_IMPLEMENTED_ERROR("get_shrinked_column");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_shrinked_column" + std::string(get_family_name()));
     }
 
-    Int64 get_int(size_t /*n*/) const override { THROW_NOT_IMPLEMENTED_ERROR("get_int"); }
+    Int64 get_int(size_t /*n*/) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_int" + std::string(get_family_name()));
+    }
 
-    bool get_bool(size_t /*n*/) const override { THROW_NOT_IMPLEMENTED_ERROR("get_bool"); }
+    bool get_bool(size_t /*n*/) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_bool" + std::string(get_family_name()));
+    }
 
     void insert_many_fix_len_data(const char* pos, size_t num) override {
-        THROW_NOT_IMPLEMENTED_ERROR("insert_many_fix_len_data");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_fix_len_data" + std::string(get_family_name()));
     }
 
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t data_num, uint32_t dict_num = 0) override {
-        THROW_NOT_IMPLEMENTED_ERROR("insert_many_dict_data");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_dict_data" + std::string(get_family_name()));
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
-        THROW_NOT_IMPLEMENTED_ERROR("insert_many_binary_data");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_binary_data" + std::string(get_family_name()));
     }
 
     void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
                                             const size_t num) override {
-        THROW_NOT_IMPLEMENTED_ERROR("insert_many_continuous_binary_data");
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "insert_many_continuous_binary_data" + std::string(get_family_name()));
     }
 
     void insert_many_strings(const StringRef* strings, size_t num) override {
-        THROW_NOT_IMPLEMENTED_ERROR("insert_many_strings");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_strings" + std::string(get_family_name()));
     }
 
     void insert_many_strings_overflow(const StringRef* strings, size_t num,
                                       size_t max_length) override {
-        THROW_NOT_IMPLEMENTED_ERROR("insert_many_strings_overflow");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_strings_overflow" + std::string(get_family_name()));
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
-        THROW_NOT_IMPLEMENTED_ERROR("insert_many_raw_data");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_raw_data" + std::string(get_family_name()));
     }
 
     size_t get_max_row_byte_size() const override {
-        THROW_NOT_IMPLEMENTED_ERROR("get_max_row_byte_size");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_max_row_byte_size" + std::string(get_family_name()));
     }
+
     void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                        size_t max_row_byte_size) const override {
-        THROW_NOT_IMPLEMENTED_ERROR("serialize_vec");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "serialize_vec" + std::string(get_family_name()));
     }
 
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                      const uint8_t* null_map) const override {
-        THROW_NOT_IMPLEMENTED_ERROR("serialize_vec_with_null_map");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "serialize_vec_with_null_map" + std::string(get_family_name()));
     }
 
     void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override {
-        THROW_NOT_IMPLEMENTED_ERROR("deserialize_vec");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_vec" + std::string(get_family_name()));
     }
 
     void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                        const uint8_t* null_map) override {
-        THROW_NOT_IMPLEMENTED_ERROR("deserialize_vec_with_null_map");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_vec_with_null_map" + std::string(get_family_name()));
     }
 
-    void update_hashes_with_value(uint64_t* __restrict hashes,
-                                  const uint8_t* __restrict null_data = nullptr) const override {
-        THROW_NOT_IMPLEMENTED_ERROR("update_hashes_with_value");
-    }
-
-    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
-                                  const uint8_t* __restrict null_data) const override {
-        THROW_NOT_IMPLEMENTED_ERROR("update_xxHash_with_value");
-    }
-
-    void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
-                                uint32_t offset = 0,
-                                const uint8_t* __restrict null_data = nullptr) const override {
-        THROW_NOT_IMPLEMENTED_ERROR("update_crcs_with_value");
-    }
-
-    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
-                               const uint8_t* __restrict null_data) const override {
-        THROW_NOT_IMPLEMENTED_ERROR("update_crc_with_value");
-    }
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) const {
-        THROW_NOT_IMPLEMENTED_ERROR("filter_by_selector");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "filter_by_selector" + std::string(get_family_name()));
     }
+
     bool structure_equals(const IColumn&) const override {
-        THROW_NOT_IMPLEMENTED_ERROR("structure_equals");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "structure_equals" + std::string(get_family_name()));
     }
-    StringRef get_raw_data() const override { THROW_NOT_IMPLEMENTED_ERROR("get_raw_data"); }
+
+    StringRef get_raw_data() const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_raw_data" + std::string(get_family_name()));
+    }
 
     size_t size_of_value_if_fixed() const override {
-        THROW_NOT_IMPLEMENTED_ERROR("size_of_value_if_fixed");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "size_of_value_if_fixed" + std::string(get_family_name()));
     }
-    StringRef get_data_at(size_t) const override { THROW_NOT_IMPLEMENTED_ERROR("get_data_at"); }
+
+    StringRef get_data_at(size_t) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_data_at" + std::string(get_family_name()));
+    }
+
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                          char const*& begin) const override {
-        THROW_NOT_IMPLEMENTED_ERROR("serialize_value_into_arena");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "serialize_value_into_arena" + std::string(get_family_name()));
     }
+
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        THROW_NOT_IMPLEMENTED_ERROR("deserialize_and_insert_from_arena");
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "deserialize_and_insert_from_arena" + std::string(get_family_name()));
     }
+
     void insert_data(const char* pos, size_t length) override {
-        THROW_NOT_IMPLEMENTED_ERROR("insert_data");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_data" + std::string(get_family_name()));
     }
+
     void replace_column_data(const IColumn&, size_t row, size_t self_row) override {
-        THROW_NOT_IMPLEMENTED_ERROR("replace_column_data");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "replace_column_data" + std::string(get_family_name()));
     }
 };
 

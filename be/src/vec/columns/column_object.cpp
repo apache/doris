@@ -1545,20 +1545,55 @@ void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indic
     }
 }
 
-void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
-    if (!is_finalized()) {
-        // finalize has no side effect and can be safely used in const functions
-        const_cast<ColumnObject*>(this)->finalize();
+// finalize has no side effect and can be safely used in const functions
+#define ENSURE_FINALIZED()                           \
+    if (!is_finalized()) {                           \
+        const_cast<ColumnObject*>(this)->finalize(); \
     }
+
+void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
+    ENSURE_FINALIZED();
     for_each_imutable_subcolumn([&](const auto& subcolumn) {
         if (n >= subcolumn.size()) {
-            std::stringstream ss;
-            ss << n << " greater than column size " << subcolumn.size()
-               << " sub_column_info:" << subcolumn.dump_structure()
-               << " total lines of this column " << num_rows;
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, ss.str());
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "greater than column size {}, sub_column_info:{}, total lines "
+                                   "of this column:{}",
+                                   subcolumn.size(), subcolumn.dump_structure(), num_rows);
         }
         return subcolumn.update_hash_with_value(n, hash);
+    });
+}
+
+void ColumnObject::update_hashes_with_value(uint64_t* __restrict hashes,
+                                            const uint8_t* __restrict null_data) const {
+    ENSURE_FINALIZED();
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_hashes_with_value(hashes, nullptr);
+    });
+}
+
+void ColumnObject::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                            const uint8_t* __restrict null_data) const {
+    ENSURE_FINALIZED();
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_xxHash_with_value(start, end, hash, nullptr);
+    });
+}
+
+void ColumnObject::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
+                                          const uint8_t* __restrict null_data) const {
+    ENSURE_FINALIZED();
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_crcs_with_value(hash, type, rows, offset, nullptr);
+    });
+}
+
+void ColumnObject::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                                         const uint8_t* __restrict null_data) const {
+    ENSURE_FINALIZED();
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_crc_with_value(start, end, hash, nullptr);
     });
 }
 
