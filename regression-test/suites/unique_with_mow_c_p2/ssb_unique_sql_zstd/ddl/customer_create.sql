@@ -12,6 +12,7 @@ UNIQUE KEY (`c_custkey`)
 CLUSTER BY (`c_region`, `c_address`, `c_city`, `c_name`)
 DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 10
 PROPERTIES (
+"enable_light_delete" = "true",
 "compression"="zstd",
 "replication_num" = "1",
 "disable_auto_compaction" = "true",
