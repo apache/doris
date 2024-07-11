@@ -40,7 +40,7 @@ suite("test_mysql_mtmv", "p0,external,mysql,external_docker,external_docker_hive
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/${mysqlDb}?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/${mysqlDb}?useSSL=false&zeroDateTimeBehavior=convertToNull&allowPublicKeyRetrieval=true",
             "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
