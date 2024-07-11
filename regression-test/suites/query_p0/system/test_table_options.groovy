@@ -180,7 +180,7 @@ suite("test_table_options") {
         PROPERTIES (
             "replication_num" = "1",
             "store_row_column" = "true",
-            "row_column_page_size" = "8190"
+            "row_store_page_size" = "8190"
         );
     """
 

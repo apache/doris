@@ -95,8 +95,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TIMEOUT = "timeout";
     public static final String PROPERTIES_COMPRESSION = "compression";
 
-    // row column page size, default 16KB
-    public static final String PROPERTIES_ROW_COLUMN_PAGE_SIZE = "row_column_page_size";
+    // row store page size, default 16KB
+    public static final String PROPERTIES_ROW_COLUMN_PAGE_SIZE = "row_store_page_size";
     public static final long ROW_COLUMN_PAGE_SIZE_DEFAULT_VALUE = 16384;
 
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
