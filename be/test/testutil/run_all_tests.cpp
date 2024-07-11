@@ -69,6 +69,8 @@ int main(int argc, char** argv) {
     static_cast<void>(service->start());
     doris::global_test_http_host = "http://127.0.0.1:" + std::to_string(service->get_real_port());
 
+    doris::ExecEnv::GetInstance()->set_tracking_memory(false);
+
     int res = RUN_ALL_TESTS();
     return res;
 }
