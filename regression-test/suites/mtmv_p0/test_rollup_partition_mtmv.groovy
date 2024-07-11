@@ -661,7 +661,7 @@ suite("test_rollup_partition_mtmv") {
         log.info(e.getMessage())
     }
 
-    // not support trunc hour
+     // not support trunc minute
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
     sql """
@@ -673,9 +673,9 @@ suite("test_rollup_partition_mtmv") {
         COMMENT 'OLAP'
         PARTITION BY range(`k2`)
         (
-        PARTITION p_20200101 VALUES [("2020-01-01"),("2020-01-02")),
-        PARTITION p_20200102 VALUES [("2020-01-02"),("2020-01-03")),
-        PARTITION p_20200201 VALUES [("2020-02-01"),("2020-02-02"))
+        PARTITION p_1 VALUES [("2020-01-01 00:00:00"),("2020-01-01 00:30:00")),
+        PARTITION p_2 VALUES [("2020-01-01 00:30:00"),("2020-01-01 01:00:00")),
+        PARTITION p_3 VALUES [("2020-01-01 01:00:00"),("2020-01-01 01:30:00"))
         )
         DISTRIBUTED BY HASH(`k1`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
@@ -685,7 +685,7 @@ suite("test_rollup_partition_mtmv") {
         sql """
             CREATE MATERIALIZED VIEW ${mvName}
                 BUILD DEFERRED REFRESH AUTO ON MANUAL
-                partition by (date_trunc(`k2`,'hour'))
+                partition by (date_trunc(`k2`,'minute'))
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES (
                 'replication_num' = '1'
@@ -697,6 +697,23 @@ suite("test_rollup_partition_mtmv") {
     } catch (Exception e) {
         log.info(e.getMessage())
     }
+
+    // support hour
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by (date_trunc(`k2`,'minute'))
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1'
+            )
+            AS
+            SELECT * FROM ${tableName};
+        """
+
+    def hour_partitions = sql """show partitions from ${mvName}"""
+    logger.info("hour_partitions: " + hour_partitions.toString())
+    assertEquals(2, hour_partitions.size())
 
     sql """drop materialized view if exists ${mvName};"""
     try {
