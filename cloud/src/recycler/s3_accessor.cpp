@@ -43,40 +43,6 @@
 
 namespace doris::cloud {
 
-struct AccessorRateLimiter {
-public:
-    ~AccessorRateLimiter() = default;
-    static AccessorRateLimiter& instance();
-    S3RateLimiterHolder* rate_limiter(S3RateLimitType type);
-
-private:
-    AccessorRateLimiter();
-    std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
-};
-
-template <typename Func>
-auto s3_rate_limit(S3RateLimitType op, Func callback) -> decltype(callback()) {
-    using T = decltype(callback());
-    if (!config::enable_s3_rate_limiter) {
-        return callback();
-    }
-    auto sleep_duration = AccessorRateLimiter::instance().rate_limiter(op)->add(1);
-    if (sleep_duration < 0) {
-        return T(-1);
-    }
-    return callback();
-}
-
-template <typename Func>
-auto s3_get_rate_limit(Func callback) -> decltype(callback()) {
-    return s3_rate_limit(S3RateLimitType::GET, std::move(callback));
-}
-
-template <typename Func>
-auto s3_put_rate_limit(Func callback) -> decltype(callback()) {
-    return s3_rate_limit(S3RateLimitType::PUT, std::move(callback));
-}
-
 AccessorRateLimiter::AccessorRateLimiter()
         : _rate_limiters {std::make_unique<S3RateLimiterHolder>(
                                   S3RateLimitType::GET, config::s3_get_token_per_second,
