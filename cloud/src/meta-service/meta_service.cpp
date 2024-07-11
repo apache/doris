@@ -1213,7 +1213,10 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
         msg = fmt::format("failed to check whether rowset exists, err={}", err);
         return;
     }
-
+    if (rowset_meta.has_variant_type_in_schema()) {
+        write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
+        if (code != MetaServiceCode::OK) return;
+    }
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     if (!rowset_meta.SerializeToString(&update_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
