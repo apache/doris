@@ -2900,6 +2900,9 @@ public class Config extends ConfigBase {
             "streamload route policy in cloud mode, availale options are public-private and empty string"})
     public static String streamload_redirect_policy = "";
 
+    @ConfField(mutable = true)
+    public static boolean enable_cooldown_replica_affinity = true;
+
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
