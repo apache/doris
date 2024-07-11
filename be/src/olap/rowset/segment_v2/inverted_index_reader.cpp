@@ -448,7 +448,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     auto act_len = strnlen(search_query->data, search_query->size);
 
     // If the written value exceeds ignore_above, it will be written as null.
-    // The queried value exceeds ignore_above means the written value cannot be found. 
+    // The queried value exceeds ignore_above means the written value cannot be found.
     // The query needs to be downgraded to read from the segment file.
     if (int ignore_above =
                 std::stoi(get_parser_ignore_above_value_from_properties(_index_meta.properties()));
