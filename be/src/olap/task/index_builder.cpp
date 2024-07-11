@@ -298,6 +298,10 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             output_rowset_meta->set_index_disk_size(output_rowset_meta->index_disk_size() +
                                                     inverted_index_size);
         }
+        // remove dropped index_meta from output rowset tablet schema
+        for (auto& index_meta : _dropped_inverted_indexes) {
+            output_rs_tablet_schema->remove_index(index_meta.index_id());
+        }
         LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
         return Status::OK();
     } else {
