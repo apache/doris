@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -63,7 +64,8 @@ public class RemoteIndexSchemaProcDir implements ProcDirInterface {
         table.readLock();
         try {
             OlapTable olapTable = (OlapTable) table;
-            tablets = olapTable.getAllTablets();
+            // Get sample tablets for remote desc schema
+            tablets = olapTable.getSampleTablets(ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount);
         } finally {
             table.readUnlock();
         }
