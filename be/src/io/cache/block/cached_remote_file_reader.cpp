@@ -72,7 +72,8 @@ CachedRemoteFileReader::~CachedRemoteFileReader() {
 
 Status CachedRemoteFileReader::close() {
     if (_num_write_blocks > 0 && !_is_doris_table) {
-        // try to merge small cells in non-doris table
+        // try to merge small blocks for external table
+        // can't merge the blocks for internal table
         RETURN_IF_ERROR(_cache->async_merge(_cache_key));
     }
     return _remote_file_reader->close();
@@ -88,12 +89,19 @@ std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
         if (IFileCache::read_only()) [[unlikely]] {
             return std::make_pair(offset, read_size);
         }
-        align_left = (left / config::file_cache_max_file_segment_size) *
-                     config::file_cache_max_file_segment_size;
-        align_right = (right / config::file_cache_max_file_segment_size + 1) *
-                      config::file_cache_max_file_segment_size;
+        // internal table should have large block size,
+        // because it's tablet is compacted with larger IO size,
+        // and write the cache block when writing table, not reading.
+        align_left =
+                (left / config::file_cache_each_block_size) * config::file_cache_each_block_size;
+        align_right = (right / config::file_cache_each_block_size + 1) *
+                      config::file_cache_each_block_size;
     } else {
-        size_t min_size = _is_remote_oss ? 1024 * 1024 : 4096;
+        // larger block size for oss(default 1MB)
+        // smaller block size for hdfs(default 4KB)
+        // to make better performance, and minimize the unnecessary reading of extra data in hdfs
+        size_t min_size = _is_remote_oss ? config::file_cache_each_block_size
+                                         : config::file_cache_hdfs_block_size;
         size_t segment_size = std::max(read_size, min_size);
         align_left = left;
         align_right = left + segment_size;
