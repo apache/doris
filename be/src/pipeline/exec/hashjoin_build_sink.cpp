@@ -518,7 +518,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     vectorized::MutableBlock::build_mutable_block(&tmp_build_block);
         }
 
-        if (in_block->rows() != 0) {
+        if (!in_block->empty()) {
             std::vector<int> res_col_ids(_build_expr_ctxs.size());
             RETURN_IF_ERROR(local_state._do_evaluate(*in_block, local_state._build_expr_ctxs,
                                                      *local_state._build_expr_call_timer,
@@ -533,27 +533,15 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
             local_state._mem_tracker->consume(in_block->bytes());
             COUNTER_UPDATE(local_state._build_blocks_memory_usage, in_block->bytes());
-            local_state._build_blocks.emplace_back(std::move(*in_block));
+
+            SCOPED_TIMER(local_state._build_side_merge_block_timer);
+            RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(
+                    std::move(*in_block)));
         }
     }
 
     if (local_state._should_build_hash_table && eos) {
         DCHECK(!local_state._build_side_mutable_block.empty());
-
-        for (auto& column : local_state._build_side_mutable_block.mutable_columns()) {
-            column->reserve(local_state._build_side_rows);
-        }
-
-        {
-            SCOPED_TIMER(local_state._build_side_merge_block_timer);
-            for (auto& block : local_state._build_blocks) {
-                RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(block));
-
-                vectorized::Block temp;
-                std::swap(block, temp);
-            }
-        }
-
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
 

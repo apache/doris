@@ -166,7 +166,5 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
 
     sql "sync"
 
-    if (!isCloudMode()) {
-        qt_sql """ select * from ${tableName} order by id;"""
-    }
+    qt_sql """ select * from ${tableName} order by id;"""
 }

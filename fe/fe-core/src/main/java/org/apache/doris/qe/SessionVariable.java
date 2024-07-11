@@ -128,6 +128,7 @@ public class SessionVariable implements Serializable, Writable {
     // mem limit can't smaller than bufferpool's default page size
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
+    public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
@@ -597,6 +598,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
+
     public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
 
     public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
@@ -845,6 +848,10 @@ public class SessionVariable implements Serializable, Writable {
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
     public int batchSize = 4064;
+
+    // 16352 + 16 + 16 = 16384
+    @VariableMgr.VarAttr(name = BROKER_LOAD_BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
+    public int brokerLoadBatchSize = 16352;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
     public boolean disableStreamPreaggregations = false;
@@ -1848,6 +1855,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
+            description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
+    private boolean enableCountPushDownForExternalTable = true;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
@@ -3857,6 +3868,15 @@ public class SessionVariable implements Serializable, Writable {
                 new SetVar(SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, new StringLiteral("true")));
     }
 
+    public void disableConstantFoldingByBEOnce() throws DdlException {
+        if (!enableFoldConstantByBe) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, new StringLiteral("false")));
+    }
+
     public void disableNereidsPlannerOnce() throws DdlException {
         if (!enableNereidsPlanner) {
             return;
@@ -4110,6 +4130,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
+    }
+
+    public boolean isEnableCountPushDownForExternalTable() {
+        return enableCountPushDownForExternalTable;
     }
 
     public boolean isForceToLocalShuffle() {

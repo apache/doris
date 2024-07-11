@@ -1361,6 +1361,10 @@ class Suite implements GroovyInterceptable {
         return enableStorageVault;
     }
 
+    boolean isGroupCommitMode() {
+        return getFeConfig("wait_internal_group_commit_finish").equals("true")
+    }
+
     String getFeConfig(String key) {
         return sql_return_maparray("SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
     }
