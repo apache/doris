@@ -19,14 +19,15 @@ suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_do
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
             String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
-            String catalog_name = "ctl_test_paimon_minio"
+            String catalog_name = "test_paimon_minio"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String table_name = "all_types"
+            String table_name = "ts_scale_orc"
 
             sql """drop catalog if exists ${catalog_name}"""
 
             sql """
-                CREATE CATALOG ${catalog_name} WITH ( 'type' = 'paimon',
+                CREATE CATALOG ${catalog_name} PROPERTIES (
+                        'type' = 'paimon',
                         'warehouse' = 's3://warehouse/wh',
                         's3.endpoint' = 'http://${externalEnvIp}:${minio_port}',
                         's3.access_key' = 'admin',
@@ -36,15 +37,15 @@ suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_do
             """
             sql """switch `${catalog_name}`"""
             sql """show databases; """
-            sql """use `${catalog_name}`.`db1`"""
-            sql """use `${catalog_name}`.`db1`"""
-            order_qt_no_region1 """select * from ${table_name} where c13 like '%3%' order by c1"""
-            order_qt_no_region2 """select * from ${table_name} where c13 like '13%' order by c1"""
+            sql """use `${catalog_name}`.`flink_paimon`"""
+            order_qt_no_region1 """select ts1,ts19 from ${table_name} """
+            order_qt_no_region2 """select * from ${table_name} """
             sql """drop catalog if exists ${catalog_name}"""
 
             sql """drop catalog if exists ${catalog_name}_with_region"""
             sql """
-                CREATE CATALOG ${catalog_name}_with_region WITH ( 'type' = 'paimon',
+                CREATE CATALOG ${catalog_name}_with_region PROPERTIES (
+                        'type' = 'paimon',
                         'warehouse' = 's3://warehouse/wh',
                         's3.endpoint' = 'http://${externalEnvIp}:${minio_port}',
                         's3.access_key' = 'admin',
@@ -55,11 +56,10 @@ suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_do
             """
             sql """switch `${catalog_name}_with_region`"""
             sql """show databases; """
-            sql """use `${catalog_name}_with_region`.`db1`"""
-            order_qt_region1"""select * from ${table_name} where c13 like '%3%' order by c1"""
-            order_qt_region2 """select * from ${table_name} where c13 like '13%' order by c1"""
+            sql """use `${catalog_name}_with_region`.`flink_paimon`"""
+            order_qt_region1 """select ts1,ts19 from ${table_name} """
+            order_qt_region2 """select * from ${table_name} """
             sql """drop catalog if exists ${catalog_name}_with_region"""
-
         }
 }
 
