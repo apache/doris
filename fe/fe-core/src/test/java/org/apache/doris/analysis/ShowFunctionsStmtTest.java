@@ -49,10 +49,10 @@ public class ShowFunctionsStmtTest {
 
     @Before
     public void setUp() {
-        fakeEnv = new FakeEnv();
-        env = AccessTestUtil.fetchAdminCatalog();
         MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.188.3.1");
+        fakeEnv = new FakeEnv();
+        env = AccessTestUtil.fetchAdminCatalog();
         FakeEnv.setEnv(env);
 
         new Expectations() {
