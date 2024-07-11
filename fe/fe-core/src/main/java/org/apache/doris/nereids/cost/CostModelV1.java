@@ -275,7 +275,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         // shuffle
         if (spec instanceof DistributionSpecHash) {
-            double base = intputRowCount * childStatistics.dataSizeFactor(
+            double base = 0.05 * intputRowCount * childStatistics.dataSizeFactor(
                     distribute.child().getOutput()) / beNumber;
             List<ExprId> keyExprIds = ((DistributionSpecHash) spec).getOrderedShuffledColumns();
             List<Slot> keySlots = new ArrayList<>();
@@ -286,7 +286,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             }
             double keyMem = childStatistics.computeSize(keySlots);
             return CostV1.of(context.getSessionVariable(),
-                    keyMem / beNumber,
+                    intputRowCount / beNumber,
                     0,
                     base
                     );
