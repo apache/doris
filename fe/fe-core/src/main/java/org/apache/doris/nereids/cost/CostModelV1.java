@@ -26,7 +26,9 @@ import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -60,6 +62,7 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -272,12 +275,19 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         // shuffle
         if (spec instanceof DistributionSpecHash) {
-            double base  = intputRowCount * childStatistics.dataSizeFactor(
+            double base = intputRowCount * childStatistics.dataSizeFactor(
                     distribute.child().getOutput()) / beNumber;
-            double keyShare = (((DistributionSpecHash) spec).getOrderedShuffledColumns().size() / (double) distribute.getOutput().size());
+            List<ExprId> keyExprIds = ((DistributionSpecHash) spec).getOrderedShuffledColumns();
+            List<Slot> keySlots = new ArrayList<>();
+            for (Slot slot : distribute.getOutput()) {
+                if (keyExprIds.contains(slot.getExprId())) {
+                    keySlots.add(slot);
+                }
+            }
+            double keyMem = childStatistics.computeSize(keySlots);
             return CostV1.of(context.getSessionVariable(),
-                    base * keyShare,
-                    base * keyShare * 1.5,
+                    keyMem / beNumber,
+                    0,
                     base
                     );
         }
