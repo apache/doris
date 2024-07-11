@@ -714,8 +714,14 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
                           << ", tablet_uid=" << tablet_info.first.tablet_uid;
                 continue;
             }
-            StorageEngine::instance()->txn_manager()->delete_txn(partition_id, tablet,
-                                                                 transaction_id);
+            Status s = StorageEngine::instance()->txn_manager()->delete_txn(partition_id, tablet,
+                                                                            transaction_id);
+            if (!s.ok()) {
+                LOG(WARNING) << "failed to clear transaction. txn_id=" << transaction_id
+                             << ", partition_id=" << partition_id
+                             << ", tablet_id=" << tablet_info.first.tablet_id
+                             << ", status=" << s.to_string();
+            }
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
