@@ -30,9 +30,11 @@
 #include "io/cache/block/block_file_cache_factory.h"
 #include "io/cache/block/block_file_segment.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/s3_file_reader.h"
 #include "io/io_common.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
+#include "vec/common/typeid_cast.h"
 
 namespace doris {
 namespace io {
@@ -41,6 +43,7 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
                                                const FileReaderOptions& opts)
         : _remote_file_reader(std::move(remote_file_reader)) {
     _is_doris_table = opts.is_doris_table;
+    _is_remote_oss = typeid_cast<io::S3FileReader*>(_remote_file_reader.get()) != nullptr;
     if (_is_doris_table) {
         _cache_key = IFileCache::hash(path().filename().native());
         _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
@@ -68,6 +71,10 @@ CachedRemoteFileReader::~CachedRemoteFileReader() {
 }
 
 Status CachedRemoteFileReader::close() {
+    if (_num_write_blocks > 0 && !_is_doris_table) {
+        // try to merge small cells in non-doris table
+        RETURN_IF_ERROR(_cache->async_merge(_cache_key));
+    }
     return _remote_file_reader->close();
 }
 
@@ -86,7 +93,8 @@ std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
         align_right = (right / config::file_cache_max_file_segment_size + 1) *
                       config::file_cache_max_file_segment_size;
     } else {
-        size_t segment_size = std::max(read_size, (size_t)config::file_cache_min_file_segment_size);
+        size_t min_size = _is_remote_oss ? 1024 * 1024 : 4096;
+        size_t segment_size = std::max(read_size, min_size);
         align_left = left;
         align_right = left + segment_size;
     }
@@ -159,6 +167,7 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
                                                  segment_size));
             stats.bytes_write_into_file_cache += segment_size;
         }
+        _num_write_blocks = empty_segments.size();
         // copy from memory directly
         size_t right_offset = offset + result.size - 1;
         if (empty_start <= right_offset && empty_end >= offset) {

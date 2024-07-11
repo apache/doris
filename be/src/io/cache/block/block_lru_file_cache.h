@@ -131,6 +131,8 @@ private:
 
     std::pair<size_t, size_t> try_merge() override;
 
+    Status async_merge(const Key& key) override;
+
     /// Find the continuous segment files for a remote file
     /// Return the offsets of the continuous files.
     std::vector<std::vector<size_t>> find_continuous_cells(const FileBlocksByOffset& segments);

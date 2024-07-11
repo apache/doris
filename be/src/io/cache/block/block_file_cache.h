@@ -121,6 +121,8 @@ public:
     /// Return the number of origin segment files and the merged files
     virtual std::pair<size_t, size_t> try_merge() = 0;
 
+    virtual Status async_merge(const Key& key) = 0;
+
     std::string get_path_in_local_cache(const Key& key, size_t offset, CacheType type) const;
 
     /// Get the destination file that small segment files merge into

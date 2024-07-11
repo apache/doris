@@ -478,6 +478,26 @@ std::pair<size_t, size_t> LRUFileCache::try_merge() {
     return {0, 0};
 }
 
+Status LRUFileCache::async_merge(const Key& key) {
+    ThreadPool* merge_pool = ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool();
+    return merge_pool->submit_func([file_key = key, this]() {
+        std::unordered_map<Key, std::vector<std::vector<size_t>>, HashCachedFileKey> merged_files;
+        {
+            std::lock_guard<std::mutex> l(_mutex);
+            if (_files.contains(file_key)) {
+                std::vector<std::vector<size_t>> merged_blocks =
+                        find_continuous_cells(_files[file_key]);
+                if (!merged_blocks.empty()) {
+                    merged_files[file_key] = merged_blocks;
+                }
+            }
+        }
+        if (!merged_files.empty()) {
+            merge_continuous_cells(merged_files);
+        }
+    });
+}
+
 std::vector<std::vector<size_t>> LRUFileCache::find_continuous_cells(
         const FileBlocksByOffset& segments) {
     // vector<vector<offset>>, continuous file segments
@@ -1264,17 +1284,8 @@ std::string LRUFileCache::dump_structure_unlocked(const Key& key, std::lock_guar
 
 void LRUFileCache::run_background_operation() {
     int64_t interval_time_seconds = 20; // 20s
-    int64_t interval_merge_cells = 600; // 10min
-    int64_t last_merge_duration = 0;
     while (!_close) {
         std::this_thread::sleep_for(std::chrono::seconds(interval_time_seconds));
-        last_merge_duration += interval_time_seconds;
-        if (last_merge_duration >= interval_merge_cells) {
-            std::pair<size_t, size_t> merged = try_merge();
-            LOG(INFO) << "Merge " << merged.first << " small cells into " << merged.second
-                      << " large cells";
-            last_merge_duration = 0;
-        }
         // report
         _cur_size_metrics->set_value(_cur_cache_size);
     }
