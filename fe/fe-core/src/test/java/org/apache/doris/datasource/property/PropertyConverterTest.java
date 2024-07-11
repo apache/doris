@@ -685,11 +685,11 @@ public class PropertyConverterTest extends TestWithFeService {
         // test region parser
         Assertions.assertNull(S3Properties.getRegionOfEndpoint("http://192.168.2.30:9099/com.region.test/dir"));
         Assertions.assertEquals("cn-beijing",
-            S3Properties.getRegionOfEndpoint("http://dlf.cn-beijing.aliyuncs.com/com.region.test/dir"));
+                S3Properties.getRegionOfEndpoint("http://dlf.cn-beijing.aliyuncs.com/com.region.test/dir"));
         Assertions.assertEquals("oss-cn-beijing",
-            S3Properties.getRegionOfEndpoint("http://oss-cn-beijing.aliyuncs.com/com.region.test/dir"));
+                S3Properties.getRegionOfEndpoint("http://oss-cn-beijing.aliyuncs.com/com.region.test/dir"));
         Assertions.assertEquals("us-east-1",
-            S3Properties.getRegionOfEndpoint("http://s3.us-east-1.amazonaws.com/com.region.test/dir"));
+                S3Properties.getRegionOfEndpoint("http://s3.us-east-1.amazonaws.com/com.region.test/dir"));
 
         //1. dlf
         Map<String, String> props = new HashMap<>();
