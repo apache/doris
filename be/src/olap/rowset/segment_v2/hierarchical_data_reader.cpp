@@ -34,10 +34,9 @@ namespace segment_v2 {
 Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
                                       vectorized::PathInData path,
                                       const SubcolumnColumnReaders::Node* node,
-                                      const SubcolumnColumnReaders::Node* root,
-                                      bool output_as_raw_json) {
+                                      const SubcolumnColumnReaders::Node* root) {
     // None leave node need merge with root
-    auto* stream_iter = new HierarchicalDataReader(path, output_as_raw_json);
+    auto* stream_iter = new HierarchicalDataReader(path);
     std::vector<const SubcolumnColumnReaders::Node*> leaves;
     vectorized::PathsInData leaves_paths;
     SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);

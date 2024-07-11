@@ -536,24 +536,19 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
     auto sparse_node = tablet_column.has_path_info()
                                ? _sparse_column_tree.find_exact(*tablet_column.path_info_ptr())
                                : nullptr;
-    if (opt != nullptr && opt->io_ctx.reader_type == ReaderType::READER_ALTER_TABLE) {
-        CHECK(tablet_column.is_variant_type());
-        if (root == nullptr) {
-            // No such variant column in this segment, get a default one
-            RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
-            return Status::OK();
-        }
-        bool output_as_raw_json = true;
-        // Alter table operation should read the whole variant column, since it does not aware of
-        // subcolumns of variant during processing rewriting rowsets.
-        // This is slow, since it needs to read all sub columns and merge them into a single column
-        RETURN_IF_ERROR(
-                HierarchicalDataReader::create(iter, root_path, root, root, output_as_raw_json));
-        return Status::OK();
-    }
 
-    if (opt == nullptr || opt->io_ctx.reader_type != ReaderType::READER_QUERY) {
-        // Could be compaction ..etc and read flat leaves nodes data
+    // Currently only compaction and checksum need to read flat leaves
+    // They both use tablet_schema_with_merged_max_schema_version as read schema
+    auto type_to_read_flat_leaves = [](ReaderType type) {
+        return type == ReaderType::READER_BASE_COMPACTION ||
+               type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+               type == ReaderType::READER_COLD_DATA_COMPACTION ||
+               type == ReaderType::READER_SEGMENT_COMPACTION ||
+               type == ReaderType::READER_FULL_COMPACTION || type == ReaderType::READER_CHECKSUM;
+    };
+
+    if (opt != nullptr && type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
+        // compaction need to read flat leaves nodes data to prevent from amplification
         const auto* node = tablet_column.has_path_info()
                                    ? _sub_column_tree.find_leaf(*tablet_column.path_info_ptr())
                                    : nullptr;
