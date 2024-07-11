@@ -45,7 +45,7 @@
 #include <vector>
 
 #include "common/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"

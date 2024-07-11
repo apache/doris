@@ -231,6 +231,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadMultiTablePutResult;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
+import org.apache.doris.thrift.TSubTxnInfo;
 import org.apache.doris.thrift.TSyncQueryColumns;
 import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableMetadataNameIds;
@@ -245,6 +246,7 @@ import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
+import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -1265,6 +1267,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             TBeginTxnResult tmpRes = beginTxnImpl(request, clientAddr);
             result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
+            if (tmpRes.isSetSubTxnIds()) {
+                result.setSubTxnIds(tmpRes.getSubTxnIds());
+            }
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
             LOG.warn("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(),
@@ -1349,6 +1354,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // step 7: return result
         TBeginTxnResult result = new TBeginTxnResult();
         result.setTxnId(txnId).setDbId(db.getId());
+        if (request.isSetSubTxnNum() && request.getSubTxnNum() > 0) {
+            result.addToSubTxnIds(txnId);
+            for (int i = 0; i < request.getSubTxnNum() - 1; i++) {
+                result.addToSubTxnIds(Env.getCurrentGlobalTransactionMgr().getNextTransactionId());
+            }
+        }
         return result;
     }
 
@@ -1699,8 +1710,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!request.isSetTxnId()) {
             throw new UserException("txn_id is not set");
         }
-        if (!request.isSetCommitInfos()) {
-            throw new UserException("commit_infos is not set");
+        if (request.isSetTxnInsert() && request.isTxnInsert()) {
+            if (!request.isSetSubTxnInfos()) {
+                throw new UserException("sub_txn_infos is not set");
+            }
+        } else {
+            if (!request.isSetCommitInfos()) {
+                throw new UserException("commit_infos is not set");
+            }
         }
 
         // Step 1: get && check database
@@ -1750,11 +1767,29 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
 
         // Step 5: commit and publish
-        return Env.getCurrentGlobalTransactionMgr()
-                .commitAndPublishTransaction(db, tableList,
-                        request.getTxnId(),
-                        TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
-                        TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+        if (request.isSetTxnInsert() && request.isTxnInsert()) {
+            List<Long> subTxnIds = new ArrayList<>();
+            List<SubTransactionState> subTransactionStates = new ArrayList<>();
+            for (TSubTxnInfo subTxnInfo : request.getSubTxnInfos()) {
+                TableIf table = db.getTableNullable(subTxnInfo.getTableId());
+                if (table == null) {
+                    continue;
+                }
+                subTxnIds.add(subTxnInfo.getSubTxnId());
+                subTransactionStates.add(
+                        new SubTransactionState(subTxnInfo.getSubTxnId(), (Table) table,
+                                subTxnInfo.getTabletCommitInfos(), null));
+            }
+            transactionState.setSubTxnIds(subTxnIds);
+            return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(db, request.getTxnId(),
+                    subTransactionStates, timeoutMs);
+        } else {
+            return Env.getCurrentGlobalTransactionMgr()
+                    .commitAndPublishTransaction(db, tableList,
+                            request.getTxnId(),
+                            TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
+                            TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+        }
     }
 
     @Override
@@ -2619,9 +2654,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TAutoIncrementRangeResult getAutoIncrementRange(TAutoIncrementRangeRequest request) {
         String clientAddr = getClientAddrAsString();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get auto-increement range request: {}, backend: {}", request, clientAddr);
-        }
+        LOG.info("[auto-inc] receive getAutoIncrementRange request: {}, backend: {}", request, clientAddr);
 
         TAutoIncrementRangeResult result = new TAutoIncrementRangeResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -2631,7 +2664,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to getAutoIncrementRange:{}, request:{}, backend:{}",
+            LOG.error("[auto-inc] failed to getAutoIncrementRange:{}, request:{}, backend:{}",
                     NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
             return result;
         }
@@ -2644,19 +2677,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             autoIncrementGenerator = olapTable.getAutoIncrementGenerator();
             long columnId = request.getColumnId();
             long length = request.getLength();
-            long lowerBound = -1;
-            if (request.isSetLowerBound()) {
-                lowerBound = request.getLowerBound();
-            }
-            Pair<Long, Long> range = autoIncrementGenerator.getAutoIncrementRange(columnId, length, lowerBound);
+            Pair<Long, Long> range = autoIncrementGenerator.getAutoIncrementRange(columnId, length, -1);
             result.setStart(range.first);
             result.setLength(range.second);
         } catch (UserException e) {
-            LOG.warn("failed to get auto-increment range of column {}: {}", request.getColumnId(), e.getMessage());
+            LOG.warn("[auto-inc] failed to get auto-increment range of db_id={}, table_id={}, column_id={}, errmsg={}",
+                    request.getDbId(), request.getTableId(), request.getColumnId(), e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.warn("[auto-inc] catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
         }

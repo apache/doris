@@ -52,42 +52,26 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
                << ", data_length: " << bytes_req << "file_type" << _file_type;
 
     std::span<const Slice> slices {data, data_cnt};
-    size_t stream_index = 0;
+    size_t fault_injection_skipped_streams = 0;
     bool ok = false;
-    bool skip_stream = false;
     Status st;
     for (auto& stream : _streams) {
         DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", {
-            if (stream_index >= 2) {
-                skip_stream = true;
+            if (fault_injection_skipped_streams < 1) {
+                fault_injection_skipped_streams++;
+                continue;
             }
         });
         DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", {
-            if (stream_index >= 1) {
-                skip_stream = true;
+            if (fault_injection_skipped_streams < 2) {
+                fault_injection_skipped_streams++;
+                continue;
             }
         });
-        if (!skip_stream) {
-            st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
-                                     _bytes_appended, slices, false, _file_type);
-        }
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", {
-            if (stream_index >= 2) {
-                st = Status::InternalError("stream sink file writer append data failed");
-            }
-            stream_index++;
-            skip_stream = false;
-        });
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", {
-            if (stream_index >= 1) {
-                st = Status::InternalError("stream sink file writer append data failed");
-            }
-            stream_index++;
-            skip_stream = false;
-        });
-        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", {
-            st = Status::InternalError("stream sink file writer append data failed");
-        });
+        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_all_replica",
+                        { continue; });
+        st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id, _bytes_appended,
+                                 slices, false, _file_type);
         ok = ok || st.ok();
         if (!st.ok()) {
             LOG(WARNING) << "failed to send segment data to backend " << stream->dst_id()
@@ -139,8 +123,23 @@ Status StreamSinkFileWriter::_finalize() {
     VLOG_DEBUG << "writer finalize, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
                << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id;
     // TODO(zhengyu): update get_inverted_index_file_size into stat
+    size_t fault_injection_skipped_streams = 0;
     bool ok = false;
     for (auto& stream : _streams) {
+        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", {
+            if (fault_injection_skipped_streams < 1) {
+                fault_injection_skipped_streams++;
+                continue;
+            }
+        });
+        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", {
+            if (fault_injection_skipped_streams < 2) {
+                fault_injection_skipped_streams++;
+                continue;
+            }
+        });
+        DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_all_replica",
+                        { continue; });
         auto st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
                                       _bytes_appended, {}, true, _file_type);
         ok = ok || st.ok();

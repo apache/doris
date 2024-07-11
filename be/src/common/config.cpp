@@ -67,6 +67,9 @@ DEFINE_mString(public_access_ip, "");
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DEFINE_Int32(brpc_num_threads, "256");
+// the time of brpc server keep idle connection, setting this value too small may cause rpc between backends to fail,
+// the default value is set to -1, which means never close idle connection.
+DEFINE_Int32(brpc_idle_timeout_sec, "-1");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -116,12 +119,9 @@ DEFINE_mInt32(max_fill_rate, "2");
 
 DEFINE_mInt32(double_resize_threshold, "23");
 
-// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
-// actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
-// with large memory larger than 16G.
-// Turn up max. On machines with more than 16G memory, more memory buffers will be reserved for Full GC.
-// Turn down max. will use as much memory as possible.
-DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
+DEFINE_Int64(max_sys_mem_available_low_water_mark_bytes, "6871947673");
+
+DEFINE_Int64(memtable_limiter_reserved_memory_bytes, "838860800");
 
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 DEFINE_mString(process_minor_gc_size, "10%");
@@ -568,6 +568,7 @@ DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
 DEFINE_mBool(enable_je_purge_dirty_pages, "true");
+DEFINE_mString(je_dirty_pages_mem_limit_percent, "5%");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
@@ -1076,7 +1077,6 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 DEFINE_mInt32(segment_cache_capacity, "-1");
 DEFINE_mInt32(estimated_num_columns_per_segment, "200");
 DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
-// The value is calculate by storage_page_cache_limit * index_page_cache_percentage
 DEFINE_mInt32(segment_cache_memory_percentage, "2");
 
 // enable feature binlog, default false
@@ -1168,6 +1168,9 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
+
+DEFINE_mBool(enable_be_proc_monitor, "false");
+DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
 DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
@@ -1266,9 +1269,6 @@ DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
 
-// enable injection point in regression-test
-DEFINE_mBool(enable_injection_point, "false");
-
 DEFINE_mBool(ignore_schema_change_check, "false");
 
 DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t>::max()
@@ -1328,6 +1328,8 @@ DEFINE_mBool(enable_parquet_page_index, "true");
 DEFINE_Int64(debug_max_memory_size_by_native_allocator_bytes, "1048576")
 
         DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
+
+DEFINE_mBool(enable_hdfs_mem_limiter, "true");
 
 // clang-format off
 #ifdef BE_TEST
