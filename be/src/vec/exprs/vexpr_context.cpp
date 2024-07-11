@@ -120,7 +120,7 @@ int VExprContext::register_function_context(RuntimeState* state, const TypeDescr
     return _fn_contexts.size() - 1;
 }
 Status VExprContext::eval_inverted_index(
-        const std::unordered_map<ColumnId, std::pair<vectorized::NameAndTypePair,
+        const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
                                                      segment_v2::InvertedIndexIterator*>>&
                 colid_to_inverted_index_iter,
         uint32_t num_rows, roaring::Roaring* bitmap) {

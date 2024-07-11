@@ -42,6 +42,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -198,6 +199,8 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .addAll(groupingSetsUsedSlot)
                 .addAll(allVirtualSlots)
                 .build();
+
+        normalizedAggOutput = getExprIdUnchangedNormalizedAggOutput(normalizedAggOutput, repeat.getOutputExpressions());
         return new LogicalAggregate<>(normalizedAggGroupBy, (List) normalizedAggOutput,
                 Optional.of(normalizedRepeat), normalizedRepeat);
     }
@@ -459,5 +462,26 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
             }
             return hasNewChildren ? windowExpression.withChildren(newChildren) : windowExpression;
         }
+    }
+
+    private static List<NamedExpression> getExprIdUnchangedNormalizedAggOutput(
+            List<NamedExpression> normalizedAggOutput, List<NamedExpression> originalAggOutput) {
+        Builder<NamedExpression> builder = new ImmutableList.Builder<>();
+        for (int i = 0; i < originalAggOutput.size(); i++) {
+            NamedExpression e = normalizedAggOutput.get(i);
+            // process Expression like Alias(SlotReference#0)#0
+            if (e instanceof Alias && e.child(0) instanceof SlotReference) {
+                SlotReference slotReference = (SlotReference) e.child(0);
+                if (slotReference.getExprId().equals(e.getExprId())) {
+                    e = slotReference;
+                }
+            }
+            // Make the output ExprId unchanged
+            if (!e.getExprId().equals(originalAggOutput.get(i).getExprId())) {
+                e = new Alias(originalAggOutput.get(i).getExprId(), e, originalAggOutput.get(i).getName());
+            }
+            builder.add(e);
+        }
+        return builder.build();
     }
 }

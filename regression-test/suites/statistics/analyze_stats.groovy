@@ -181,7 +181,7 @@ suite("test_analyze") {
     """
 
     def contains_expected_table = { r ->
-        for (int i = 0; i < r.size; i++) {
+        for (int i = 0; i < r.size(); i++) {
             if (r[i][3] == "${tbl}") {
                 return true
             }
@@ -190,7 +190,7 @@ suite("test_analyze") {
     }
 
     def stats_job_removed = { r, id ->
-        for (int i = 0; i < r.size; i++) {
+        for (int i = 0; i < r.size(); i++) {
             if (r[i][0] == id) {
                 return false
             }
@@ -250,7 +250,7 @@ suite("test_analyze") {
     """
 
     def expected_result = { r->
-        for(int i = 0; i < r.size; i++) {
+        for(int i = 0; i < r.size(); i++) {
             if ((int) Double.parseDouble(r[i][2]) == 6) {
                 return true
             } else {
@@ -1150,9 +1150,9 @@ PARTITION `p599` VALUES IN (599)
     sql """ INSERT INTO test_updated_rows VALUES('1',1,1); """
     def cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
     for (int i = 0; i < 10; ++i) {
-      if (Integer.valueOf(cnt1[0][0]) == 8) break;
-      Thread.sleep(1000) // rows updated report is async
-      cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
+        if (Integer.valueOf(cnt1[0][0]) == 8) break;
+        Thread.sleep(1000) // rows updated report is async
+        cnt1 = sql """ SHOW TABLE STATS test_updated_rows """
     }
     assertEquals(Integer.valueOf(cnt1[0][0]), 1)
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
@@ -1162,9 +1162,9 @@ PARTITION `p599` VALUES IN (599)
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     def cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
     for (int i = 0; i < 10; ++i) {
-      if (Integer.valueOf(cnt2[0][0]) == 8) break;
-      Thread.sleep(1000) // rows updated report is async
-      cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
+        if (Integer.valueOf(cnt2[0][0]) == 8) break;
+        Thread.sleep(1000) // rows updated report is async
+        cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
     }
     assertTrue(Integer.valueOf(cnt2[0][0]) == 0 || Integer.valueOf(cnt2[0][0]) == 8)
 
@@ -1178,7 +1178,7 @@ PARTITION `p599` VALUES IN (599)
     );"""
     sql """insert into test_analyze_specific_column values('%.', 2, 1);"""
     sql """ANALYZE TABLE test_analyze_specific_column(col2) WITH SYNC"""
-    result = sql """SHOW COLUMN STATS test_analyze_specific_column"""
+    def result = sql """SHOW COLUMN STATS test_analyze_specific_column"""
     assert result.size() == 1
 
     // test escape sql
@@ -1214,7 +1214,7 @@ PARTITION `p599` VALUES IN (599)
     """
 
     def tbl_name_as_expetected = { r,name ->
-        for (int i = 0; i < r.size; i++) {
+        for (int i = 0; i < r.size(); i++) {
             if (r[i][3] != name) {
                 return false
             }
@@ -1232,7 +1232,7 @@ PARTITION `p599` VALUES IN (599)
     assert show_result.size() > 0
 
     def all_finished = { r ->
-        for (int i = 0; i < r.size; i++) {
+        for (int i = 0; i < r.size(); i++) {
             if (r[i][9] != "FINISHED") {
                 return  false
             }
@@ -2765,7 +2765,7 @@ PARTITION `p599` VALUES IN (599)
 
     // Test analyze default full.
     sql """analyze table trigger_test with sync"""
-    def result = sql """show column stats trigger_test"""
+    result = sql """show column stats trigger_test"""
     logger.info("show column trigger_test stats: " + result)
     assertEquals(2, result.size())
     assertEquals("4.0", result[0][2])
@@ -2809,6 +2809,57 @@ PARTITION `p599` VALUES IN (599)
     String jobId = result_sample[0][0]
     result_sample = sql """show analyze task status ${jobId}"""
     assertEquals(2, result_sample.size())
+
+    // Test inject stats avg_size.
+    sql """CREATE TABLE `date_dim` (
+          `d_date_sk` BIGINT NOT NULL,
+          `d_date_id` CHAR(16) NOT NULL,
+          `d_date` DATE NULL,
+          `d_month_seq` INT NULL,
+          `d_week_seq` INT NULL,
+          `d_quarter_seq` INT NULL,
+          `d_year` INT NULL,
+          `d_dow` INT NULL,
+          `d_moy` INT NULL,
+          `d_dom` INT NULL,
+          `d_qoy` INT NULL,
+          `d_fy_year` INT NULL,
+          `d_fy_quarter_seq` INT NULL,
+          `d_fy_week_seq` INT NULL,
+          `d_day_name` CHAR(9) NULL,
+          `d_quarter_name` CHAR(6) NULL,
+          `d_holiday` CHAR(1) NULL,
+          `d_weekend` CHAR(1) NULL,
+          `d_following_holiday` CHAR(1) NULL,
+          `d_first_dom` INT NULL,
+          `d_last_dom` INT NULL,
+          `d_same_day_ly` INT NULL,
+          `d_same_day_lq` INT NULL,
+          `d_current_day` CHAR(1) NULL,
+          `d_current_week` CHAR(1) NULL,
+          `d_current_month` CHAR(1) NULL,
+          `d_current_quarter` CHAR(1) NULL,
+          `d_current_year` CHAR(1) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`d_date_sk`)
+        DISTRIBUTED BY HASH(`d_date_sk`) BUCKETS 12
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1")
+    """
+
+    sql """
+        alter table date_dim modify column d_day_name set stats ('row_count'='73049', 'ndv'='7', 'num_nulls'='0', 'min_value'='Friday', 'max_value'='Wednesday', 'data_size'='521779')
+    """
+
+    alter_result = sql """show column cached stats date_dim"""
+    assertEquals("d_day_name", alter_result[0][0])
+    assertEquals("date_dim", alter_result[0][1])
+    assertEquals("73049.0", alter_result[0][2])
+    assertEquals("7.0", alter_result[0][3])
+    assertEquals("0.0", alter_result[0][4])
+    assertEquals("521779.0", alter_result[0][5])
+    assertEquals("7.142863009760572", alter_result[0][6])
+
 
     sql """DROP DATABASE IF EXISTS trigger"""
 }

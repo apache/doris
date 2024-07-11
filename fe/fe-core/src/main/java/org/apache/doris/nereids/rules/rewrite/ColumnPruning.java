@@ -138,7 +138,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             if (stmtContext != null) {
                 for (Slot key : keys) {
                     if (key instanceof SlotReference) {
-                        ((SlotReference) key).getColumn().ifPresent(stmtContext::addKeyColumn);
+                        stmtContext.addKeySlot((SlotReference) key);
                     }
                 }
             }

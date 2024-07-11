@@ -156,6 +156,32 @@ suite("test_show_storage_policy_using") {
     """
     assertTrue(show_result.size() >= 4)
 
+    // test cancel a partition's storage policy
+    sql """
+        ALTER TABLE partition_with_multiple_storage_policy MODIFY PARTITION (`p201701`) SET ("storage_policy"="")
+    """
+    show_result = sql """
+        show storage policy using for ${policy_name}
+    """
+    assertEquals(show_result.size(), 1)
+    assertTrue(show_result[0][2].equals("table_with_storage_policy_1"))
+
+    sql """
+        ALTER TABLE partition_with_multiple_storage_policy MODIFY PARTITION (`p201701`) SET ("storage_policy"="${policy_name}")
+    """
+    show_result = sql """
+        show storage policy using for ${policy_name}
+    """
+    assertEquals(show_result.size(), 2)
+
+    sql """
+        ALTER TABLE partition_with_multiple_storage_policy MODIFY PARTITION (`p201701`) SET ("replication_num"="1")
+    """
+    show_result = sql """
+        show storage policy using for ${policy_name}
+    """
+    assertEquals(show_result.size(), 2)
+
     // cleanup
     sql """ DROP TABLE IF EXISTS table_with_storage_policy_1 """
     sql """ DROP TABLE IF EXISTS table_no_storage_policy_1 """

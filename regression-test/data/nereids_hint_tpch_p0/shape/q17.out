@@ -11,16 +11,15 @@ PhysicalResultSink
 ----------------PhysicalQuickSort[LOCAL_SORT]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=()
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[lineitem]
-------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------PhysicalProject
-----------------------------filter((part.p_brand = 'Brand#23') and (part.p_container = 'MED BOX'))
-------------------------------PhysicalOlapScan[part]
+------------------------PhysicalProject
+--------------------------filter((part.p_brand = 'Brand#23') and (part.p_container = 'MED BOX'))
+----------------------------PhysicalOlapScan[part]
 
 Hint log:
-Used:  leading(lineitem broadcast part )
+Used: leading(lineitem broadcast part ) 
 UnUsed:
 SyntaxError:
 

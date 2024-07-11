@@ -47,7 +47,7 @@ public:
 
     Status init(RuntimeState* state) override;
 
-    Status write(Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status status) override;
 
@@ -55,6 +55,8 @@ public:
 
 private:
     void _init_profile();
+
+    Status _set_options(const TSerdeDialect::type& serde_dialect);
 
     template <PrimitiveType type, bool is_nullable>
     Status _add_one_column(const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
@@ -87,6 +89,8 @@ private:
     bool _is_dry_run = false;
 
     uint64_t _bytes_sent = 0;
+
+    DataTypeSerDe::FormatOptions _options;
 };
 } // namespace vectorized
 } // namespace doris

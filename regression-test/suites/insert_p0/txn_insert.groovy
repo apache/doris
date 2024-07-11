@@ -34,7 +34,7 @@ suite("txn_insert") {
         logger.info("frontends: ${fes}")
         if (fes.size() > 1) {
             for (def fe : fes) {
-                if (fe.IsMaster == "false") {
+                if (fe.IsMaster == "false" && fe.Alive == "true") {
                     return "jdbc:mysql://${fe.Host}:${fe.QueryPort}/"
                 }
             }
@@ -142,7 +142,7 @@ suite("txn_insert") {
         if (use_nereids_planner) {
             sql """ insert into ${table}_0 select * from $table; """
             sql """ insert into ${table}_1 select * from $table; """
-            sql """ insert into ${table}_2 select * from ${table}_0; """
+            sql """ with cte1 as (select * from ${table}_0) insert into ${table}_2 select * from cte1; """
         } else {
             test {
                 sql """ insert into ${table}_0 select * from $table; """
@@ -381,10 +381,19 @@ suite("txn_insert") {
             order_qt_select46 """select * from ${table}_1"""
             sql """ begin; """
             sql """ insert into ${table}_0 select * from ${table}_1 where k1 = 1 or k1 = 2; """
-            sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
+            test {
+                sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
+                exception "Can not delete because there is a insert operation for the same table"
+            }
             sql """ insert into ${table}_1 select * from ${table}_0 where k1 = 1 or k1 = 2; """
-            sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
-            sql """ delete from ${table}_1 where k1 = 1; """
+            test {
+                sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
+                exception "Can not delete because there is a insert operation for the same table"
+            }
+            test {
+                sql """ delete from ${table}_1 where k1 = 1; """
+                exception "Can not delete because there is a insert operation for the same table"
+            }
             sql """ commit; """
             sql "sync"
             order_qt_select47 """select * from ${table}_0"""
@@ -486,7 +495,7 @@ suite("txn_insert") {
                     assertFalse(true, "should not reach here")
                 } catch (Exception e) {
                     logger.info("exception: " + e)
-                    assertTrue(e.getMessage().contains("The transaction is already timeout"))
+                    assertTrue(e.getMessage().contains("The transaction is already timeout") || e.getMessage().contains("Execute timeout"))
                 } finally {
                     try {
                         sql "rollback"
@@ -684,18 +693,10 @@ suite("txn_insert") {
                 using txn_insert_dt2 join txn_insert_dt3 on txn_insert_dt2.id = txn_insert_dt3.id
                 where txn_insert_dt4.id = txn_insert_dt2.id;
             """
-            sql """
-                delete from txn_insert_dt2 where id = 1;
-            """
-            sql """
-                delete from txn_insert_dt2 where id = 5;
-            """
-            sql """
-                delete from txn_insert_dt5 partition(p_20000102) where id = 1;
-            """
-            sql """
-                delete from txn_insert_dt5 partition(p_20000102) where id = 5;
-            """
+            sql """ delete from txn_insert_dt2 where id = 1; """
+            sql """ delete from txn_insert_dt2 where id = 5; """
+            sql """ delete from txn_insert_dt5 partition(p_20000102) where id = 1; """
+            sql """ delete from txn_insert_dt5 partition(p_20000102) where id = 5; """
             sql """ commit """
             sql """ insert into txn_insert_dt2 VALUES (6, '2000-01-10', 10, '10', 10.0) """
             sql """ insert into txn_insert_dt5 VALUES (6, '2000-01-10', 10, '10', 10.0) """
@@ -736,13 +737,16 @@ suite("txn_insert") {
                 sql """ insert into ${unique_table}_2(id, score) select id, score from ${unique_table}_0; """
                 sql """ insert into ${unique_table}_2(id, score) select id, score from ${unique_table}_1; """
                 sql """ update ${unique_table}_2 set score = score + 100 where id in (select id from ${unique_table}_0); """
-                sql """ delete from ${unique_table}_2 where id <= 1; """
+                test {
+                    sql """ delete from ${unique_table}_2 where id <= 1; """
+                    // exception "Can not delete because there is a insert operation for the same table"
+                }
                 sql """ commit """
 
-                sql """ delete from ${unique_table}_3 where id <= 1; """
                 sql """ insert into ${unique_table}_3(id, score) select id, score from ${unique_table}_0; """
                 sql """ insert into ${unique_table}_3(id, score) select id, score from ${unique_table}_1; """
                 sql """ update ${unique_table}_3 set score = score + 100 where id in (select id from ${unique_table}_0); """
+                sql """ delete from ${unique_table}_3 where id <= 1; """
             } catch (Throwable e) {
                 logger.warn("column update failed", e)
                 assertTrue(false)

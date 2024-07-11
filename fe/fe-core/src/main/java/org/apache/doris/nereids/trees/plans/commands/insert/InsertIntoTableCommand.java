@@ -74,16 +74,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      */
     private long jobId;
     private Optional<InsertCommandContext> insertCtx;
+    private final Optional<LogicalPlan> cte;
 
     /**
      * constructor
      */
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
-                                  Optional<InsertCommandContext> insertCtx) {
+                                  Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.insertCtx = insertCtx;
+        this.cte = cte;
     }
 
     public Optional<String> getLabelName() {
@@ -140,8 +142,16 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         targetTableIf.readLock();
         try {
             // 1. process inline table (default values, empty values)
-            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
-
+            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, insertCtx);
+            if (cte.isPresent()) {
+                this.logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
+            }
+            boolean isOverwrite = insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
+                    && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite();
+            if (this.logicalQuery instanceof UnboundTableSink && !isOverwrite) {
+                OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf,
+                        (UnboundTableSink<?>) this.logicalQuery);
+            }
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
@@ -162,17 +172,16 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
             if (physicalSink instanceof PhysicalOlapTableSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                if (GroupCommitInsertExecutor.canGroupCommit(ctx, sink, physicalSink, planner)) {
-                    insertExecutor = new GroupCommitInsertExecutor(ctx, targetTableIf, label, planner, insertCtx,
-                            emptyInsert);
-                    targetTableIf.readUnlock();
-                    return insertExecutor;
-                }
                 OlapTable olapTable = (OlapTable) targetTableIf;
                 // the insertCtx contains some variables to adjust SinkNode
-                insertExecutor = ctx.isTxnModel()
-                        ? new OlapTxnInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert)
-                        : new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert);
+                if (ctx.isTxnModel()) {
+                    insertExecutor = new OlapTxnInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert);
+                } else if (ctx.isGroupCommit()) {
+                    insertExecutor = new OlapGroupCommitInsertExecutor(ctx, olapTable, label, planner, insertCtx,
+                            emptyInsert);
+                } else {
+                    insertExecutor = new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert);
+                }
 
                 boolean isEnableMemtableOnSinkNode =
                         olapTable.getTableProperty().getUseSchemaLightChange()

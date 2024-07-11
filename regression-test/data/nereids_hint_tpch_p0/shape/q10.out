@@ -8,27 +8,24 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
 ------------------PhysicalProject
 --------------------filter((lineitem.l_returnflag = 'R'))
 ----------------------PhysicalOlapScan[lineitem]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=()
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer]
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
-----------------------------------PhysicalOlapScan[orders]
-------------------------PhysicalDistribute[DistributionSpecReplicated]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=()
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[nation]
+----------------------------PhysicalOlapScan[customer]
+--------------------------PhysicalProject
+----------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
+------------------------------PhysicalOlapScan[orders]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[nation]
 
 Hint log:
-Used:   leading(lineitem shuffle { { customer shuffle orders } broadcast nation } )
+Used: leading(lineitem shuffle { { customer shuffle orders } broadcast nation } )  
 UnUsed:
 SyntaxError:
 

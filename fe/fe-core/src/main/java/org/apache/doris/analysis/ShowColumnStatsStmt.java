@@ -235,6 +235,9 @@ public class ShowColumnStatsStmt extends ShowStmt {
         for (Map.Entry<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> entry : resultMap.entrySet()) {
             PartitionColumnStatisticCacheKey key = entry.getKey();
             PartitionColumnStatistic value = entry.getValue();
+            if (value == null || value.isUnKnown) {
+                continue;
+            }
             List<String> row = Lists.newArrayList();
             row.add(key.colName); // column_name
             row.add(key.partId); // partition_name
@@ -244,8 +247,8 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(value.count)); // count
             row.add(String.valueOf(value.ndv.estimateCardinality())); // ndv
             row.add(String.valueOf(value.numNulls)); // num_null
-            row.add(String.valueOf(value.minValue)); // min
-            row.add(String.valueOf(value.maxValue)); // max
+            row.add(String.valueOf(value.minExpr == null ? "N/A" : value.minExpr.toSql())); // min
+            row.add(String.valueOf(value.maxExpr == null ? "N/A" : value.maxExpr.toSql())); // max
             row.add(String.valueOf(value.dataSize)); // data_size
             row.add(value.updatedTime); // updated_time
             row.add("N/A"); // update_rows

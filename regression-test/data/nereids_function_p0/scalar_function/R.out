@@ -405,6 +405,30 @@ string3
 string3
 string3
 
+-- !sql_relace_empty01 --
+abcxabcyabczabc
+
+-- !sql_relace_empty02 --
+\N
+
+-- !sql_relace_empty03 --
+\N
+
+-- !sql_relace_empty04 --
+\N
+
+-- !sql_relace_empty05 --
+abcyz
+
+-- !sql_relace_empty06 --
+yz
+
+-- !sql_relace_empty07 --
+xyz
+
+-- !sql_relace_empty08 --
+abc
+
 -- !sql_right_Varchar_Integer --
 \N
 1

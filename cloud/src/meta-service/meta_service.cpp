@@ -51,8 +51,8 @@
 #include "common/logging.h"
 #include "common/stopwatch.h"
 #include "common/string_util.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "keys.h"
 #include "meta-service/codec.h"
 #include "meta-service/doris_txn.h"
@@ -82,10 +82,7 @@ MetaServiceImpl::~MetaServiceImpl() = default;
 // FIXME(gavin): should it be a member function of ResourceManager?
 std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                             const std::string& cloud_unique_id) {
-    {
-        [[maybe_unused]] std::string tmp_ret;
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("get_instance_id", &tmp_ret);
-    }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("get_instance_id", std::string {});
 
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
@@ -269,6 +266,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 return;
             }
             response->set_version(version_pb.version());
+            response->add_version_update_time_ms(version_pb.update_time_ms());
         }
         { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
         return;
@@ -373,6 +371,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                 if (!value.has_value()) {
                     // return -1 if the target version is not exists.
                     response->add_versions(-1);
+                    response->add_version_update_time_ms(-1);
                 } else if (is_table_version) {
                     int64_t version = 0;
                     if (!txn->decode_atomic_int(*value, &version)) {
@@ -389,6 +388,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                         break;
                     }
                     response->add_versions(version_pb.version());
+                    response->add_version_update_time_ms(version_pb.update_time_ms());
                 }
             }
         }
@@ -1213,7 +1213,10 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
         msg = fmt::format("failed to check whether rowset exists, err={}", err);
         return;
     }
-
+    if (rowset_meta.has_variant_type_in_schema()) {
+        write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
+        if (code != MetaServiceCode::OK) return;
+    }
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     if (!rowset_meta.SerializeToString(&update_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;

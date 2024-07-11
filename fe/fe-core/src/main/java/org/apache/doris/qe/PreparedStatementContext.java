@@ -20,11 +20,14 @@ package org.apache.doris.qe;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 
+import java.util.Optional;
+
 public class PreparedStatementContext {
     public PrepareCommand command;
     public ConnectContext ctx;
     StatementContext statementContext;
     public String stmtString;
+    public Optional<ShortCircuitQueryContext> shortCircuitQueryContext = Optional.empty();
 
     // Timestamp in millisecond last command starts at
     protected volatile long startTime;

@@ -31,6 +31,7 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
                                      "s3.access_key" = "$ak",
                                      "s3.secret_key" = "$sk",
                                      "s3.region" = "ap-beijing",
+                                     "provider" = "${getS3Provider()}",
                                      "format" = "parquet"
                                    ) order by `1`,`2` limit 5;
                                 """
@@ -48,7 +49,8 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_REGION" = "ap-beijing",
+                "provider" = "${getS3Provider()}"
             )
             PROPERTIES
             (

@@ -18,8 +18,8 @@
 suite('test_dynamic_partition_failed', 'nonConcurrent') {
     def old_max_dynamic_partition_num = getFeConfig('max_dynamic_partition_num')
     try {
-        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_1'
-        sql '''CREATE TABLE test_dynamic_partition_failed_1
+        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_ok1 FORCE'
+        sql '''CREATE TABLE test_dynamic_partition_failed_ok1
               ( `k1` datetime NULL )
               PARTITION BY RANGE (k1)()
               DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -36,8 +36,13 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
                 "dynamic_partition.create_history_partition" = "true"
               )'''
 
-        def partitions = sql_return_maparray "SHOW PARTITIONS FROM test_dynamic_partition_failed_1"
+        def partitions = sql_return_maparray "SHOW PARTITIONS FROM test_dynamic_partition_failed_ok1"
         assertEquals(9, partitions.size());
+        def dynamicInfo = sql_return_maparray("SHOW DYNAMIC PARTITION TABLES").find { it.TableName == 'test_dynamic_partition_failed_ok1' }
+        logger.info("table dynamic info: " + dynamicInfo)
+        assertNotNull(dynamicInfo)
+        assertTrue(dynamicInfo.LastDropPartitionMsg.contains("'dynamic_partition.start' = -99999999, maybe it's too small, "
+                + "can use alter table sql to increase it."))
 
         setFeConfig('max_dynamic_partition_num', Integer.MAX_VALUE)
 
@@ -65,10 +70,39 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
                 // 'date/datetime literal [+271768-09-11 00:00:00] is invalid'
                 assertTrue(msg.contains('date/datetime literal') && msg.contains('is invalid'))
             }
+
+        }
+
+        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_3'
+        test {
+            sql '''CREATE TABLE test_dynamic_partition_failed_3
+                  ( `k1` datetime NULL )
+                  PARTITION BY RANGE (k1)()
+                  DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+                  PROPERTIES
+                  (
+                    "replication_num" = "1",
+                    "dynamic_partition.enable" = "true",
+                    "dynamic_partition.end" = "3",
+                    "dynamic_partition.time_uint" = "day",
+                    "dynamic_partition.prefix" = "p",
+                    "dynamic_partition.buckets" = "1",
+                    "dynamic_partition.start" = "2024-06-11",
+                    "dynamic_partition.edn" = "2024-06-13",
+                    "dynamic_partition.create_history_partition" = "true"
+                  )'''
+            check { result, exception, startTime, endTime ->
+                assertNotNull(exception)
+                def msg = exception.toString()
+                logger.info("exception: " + msg)
+                // 'Invalid dynamic partition properties: dynamic_partition.time_uint, dynamic_partition.edn'
+                assertTrue(msg.contains('Invalid dynamic partition properties: dynamic_partition.time_uint, dynamic_partition.edn'))
+            }
         }
     } finally {
         setFeConfig('max_dynamic_partition_num', old_max_dynamic_partition_num)
-        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_1'
+        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_ok1 FORCE'
         sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_2'
+        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_3'
     }
 }

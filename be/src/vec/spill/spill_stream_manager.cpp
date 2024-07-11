@@ -32,6 +32,7 @@
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 #include "runtime/runtime_state.h"
+#include "util/doris_metrics.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
@@ -51,35 +52,26 @@ Status SpillStreamManager::init() {
     RETURN_IF_ERROR(_init_spill_store_map());
 
     for (const auto& [path, store] : _spill_store_map) {
-        auto gc_dir_root_dir = fmt::format("{}/{}", path, SPILL_GC_DIR_PREFIX);
+        auto gc_dir_root_dir = store->get_spill_data_gc_path();
         bool exists = true;
         RETURN_IF_ERROR(io::global_local_filesystem()->exists(gc_dir_root_dir, &exists));
         if (!exists) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(gc_dir_root_dir));
         }
 
-        auto spill_dir = fmt::format("{}/{}", path, SPILL_DIR_PREFIX);
+        auto spill_dir = store->get_spill_data_path();
         RETURN_IF_ERROR(io::global_local_filesystem()->exists(spill_dir, &exists));
         if (!exists) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(spill_dir));
         } else {
             auto suffix = ToStringFromUnixMillis(UnixMillis());
-            auto gc_dir = fmt::format("{}/{}/{}", path, SPILL_GC_DIR_PREFIX, suffix);
+            auto gc_dir = store->get_spill_data_gc_path(suffix);
             if (std::filesystem::exists(gc_dir)) {
                 LOG(WARNING) << "gc dir already exists: " << gc_dir;
             }
             (void)io::global_local_filesystem()->rename(spill_dir, gc_dir);
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(spill_dir));
         }
-
-        size_t spill_data_size = 0;
-        for (auto const& dir_entry :
-             std::filesystem::recursive_directory_iterator {gc_dir_root_dir}) {
-            if (dir_entry.is_regular_file()) {
-                spill_data_size += dir_entry.file_size();
-            }
-        }
-        store->update_spill_data_usage(spill_data_size);
     }
     static_cast<void>(ThreadPoolBuilder("SpillIOThreadPool")
                               .set_min_threads(config::spill_io_thread_pool_thread_num)
@@ -158,9 +150,10 @@ std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
 }
 
 Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStreamSPtr& spill_stream,
-                                                 std::string query_id, std::string operator_name,
-                                                 int32_t node_id, int32_t batch_rows,
-                                                 size_t batch_bytes, RuntimeProfile* profile) {
+                                                 const std::string& query_id,
+                                                 const std::string& operator_name, int32_t node_id,
+                                                 int32_t batch_rows, size_t batch_bytes,
+                                                 RuntimeProfile* profile) {
     auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
     if (data_dirs.empty()) {
         data_dirs = _get_stores_for_spill(TStorageMedium::type::HDD);
@@ -170,18 +163,18 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
                 "no available disk can be used for spill.");
     }
 
-    int64_t id = id_++;
+    uint64_t id = id_++;
     std::string spill_dir;
     SpillDataDir* data_dir = nullptr;
     for (auto& dir : data_dirs) {
-        data_dir = dir;
-        std::string spill_root_dir = fmt::format("{}/{}", data_dir->path(), SPILL_DIR_PREFIX);
+        std::string spill_root_dir = dir->get_spill_data_path();
         spill_dir = fmt::format("{}/{}/{}-{}-{}-{}", spill_root_dir, query_id, operator_name,
                                 node_id, state->task_id(), id);
         auto st = io::global_local_filesystem()->create_directory(spill_dir);
         if (!st.ok()) {
             continue;
         }
+        data_dir = dir;
         break;
     }
     if (!data_dir) {
@@ -195,16 +188,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
 }
 
 void SpillStreamManager::delete_spill_stream(SpillStreamSPtr stream) {
-    auto query_dir = fmt::format("{}/{}/{}", stream->get_data_dir()->path(), SPILL_GC_DIR_PREFIX,
-                                 print_id(stream->query_id()));
-    auto st = io::global_local_filesystem()->create_directory(query_dir);
-    if (st.ok()) {
-        auto gc_dir =
-                fmt::format("{}/{}", query_dir,
-                            std::filesystem::path(stream->get_spill_dir()).filename().string());
-        (void)io::global_local_filesystem()->rename(stream->get_spill_dir(), gc_dir);
-        stream->decrease_spill_data_usage();
-    }
+    stream->gc();
 }
 
 void SpillStreamManager::gc(int32_t max_work_time_ms) {
@@ -227,7 +211,7 @@ void SpillStreamManager::gc(int32_t max_work_time_ms) {
         }
     }};
     for (const auto& [path, store_dir] : _spill_store_map) {
-        std::string gc_root_dir = fmt::format("{}/{}", path, SPILL_GC_DIR_PREFIX);
+        std::string gc_root_dir = store_dir->get_spill_data_gc_path();
 
         std::error_code ec;
         exists = std::filesystem::exists(gc_root_dir, ec);
@@ -277,24 +261,55 @@ void SpillStreamManager::gc(int32_t max_work_time_ms) {
 void SpillStreamManager::async_cleanup_query(TUniqueId query_id) {
     (void)get_spill_io_thread_pool()->submit_func([this, query_id] {
         for (auto& [_, store] : _spill_store_map) {
-            std::string query_spill_dir =
-                    fmt::format("{}/{}/{}", store->path(), SPILL_DIR_PREFIX, print_id(query_id));
+            std::string query_spill_dir = store->get_spill_data_path(print_id(query_id));
             bool exists = false;
             auto status = io::global_local_filesystem()->exists(query_spill_dir, &exists);
             if (status.ok() && exists) {
                 auto gc_dir = fmt::format("{}/{}/{}-gc", store->path(), SPILL_GC_DIR_PREFIX,
                                           print_id(query_id));
-                (void)io::global_local_filesystem()->rename(query_spill_dir, gc_dir);
+                status = io::global_local_filesystem()->rename(query_spill_dir, gc_dir);
+                if (!status.ok()) {
+                    static_cast<void>(
+                            io::global_local_filesystem()->delete_directory(query_spill_dir));
+                }
             }
         }
     });
 }
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_limit, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_avail_capacity, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_data_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_has_spill_data, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_has_spill_gc_data, MetricUnit::BYTES);
+
 SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,
                            TStorageMedium::type storage_medium)
         : _path(std::move(path)),
           _disk_capacity_bytes(capacity_bytes),
-          _storage_medium(storage_medium) {}
+          _storage_medium(storage_medium) {
+    spill_data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
+            std::string("spill_data_dir.") + _path, {{"path", _path + "/" + SPILL_DIR_PREFIX}});
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_capacity);
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_limit);
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_avail_capacity);
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_data_size);
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_data);
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_gc_data);
+}
+
+bool is_directory_empty(const std::filesystem::path& dir) {
+    try {
+        return std::filesystem::is_directory(dir) &&
+               std::filesystem::directory_iterator(dir) ==
+                       std::filesystem::end(std::filesystem::directory_iterator {});
+        // this method is not thread safe, the file referenced by directory_iterator
+        // maybe moved to spill_gc dir during this function call, so need to catch expection
+    } catch (const std::filesystem::filesystem_error&) {
+        return true;
+    }
+}
 
 Status SpillDataDir::init() {
     bool exists = false;
@@ -313,16 +328,35 @@ Status SpillDataDir::init() {
     return Status::OK();
 }
 
+std::string SpillDataDir::get_spill_data_path(const std::string& query_id) const {
+    auto dir = fmt::format("{}/{}", _path, SPILL_DIR_PREFIX);
+    if (!query_id.empty()) {
+        dir = fmt::format("{}/{}", dir, query_id);
+    }
+    return dir;
+}
+
+std::string SpillDataDir::get_spill_data_gc_path(const std::string& sub_dir_name) const {
+    auto dir = fmt::format("{}/{}", _path, SPILL_GC_DIR_PREFIX);
+    if (!sub_dir_name.empty()) {
+        dir = fmt::format("{}/{}", dir, sub_dir_name);
+    }
+    return dir;
+}
+
 Status SpillDataDir::update_capacity() {
     std::lock_guard<std::mutex> l(_mutex);
     RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path, &_disk_capacity_bytes,
                                                                   &_available_bytes));
+    spill_disk_capacity->set_value(_disk_capacity_bytes);
+    spill_disk_avail_capacity->set_value(_available_bytes);
     auto disk_use_max_bytes = (int64_t)(_disk_capacity_bytes *
                                         config::storage_flood_stage_usage_percent / (double)100);
     bool is_percent = true;
     _spill_data_limit_bytes = ParseUtil::parse_mem_spec(config::spill_storage_limit, -1,
                                                         _disk_capacity_bytes, &is_percent);
     if (_spill_data_limit_bytes <= 0) {
+        spill_disk_limit->set_value(_spill_data_limit_bytes);
         auto err_msg = fmt::format("Failed to parse spill storage limit from '{}'",
                                    config::spill_storage_limit);
         LOG(WARNING) << err_msg;
@@ -336,6 +370,12 @@ Status SpillDataDir::update_capacity() {
     if (_spill_data_limit_bytes > disk_use_max_bytes) {
         _spill_data_limit_bytes = disk_use_max_bytes;
     }
+    spill_disk_limit->set_value(_spill_data_limit_bytes);
+
+    std::string spill_root_dir = get_spill_data_path();
+    std::string spill_gc_root_dir = get_spill_data_gc_path();
+    spill_disk_has_spill_data->set_value(is_directory_empty(spill_root_dir) ? 0 : 1);
+    spill_disk_has_spill_gc_data->set_value(is_directory_empty(spill_gc_root_dir) ? 0 : 1);
 
     return Status::OK();
 }

@@ -68,6 +68,12 @@ public class AnalysisJob {
         this.analysisManager = Env.getCurrentEnv().getAnalysisManager();
     }
 
+    public synchronized void taskDoneWithoutData(BaseAnalysisTask task) {
+        queryingTask.remove(task);
+        queryFinished.add(task);
+        markOneTaskDone();
+    }
+
     public synchronized void appendBuf(BaseAnalysisTask task, List<ColStatsData> statsData) {
         queryingTask.remove(task);
         buf.addAll(statsData);

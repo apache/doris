@@ -35,10 +35,12 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.BarrierLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -53,16 +55,15 @@ import org.apache.doris.thrift.TTaskType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
-import com.google.common.base.Strings;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -92,18 +93,24 @@ public class BackupJob extends AbstractJob {
     }
 
     // all objects which need backup
+    @SerializedName("ref")
     private List<TableRef> tableRefs = Lists.newArrayList();
 
+    @SerializedName("st")
     private BackupJobState state;
 
+    @SerializedName("sft")
     private long snapshotFinishedTime = -1;
+    @SerializedName("suft")
     private long snapshotUploadFinishedTime = -1;
 
     // save task id map to the backend it be executed
     private Map<Long, Long> unfinishedTaskIds = Maps.newConcurrentMap();
     // tablet id -> snapshot info
+    @SerializedName("si")
     private Map<Long, SnapshotInfo> snapshotInfos = Maps.newConcurrentMap();
     // save all related table[partition] info
+    @SerializedName("meta")
     private BackupMeta backupMeta;
     // job info file content
     private BackupJobInfo jobInfo;
@@ -112,9 +119,12 @@ public class BackupJob extends AbstractJob {
     // after job is done, this dir should be deleted
     private Path localJobDirPath = null;
     // save the local file path of meta info and job info file
+    @SerializedName("mifp")
     private String localMetaInfoFilePath = null;
+    @SerializedName("jifp")
     private String localJobInfoFilePath = null;
     // backup properties && table commit seq with table id
+    @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
 
     private byte[] metaInfoBytes = null;
@@ -725,7 +735,8 @@ public class BackupJob extends AbstractJob {
     }
 
     private void saveMetaInfo() {
-        String createTimeStr = TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+        String createTimeStr = TimeUtils.longToTimeString(createTime,
+                TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         // local job dir: backup/repo__repo_id/label__createtime/
         // Add repo_id to isolate jobs from different repos.
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
@@ -967,64 +978,12 @@ public class BackupJob extends AbstractJob {
     }
 
     public static BackupJob read(DataInput in) throws IOException {
-        BackupJob job = new BackupJob();
-        job.readFields(in);
-        return job;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        // table refs
-        out.writeInt(tableRefs.size());
-        for (TableRef tblRef : tableRefs) {
-            tblRef.write(out);
-        }
-
-        // state
-        Text.writeString(out, state.name());
-
-        // times
-        out.writeLong(snapshotFinishedTime);
-        out.writeLong(snapshotUploadFinishedTime);
-
-        // snapshot info
-        out.writeInt(snapshotInfos.size());
-        for (SnapshotInfo info : snapshotInfos.values()) {
-            info.write(out);
-        }
-
-        // backup meta
-        if (backupMeta == null) {
-            out.writeBoolean(false);
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            BackupJob job = new BackupJob();
+            job.readFields(in);
+            return job;
         } else {
-            out.writeBoolean(true);
-            backupMeta.write(out);
-        }
-
-        // No need to persist job info. It is generated then write to file
-
-        // metaInfoFilePath and jobInfoFilePath
-        if (Strings.isNullOrEmpty(localMetaInfoFilePath)) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, localMetaInfoFilePath);
-        }
-
-        if (Strings.isNullOrEmpty(localJobInfoFilePath)) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, localJobInfoFilePath);
-        }
-
-        // write properties
-        out.writeInt(properties.size());
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
+            return GsonUtils.GSON.fromJson(Text.readString(in), BackupJob.class);
         }
     }
 
@@ -1033,10 +992,11 @@ public class BackupJob extends AbstractJob {
 
         // table refs
         int size = in.readInt();
+        LOG.info("read {} tablerefs ", size);
+
         tableRefs = Lists.newArrayList();
         for (int i = 0; i < size; i++) {
-            TableRef tblRef = new TableRef();
-            tblRef.readFields(in);
+            TableRef tblRef = TableRef.read(in);
             tableRefs.add(tblRef);
         }
 
@@ -1048,14 +1008,16 @@ public class BackupJob extends AbstractJob {
 
         // snapshot info
         size = in.readInt();
+        LOG.info("read {} snapshotinfo ", size);
+
         for (int i = 0; i < size; i++) {
-            SnapshotInfo snapshotInfo = new SnapshotInfo();
-            snapshotInfo.readFields(in);
+            SnapshotInfo snapshotInfo = SnapshotInfo.read(in);
             snapshotInfos.put(snapshotInfo.getTabletId(), snapshotInfo);
         }
 
         // backup meta
         if (in.readBoolean()) {
+            LOG.info("read backup meta");
             backupMeta = BackupMeta.read(in);
         }
 
@@ -1071,6 +1033,8 @@ public class BackupJob extends AbstractJob {
         }
         // read properties
         size = in.readInt();
+        LOG.info("read {} property ", size);
+
         for (int i = 0; i < size; i++) {
             String key = Text.readString(in);
             String value = Text.readString(in);

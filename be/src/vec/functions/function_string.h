@@ -38,6 +38,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -70,6 +71,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/functions/round.h"
 #include "vec/io/io_helper.h"
+#include "vec/utils/template_helpers.hpp"
 
 #ifndef USE_LIBCPP
 #include <memory_resource>
@@ -138,6 +140,30 @@ struct StringOP {
         chars.insert_assume_reserved_and_allow_overflow(string_value.data(),
                                                         string_value.data() + string_value.size());
         offsets[index] = chars.size();
+    }
+
+    static void fast_repeat(uint8_t* dst, const uint8_t* src, size_t src_size,
+                            int32_t repeat_times) {
+        if (UNLIKELY(repeat_times <= 0)) {
+            return;
+        }
+        uint8_t* dst_begin = dst;
+        uint8_t* dst_curr = dst;
+        int32_t k = 0;
+        int32_t is_odd = repeat_times & 1;
+        repeat_times >>= 1;
+
+        memcpy(dst_curr, src, src_size);
+        dst_curr += src_size;
+        for (; repeat_times > 0; k += 1, is_odd = repeat_times & 1, repeat_times >>= 1) {
+            int32_t len = src_size * (1 << k);
+            memcpy(dst_curr, dst_begin, len);
+            dst_curr += len;
+            if (is_odd) {
+                memcpy(dst_curr, dst_begin, len);
+                dst_curr += len;
+            }
+        }
     }
 };
 
@@ -1314,35 +1340,25 @@ public:
         auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res = ColumnString::create();
 
-        size_t argument_size = arguments.size();
-        std::vector<ColumnPtr> argument_columns(argument_size);
-        for (size_t i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (const auto* nullable =
-                        check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
+        ColumnPtr col[3];
+        bool col_const[3];
+        for (size_t i = 0; i < 3; ++i) {
+            std::tie(col[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-
         auto& null_map_data = null_map->get_data();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
 
-        const auto* strcol = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* strcol = assert_cast<const ColumnString*>(col[0].get());
         const auto& strcol_offsets = strcol->get_offsets();
         const auto& strcol_chars = strcol->get_chars();
 
-        const auto* col_len = assert_cast<const ColumnInt32*>(argument_columns[1].get());
+        const auto* col_len = assert_cast<const ColumnInt32*>(col[1].get());
         const auto& col_len_data = col_len->get_data();
 
-        const auto* padcol = assert_cast<const ColumnString*>(argument_columns[2].get());
+        const auto* padcol = assert_cast<const ColumnString*>(col[2].get());
         const auto& padcol_offsets = padcol->get_offsets();
         const auto& padcol_chars = padcol->get_chars();
 
@@ -1350,33 +1366,36 @@ public:
         std::vector<size_t> pad_index;
 
         fmt::memory_buffer buffer;
-
+        const bool str_const = col_const[0];
+        const bool len_const = col_const[1];
+        const bool pad_const = col_const[2];
+        const int repeat_max_num = context->state()->repeat_max_num();
         for (size_t i = 0; i < input_rows_count; ++i) {
             str_index.clear();
             pad_index.clear();
             buffer.clear();
-            if (null_map_data[i] || col_len_data[i] < 0) {
-                // return NULL when input string is NULL or input length is invalid number
+            const auto len = col_len_data[index_check_const(i, len_const)];
+            if (len < 0) {
+                // return NULL when input length is invalid number
                 null_map_data[i] = true;
                 StringOP::push_empty_string(i, res_chars, res_offsets);
             } else {
-                int str_len = strcol_offsets[i] - strcol_offsets[i - 1];
-                const char* str_data =
-                        reinterpret_cast<const char*>(&strcol_chars[strcol_offsets[i - 1]]);
+                const auto str_idx = index_check_const(i, str_const);
+                const int str_len = strcol_offsets[str_idx] - strcol_offsets[str_idx - 1];
+                const auto* str_data = &strcol_chars[strcol_offsets[str_idx - 1]];
+                const auto pad_idx = index_check_const(i, pad_const);
+                const int pad_len = padcol_offsets[pad_idx] - padcol_offsets[pad_idx - 1];
+                const auto* pad_data = &padcol_chars[padcol_offsets[pad_idx - 1]];
+                // get utf8 len
+                size_t str_char_size = simd::VStringFunctions::get_char_len((const char*)str_data,
+                                                                            str_len, str_index);
+                size_t pad_char_size = simd::VStringFunctions::get_char_len((const char*)pad_data,
+                                                                            pad_len, pad_index);
 
-                int pad_len = padcol_offsets[i] - padcol_offsets[i - 1];
-                const char* pad_data =
-                        reinterpret_cast<const char*>(&padcol_chars[padcol_offsets[i - 1]]);
-
-                size_t str_char_size =
-                        simd::VStringFunctions::get_char_len(str_data, str_len, str_index);
-                size_t pad_char_size =
-                        simd::VStringFunctions::get_char_len(pad_data, pad_len, pad_index);
-
-                if (col_len_data[i] <= str_char_size) {
+                if (len <= str_char_size) {
                     // truncate the input string
-                    if (col_len_data[i] < str_char_size) {
-                        buffer.append(str_data, str_data + str_index[col_len_data[i]]);
+                    if (len < str_char_size) {
+                        buffer.append(str_data, str_data + str_index[len]);
                     } else {
                         buffer.append(str_data, str_data + str_len);
                     }
@@ -1385,13 +1404,14 @@ public:
                                                 res_chars, res_offsets);
                     continue;
                 }
-                if (col_len_data[i] > context->state()->repeat_max_num()) {
+                if (len > repeat_max_num) {
                     return Status::InvalidArgument(
                             " {} function the length argument is {} exceeded maximum default "
                             "value: {}."
-                            "if you really need this length, you could change the session variable "
+                            "if you really need this length, you could change the session "
+                            "variable "
                             "set repeat_max_num = xxx.",
-                            get_name(), col_len_data[i], context->state()->repeat_max_num());
+                            get_name(), len, repeat_max_num);
                 }
 
                 // make compatible with mysql. return empty string if pad is empty
@@ -1400,42 +1420,29 @@ public:
                     continue;
                 }
 
-                int32_t pad_byte_len = 0;
-                int32_t pad_times = (col_len_data[i] - str_char_size) / pad_char_size;
-                int32_t pad_remainder = (col_len_data[i] - str_char_size) % pad_char_size;
-                pad_byte_len = pad_times * pad_len;
-                pad_byte_len += pad_index[pad_remainder];
-                int32_t byte_len = str_len + pad_byte_len;
-                // StringRef result(context, byte_len);
-                if constexpr (Impl::is_lpad) {
-                    int result_index = 0;
-
-                    // Prepend chars of pad.
-                    while (result_index < pad_byte_len) {
-                        int remain = std::min(pad_len, pad_byte_len - result_index);
-                        buffer.append(pad_data, pad_data + remain);
-                        result_index += remain;
-                    }
-
-                    // Append given string.
-                    buffer.append(str_data, str_data + str_len);
-                    StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                                res_chars, res_offsets);
-
-                } else {
-                    // is rpad
-                    buffer.append(str_data, str_data + str_len);
-
-                    // Append chars of pad until desired length
-                    int result_len = str_len;
-                    while (result_len < byte_len) {
-                        int remain = std::min(pad_len, byte_len - result_len);
-                        buffer.append(pad_data, pad_data + remain);
-                        result_len += remain;
-                    }
-                    StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                                res_chars, res_offsets);
+                const int32_t pad_times = (len - str_char_size) / pad_char_size;
+                const int32_t pad_remainder = (len - str_char_size) % pad_char_size;
+                buffer.reserve(str_len + (pad_times + 1) * pad_len);
+                auto* buffer_data = buffer.data();
+                int32_t buffer_len = 0;
+                if constexpr (!Impl::is_lpad) {
+                    memcpy(buffer_data, str_data, str_len);
+                    buffer_len += str_len;
                 }
+                // Prepend chars of pad.
+                StringOP::fast_repeat((uint8_t*)buffer.data() + buffer_len, pad_data, pad_len,
+                                      pad_times);
+                buffer_len += pad_times * pad_len;
+
+                memcpy(buffer_data + buffer_len, pad_data, pad_index[pad_remainder]);
+                buffer_len += pad_index[pad_remainder];
+
+                if constexpr (Impl::is_lpad) {
+                    memcpy(buffer_data + buffer_len, str_data, str_len);
+                    buffer_len += str_len;
+                }
+                StringOP::push_value_string(std::string_view(buffer_data, buffer_len), i, res_chars,
+                                            res_offsets);
             }
         }
 
@@ -2270,77 +2277,109 @@ public:
                         size_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map_data = null_map->get_data();
-
+        DCHECK_GE(3, arguments.size());
         auto res = ColumnString::create();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
 
         size_t argument_size = arguments.size();
-        bool has_key = argument_size >= 3;
+        const bool has_key = argument_size == 3;
 
         std::vector<ColumnPtr> argument_columns(argument_size);
+        std::vector<UInt8> col_const(argument_size);
         for (size_t i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
 
-        const auto* url_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* part_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const ColumnString* key_col = nullptr;
+        const auto* url_col = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* part_col = assert_cast<const ColumnString*>(argument_columns[1].get());
+        const bool part_const = col_const[1];
+        std::vector<UrlParser::UrlPart> url_parts;
+        const int part_nums = part_const ? 1 : input_rows_count;
+
+        url_parts.resize(part_nums);
+        for (int i = 0; i < part_nums; i++) {
+            StringRef part = part_col->get_data_at(i);
+            UrlParser::UrlPart url_part = UrlParser::get_url_part(part);
+            if (url_part == UrlParser::INVALID) {
+                return Status::RuntimeError("Invalid URL part: {}\n{}",
+                                            std::string(part.data, part.size),
+                                            "(Valid URL parts are 'PROTOCOL', 'HOST', "
+                                            "'PATH', 'REF', 'AUTHORITY', "
+                                            "'FILE', 'USERINFO', 'PORT' and 'QUERY')");
+            }
+            url_parts[i] = url_part;
+        }
+
         if (has_key) {
-            key_col = check_and_get_column<ColumnString>(argument_columns[2].get());
-        }
-
-        if (!url_col || !part_col || (has_key && !key_col)) {
-            return Status::InternalError("Not supported input arguments types");
-        }
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map_data[i]) {
-                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                continue;
-            }
-
-            auto part = part_col->get_data_at(i);
-            StringRef p(const_cast<char*>(part.data), part.size);
-            UrlParser::UrlPart url_part = UrlParser::get_url_part(p);
-            StringRef url_key;
-            if (has_key) {
-                auto key = key_col->get_data_at(i);
-                url_key = StringRef(const_cast<char*>(key.data), key.size);
-            }
-
-            auto source = url_col->get_data_at(i);
-            StringRef url_val(const_cast<char*>(source.data), source.size);
-
-            StringRef parse_res;
-            bool success = false;
-            if (has_key) {
-                success = UrlParser::parse_url_key(url_val, url_part, url_key, &parse_res);
-            } else {
-                success = UrlParser::parse_url(url_val, url_part, &parse_res);
-            }
-
-            if (!success) {
-                // url is malformed, or url_part is invalid.
-                if (url_part == UrlParser::INVALID) {
-                    return Status::RuntimeError("Invalid URL part: {}\n{}",
-                                                std::string(part.data, part.size),
-                                                "(Valid URL parts are 'PROTOCOL', 'HOST', "
-                                                "'PATH', 'REF', 'AUTHORITY', "
-                                                "'FILE', 'USERINFO', 'PORT' and 'QUERY')");
-                } else {
-                    StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                    continue;
-                }
-            }
-
-            StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
-                                        res_chars, res_offsets);
+            const bool url_const = col_const[0];
+            const bool key_const = col_const[2];
+            const auto* key_col = assert_cast<const ColumnString*>(argument_columns[2].get());
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto url_const, auto part_const, auto key_const) {
+                        return vector_parse_key<url_const, part_const, key_const>(
+                                url_col, url_parts, key_col, input_rows_count, null_map_data,
+                                res_chars, res_offsets);
+                    },
+                    vectorized::make_bool_variant(url_const),
+                    vectorized::make_bool_variant(part_const),
+                    vectorized::make_bool_variant(key_const)));
+        } else {
+            const bool url_const = col_const[0];
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto url_const, auto part_const) {
+                        return vector_parse<url_const, part_const>(url_col, url_parts,
+                                                                   input_rows_count, null_map_data,
+                                                                   res_chars, res_offsets);
+                    },
+                    vectorized::make_bool_variant(url_const),
+                    vectorized::make_bool_variant(part_const)));
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+    template <bool url_const, bool part_const>
+    static Status vector_parse(const ColumnString* url_col,
+                               std::vector<UrlParser::UrlPart>& url_parts, const int size,
+                               ColumnUInt8::Container& null_map_data,
+                               ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets) {
+        for (size_t i = 0; i < size; ++i) {
+            UrlParser::UrlPart& url_part = url_parts[index_check_const<part_const>(i)];
+            StringRef url_val = url_col->get_data_at(index_check_const<url_const>(i));
+            StringRef parse_res;
+            if (UrlParser::parse_url(url_val, url_part, &parse_res)) {
+                StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
+                                            res_chars, res_offsets);
+            } else {
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                continue;
+            }
+        }
+        return Status::OK();
+    }
+    template <bool url_const, bool part_const, bool key_const>
+    static Status vector_parse_key(const ColumnString* url_col,
+                                   std::vector<UrlParser::UrlPart>& url_parts,
+                                   const ColumnString* key_col, const int size,
+                                   ColumnUInt8::Container& null_map_data,
+                                   ColumnString::Chars& res_chars,
+                                   ColumnString::Offsets& res_offsets) {
+        for (size_t i = 0; i < size; ++i) {
+            UrlParser::UrlPart& url_part = url_parts[index_check_const<part_const>(i)];
+            StringRef url_val = url_col->get_data_at(index_check_const<url_const>(i));
+            StringRef url_key = key_col->get_data_at(index_check_const<key_const>(i));
+            StringRef parse_res;
+            if (UrlParser::parse_url_key(url_val, url_part, url_key, &parse_res)) {
+                StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
+                                            res_chars, res_offsets);
+            } else {
+                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                continue;
+            }
+        }
         return Status::OK();
     }
 };
@@ -2585,7 +2624,7 @@ static StringRef do_money_format(FunctionContext* context, const string& value) 
     if (!is_positive) {
         *result_data = '-';
     }
-    for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
+    for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3) {
         *(result_data + j) = *(value.data() + i);
         if (i - 1 < 0) {
             break;
@@ -2597,6 +2636,9 @@ static StringRef do_money_format(FunctionContext* context, const string& value) 
         *(result_data + j - 2) = *(value.data() + i - 2);
         if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
             *(result_data + j - 3) = ',';
+            j -= 4;
+        } else {
+            j -= 3;
         }
     }
     memcpy(result_data + result_len - 3, value.data() + value.size() - 3, 3);
@@ -2888,10 +2930,19 @@ private:
     }
 };
 
+struct ReplaceImpl {
+    static constexpr auto name = "replace";
+};
+
+struct ReplaceEmptyImpl {
+    static constexpr auto name = "replace_empty";
+};
+
+template <typename Impl, bool empty>
 class FunctionReplace : public IFunction {
 public:
-    static constexpr auto name = "replace";
-    static FunctionPtr create() { return std::make_shared<FunctionReplace>(); }
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionReplace<Impl, empty>>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 3; }
 
@@ -2933,16 +2984,33 @@ public:
 private:
     std::string replace(std::string str, std::string_view old_str, std::string_view new_str) const {
         if (old_str.empty()) {
+            if constexpr (empty) {
+                return str;
+            } else {
+                // Different from "Replace" only when the search string is empty.
+                // it will insert `new_str` in front of every character and at the end of the old str.
+                if (new_str.empty()) {
+                    return str;
+                }
+                std::string result;
+                result.reserve(str.length() * (new_str.length() + 1) + new_str.length());
+                for (char c : str) {
+                    result += new_str;
+                    result += c;
+                }
+                result += new_str;
+                return result;
+            }
+        } else {
+            std::string::size_type pos = 0;
+            std::string::size_type oldLen = old_str.size();
+            std::string::size_type newLen = new_str.size();
+            while ((pos = str.find(old_str, pos)) != std::string::npos) {
+                str.replace(pos, oldLen, new_str);
+                pos += newLen;
+            }
             return str;
         }
-        std::string::size_type pos = 0;
-        std::string::size_type oldLen = old_str.size();
-        std::string::size_type newLen = new_str.size();
-        while ((pos = str.find(old_str, pos)) != std::string::npos) {
-            str.replace(pos, oldLen, new_str);
-            pos += newLen;
-        }
-        return str;
     }
 };
 
@@ -3529,6 +3597,131 @@ private:
             chars.push_back(bytes[k] ? bytes[k] : '\0');
         }
 #endif
+    }
+};
+
+class FunctionOverlay : public IFunction {
+public:
+    static constexpr auto name = "overlay";
+    static FunctionPtr create() { return std::make_shared<FunctionOverlay>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 4; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        DCHECK_EQ(arguments.size(), 4);
+
+        bool col_const[4];
+        ColumnPtr argument_columns[4];
+        for (int i = 0; i < 4; ++i) {
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[0]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[0]).column;
+
+        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2, 3}, block,
+                                             arguments);
+
+        const auto* col_origin = assert_cast<const ColumnString*>(argument_columns[0].get());
+
+        const auto* col_pos = assert_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
+                                      ->get_data()
+                                      .data();
+        const auto* col_len = assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get())
+                                      ->get_data()
+                                      .data();
+        const auto* col_insert = assert_cast<const ColumnString*>(argument_columns[3].get());
+
+        ColumnString::MutablePtr col_res = ColumnString::create();
+
+        if (col_const[1] && col_const[2] && col_const[3]) {
+            vector_const(col_origin, col_pos, col_len, col_insert, col_res, input_rows_count);
+        } else {
+            vector(col_origin, col_pos, col_len, col_insert, col_res, input_rows_count);
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    // get the new str size
+    static std::pair<bool, size_t> get_size(size_t& str_size, int& pos, int& len,
+                                            size_t& ins_size) {
+        if (pos > str_size || pos < 1) {
+            return {true, str_size};
+        }
+        if (len < 0 || pos + len - 1 >= str_size) {
+            len = str_size - pos + 1;
+            return {false, pos + ins_size - 1};
+        }
+        return {false, str_size - len + ins_size};
+    }
+
+    static void vector_const(const ColumnString* col_origin, int const* col_pos, int const* col_len,
+                             const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
+                             size_t input_rows_count) {
+        auto& col_res_chars = col_res->get_chars();
+        auto& col_res_offsets = col_res->get_offsets();
+        StringRef origin_str;
+        StringRef insert_str = col_insert->get_data_at(0);
+        auto pos = col_pos[0];
+        for (size_t i = 0; i < input_rows_count; i++) {
+            origin_str = col_origin->get_data_at(i);
+            auto len = col_len[0];
+
+            if (auto [is_origin, offset] = get_size(origin_str.size, pos, len, insert_str.size);
+                is_origin) {
+                col_res->insert_data(origin_str.data, offset);
+            } else {
+                const auto old_size = col_res_chars.size();
+                col_res_chars.resize(old_size + offset);
+                // There are three stages here
+                // 1. copy origin_str with index 0 to pos - 2
+                // 2. copy all of insert_str.
+                // 3. copy origin_str from pos+len-1 to the end of the line.
+                memcpy(col_res_chars.data() + old_size, origin_str.data, pos - 1);
+                memcpy(col_res_chars.data() + old_size + pos - 1, insert_str.data, insert_str.size);
+                memcpy(col_res_chars.data() + old_size + pos - 1 + insert_str.size,
+                       origin_str.data + pos + len - 1, origin_str.size - pos - len + 1);
+                col_res_offsets.push_back(offset + old_size);
+            }
+        }
+    }
+
+    static void vector(const ColumnString* col_origin, int const* col_pos, int const* col_len,
+                       const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
+                       size_t input_rows_count) {
+        auto& col_res_chars = col_res->get_chars();
+        auto& col_res_offsets = col_res->get_offsets();
+        StringRef origin_str, insert_str;
+        int pos, len;
+        for (size_t i = 0; i < input_rows_count; i++) {
+            origin_str = col_origin->get_data_at(i);
+            pos = col_pos[i];
+            len = col_len[i];
+            insert_str = col_insert->get_data_at(i);
+
+            if (auto [is_origin, offset] = get_size(origin_str.size, pos, len, insert_str.size);
+                is_origin) {
+                col_res->insert_data(origin_str.data, offset);
+            } else {
+                const auto old_size = col_res_chars.size();
+                col_res_chars.resize(old_size + offset);
+                memcpy(col_res_chars.data() + old_size, origin_str.data, pos - 1);
+                memcpy(col_res_chars.data() + old_size + pos - 1, insert_str.data, insert_str.size);
+                memcpy(col_res_chars.data() + old_size + pos - 1 + insert_str.size,
+                       origin_str.data + pos + len - 1, origin_str.size - pos - len + 1);
+                col_res_offsets.push_back(offset + old_size);
+            }
+        }
     }
 };
 } // namespace doris::vectorized

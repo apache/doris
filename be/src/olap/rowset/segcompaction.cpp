@@ -101,7 +101,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     reader_params.tablet = tablet;
     reader_params.return_columns = return_columns;
     reader_params.is_key_column_group = is_key;
-    return (*reader)->init(reader_params);
+    return (*reader)->init(reader_params, nullptr);
 }
 
 std::unique_ptr<segment_v2::SegmentWriter> SegcompactionWorker::_create_segcompaction_writer(
@@ -133,9 +133,9 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         RETURN_NOT_OK_STATUS_WITH_WARN(fs->delete_file(seg_path),
                                        strings::Substitute("Failed to delete file=$0", seg_path));
         if (schema->has_inverted_index() &&
-            schema->get_inverted_index_storage_format() != InvertedIndexStorageFormatPB::V1) {
-            auto idx_path = InvertedIndexDescriptor::get_index_path_v2(
-                    InvertedIndexDescriptor::get_index_path_prefix(seg_path));
+            schema->get_inverted_index_storage_format() >= InvertedIndexStorageFormatPB::V2) {
+            auto idx_path = InvertedIndexDescriptor::get_index_file_path_v2(
+                    InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
             VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
             RETURN_NOT_OK_STATUS_WITH_WARN(
                     fs->delete_file(idx_path),
@@ -146,18 +146,21 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
             if (schema->has_inverted_index(*column)) {
                 const auto* index_info = schema->get_inverted_index(*column);
                 auto index_id = index_info->index_id();
-                auto idx_path = InvertedIndexDescriptor::get_index_path_v1(
-                        InvertedIndexDescriptor::get_index_path_prefix(seg_path), index_id,
-                        index_info->get_index_suffix());
-                VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
                 if (schema->get_inverted_index_storage_format() ==
                     InvertedIndexStorageFormatPB::V1) {
+                    auto idx_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                            InvertedIndexDescriptor::get_index_file_path_prefix(seg_path), index_id,
+                            index_info->get_index_suffix());
+                    VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
                     RETURN_NOT_OK_STATUS_WITH_WARN(
                             fs->delete_file(idx_path),
                             strings::Substitute("Failed to delete file=$0", idx_path));
                 }
                 // Erase the origin index file cache
-                RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(idx_path));
+                auto idx_file_cache_key = InvertedIndexDescriptor::get_index_file_cache_key(
+                        InvertedIndexDescriptor::get_index_file_path_prefix(seg_path), index_id,
+                        index_info->get_index_suffix());
+                RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(idx_file_cache_key));
             }
         }
     }

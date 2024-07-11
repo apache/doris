@@ -99,7 +99,8 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
     if (p._is_top_sink) {
         // create sender
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), p._buf_size, &_sender, state->execution_timeout()));
+                state->fragment_instance_id(), p._buf_size, &_sender, state->execution_timeout(),
+                state->batch_size()));
         // create writer
         _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),
@@ -124,8 +125,8 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         std::mt19937 g(rd());
         shuffle(_channels.begin(), _channels.end(), g);
 
-        for (int i = 0; i < _channels.size(); ++i) {
-            RETURN_IF_ERROR(_channels[i]->init_stub(state));
+        for (auto& _channel : _channels) {
+            RETURN_IF_ERROR(_channel->init_stub(state));
         }
     }
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
@@ -139,9 +140,9 @@ Status ResultFileSinkLocalState::open(RuntimeState* state) {
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     if (!p._is_top_sink) {
         int local_size = 0;
-        for (int i = 0; i < _channels.size(); ++i) {
-            RETURN_IF_ERROR(_channels[i]->open(state));
-            if (_channels[i]->is_local()) {
+        for (auto& _channel : _channels) {
+            RETURN_IF_ERROR(_channel->open(state));
+            if (_channel->is_local()) {
                 local_size++;
             }
         }
@@ -175,7 +176,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
         // close sender, this is normal path end
         if (_sender) {
             _sender->update_return_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
-            static_cast<void>(_sender->close(final_status));
+            RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status));
         }
         state->exec_env()->result_mgr()->cancel_at_time(
                 time(nullptr) + config::result_buffer_cancelled_interval_time,

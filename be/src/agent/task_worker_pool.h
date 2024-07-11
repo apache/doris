@@ -79,7 +79,8 @@ private:
 
 class PriorTaskWorkerPool final : public TaskWorkerPoolIf {
 public:
-    PriorTaskWorkerPool(std::string_view name, int normal_worker_count, int high_prior_worker_count,
+    PriorTaskWorkerPool(const std::string& name, int normal_worker_count,
+                        int high_prior_worker_count,
                         std::function<void(const TAgentTaskRequest& task)> callback);
 
     ~PriorTaskWorkerPool() override;
@@ -101,8 +102,7 @@ private:
     std::condition_variable _high_prior_condv;
     std::deque<std::unique_ptr<TAgentTaskRequest>> _high_prior_queue;
 
-    std::unique_ptr<ThreadPool> _normal_pool;
-    std::unique_ptr<ThreadPool> _high_prior_pool;
+    std::vector<scoped_refptr<Thread>> _workers;
 
     std::function<void(const TAgentTaskRequest&)> _callback;
 };
@@ -175,6 +175,8 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
 void gc_binlog_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void clean_udf_cache_callback(const TAgentTaskRequest& req);
 
 void visible_version_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 

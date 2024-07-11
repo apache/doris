@@ -22,7 +22,7 @@
 #include <system_error>
 
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -463,7 +463,12 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
             if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
                 LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
                              << ", try to remove it";
-                std::filesystem::remove(key_prefix_it->path());
+                std::error_code ec;
+                std::filesystem::remove(key_prefix_it->path(), ec);
+                if (ec) {
+                    LOG(WARNING) << "failed to remove=" << key_prefix_it->path()
+                                 << " msg=" << ec.message();
+                }
                 continue;
             }
             std::filesystem::directory_iterator key_it {key_prefix_it->path(), ec};

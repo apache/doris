@@ -80,7 +80,7 @@ public class PaimonExternalTable extends ExternalTable {
         List<DataField> columns = schema.fields();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
         for (DataField field : columns) {
-            tmpSchema.add(new Column(field.name(),
+            tmpSchema.add(new Column(field.name().toLowerCase(),
                     paimonTypeToDorisType(field.type()), true, null, true, field.description(), true,
                     field.id()));
         }
@@ -118,6 +118,11 @@ public class PaimonExternalTable extends ExternalTable {
                 int scale = 3; // default
                 if (dataType instanceof org.apache.paimon.types.TimestampType) {
                     scale = ((org.apache.paimon.types.TimestampType) dataType).getPrecision();
+                    if (scale > 6) {
+                        scale = 6;
+                    }
+                } else if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+                    scale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
                     if (scale > 6) {
                         scale = 6;
                     }

@@ -40,7 +40,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/fs/azure_obj_storage_client.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_obj_storage_client.h"
@@ -73,7 +73,18 @@ bool to_int(std::string_view str, int& res) {
     return ec == std::errc {};
 }
 
-const std::string USE_PATH_STYLE = "use_path_style";
+constexpr char USE_PATH_STYLE[] = "use_path_style";
+
+constexpr char AZURE_PROVIDER_STRING[] = "AZURE";
+constexpr char S3_PROVIDER[] = "provider";
+constexpr char S3_AK[] = "AWS_ACCESS_KEY";
+constexpr char S3_SK[] = "AWS_SECRET_KEY";
+constexpr char S3_ENDPOINT[] = "AWS_ENDPOINT";
+constexpr char S3_REGION[] = "AWS_REGION";
+constexpr char S3_TOKEN[] = "AWS_TOKEN";
+constexpr char S3_MAX_CONN_SIZE[] = "AWS_MAX_CONN_SIZE";
+constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
+constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
 
 } // namespace
 S3RateLimiterHolder* S3ClientFactory::rate_limiter(S3RateLimitType type) {
@@ -196,6 +207,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
                                         config::s3_client_http_scheme, s3_conf.ak, container_name);
 
     auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
+    LOG_INFO("create one azure client with {}", s3_conf.to_string());
     return std::make_shared<io::AzureObjStorageClient>(std::move(containerClient));
 }
 
@@ -264,6 +276,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     }
 
     auto obj_client = std::make_shared<io::S3ObjStorageClient>(std::move(new_client));
+    LOG_INFO("create one s3 client with {}", s3_conf.to_string());
     return obj_client;
 }
 
@@ -302,12 +315,19 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
                                            it->second);
         }
     }
+    if (auto it = properties.find(S3_PROVIDER); it != properties.end()) {
+        if (0 == strcmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
+            s3_conf->client_conf.provider = io::ObjStorageType::AZURE;
+        }
+    }
 
     if (s3_uri.get_bucket().empty()) {
         return Status::InvalidArgument("Invalid S3 URI {}, bucket is not specified",
                                        s3_uri.to_string());
     }
     s3_conf->bucket = s3_uri.get_bucket();
+    // For azure's compatibility
+    s3_conf->client_conf.bucket = s3_uri.get_bucket();
     s3_conf->prefix = "";
 
     // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html

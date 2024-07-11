@@ -45,6 +45,7 @@ class DistributeHintTest extends TestWithFeService implements MemoPatternMatchSu
         createDatabase("test");
         useDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setParallelResultSink(false);
 
         createTable("CREATE TABLE `t1` (\n"
                 + "  `a` int(11) NULL,\n"

@@ -544,15 +544,8 @@ struct ConvertImplGenericToString {
         const IDataType& type = *col_with_type_and_name.type;
         const IColumn& col_from = *col_with_type_and_name.column;
 
-        size_t size = col_from.size();
-
         auto col_to = ColumnString::create();
-        col_to->reserve(size * 2);
-        VectorBufferWriter write_buffer(*col_to.get());
-        for (size_t i = 0; i < size; ++i) {
-            type.to_string(col_from, i, write_buffer);
-            write_buffer.commit();
-        }
+        type.to_string_batch(col_from, *col_to);
 
         block.replace_by_position(result, std::move(col_to));
         return Status::OK();
@@ -583,6 +576,7 @@ struct ConvertImplGenericFromString {
             const bool is_complex = is_complex_type(data_type_to);
             DataTypeSerDe::FormatOptions format_options;
             format_options.converted_from_string = true;
+            format_options.escape_char = '\\';
 
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
@@ -773,6 +767,7 @@ struct ConvertImplGenericToJsonb {
 
         auto tmp_col = ColumnString::create();
         vectorized::DataTypeSerDe::FormatOptions options;
+        options.escape_char = '\\';
         for (size_t i = 0; i < input_rows_count; i++) {
             // convert to string
             tmp_col->clear();

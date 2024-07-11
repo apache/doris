@@ -31,6 +31,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -315,7 +316,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 eos = true;
             },
             status);
-    if (status.is<doris::ErrorCode::MEM_ALLOC_FAILED>()) {
+
+    if (UNLIKELY(!status.ok())) {
         scan_task->set_status(status);
         eos = true;
     }

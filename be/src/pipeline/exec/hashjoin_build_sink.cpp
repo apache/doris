@@ -467,8 +467,14 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         const auto vexpr = _build_expr_ctxs.back()->root();
 
         /// null safe equal means null = null is true, the operator in SQL should be: <=>.
-        const bool is_null_safe_equal = eq_join_conjunct.__isset.opcode &&
-                                        eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+        const bool is_null_safe_equal =
+                eq_join_conjunct.__isset.opcode &&
+                (eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL) &&
+                // For a null safe equal join, FE may generate a plan that
+                // both sides of the conjuct are not nullable, we just treat it
+                // as a normal equal join conjunct.
+                (eq_join_conjunct.right.nodes[0].is_nullable ||
+                 eq_join_conjunct.left.nodes[0].is_nullable);
 
         const bool should_convert_to_nullable = is_null_safe_equal &&
                                                 !eq_join_conjunct.right.nodes[0].is_nullable &&
@@ -512,7 +518,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     vectorized::MutableBlock::build_mutable_block(&tmp_build_block);
         }
 
-        if (in_block->rows() != 0) {
+        if (!in_block->empty()) {
             std::vector<int> res_col_ids(_build_expr_ctxs.size());
             RETURN_IF_ERROR(local_state._do_evaluate(*in_block, local_state._build_expr_ctxs,
                                                      *local_state._build_expr_call_timer,
@@ -527,27 +533,15 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
             local_state._mem_tracker->consume(in_block->bytes());
             COUNTER_UPDATE(local_state._build_blocks_memory_usage, in_block->bytes());
-            local_state._build_blocks.emplace_back(std::move(*in_block));
+
+            SCOPED_TIMER(local_state._build_side_merge_block_timer);
+            RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(
+                    std::move(*in_block)));
         }
     }
 
     if (local_state._should_build_hash_table && eos) {
         DCHECK(!local_state._build_side_mutable_block.empty());
-
-        for (auto& column : local_state._build_side_mutable_block.mutable_columns()) {
-            column->reserve(local_state._build_side_rows);
-        }
-
-        {
-            SCOPED_TIMER(local_state._build_side_merge_block_timer);
-            for (auto& block : local_state._build_blocks) {
-                RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(block));
-
-                vectorized::Block temp;
-                std::swap(block, temp);
-            }
-        }
-
         local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
                 local_state._build_side_mutable_block.to_block());
 

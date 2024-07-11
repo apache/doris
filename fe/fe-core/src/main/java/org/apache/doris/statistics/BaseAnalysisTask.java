@@ -42,6 +42,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,7 +61,6 @@ public abstract class BaseAnalysisTask {
 
     public static final long LIMIT_SIZE = 1024 * 1024 * 1024; // 1GB
     public static final double LIMIT_FACTOR = 1.2;
-    public static final int PARTITION_BATCH_SIZE = 100;
 
     protected static final String FULL_ANALYZE_TEMPLATE =
             "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
@@ -354,38 +354,50 @@ public abstract class BaseAnalysisTask {
      * 1. Remove not exist partition stats
      * 2. Get stats of each partition
      * 3. insert partition in batch
-     * 4. calculate column stats based on partition stats
-     * 5. Skip large partition and fallback to sample analyze if large partition exists.
+     * 4. Skip large partition and fallback to sample analyze if large partition exists.
+     * 5. calculate column stats based on partition stats
      */
     protected void doPartitionTable() throws Exception {
-        deleteNotExistPartitionStats();
-        Map<String, String> params = buildSqlParams();
-        params.put("dataSizeFunction", getDataSizeFunction(col, false));
-        Set<String> partitionNames = tbl.getPartitionNames();
-        List<String> sqls = Lists.newArrayList();
-        int count = 0;
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(tbl.getId());
-        String idxName = info.indexId == -1 ? tbl.getName() : ((OlapTable) tbl).getIndexNameById(info.indexId);
-        ColStatsMeta columnStatsMeta = tableStatsStatus == null
-                ? null : tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
-        boolean hasHughPartition = false;
-        long hugePartitionThreshold = StatisticsUtil.getHugePartitionLowerBoundRows();
         // Find jobInfo for this task.
         AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
         // For sync job, get jobInfo from job.jobInfo.
         boolean isSync = jobInfo == null;
         jobInfo = isSync ? job.jobInfo : jobInfo;
+
+        // 1. Remove not exist partition stats
+        deleteNotExistPartitionStats(jobInfo);
+
+        // 2. Get stats of each partition
+        Map<String, String> params = buildSqlParams();
+        params.put("dataSizeFunction", getDataSizeFunction(col, false));
+        boolean isAllPartitions = info.partitionNames.isEmpty();
+        Set<String> partitionNames = isAllPartitions ? tbl.getPartitionNames() : info.partitionNames;
+        List<String> sqls = Lists.newArrayList();
+        Set<String> partNames = Sets.newHashSet();
+        int count = 0;
+        long batchRowCount = 0;
+        String idxName = info.indexId == -1 ? tbl.getName() : ((OlapTable) tbl).getIndexNameById(info.indexId);
+        ColStatsMeta columnStatsMeta = tableStatsStatus == null
+                ? null : tableStatsStatus.findColumnStatsMeta(idxName, col.getName());
+        boolean hasHughPartition = false;
+        long hugePartitionThreshold = StatisticsUtil.getHugePartitionLowerBoundRows();
+        int partitionBatchSize = StatisticsUtil.getPartitionAnalyzeBatchSize();
         for (String part : partitionNames) {
             // External table partition is null.
             Partition partition = tbl.getPartition(part);
             if (partition != null) {
                 // For huge partition, skip analyze it.
-                if (partition.getBaseIndex().getRowCount() > hugePartitionThreshold) {
+                long partitionRowCount = partition.getBaseIndex().getRowCount();
+                if (partitionRowCount > hugePartitionThreshold && AnalysisInfo.JobType.SYSTEM.equals(info.jobType)) {
                     hasHughPartition = true;
+                    // -1 means it's skipped because this partition is too large.
+                    jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), -1L);
                     LOG.info("Partition {} in table {} is too large, skip it.", part, tbl.getName());
                     continue;
                 }
+                batchRowCount += partitionRowCount;
                 // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
                 // and insert before first analyze, set partition update rows to 0.
                 jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
@@ -410,39 +422,58 @@ public abstract class BaseAnalysisTask {
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             sqls.add(stringSubstitutor.replace(PARTITION_ANALYZE_TEMPLATE));
             count++;
-            if (count == PARTITION_BATCH_SIZE) {
+            partNames.add(part);
+            // 3. insert partition in batch
+            if (count == partitionBatchSize || batchRowCount > hugePartitionThreshold) {
                 String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
                         + Joiner.on(" UNION ALL ").join(sqls);
                 runInsert(sql);
+                analysisManager.updatePartitionStatsCache(info.catalogId, info.dbId, info.tblId, info.indexId,
+                        partNames, info.colName);
+                partNames.clear();
                 sqls.clear();
                 count = 0;
+                batchRowCount = 0;
             }
         }
+        // 3. insert partition in batch
         if (count > 0) {
             String sql = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
                     + Joiner.on(" UNION ALL ").join(sqls);
             runInsert(sql);
+            analysisManager.updatePartitionStatsCache(info.catalogId, info.dbId, info.tblId, info.indexId,
+                    partNames, info.colName);
         }
+        // 4. Skip large partition and fallback to sample analyze if large partition exists.
         if (hasHughPartition) {
             tableSample = new TableSample(false, StatisticsUtil.getHugeTableSampleRows());
             if (!isSync) {
+                long startTime = jobInfo.startTime;
                 jobInfo = new AnalysisInfoBuilder(jobInfo).setAnalysisMethod(AnalysisMethod.SAMPLE).build();
+                jobInfo.markStartTime(startTime);
                 analysisManager.replayCreateAnalysisJob(jobInfo);
             }
             if (tableStatsStatus == null || columnStatsMeta == null
                     || tableStatsStatus.updatedRows.get() > columnStatsMeta.updatedRows) {
                 doSample();
+            } else {
+                job.taskDoneWithoutData(this);
             }
         } else {
-            params = buildSqlParams();
-            params.put("min", castToNumeric("min"));
-            params.put("max", castToNumeric("max"));
-            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
+            // 5. calculate column stats based on partition stats
+            if (isAllPartitions) {
+                params = buildSqlParams();
+                params.put("min", castToNumeric("min"));
+                params.put("max", castToNumeric("max"));
+                StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+                runQuery(stringSubstitutor.replace(MERGE_PARTITION_TEMPLATE));
+            } else {
+                job.taskDoneWithoutData(this);
+            }
         }
     }
 
-    protected abstract void deleteNotExistPartitionStats() throws DdlException;
+    protected abstract void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException;
 
     protected String getPartitionInfo(String partitionName) {
         return "";
@@ -500,5 +531,4 @@ public abstract class BaseAnalysisTask {
             }
         }
     }
-
 }

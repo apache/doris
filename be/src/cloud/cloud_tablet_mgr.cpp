@@ -136,7 +136,7 @@ private:
 CloudTabletMgr::CloudTabletMgr(CloudStorageEngine& engine)
         : _engine(engine),
           _tablet_map(std::make_unique<TabletMap>()),
-          _cache(std::make_unique<LRUCachePolicy>(
+          _cache(std::make_unique<LRUCachePolicyTrackingManual>(
                   CachePolicy::CacheType::CLOUD_TABLET_CACHE, config::tablet_cache_capacity,
                   LRUCacheType::NUMBER, 0, config::tablet_cache_shards)) {}
 
@@ -148,9 +148,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
     class Value : public LRUCacheValueBase {
     public:
         Value(const std::shared_ptr<CloudTablet>& tablet, TabletMap& tablet_map)
-                : LRUCacheValueBase(CachePolicy::CacheType::CLOUD_TABLET_CACHE),
-                  tablet(tablet),
-                  tablet_map(tablet_map) {}
+                : tablet(tablet), tablet_map(tablet_map) {}
         ~Value() override { tablet_map.erase(tablet.get()); }
 
         // FIXME(plat1ko): The ownership of tablet seems to belong to 'TabletMap', while `Value`

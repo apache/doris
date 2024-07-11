@@ -38,6 +38,12 @@
 -- !sql --
 \N
 
+-- !lower_bound --
+\N
+
+-- !lower_bound --
+0000-01-01T00:00
+
 -- !sql_convert_tz_null --
 \N
 \N
@@ -379,6 +385,9 @@ February
 
 -- !sql_ustamp7 --
 1196389819.1235
+
+-- !sql_ustamp8 --
+1704038400
 
 -- !sql --
 0

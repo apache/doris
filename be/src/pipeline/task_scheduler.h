@@ -61,7 +61,7 @@ public:
 
     void stop();
 
-    TaskQueue* task_queue() const { return _task_queue.get(); }
+    std::vector<int> thread_debug_info() { return _fix_thread_pool->debug_info(); }
 
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;

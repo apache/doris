@@ -137,7 +137,7 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
             if (colStatsMeta == null) {
                 colToColStatsMeta.put(colPair, new ColStatsMeta(analyzedJob.createTime, analyzedJob.analysisMethod,
                         analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.rowCount,
-                        analyzedJob.updateRows, analyzedJob.partitionUpdateRows));
+                        analyzedJob.updateRows, analyzedJob.enablePartition ? analyzedJob.partitionUpdateRows : null));
             } else {
                 colStatsMeta.updatedTime = analyzedJob.tblUpdateTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
@@ -145,12 +145,12 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
                 colStatsMeta.jobType = analyzedJob.jobType;
                 colStatsMeta.updatedRows = analyzedJob.updateRows;
                 colStatsMeta.rowCount = analyzedJob.rowCount;
-                if (colStatsMeta.partitionUpdateRows == null) {
-                    colStatsMeta.partitionUpdateRows = new ConcurrentHashMap<>();
-                } else {
-                    colStatsMeta.partitionUpdateRows.clear();
+                if (analyzedJob.enablePartition) {
+                    if (colStatsMeta.partitionUpdateRows == null) {
+                        colStatsMeta.partitionUpdateRows = new ConcurrentHashMap<>();
+                    }
+                    colStatsMeta.partitionUpdateRows.putAll(analyzedJob.partitionUpdateRows);
                 }
-                colStatsMeta.partitionUpdateRows.putAll(analyzedJob.partitionUpdateRows);
             }
         }
         jobType = analyzedJob.jobType;
