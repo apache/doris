@@ -78,7 +78,6 @@ protected:
     int64_t _build_side_last_mem_used = 0;
 
     size_t _build_side_rows = 0;
-    std::vector<vectorized::Block> _build_blocks;
 
     vectorized::MutableBlock _build_side_mutable_block;
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
