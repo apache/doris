@@ -766,8 +766,8 @@ void BlockFileCache::remove_file_blocks(std::vector<FileBlockCell*>& to_evict,
     std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
 }
 
-void BlockFileCache::remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>& to_evict,
-                                        std::lock_guard<std::mutex>& cache_lock) {
+void BlockFileCache::remove_file_blocks_and_clean_time_maps(
+        std::vector<FileBlockCell*>& to_evict, std::lock_guard<std::mutex>& cache_lock) {
     auto remove_file_block_and_clean_time_maps_if = [&](FileBlockCell* cell) {
         FileBlockSPtr file_block = cell->file_block;
         if (file_block) {
@@ -780,8 +780,7 @@ void BlockFileCache::remove_file_blocks_and_clean_time_maps(std::vector<FileBloc
                     auto _time_to_key_iter = _time_to_key.equal_range(iter->second);
                     while (_time_to_key_iter.first != _time_to_key_iter.second) {
                         if (_time_to_key_iter.first->second == hash) {
-                            _time_to_key_iter.first =
-                                    _time_to_key.erase(_time_to_key_iter.first);
+                            _time_to_key_iter.first = _time_to_key.erase(_time_to_key_iter.first);
                             break;
                         }
                         _time_to_key_iter.first++;
@@ -794,10 +793,10 @@ void BlockFileCache::remove_file_blocks_and_clean_time_maps(std::vector<FileBloc
     std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_and_clean_time_maps_if);
 }
 
-void BlockFileCache::find_evict_candidates(LRUQueue &queue, size_t size, size_t cur_cache_size,
-                                           size_t &removed_size,
-                                           std::vector<FileBlockCell*> &to_evict,
-                                           std::lock_guard<std::mutex> &cache_lock) {
+void BlockFileCache::find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
+                                           size_t& removed_size,
+                                           std::vector<FileBlockCell*>& to_evict,
+                                           std::lock_guard<std::mutex>& cache_lock) {
     for (const auto& [entry_key, entry_offset, entry_size] : queue) {
         if (!is_overflow(removed_size, size, cur_cache_size)) {
             break;
