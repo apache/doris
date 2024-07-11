@@ -67,6 +67,9 @@ DEFINE_mString(public_access_ip, "");
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DEFINE_Int32(brpc_num_threads, "256");
+// the time of brpc server keep idle connection, setting this value too small may cause rpc between backends to fail,
+// the default value is set to -1, which means never close idle connection.
+DEFINE_Int32(brpc_idle_timeout_sec, "-1");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -1074,7 +1077,6 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 DEFINE_mInt32(segment_cache_capacity, "-1");
 DEFINE_mInt32(estimated_num_columns_per_segment, "200");
 DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
-// The value is calculate by storage_page_cache_limit * index_page_cache_percentage
 DEFINE_mInt32(segment_cache_memory_percentage, "2");
 
 // enable feature binlog, default false

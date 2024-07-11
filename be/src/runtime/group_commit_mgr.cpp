@@ -138,7 +138,7 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
             auto last_print_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                                                std::chrono::steady_clock::now() - _last_print_time)
                                                .count();
-            if (last_print_duration >= 5000) {
+            if (last_print_duration >= 10000) {
                 _last_print_time = std::chrono::steady_clock::now();
                 LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
                           << ", label=" << label << ", instance_id=" << load_instance_id
@@ -258,15 +258,13 @@ Status GroupCommitTable::get_first_block_load_queue(
         std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
         std::shared_ptr<MemTrackerLimiter> mem_tracker,
         std::shared_ptr<pipeline::Dependency> create_plan_dep,
-        std::shared_ptr<pipeline::Dependency> put_block_dep, std::string& label, int64_t& txn_id) {
+        std::shared_ptr<pipeline::Dependency> put_block_dep) {
     DCHECK(table_id == _table_id);
     std::unique_lock l(_lock);
     auto try_to_get_matched_queue = [&]() -> Status {
         for (const auto& [_, inner_block_queue] : _load_block_queues) {
             if (inner_block_queue->contain_load_id(load_id)) {
                 load_block_queue = inner_block_queue;
-                label = inner_block_queue->label;
-                txn_id = inner_block_queue->txn_id;
                 return Status::OK();
             }
         }
@@ -275,8 +273,6 @@ Status GroupCommitTable::get_first_block_load_queue(
                 if (base_schema_version == inner_block_queue->schema_version) {
                     if (inner_block_queue->add_load_id(load_id, put_block_dep).ok()) {
                         load_block_queue = inner_block_queue;
-                        label = inner_block_queue->label;
-                        txn_id = inner_block_queue->txn_id;
                         return Status::OK();
                     }
                 } else {
@@ -319,6 +315,10 @@ Status GroupCommitTable::get_first_block_load_queue(
 
 void GroupCommitTable::remove_load_id(const UniqueId& load_id) {
     std::unique_lock l(_lock);
+    if (_create_plan_deps.find(load_id) != _create_plan_deps.end()) {
+        _create_plan_deps.erase(load_id);
+        return;
+    }
     for (const auto& [_, inner_block_queue] : _load_block_queues) {
         if (inner_block_queue->remove_load_id(load_id).ok()) {
             return;
@@ -391,13 +391,13 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
                     instance_id, label, txn_id, schema_version, _all_block_queues_bytes,
                     result.wait_internal_group_commit_finish, result.group_commit_interval_ms,
                     result.group_commit_data_bytes);
-            std::unique_lock l(_lock);
             RETURN_IF_ERROR(load_block_queue->create_wal(
                     _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
                     pipeline_params.fragment.output_sink.olap_table_sink.schema.slot_descs,
                     be_exe_version));
-            _load_block_queues.emplace(instance_id, load_block_queue);
 
+            std::unique_lock l(_lock);
+            _load_block_queues.emplace(instance_id, load_block_queue);
             std::vector<UniqueId> success_load_ids;
             for (const auto& [id, load_info] : _create_plan_deps) {
                 auto create_dep = std::get<0>(load_info);
@@ -409,8 +409,8 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
                     }
                 }
             }
-            for (const auto& id2 : success_load_ids) {
-                _create_plan_deps.erase(id2);
+            for (const auto& id : success_load_ids) {
+                _create_plan_deps.erase(id);
             }
         }
     }
@@ -610,7 +610,7 @@ Status GroupCommitMgr::get_first_block_load_queue(
         std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
         std::shared_ptr<MemTrackerLimiter> mem_tracker,
         std::shared_ptr<pipeline::Dependency> create_plan_dep,
-        std::shared_ptr<pipeline::Dependency> put_block_dep, std::string& label, int64_t& txn_id) {
+        std::shared_ptr<pipeline::Dependency> put_block_dep) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard wlock(_lock);
@@ -623,7 +623,7 @@ Status GroupCommitMgr::get_first_block_load_queue(
     }
     RETURN_IF_ERROR(group_commit_table->get_first_block_load_queue(
             table_id, base_schema_version, load_id, load_block_queue, be_exe_version, mem_tracker,
-            create_plan_dep, put_block_dep, label, txn_id));
+            create_plan_dep, put_block_dep));
     return Status::OK();
 }
 
