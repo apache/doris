@@ -640,11 +640,26 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             return Status::OK();
         }
 
+        TNetworkAddress current_connect_fe_addr;
+        // for gray upragde between 2.1 version, fe may not set current_connect_fe,
+        // then use coord addr instead
+        if (params.__isset.current_connect_fe) {
+            current_connect_fe_addr = params.current_connect_fe;
+        } else {
+            current_connect_fe_addr = params.coord;
+        }
+
+        LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
+                  << ", total fragment num on current host: " << params.fragment_num_on_host
+                  << ", fe process uuid: " << params.query_options.fe_process_uuid
+                  << ", query type: " << params.query_options.query_type
+                  << ", report audit fe:" << current_connect_fe_addr;
+
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
                                                 params.query_options, params.coord, pipeline,
-                                                params.is_nereids);
+                                                params.is_nereids, current_connect_fe_addr);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
@@ -653,10 +668,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             query_ctx->file_scan_range_params_map = params.file_scan_params;
         }
 
-        LOG(INFO) << "query_id: " << UniqueId(query_ctx->query_id().hi, query_ctx->query_id().lo)
-                  << " coord_addr " << query_ctx->coord_addr
-                  << " total fragment num on current host: " << params.fragment_num_on_host
-                  << " fe process uuid: " << params.query_options.fe_process_uuid;
         query_ctx->query_globals = params.query_globals;
 
         if (params.__isset.resource_info) {
@@ -681,9 +692,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << ", use workload group: " << workload_group_ptr->debug_string()
-                          << ", is pipeline: " << ((int)is_pipeline)
-                          << ", enable cgroup soft limit: "
-                          << ((int)config::enable_cgroup_cpu_soft_limit);
+                          << ", is pipeline: " << ((int)is_pipeline);
             } else {
                 LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                           << " carried group info but can not find group in be";
@@ -764,11 +773,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                 std::make_pair(params.params.fragment_instance_id, fragment_executor));
     }
 
-    auto* current_thread_pool = query_ctx->get_non_pipe_exec_thread_pool();
-    if (!current_thread_pool) {
-        current_thread_pool = _thread_pool.get();
-    }
-    auto st = current_thread_pool->submit_func([this, fragment_executor, cb]() {
+    auto st = _thread_pool->submit_func([this, fragment_executor, cb]() {
 #ifndef BE_TEST
         SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
 #endif
@@ -797,16 +802,24 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
     size_t i = 0;
     {
         std::lock_guard<std::mutex> lock(_lock);
-        fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts are still running!\n",
-                       _pipeline_map.size());
+        fmt::format_to(debug_string_buffer,
+                       "{} pipeline fragment contexts are still running! duration_limit={}\n",
+                       _pipeline_map.size(), duration);
+
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
         for (auto& it : _pipeline_map) {
             auto elapsed = (t - it.second->create_time()) / 1000000000.0;
             if (elapsed < duration) {
                 // Only display tasks which has been running for more than {duration} seconds.
                 continue;
             }
-            fmt::format_to(debug_string_buffer, "No.{} (elapse time = {}s, InstanceId = {}) : {}\n",
-                           i, elapsed, print_id(it.first), it.second->debug_string());
+            auto timeout_second = it.second->timeout_second();
+            fmt::format_to(debug_string_buffer,
+                           "No.{} (elapse_second={}s, query_timeout_second={}s, instance_id="
+                           "{}) : {}\n",
+                           i, elapsed, timeout_second, print_id(it.first),
+                           it.second->debug_string());
             i++;
         }
     }
@@ -970,6 +983,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
             for (size_t i = 0; i < target_size; i++) {
                 RETURN_IF_ERROR(_thread_pool->submit_func([&, i]() {
+                    SCOPED_ATTACH_TASK_WITH_ID(query_ctx->query_mem_tracker, query_ctx->query_id());
                     prepare_status[i] = pre_and_submit(i);
                     std::unique_lock<std::mutex> lock(m);
                     prepare_done++;
@@ -1453,8 +1467,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
 Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
     UniqueId queryid = request->query_id();
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
-    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
 
     std::shared_ptr<QueryContext> query_ctx;
     {
@@ -1464,11 +1476,15 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _query_ctx_map.find(query_id);
         if (iter == _query_ctx_map.end()) {
-            return Status::InvalidArgument("query-id: {}", queryid.to_string());
+            return Status::EndOfFile("Query context (query-id: {}) not found, maybe finished",
+                                     queryid.to_string());
         }
 
         query_ctx = iter->second;
     }
+
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+    RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
     auto merge_status = filter_controller->send_filter_size(request);
     return merge_status;
 }

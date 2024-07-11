@@ -18,6 +18,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <iosfwd>
 #include <memory>
@@ -101,6 +102,9 @@ private:
 
     std::atomic<bool> _shutdown = false;
     ThreadPool* _thread_pool = nullptr;
+
+    std::mutex _mutex;
+    std::condition_variable _cond;
 };
 
 // MemTableFlushExecutor is responsible for flushing memtables to disk.

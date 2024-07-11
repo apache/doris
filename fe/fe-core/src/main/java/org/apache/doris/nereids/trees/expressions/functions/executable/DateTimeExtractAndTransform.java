@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,8 +34,10 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
@@ -611,11 +615,23 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "str_to_date", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "DATETIMEV2")
     public static Expression strToDate(StringLikeLiteral str, StringLikeLiteral format) {
         if (org.apache.doris.analysis.DateLiteral.hasTimePart(format.getStringValue())) {
-            return DateTimeV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
-                    .toFormatter(), str.getValue()));
+            DataType returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
+            if (returnType instanceof DateTimeV2Type) {
+                return DateTimeV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
+                        .toFormatter(), str.getValue()));
+            } else {
+                return DateTimeLiteral.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
+                        .toFormatter(), str.getValue()));
+            }
         } else {
-            return DateV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
-                    .toFormatter(), str.getValue()));
+            DataType returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATE));
+            if (returnType instanceof DateV2Type) {
+                return DateV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
+                        .toFormatter(), str.getValue()));
+            } else {
+                return DateLiteral.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
+                        .toFormatter(), str.getValue()));
+            }
         }
     }
 
@@ -687,7 +703,10 @@ public class DateTimeExtractAndTransform {
         return week(date.toJavaDateType(), mode.getIntValue());
     }
 
-    private static Expression week(LocalDateTime localDateTime, int mode) {
+    /**
+     * the impl of function week(date/datetime, mode)
+     */
+    public static Expression week(LocalDateTime localDateTime, int mode) {
         switch (mode) {
             case 0: {
                 return new TinyIntLiteral(
@@ -697,6 +716,13 @@ public class DateTimeExtractAndTransform {
                 return new TinyIntLiteral((byte) localDateTime.get(WeekFields.ISO.weekOfYear()));
             }
             case 2: {
+                // https://dev.mysql.com/doc/refman/8.4/en/date-and-time-functions.html#function_week
+                // mode 2 is start with a Sunday day as first week in this year.
+                // and special case for 0000-01-01, as it's SATURDAY, calculate result of 52 is
+                // last year, so it's meaningless.
+                if (checkIsSpecificDate(localDateTime)) {
+                    return new TinyIntLiteral((byte) 1);
+                }
                 return new TinyIntLiteral(
                         (byte) localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekOfWeekBasedYear()));
             }
@@ -757,9 +783,15 @@ public class DateTimeExtractAndTransform {
         return yearWeek(dateTime.toJavaDateType(), 0);
     }
 
-    private static Expression yearWeek(LocalDateTime localDateTime, int mode) {
+    /**
+     * the impl of function yearWeek(date/datetime, mode)
+     */
+    public static Expression yearWeek(LocalDateTime localDateTime, int mode) {
         switch (mode) {
             case 0: {
+                if (checkIsSpecificDate(localDateTime)) {
+                    return new IntegerLiteral(1);
+                }
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
@@ -770,6 +802,9 @@ public class DateTimeExtractAndTransform {
                         + localDateTime.get(WeekFields.ISO.weekOfWeekBasedYear()));
             }
             case 2: {
+                if (checkIsSpecificDate(localDateTime)) {
+                    return new IntegerLiteral(1);
+                }
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
@@ -808,6 +843,13 @@ public class DateTimeExtractAndTransform {
                         String.format("unknown mode %d in week function", mode));
             }
         }
+    }
+
+    /**
+     * 0000-01-01 is specific date, sometime need handle it alone.
+     */
+    private static boolean checkIsSpecificDate(LocalDateTime localDateTime) {
+        return localDateTime.getYear() == 0 && localDateTime.getMonthValue() == 1 && localDateTime.getDayOfMonth() == 1;
     }
 
     @ExecFunction(name = "weekofyear", argTypes = {"DATETIMEV2"}, returnType = "TINYINT")

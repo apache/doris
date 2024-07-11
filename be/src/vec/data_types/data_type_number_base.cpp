@@ -66,6 +66,19 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
 }
 
 template <typename T>
+std::string DataTypeNumberBase<T>::to_string(const T& value) const {
+    if constexpr (std::is_same<T, int128_t>::value || std::is_same<T, uint128_t>::value ||
+                  std::is_same<T, UInt128>::value) {
+        return int128_to_string(value);
+    } else if constexpr (std::is_integral<T>::value) {
+        return std::to_string(value);
+    } else if constexpr (std::numeric_limits<T>::is_iec559) {
+        fmt::memory_buffer buffer; // only use in size-predictable type.
+        fmt::format_to(buffer, "{}", value);
+        return std::string(buffer.data(), buffer.size());
+    }
+}
+template <typename T>
 Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* column_data = static_cast<ColumnVector<T>*>(column);
     if constexpr (std::is_same<T, UInt128>::value) {

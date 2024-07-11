@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
@@ -58,6 +59,7 @@ import org.apache.doris.qe.InsertStreamTxnExecutor;
 import org.apache.doris.qe.MasterTxnExecutor;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -98,9 +100,10 @@ public class InsertUtils {
 
         TransactionEntry txnEntry = ctx.getTxnEntry();
         int effectRows = 0;
+        FormatOptions options = FormatOptions.getDefault();
         for (List<NamedExpression> row : constantExprsList) {
             ++effectRows;
-            InternalService.PDataRow data = getRowStringValue(row);
+            InternalService.PDataRow data = getRowStringValue(row, options);
             if (data == null) {
                 continue;
             }
@@ -140,7 +143,7 @@ public class InsertUtils {
         ctx.updateReturnRows(effectRows);
     }
 
-    private static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols) {
+    private static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols, FormatOptions options) {
         if (cols.isEmpty()) {
             return null;
         }
@@ -157,7 +160,7 @@ public class InsertUtils {
                 row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
                 row.addColBuilder().setValue(String.format("\"%s\"",
-                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray()));
+                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray(options)));
             } else {
                 row.addColBuilder().setValue(String.format("\"%s\"",
                         ((Literal) expr).toLegacyLiteral().getStringValue()));
@@ -190,9 +193,10 @@ public class InsertUtils {
             String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
             if (Config.isCloudMode() || Env.getCurrentEnv().isMaster()) {
                 txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                        txnConf.getDbId(), Lists.newArrayList(tblObj.getId()),
-                        label, new TransactionState.TxnCoordinator(
-                                TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        txnConf.getDbId(), Lists.newArrayList(tblObj.getId()), label,
+                        new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         sourceType, timeoutSecond);
             } else {
                 MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(ctx);

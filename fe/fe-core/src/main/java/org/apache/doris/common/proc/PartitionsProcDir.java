@@ -52,6 +52,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -245,10 +246,14 @@ public class PartitionsProcDir implements ProcDirInterface {
 
             Joiner joiner = Joiner.on(", ");
             Map<Long, List<String>> partitionsUnSyncTables = null;
+            String mtmvPartitionSyncErrorMsg = null;
             if (olapTable instanceof MTMV) {
-                partitionsUnSyncTables = MTMVPartitionUtil
-                        .getPartitionsUnSyncTables((MTMV) olapTable, partitionIds);
-
+                try {
+                    partitionsUnSyncTables = MTMVPartitionUtil
+                            .getPartitionsUnSyncTables((MTMV) olapTable, partitionIds);
+                } catch (AnalysisException e) {
+                    mtmvPartitionSyncErrorMsg = e.getMessage();
+                }
             }
             for (Long partitionId : partitionIds) {
                 Partition partition = olapTable.getPartition(partitionId);
@@ -314,9 +319,15 @@ public class PartitionsProcDir implements ProcDirInterface {
 
                 partitionInfo.add(tblPartitionInfo.getIsMutable(partitionId));
                 if (olapTable instanceof MTMV) {
-                    List<String> partitionUnSyncTables = partitionsUnSyncTables.get(partitionId);
-                    partitionInfo.add(CollectionUtils.isEmpty(partitionUnSyncTables));
-                    partitionInfo.add(partitionUnSyncTables.toString());
+                    if (StringUtils.isEmpty(mtmvPartitionSyncErrorMsg)) {
+                        List<String> partitionUnSyncTables = partitionsUnSyncTables.getOrDefault(partitionId,
+                                Lists.newArrayList());
+                        partitionInfo.add(CollectionUtils.isEmpty(partitionUnSyncTables));
+                        partitionInfo.add(partitionUnSyncTables.toString());
+                    } else {
+                        partitionInfo.add(false);
+                        partitionInfo.add(mtmvPartitionSyncErrorMsg);
+                    }
                 } else {
                     partitionInfo.add(true);
                     partitionInfo.add(FeConstants.null_string);

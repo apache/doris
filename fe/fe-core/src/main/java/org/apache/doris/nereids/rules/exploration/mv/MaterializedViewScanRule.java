@@ -47,7 +47,7 @@ public abstract class MaterializedViewScanRule extends AbstractMaterializedViewR
         List<Expression> expressionsRewritten = rewriteExpression(
                 queryStructInfo.getExpressions(),
                 queryStructInfo.getTopPlan(),
-                materializationContext.getExprToScanExprMapping(),
+                materializationContext.getShuttledExprToScanExprMapping(),
                 targetToSourceMapping,
                 true,
                 queryStructInfo.getTableBitSet()
@@ -58,7 +58,7 @@ public abstract class MaterializedViewScanRule extends AbstractMaterializedViewR
                     "Rewrite expressions by view in scan fail",
                     () -> String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
                                     + "targetToSourceMapping = %s", queryStructInfo.getExpressions(),
-                            materializationContext.getExprToScanExprMapping(),
+                            materializationContext.getShuttledExprToScanExprMapping(),
                             targetToSourceMapping));
             return null;
         }
@@ -76,7 +76,7 @@ public abstract class MaterializedViewScanRule extends AbstractMaterializedViewR
      * Join condition should be slot reference equals currently.
      */
     @Override
-    protected boolean checkPattern(StructInfo structInfo, CascadesContext cascadesContext) {
+    protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         PlanCheckContext checkContext = PlanCheckContext.of(ImmutableSet.of());
         return structInfo.getTopPlan().accept(StructInfo.SCAN_PLAN_PATTERN_CHECKER, checkContext)
                 && !checkContext.isContainsTopAggregate();

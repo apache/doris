@@ -17,6 +17,8 @@
 
 #include "olap/single_replica_compaction.h"
 
+#include <curl/curl.h>
+
 #include "common/logging.h"
 #include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
@@ -101,9 +103,12 @@ Status SingleReplicaCompaction::_do_single_replica_compaction() {
 }
 
 Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
+    DBUG_EXECUTE_IF("do_single_compaction_return_ok", { return Status::OK(); });
     TReplicaInfo addr;
     std::string token;
     //  1. get peer replica info
+    DBUG_EXECUTE_IF("single_compaction_failed_get_peer",
+                    { return Status::Aborted("tablet don't have peer replica"); });
     if (!StorageEngine::instance()->get_peer_replica_info(_tablet->tablet_id(), &addr, &token)) {
         LOG(WARNING) << _tablet->tablet_id() << " tablet don't have peer replica";
         return Status::Aborted("tablet don't have peer replica");
@@ -161,6 +166,8 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
 
 Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
         const TReplicaInfo& addr, std::vector<Version>* peer_versions) {
+    DBUG_EXECUTE_IF("single_compaction_failed_get_peer_versions",
+                    { return Status::Aborted("tablet failed get peer versions"); });
     PGetTabletVersionsRequest request;
     request.set_tablet_id(_tablet->tablet_id());
     PGetTabletVersionsResponse response;
@@ -349,6 +356,8 @@ Status SingleReplicaCompaction::_make_snapshot(const std::string& ip, int port, 
         if (snapshot_path->at(snapshot_path->length() - 1) != '/') {
             snapshot_path->append("/");
         }
+        DBUG_EXECUTE_IF("single_compaction_failed_make_snapshot",
+                        { return Status::InternalError("failed snapshot"); });
     } else {
         return Status::InternalError("success snapshot without snapshot path");
     }
@@ -396,8 +405,26 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     uint64_t total_file_size = 0;
     MonotonicStopWatch watch;
     watch.start();
+    auto curl = std::unique_ptr<CURL, decltype(&curl_easy_cleanup)>(curl_easy_init(),
+                                                                    &curl_easy_cleanup);
+    if (!curl) {
+        return Status::InternalError("single compaction init curl failed");
+    }
     for (auto& file_name : file_name_list) {
-        auto remote_file_url = remote_url_prefix + file_name;
+        // The file name of the variant column with the inverted index contains %
+        // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
+        //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
+        // We need to handle %, otherwise it will cause an HTTP 404 error.
+        // Because the percent ("%") character serves as the indicator for percent-encoded octets,
+        // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
+        // https://datatracker.ietf.org/doc/html/rfc3986
+        auto output = std::unique_ptr<char, decltype(&curl_free)>(
+                curl_easy_escape(curl.get(), file_name.c_str(), file_name.length()), &curl_free);
+        if (!output) {
+            return Status::InternalError("escape file name failed, file name={}", file_name);
+        }
+        std::string encoded_filename(output.get());
+        auto remote_file_url = remote_url_prefix + encoded_filename;
 
         // get file length
         uint64_t file_size = 0;
@@ -435,6 +462,8 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
             client->set_timeout_ms(estimate_timeout * 1000);
             RETURN_IF_ERROR(client->download(local_file_path));
 
+            DBUG_EXECUTE_IF("single_compaction_failed_download_file",
+                            { return Status::InternalError("failed to download file"); });
             // Check file length
             uint64_t local_file_size = std::filesystem::file_size(local_file_path);
             if (local_file_size != file_size) {
@@ -560,7 +589,12 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
     }
     // clear clone dir
     std::filesystem::path clone_dir_path(clone_dir);
-    std::filesystem::remove_all(clone_dir_path);
+    std::error_code ec;
+    std::filesystem::remove_all(clone_dir_path, ec);
+    if (ec) {
+        LOG(WARNING) << "failed to remove=" << clone_dir_path << " msg=" << ec.message();
+        return Status::IOError("failed to remove {}, due to {}", clone_dir, ec.message());
+    }
     LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
               << ", tablet=" << _tablet->tablet_id() << ", clone_dir=" << clone_dir;
     return res;

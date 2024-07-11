@@ -40,7 +40,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -140,10 +139,7 @@ public class PlanUtils {
     }
 
     public static Set<LogicalCatalogRelation> getLogicalScanFromRootPlan(LogicalPlan rootPlan) {
-        Set<LogicalCatalogRelation> tableSet = new HashSet<>();
-        tableSet.addAll((Collection<? extends LogicalCatalogRelation>) rootPlan
-                .collect(LogicalCatalogRelation.class::isInstance));
-        return tableSet;
+        return rootPlan.collect(LogicalCatalogRelation.class::isInstance);
     }
 
     /**

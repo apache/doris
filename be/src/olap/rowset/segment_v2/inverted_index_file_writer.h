@@ -83,6 +83,7 @@ public:
     std::string get_index_file_path(const TabletIndex* index_meta) const;
     size_t get_index_file_size() const { return _file_size; }
     const io::FileSystemSPtr& get_fs() const { return _fs; }
+    InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
 
 private:
     InvertedIndexDirectoryMap _indices_dirs;

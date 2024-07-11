@@ -278,11 +278,11 @@ struct HllToBase64 {
         for (size_t i = 0; i < size; ++i) {
             auto& hll_val = const_cast<HyperLogLog&>(data[i]);
             auto ser_size = hll_val.max_serialized_size();
-            output_char_size += ser_size * (int)(4.0 * ceil((double)ser_size / 3.0));
+            output_char_size += (int)(4.0 * ceil((double)ser_size / 3.0));
         }
         ColumnString::check_chars_length(output_char_size, size);
         chars.resize(output_char_size);
-        auto chars_data = chars.data();
+        auto* chars_data = chars.data();
 
         size_t cur_ser_size = 0;
         size_t last_ser_size = 0;

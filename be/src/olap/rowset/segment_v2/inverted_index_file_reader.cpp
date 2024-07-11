@@ -179,9 +179,8 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
                     (_index_file_dir / _index_file_name).native(), errMsg.str()));
         }
         // Need to clone resource here, because index searcher cache need it.
-        bool own_index_input = true;
         compound_reader = std::make_unique<DorisCompoundReader>(
-                _stream->clone(), index_it->second.get(), own_index_input, _read_buffer_size);
+                _stream->clone(), index_it->second.get(), _read_buffer_size);
     }
     return compound_reader;
 }

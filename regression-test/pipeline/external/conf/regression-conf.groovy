@@ -88,6 +88,7 @@ pg_14_port=7121
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+mariadb_10_port=3326
 db2_11_port=50000
 
 // hive catalog test config
@@ -109,6 +110,7 @@ hive3ServerPort=13000
 hive3PgPort=5732
 
 enableEsTest=true
+es_5_port=59200
 es_6_port="19200/"
 es_7_port=29200
 es_8_port=39200

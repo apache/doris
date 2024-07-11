@@ -458,6 +458,7 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_USED_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("QUERY_TYPE",  ScalarType.createVarchar(256))
                                     .build()))
             .put("active_queries", new SchemaTable(SystemIdGenerator.getNextId(), "active_queries", TableType.SCHEMA,
                     builder().column("QUERY_ID", ScalarType.createVarchar(256))
@@ -488,17 +489,22 @@ public class SchemaTable extends Table {
                             .column("SPILL_THRESHOLD_HIGH_WATERMARK", ScalarType.createVarchar(256))
                             .column("TAG", ScalarType.createVarchar(256))
                             .build()))
-            .put("processlist", new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
-                    builder().column("ID", ScalarType.createType(PrimitiveType.LARGEINT))
-                            .column("USER", ScalarType.createVarchar(32))
-                            .column("HOST", ScalarType.createVarchar(261))
-                            .column("CATALOG", ScalarType.createVarchar(64))
-                            .column("DB", ScalarType.createVarchar(64))
-                            .column("COMMAND", ScalarType.createVarchar(16))
-                            .column("TIME", ScalarType.createType(PrimitiveType.INT))
-                            .column("STATE", ScalarType.createVarchar(64))
-                            .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
-                            .build()))
+            .put("processlist",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
+                            builder().column("CURRENT_CONNECTED", ScalarType.createVarchar(16))
+                                    .column("ID", ScalarType.createType(PrimitiveType.LARGEINT))
+                                    .column("USER", ScalarType.createVarchar(32))
+                                    .column("HOST", ScalarType.createVarchar(261))
+                                    .column("LOGIN_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("CATALOG", ScalarType.createVarchar(64))
+                                    .column("DB", ScalarType.createVarchar(64))
+                                    .column("COMMAND", ScalarType.createVarchar(16))
+                                    .column("TIME", ScalarType.createType(PrimitiveType.INT))
+                                    .column("STATE", ScalarType.createVarchar(64))
+                                    .column("QUERY_ID", ScalarType.createVarchar(256))
+                                    .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
+                                    .column("FE",
+                                            ScalarType.createVarchar(64)).build()))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
                             builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))

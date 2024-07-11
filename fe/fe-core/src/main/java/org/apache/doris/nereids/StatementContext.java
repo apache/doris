@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -29,10 +30,11 @@ import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
@@ -41,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.Statistics;
 
@@ -60,7 +63,6 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -118,19 +120,15 @@ public class StatementContext implements Closeable {
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
 
+    // generate for next id for prepared statement's placeholders, which is connection level
+    private final IdGenerator<PlaceholderId> placeHolderIdGenerator = PlaceholderId.createGenerator();
+    // relation id to placeholders for prepared statement, ordered by placeholder id
+    private final Map<PlaceholderId, Expression> idToPlaceholderRealExpr = new TreeMap<>();
+
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
-    // Root Slot -> Paths -> Sub-column Slots
-    private final Map<Slot, Map<List<String>, SlotReference>> subColumnSlotRefMap
-            = Maps.newHashMap();
-
-    // Map from rewritten slot to original expr
-    private final Map<Slot, Expression> subColumnOriginalExprMap = Maps.newHashMap();
-
-    // Map from original expr to rewritten slot
-    private final Map<Expression, Slot> originalExprToRewrittenSubColumn = Maps.newHashMap();
 
     // Map slot to its relation, currently used in SlotReference to find its original
     // Relation for example LogicalOlapScan
@@ -140,6 +138,9 @@ public class StatementContext implements Closeable {
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
+
+    // placeholder params for prepared statement
+    private List<Placeholder> placeholders;
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
@@ -153,6 +154,14 @@ public class StatementContext implements Closeable {
     // Maybe return null, which means the id according statistics should calc normally rather than getting
     // form this map
     private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
+
+    // Indicates the query is short-circuited in both plan and execution phase, typically
+    // for high speed/concurrency point queries
+    private boolean isShortCircuitQuery;
+
+    private ShortCircuitQueryContext shortCircuitQueryContext;
+
+    private FormatOptions formatOptions = FormatOptions.getDefault();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -225,60 +234,28 @@ public class StatementContext implements Closeable {
         }
     }
 
+    public boolean isShortCircuitQuery() {
+        return isShortCircuitQuery;
+    }
+
+    public void setShortCircuitQuery(boolean shortCircuitQuery) {
+        isShortCircuitQuery = shortCircuitQuery;
+    }
+
+    public ShortCircuitQueryContext getShortCircuitQueryContext() {
+        return shortCircuitQueryContext;
+    }
+
+    public void setShortCircuitQueryContext(ShortCircuitQueryContext shortCircuitQueryContext) {
+        this.shortCircuitQueryContext = shortCircuitQueryContext;
+    }
+
     public Optional<SqlCacheContext> getSqlCacheContext() {
         return Optional.ofNullable(sqlCacheContext);
     }
 
-    public Set<SlotReference> getAllPathsSlots() {
-        Set<SlotReference> allSlotReferences = Sets.newHashSet();
-        for (Map<List<String>, SlotReference> slotReferenceMap : subColumnSlotRefMap.values()) {
-            allSlotReferences.addAll(slotReferenceMap.values());
-        }
-        return allSlotReferences;
-    }
-
-    public Expression getOriginalExpr(SlotReference rewriteSlot) {
-        return subColumnOriginalExprMap.getOrDefault(rewriteSlot, null);
-    }
-
-    public Slot getRewrittenSlotRefByOriginalExpr(Expression originalExpr) {
-        return originalExprToRewrittenSubColumn.getOrDefault(originalExpr, null);
-    }
-
-    /**
-     * Add a slot ref attached with paths in context to avoid duplicated slot
-     */
-    public void addPathSlotRef(Slot root, List<String> paths, SlotReference slotRef, Expression originalExpr) {
-        subColumnSlotRefMap.computeIfAbsent(root, k -> Maps.newTreeMap((lst1, lst2) -> {
-            Iterator<String> it1 = lst1.iterator();
-            Iterator<String> it2 = lst2.iterator();
-            while (it1.hasNext() && it2.hasNext()) {
-                int result = it1.next().compareTo(it2.next());
-                if (result != 0) {
-                    return result;
-                }
-            }
-            return Integer.compare(lst1.size(), lst2.size());
-        }));
-        subColumnSlotRefMap.get(root).put(paths, slotRef);
-        subColumnOriginalExprMap.put(slotRef, originalExpr);
-        originalExprToRewrittenSubColumn.put(originalExpr, slotRef);
-    }
-
-    public SlotReference getPathSlot(Slot root, List<String> paths) {
-        Map<List<String>, SlotReference> pathsSlotsMap = subColumnSlotRefMap.getOrDefault(root, null);
-        if (pathsSlotsMap == null) {
-            return null;
-        }
-        return pathsSlotsMap.getOrDefault(paths, null);
-    }
-
     public void addSlotToRelation(Slot slot, Relation relation) {
         slotToRelation.put(slot, relation);
-    }
-
-    public Relation getRelationBySlot(Slot slot) {
-        return slotToRelation.getOrDefault(slot, null);
     }
 
     public boolean isDpHyp() {
@@ -365,6 +342,14 @@ public class StatementContext implements Closeable {
 
     public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
         return consumerIdToFilters;
+    }
+
+    public PlaceholderId getNextPlaceholderId() {
+        return placeHolderIdGenerator.getNextId();
+    }
+
+    public Map<PlaceholderId, Expression> getIdToPlaceholderRealExpr() {
+        return idToPlaceholderRealExpr;
     }
 
     public Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
@@ -485,6 +470,22 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         releasePlannerResources();
+    }
+
+    public List<Placeholder> getPlaceholders() {
+        return placeholders;
+    }
+
+    public void setPlaceholders(List<Placeholder> placeholders) {
+        this.placeholders = placeholders;
+    }
+
+    public void setFormatOptions(FormatOptions options) {
+        this.formatOptions = options;
+    }
+
+    public FormatOptions getFormatOptions() {
+        return formatOptions;
     }
 
     private static class CloseableResource implements Closeable {

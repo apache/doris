@@ -30,7 +30,7 @@ std::string JDBCScanLocalState::name_suffix() const {
 Status JDBCScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     auto& p = _parent->cast<JDBCScanOperatorX>();
     std::unique_ptr<vectorized::NewJdbcScanner> scanner = vectorized::NewJdbcScanner::create_unique(
-            state(), this, p._limit_per_scanner, p._tuple_id, p._query_string, p._table_type,
+            state(), this, p._limit, p._tuple_id, p._query_string, p._table_type,
             _scanner_profile.get());
     RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
     scanners->push_back(std::move(scanner));

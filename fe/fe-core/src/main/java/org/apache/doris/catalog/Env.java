@@ -178,10 +178,12 @@ import org.apache.doris.load.sync.SyncChecker;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
-import org.apache.doris.master.PartitionInMemoryInfoCollector;
+import org.apache.doris.master.PartitionInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
@@ -233,6 +235,7 @@ import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.FEOpExecutor;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.QueryCancelWorker;
@@ -309,6 +312,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
@@ -370,7 +374,7 @@ public class Env {
     private PublishVersionDaemon publishVersionDaemon;
     private DeleteHandler deleteHandler;
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
-    private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
+    private PartitionInfoCollector partitionInfoCollector;
     private CooldownConfHandler cooldownConfHandler;
     private ExternalMetaIdMgr externalMetaIdMgr;
     private MetastoreEventsProcessor metastoreEventsProcessor;
@@ -665,7 +669,7 @@ public class Env {
         this.publishVersionDaemon = new PublishVersionDaemon();
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
-        this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
+        this.partitionInfoCollector = new PartitionInfoCollector();
         if (Config.enable_storage_policy) {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
@@ -1546,6 +1550,11 @@ public class Env {
                                 SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
                     }
                 }
+                if (journalVersion <= FeMetaVersion.VERSION_129) {
+                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                            SessionVariable.ENABLE_MATERIALIZED_VIEW_REWRITE,
+                            "true");
+                }
             }
 
             getPolicyMgr().createDefaultStoragePolicy();
@@ -1691,7 +1700,7 @@ public class Env {
         // start daemon thread to update db used data quota for db txn manager periodically
         dbUsedDataQuotaInfoCollector.start();
         // start daemon thread to update global partition in memory information periodically
-        partitionInMemoryInfoCollector.start();
+        partitionInfoCollector.start();
         if (Config.enable_storage_policy) {
             cooldownConfHandler.start();
         }
@@ -3174,6 +3183,292 @@ public class Env {
                 hidePassword, false, specificVersion, false, true);
     }
 
+    public static String getMTMVDdl(MTMV mtmv) {
+        StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
+        sb.append(mtmv.getName());
+        addMTMVCols(mtmv, sb);
+        sb.append("\n");
+        sb.append(mtmv.getRefreshInfo());
+        addMTMVKeyInfo(mtmv, sb);
+        addTableComment(mtmv, sb);
+        addMTMVPartitionInfo(mtmv, sb);
+        DistributionInfo distributionInfo = mtmv.getDefaultDistributionInfo();
+        sb.append("\n").append(distributionInfo.toSql());
+        // properties
+        sb.append("\nPROPERTIES (\n");
+        addOlapTablePropertyInfo(mtmv, sb, false, false, null);
+        addMTMVPropertyInfo(mtmv, sb);
+        sb.append("\n)");
+        sb.append("\nAS ");
+        sb.append(mtmv.getQuerySql());
+        return sb.toString();
+    }
+
+    private static void addMTMVKeyInfo(MTMV mtmv, StringBuilder sb) {
+        if (!mtmv.isDuplicateWithoutKey()) {
+            String keySql = mtmv.getKeysType().toSql();
+            sb.append("\n").append(keySql).append("(");
+            List<String> keysColumnNames = Lists.newArrayList();
+            for (Column column : mtmv.getBaseSchema()) {
+                if (column.isKey()) {
+                    keysColumnNames.add("`" + column.getName() + "`");
+                }
+            }
+            sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
+        }
+    }
+
+    private static void addMTMVPartitionInfo(MTMV mtmv, StringBuilder sb) {
+        MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return;
+        }
+        sb.append("\n").append("PARTITION BY (");
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+            sb.append("`" + mvPartitionInfo.getPartitionCol() + "`");
+        } else {
+            sb.append(mvPartitionInfo.getExpr().toSql());
+        }
+        sb.append(")");
+    }
+
+    private static void addMTMVCols(MTMV mtmv, StringBuilder sb) {
+        sb.append("\n(");
+        List<Column> columns = mtmv.getBaseSchema();
+        for (int i = 0; i < columns.size(); i++) {
+            if (i != 0) {
+                sb.append(",");
+            }
+            Column column = columns.get(i);
+            sb.append(column.getName());
+            if (!StringUtils.isEmpty(column.getComment())) {
+                sb.append(" comment '");
+                sb.append(column.getComment());
+                sb.append("'");
+            }
+        }
+        sb.append(")");
+    }
+
+    private static void addMTMVPropertyInfo(MTMV mtmv, StringBuilder sb) {
+        Map<String, String> mvProperties = mtmv.getMvProperties();
+        for (Entry<String, String> entry : mvProperties.entrySet()) {
+            sb.append(",\n\"").append(entry.getKey()).append("\" = \"");
+            sb.append(entry.getValue()).append("\"");
+        }
+    }
+
+    private static void addOlapTablePropertyInfo(OlapTable olapTable, StringBuilder sb, boolean separatePartition,
+            boolean getDdlForSync, List<Long> partitionId) {
+        // replicationNum
+        ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
+        sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
+        sb.append(replicaAlloc.toCreateStmt()).append("\"");
+
+        // min load replica num
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM).append("\" = \"");
+        sb.append(olapTable.getMinLoadReplicaNum()).append("\"");
+
+        // bloom filter
+        Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
+        if (bfColumnNames != null) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BF_COLUMNS).append("\" = \"");
+            sb.append(Joiner.on(", ").join(olapTable.getCopiedBfColumns())).append("\"");
+        }
+
+        if (separatePartition) {
+            // version info
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VERSION_INFO).append("\" = \"");
+            Partition partition = null;
+            if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
+                partition = olapTable.getPartition(olapTable.getName());
+            } else {
+                Preconditions.checkState(partitionId.size() == 1);
+                partition = olapTable.getPartition(partitionId.get(0));
+            }
+            sb.append(partition.getVisibleVersion()).append("\"");
+        }
+
+        // mark this table is being synced
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED).append("\" = \"");
+        sb.append(String.valueOf(olapTable.isBeingSynced() || getDdlForSync)).append("\"");
+        // mark this table if it is a auto bucket table
+        if (getDdlForSync && olapTable.isAutoBucket()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET).append("\" = \"");
+            sb.append("true").append("\"");
+        }
+
+        // colocateTable
+        String colocateTable = olapTable.getColocateGroup();
+        if (colocateTable != null) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
+            sb.append(colocateTable).append("\"");
+        }
+
+        // dynamic partition
+        if (olapTable.dynamicPartitionExists()) {
+            sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
+        }
+
+        // only display z-order sort info
+        if (olapTable.isZOrderSort()) {
+            sb.append(olapTable.getDataSortInfo().toSql());
+        }
+
+        // in memory
+        if (olapTable.isInMemory()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
+            sb.append(olapTable.isInMemory()).append("\"");
+        }
+
+        // storage medium
+        if (olapTable.getStorageMedium() != null) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM).append("\" = \"");
+            sb.append(olapTable.getStorageMedium().name().toLowerCase());
+            sb.append("\"");
+        }
+
+        // storage type
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
+        sb.append(olapTable.getStorageFormat()).append("\"");
+
+        // inverted index storage type
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
+        sb.append(olapTable.getInvertedIndexStorageFormat()).append("\"");
+
+        // compression type
+        if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
+            sb.append(olapTable.getCompressionType()).append("\"");
+        }
+
+        // estimate_partition_size
+        if (!olapTable.getEstimatePartitionSize().equals("")) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE).append("\" = \"");
+            sb.append(olapTable.getEstimatePartitionSize()).append("\"");
+        }
+
+        // unique key table with merge on write, always print this property for unique table
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+            sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
+            sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
+        }
+
+        // show lightSchemaChange only when it is set true
+        if (olapTable.getEnableLightSchemaChange()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
+            sb.append(olapTable.getEnableLightSchemaChange()).append("\"");
+        }
+
+        // storage policy
+        if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
+            sb.append(olapTable.getStoragePolicy()).append("\"");
+        }
+
+        // sequence type
+        if (olapTable.hasSequenceCol()) {
+            if (olapTable.getSequenceMapCol() != null) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL).append("\" = \"");
+                sb.append(olapTable.getSequenceMapCol()).append("\"");
+            } else {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
+                sb.append(olapTable.getSequenceType().toString()).append("\"");
+            }
+        }
+
+        // store row column
+        if (olapTable.storeRowColumn()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
+            sb.append(olapTable.storeRowColumn()).append("\"");
+        }
+
+        // skip inverted index on load
+        if (olapTable.skipWriteIndexOnLoad()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
+            sb.append(olapTable.skipWriteIndexOnLoad()).append("\"");
+        }
+
+        // compaction policy
+        if (olapTable.getCompactionPolicy() != null && !olapTable.getCompactionPolicy().equals("")
+                && !olapTable.getCompactionPolicy().equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY).append("\" = \"");
+            sb.append(olapTable.getCompactionPolicy()).append("\"");
+        }
+
+        // time series compaction goal size
+        if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+            sb.append(",\n\"").append(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
+            sb.append(olapTable.getTimeSeriesCompactionGoalSizeMbytes()).append("\"");
+        }
+
+        // time series compaction file count threshold
+        if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+            sb.append(",\n\"").append(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
+            sb.append(olapTable.getTimeSeriesCompactionFileCountThreshold()).append("\"");
+        }
+
+        // time series compaction time threshold
+        if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+            sb.append(",\n\"").append(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
+            sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
+        }
+
+        // time series compaction empty rowsets threshold
+        if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+            sb.append(",\n\"").append(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD).append("\" = \"");
+            sb.append(olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold()).append("\"");
+        }
+
+        // time series compaction level threshold
+        if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+            sb.append(",\n\"").append(PropertyAnalyzer
+                    .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
+            sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
+        }
+
+        // disable auto compaction
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
+        sb.append(olapTable.disableAutoCompaction()).append("\"");
+
+        // binlog
+        if (Config.enable_feature_binlog) {
+            BinlogConfig binlogConfig = olapTable.getBinlogConfig();
+            binlogConfig.appendToShowCreateTable(sb);
+        }
+
+        // enable single replica compaction
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).append("\" = \"");
+        sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
+
+        // group commit interval ms
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
+        sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
+
+        // group commit data bytes
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
+        sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
+
+        // enable duplicate without keys by default
+        if (olapTable.isDuplicateWithoutKey()) {
+            sb.append(",\n\"")
+                    .append(PropertyAnalyzer.PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT)
+                    .append("\" = \"");
+            sb.append(olapTable.isDuplicateWithoutKey()).append("\"");
+        }
+    }
+
     /**
      * Get table ddl stmt.
      *
@@ -3349,215 +3644,7 @@ public class Env {
 
             // properties
             sb.append("\nPROPERTIES (\n");
-
-            // replicationNum
-            ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
-            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
-            sb.append(replicaAlloc.toCreateStmt()).append("\"");
-
-            // min load replica num
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM).append("\" = \"");
-            sb.append(olapTable.getMinLoadReplicaNum()).append("\"");
-
-            // bloom filter
-            Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
-            if (bfColumnNames != null) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BF_COLUMNS).append("\" = \"");
-                sb.append(Joiner.on(", ").join(olapTable.getCopiedBfColumns())).append("\"");
-            }
-
-            if (separatePartition) {
-                // version info
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VERSION_INFO).append("\" = \"");
-                Partition partition = null;
-                if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
-                    partition = olapTable.getPartition(olapTable.getName());
-                } else {
-                    Preconditions.checkState(partitionId.size() == 1);
-                    partition = olapTable.getPartition(partitionId.get(0));
-                }
-                sb.append(partition.getVisibleVersion()).append("\"");
-            }
-
-            // mark this table is being synced
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED).append("\" = \"");
-            sb.append(String.valueOf(olapTable.isBeingSynced() || getDdlForSync)).append("\"");
-            // mark this table if it is a auto bucket table
-            if (getDdlForSync && olapTable.isAutoBucket()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET).append("\" = \"");
-                sb.append("true").append("\"");
-            }
-
-            // colocateTable
-            String colocateTable = olapTable.getColocateGroup();
-            if (colocateTable != null) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
-                sb.append(colocateTable).append("\"");
-            }
-
-            // dynamic partition
-            if (olapTable.dynamicPartitionExists()) {
-                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
-            }
-
-            // only display z-order sort info
-            if (olapTable.isZOrderSort()) {
-                sb.append(olapTable.getDataSortInfo().toSql());
-            }
-
-            // in memory
-            if (olapTable.isInMemory()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
-                sb.append(olapTable.isInMemory()).append("\"");
-            }
-
-            // storage medium
-            if (olapTable.getStorageMedium() != null) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM).append("\" = \"");
-                sb.append(olapTable.getStorageMedium().name().toLowerCase());
-                sb.append("\"");
-            }
-
-            // storage type
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
-            sb.append(olapTable.getStorageFormat()).append("\"");
-
-            // inverted index storage type
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
-            sb.append(olapTable.getInvertedIndexStorageFormat()).append("\"");
-
-            // compression type
-            if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
-                sb.append(olapTable.getCompressionType()).append("\"");
-            }
-
-            // estimate_partition_size
-            if (!olapTable.getEstimatePartitionSize().equals("")) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE).append("\" = \"");
-                sb.append(olapTable.getEstimatePartitionSize()).append("\"");
-            }
-
-            // unique key table with merge on write, always print this property for unique table
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
-                sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
-                sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
-            }
-
-            // show lightSchemaChange only when it is set true
-            if (olapTable.getEnableLightSchemaChange()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
-                sb.append(olapTable.getEnableLightSchemaChange()).append("\"");
-            }
-
-            // storage policy
-            if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
-                sb.append(olapTable.getStoragePolicy()).append("\"");
-            }
-
-            // sequence type
-            if (olapTable.hasSequenceCol()) {
-                if (olapTable.getSequenceMapCol() != null) {
-                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
-                            + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL).append("\" = \"");
-                    sb.append(olapTable.getSequenceMapCol()).append("\"");
-                } else {
-                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
-                            + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
-                    sb.append(olapTable.getSequenceType().toString()).append("\"");
-                }
-            }
-
-            // store row column
-            if (olapTable.storeRowColumn()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
-                sb.append(olapTable.storeRowColumn()).append("\"");
-            }
-
-            // skip inverted index on load
-            if (olapTable.skipWriteIndexOnLoad()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
-                sb.append(olapTable.skipWriteIndexOnLoad()).append("\"");
-            }
-
-            // compaction policy
-            if (olapTable.getCompactionPolicy() != null && !olapTable.getCompactionPolicy().equals("")
-                    && !olapTable.getCompactionPolicy().equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY).append("\" = \"");
-                sb.append(olapTable.getCompactionPolicy()).append("\"");
-            }
-
-            // time series compaction goal size
-            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
-                sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
-                sb.append(olapTable.getTimeSeriesCompactionGoalSizeMbytes()).append("\"");
-            }
-
-            // time series compaction file count threshold
-            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
-                sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
-                sb.append(olapTable.getTimeSeriesCompactionFileCountThreshold()).append("\"");
-            }
-
-            // time series compaction time threshold
-            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
-                sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
-                sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
-            }
-
-            // time series compaction empty rowsets threshold
-            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
-                sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD).append("\" = \"");
-                sb.append(olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold()).append("\"");
-            }
-
-            // time series compaction level threshold
-            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
-                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
-                sb.append(",\n\"").append(PropertyAnalyzer
-                                    .PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD).append("\" = \"");
-                sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
-            }
-
-            // disable auto compaction
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
-            sb.append(olapTable.disableAutoCompaction()).append("\"");
-
-            // binlog
-            if (Config.enable_feature_binlog) {
-                BinlogConfig binlogConfig = olapTable.getBinlogConfig();
-                binlogConfig.appendToShowCreateTable(sb);
-            }
-
-            // enable single replica compaction
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).append("\" = \"");
-            sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
-
-            // group commit interval ms
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
-            sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
-
-            // group commit data bytes
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
-            sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
-
-            // enable duplicate without keys by default
-            if (olapTable.isDuplicateWithoutKey()) {
-                sb.append(",\n\"")
-                        .append(PropertyAnalyzer.PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT)
-                        .append("\" = \"");
-                sb.append(olapTable.isDuplicateWithoutKey()).append("\"");
-            }
-
+            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync, partitionId);
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -5313,6 +5400,7 @@ public class Env {
                 saveImage(dumpFile, journalId);
             } catch (IOException e) {
                 LOG.error("failed to dump image to {}", dumpFilePath, e);
+                return null;
             }
         } finally {
             // unlock all
@@ -5388,7 +5476,7 @@ public class Env {
         globalFunctionMgr.replayDropFunction(functionSearchDesc);
     }
 
-    public void setConfig(AdminSetConfigStmt stmt) throws DdlException {
+    public void setConfig(AdminSetConfigStmt stmt) throws Exception {
         Map<String, String> configs = stmt.getConfigs();
         Preconditions.checkState(configs.size() == 1);
 
@@ -5397,6 +5485,22 @@ public class Env {
                 ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
             } catch (ConfigException e) {
                 throw new DdlException(e.getMessage());
+            }
+        }
+
+        if (stmt.isApplyToAll()) {
+            for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
+                if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
+                    continue;
+                }
+
+                TNetworkAddress feAddr = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
+                FEOpExecutor executor = new FEOpExecutor(feAddr, stmt.getLocalSetStmt(), ConnectContext.get(), false);
+                executor.execute();
+                if (executor.getStatusCode() != TStatusCode.OK.getValue()) {
+                    throw new DdlException(String.format("failed to apply to fe %s:%s, error message: %s",
+                            fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
+                }
             }
         }
     }
@@ -5921,6 +6025,10 @@ public class Env {
 
     public static boolean isTableNamesCaseInsensitive() {
         return GlobalVariable.lowerCaseTableNames == 2;
+    }
+
+    public static boolean isTableNamesCaseSensitive() {
+        return GlobalVariable.lowerCaseTableNames == 0;
     }
 
     private static void getTableMeta(OlapTable olapTable, TGetMetaDBMeta dbMeta) {

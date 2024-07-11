@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -607,9 +608,6 @@ public class StructInfo {
                 checkContext.setContainsTopAggregate(true);
                 checkContext.plusTopAggregateNum();
             }
-            if (aggregate.getSourceRepeat().isPresent()) {
-                return false;
-            }
             return visit(aggregate, checkContext);
         }
 
@@ -627,7 +625,8 @@ public class StructInfo {
                     || plan instanceof Join
                     || plan instanceof LogicalSort
                     || plan instanceof LogicalAggregate
-                    || plan instanceof GroupPlan) {
+                    || plan instanceof GroupPlan
+                    || plan instanceof LogicalRepeat) {
                 return doVisit(plan, checkContext);
             }
             return false;
@@ -660,7 +659,8 @@ public class StructInfo {
             if (plan instanceof Filter
                     || plan instanceof Project
                     || plan instanceof CatalogRelation
-                    || plan instanceof GroupPlan) {
+                    || plan instanceof GroupPlan
+                    || plan instanceof LogicalRepeat) {
                 return doVisit(plan, checkContext);
             }
             return false;

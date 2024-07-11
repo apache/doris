@@ -475,6 +475,15 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
             }
 
+            DBUG_EXECUTE_IF("SnapshotManager.create_snapshot_files.allow_inc_clone", {
+                auto tablet_id = dp->param("tablet_id", 0);
+                auto is_full_clone = dp->param("is_full_clone", false);
+                if (ref_tablet->tablet_id() == tablet_id && is_full_clone) {
+                    LOG(INFO) << "injected full clone for tabelt: " << tablet_id;
+                    res = Status::InternalError("fault injection error");
+                }
+            });
+
             // be would definitely set it as true no matter has missed version or not, we could
             // just check whether the missed version is empty or not
             int64_t version = -1;

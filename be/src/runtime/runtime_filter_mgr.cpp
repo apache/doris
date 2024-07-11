@@ -346,23 +346,23 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
         for (auto addr : cnt_val->source_addrs) {
             std::shared_ptr<PBackendService_Stub> stub(
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr));
-            AsyncRPCContext<PSyncFilterSizeRequest, PSyncFilterSizeResponse> ctx;
-            auto* pquery_id = ctx.request.mutable_query_id();
+
+            auto closure = AutoReleaseClosure<PSyncFilterSizeRequest,
+                                              DummyBrpcCallback<PSyncFilterSizeResponse>>::
+                    create_unique(std::make_shared<PSyncFilterSizeRequest>(),
+                                  DummyBrpcCallback<PSyncFilterSizeResponse>::create_shared());
+
+            auto* pquery_id = closure->request_->mutable_query_id();
             pquery_id->set_hi(_state->query_id.hi());
             pquery_id->set_lo(_state->query_id.lo());
+            closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
 
-            ctx.request.set_filter_id(filter_id);
-            ctx.request.set_filter_size(cnt_val->global_size);
+            closure->request_->set_filter_id(filter_id);
+            closure->request_->set_filter_size(cnt_val->global_size);
 
-            stub->sync_filter_size(&ctx.cntl, &ctx.request, &ctx.response, brpc::DoNothing());
-            brpc::Join(ctx.cntl.call_id());
-            if (auto status = Status::create(ctx.response.status()); !status) {
-                return status;
-            }
-            if (ctx.cntl.Failed()) {
-                ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(ctx.cntl.remote_side());
-                return Status::InternalError(ctx.cntl.ErrorText());
-            }
+            stub->sync_filter_size(closure->cntl_.get(), closure->request_.get(),
+                                   closure->response_.get(), brpc::DoNothing());
+            closure.release();
         }
     }
     return Status::OK();
@@ -476,6 +476,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 if (has_attachment) {
                     rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
                 }
+                rpc_contexts[cur]->cntl.set_timeout_ms(std::min(3600, _state->execution_timeout) *
+                                                       1000);
                 rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
                 // set fragment-id
                 for (size_t fid = 0; fid < targets[cur].target_fragment_instance_ids.size();
@@ -549,6 +551,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 if (has_attachment) {
                     rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);
                 }
+                rpc_contexts[cur]->cntl.set_timeout_ms(std::min(3600, _state->execution_timeout) *
+                                                       1000);
                 rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
                 // set fragment_instance_id
                 auto request_fragment_instance_id =

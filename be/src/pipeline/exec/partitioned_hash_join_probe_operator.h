@@ -61,6 +61,8 @@ public:
     void update_build_profile(RuntimeProfile* child_profile);
     void update_probe_profile(RuntimeProfile* child_profile);
 
+    std::string debug_string(int indentation_level = 0) const override;
+
     friend class PartitionedHashJoinProbeOperatorX;
 
 private:

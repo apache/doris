@@ -1591,6 +1591,14 @@ public class FunctionCallExpr extends Expr {
                         argTypes[i] = assignmentCompatibleType;
                     }
                 }
+            } else if (assignmentCompatibleType.isDateV2OrDateTimeV2()) {
+                for (int i = 0; i < childTypes.length; i++) {
+                    if (assignmentCompatibleType.isDateV2OrDateTimeV2()
+                            && !childTypes[i].equals(assignmentCompatibleType)) {
+                        uncheckedCastChild(assignmentCompatibleType, i);
+                        argTypes[i] = assignmentCompatibleType;
+                    }
+                }
             }
             fn = getBuiltinFunction(fnName.getFunction(), argTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);

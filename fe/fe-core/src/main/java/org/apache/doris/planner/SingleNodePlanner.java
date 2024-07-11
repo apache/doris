@@ -96,6 +96,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -1962,7 +1963,14 @@ public class SingleNodePlanner {
                 TableIf table = tblRef.getDesc().getTable();
                 switch (((HMSExternalTable) table).getDlaType()) {
                     case HUDI:
-                        scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        // Old planner does not support hudi incremental read,
+                        // so just pass Optional.empty() to HudiScanNode
+                        if (tblRef.getScanParams() != null) {
+                            throw new UserException("Hudi incremental read is not supported, "
+                                    + "please set enable_nereids_planner = true to enable new optimizer");
+                        }
+                        scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true,
+                                Optional.empty(), Optional.empty());
                         break;
                     case ICEBERG:
                         scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);

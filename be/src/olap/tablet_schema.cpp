@@ -550,7 +550,8 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         CHECK(column.children_columns_size() == 1) << "ARRAY type has more than 1 children types.";
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-        CHECK(column.children_columns_size() == 2) << "MAP type has more than 2 children types.";
+        DCHECK(column.children_columns_size() == 2) << "MAP type has more than 2 children types.";
+        LOG(WARNING) << "MAP type has more than 2 children types.";
     }
     for (size_t i = 0; i < column.children_columns_size(); i++) {
         TabletColumn child_column;
@@ -615,7 +616,8 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
         CHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
-        CHECK(_sub_columns.size() == 2) << "MAP type has more than 2 children types.";
+        DCHECK(_sub_columns.size() == 2) << "MAP type has more than 2 children types.";
+        LOG(WARNING) << "MAP type has more than 2 children types.";
     }
 
     for (size_t i = 0; i < _sub_columns.size(); i++) {
@@ -798,6 +800,11 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     }
     index->set_index_type(_index_type);
     for (const auto& kv : _properties) {
+        DBUG_EXECUTE_IF("tablet_schema.to_schema_pb", {
+            if (kv.first == INVERTED_INDEX_PARSER_LOWERCASE_KEY) {
+                continue;
+            }
+        })
         (*index->mutable_properties())[kv.first] = kv.second;
     }
     index->set_index_suffix_name(_escaped_index_suffix_path);
@@ -805,9 +812,11 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     DBUG_EXECUTE_IF("tablet_schema.to_schema_pb", { return; })
 
     // lowercase by default
-    if (!_properties.contains(INVERTED_INDEX_PARSER_LOWERCASE_KEY)) {
-        (*index->mutable_properties())[INVERTED_INDEX_PARSER_LOWERCASE_KEY] =
-                INVERTED_INDEX_PARSER_TRUE;
+    if (!_properties.empty()) {
+        if (!_properties.contains(INVERTED_INDEX_PARSER_LOWERCASE_KEY)) {
+            (*index->mutable_properties())[INVERTED_INDEX_PARSER_LOWERCASE_KEY] =
+                    INVERTED_INDEX_PARSER_TRUE;
+        }
     }
 }
 
@@ -1268,6 +1277,10 @@ const TabletColumn& TabletSchema::column(const std::string& field_name) const {
 std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
         const TabletColumn& col) const {
     std::vector<const TabletIndex*> indexes_for_column;
+    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabltetIndex.
+    if (!segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
+        return indexes_for_column;
+    }
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path =
             col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
@@ -1339,7 +1352,13 @@ const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
     return nullptr;
 }
 
-const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col) const {
+const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col,
+                                                    bool check_valid) const {
+    // With check_valid set to true by default
+    // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
+    if (check_valid && !segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
+        return nullptr;
+    }
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();

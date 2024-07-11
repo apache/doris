@@ -256,7 +256,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
     s3_conf.prefix = "prefix";
     std::string resource_id = "10000";
     std::shared_ptr<io::S3FileSystem> fs;
-    ASSERT_TRUE(io::S3FileSystem::create(std::move(s3_conf), resource_id, &fs).ok());
+    ASSERT_TRUE(io::S3FileSystem::create(std::move(s3_conf), resource_id, nullptr, &fs).ok());
     // failed to head object
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");

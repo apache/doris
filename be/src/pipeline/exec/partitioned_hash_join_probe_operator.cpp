@@ -437,6 +437,15 @@ Status PartitionedHashJoinProbeLocalState::recovery_build_blocks_from_disk(Runti
     return st;
 }
 
+std::string PartitionedHashJoinProbeLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}, short_circuit_for_probe: {}",
+                   PipelineXSpillLocalState<PartitionedHashJoinSharedState>::debug_string(
+                           indentation_level),
+                   _shared_state ? std::to_string(_shared_state->short_circuit_for_probe) : "NULL");
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status PartitionedHashJoinProbeLocalState::recovery_probe_blocks_from_disk(RuntimeState* state,
                                                                            uint32_t partition_index,
                                                                            bool& has_data) {
@@ -872,6 +881,16 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     const auto need_to_spill = local_state._shared_state->need_to_spill;
+#ifndef NDEBUG
+    Defer eos_check_defer([&] {
+        if (*eos) {
+            LOG(INFO) << "query: " << print_id(state->query_id())
+                      << ", hash probe node: " << node_id() << ", task: " << state->task_id()
+                      << ", eos with child eos: " << local_state._child_eos
+                      << ", need spill: " << need_to_spill;
+        }
+    });
+#endif
     if (need_more_input_data(state)) {
         if (need_to_spill && _should_revoke_memory(state)) {
             bool wait_for_io = false;

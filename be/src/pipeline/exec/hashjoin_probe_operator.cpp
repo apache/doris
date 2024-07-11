@@ -373,6 +373,15 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
     return Status::OK();
 }
 
+std::string HashJoinProbeLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}, short_circuit_for_probe: {}",
+                   JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>::debug_string(
+                           indentation_level),
+                   _shared_state ? std::to_string(_shared_state->short_circuit_for_probe) : "NULL");
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
                                                      vectorized::ColumnUInt8::MutablePtr& null_map,
                                                      vectorized::ColumnRawPtrs& raw_ptrs,
@@ -531,13 +540,17 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.left, ctx));
         _probe_expr_ctxs.push_back(ctx);
         bool null_aware = eq_join_conjunct.__isset.opcode &&
-                          eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+                          eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL &&
+                          (eq_join_conjunct.right.nodes[0].is_nullable ||
+                           eq_join_conjunct.left.nodes[0].is_nullable);
         probe_not_ignore_null[conjuncts_index] =
                 null_aware ||
                 (_probe_expr_ctxs.back()->root()->is_nullable() && probe_dispose_null);
         conjuncts_index++;
         const bool is_null_safe_equal = eq_join_conjunct.__isset.opcode &&
-                                        eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+                                        (eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL) &&
+                                        (eq_join_conjunct.right.nodes[0].is_nullable ||
+                                         eq_join_conjunct.left.nodes[0].is_nullable);
 
         /// If it's right anti join,
         /// we should convert the probe to nullable if the build side is nullable.

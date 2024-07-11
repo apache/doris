@@ -163,8 +163,12 @@ private:
                 type->to_string(container_variant, i, write_buffer);
                 write_buffer.commit();
             }
-            CHECK(variant.empty());
-            variant.create_root(std::make_shared<vectorized::DataTypeString>(), std::move(col_to));
+            if (variant.empty()) {
+                variant.create_root(std::make_shared<vectorized::DataTypeString>(),
+                                    std::move(col_to));
+            } else {
+                variant.get_root()->insert_range_from(*col_to, 0, col_to->size());
+            }
         } else {
             // TODO select v:b -> v.b / v.b.c but v.d maybe in v
             // copy container variant to dst variant, todo avoid copy

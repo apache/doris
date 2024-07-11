@@ -81,6 +81,11 @@ struct TResourceLimit {
     1: optional i32 cpu_limit
 }
 
+enum TSerdeDialect {
+  DORIS,
+  PRESTO
+}
+
 // Query options that correspond to PaloService.PaloQueryOptions,
 // with their respective defaults
 struct TQueryOptions {
@@ -288,6 +293,7 @@ struct TQueryOptions {
 
   // max rows of each sub-queue in DataQueue.
   106: optional i64 data_queue_max_blocks = 0;
+  108: optional i64 local_exchange_free_blocks_limit;
   
   110: optional bool enable_parquet_filter_by_min_max = true
   111: optional bool enable_orc_filter_by_min_max = true
@@ -296,6 +302,9 @@ struct TQueryOptions {
 
   113: optional bool enable_force_spill = false;
   
+  117: optional bool read_csv_empty_line_as_null = false;
+
+  118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
@@ -521,6 +530,8 @@ struct TExecPlanFragmentParams {
 
   31: optional bool is_nereids = true;
 
+  32: optional Types.TNetworkAddress current_connect_fe
+
   // For cloud
   1000: optional bool is_mow_table;
 }
@@ -744,6 +755,7 @@ struct TPipelineFragmentParams {
   39: optional map<i32, i32> shuffle_idx_to_instance_idx
   40: optional bool is_nereids = true;
   41: optional i64 wal_id
+  43: optional Types.TNetworkAddress current_connect_fe
 
   // For cloud
   1000: optional bool is_mow_table;
