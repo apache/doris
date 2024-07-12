@@ -57,9 +57,9 @@ under the License.
 
 ---
 
-<br><br/>
+<br />
 
-<div><img src="https://doris.apache.org/assets/images/home-banner-7f193353c932af31634eca0a028f03ed.png" align="right" height="240"/></div>
+<div><img src="https://cdn.selectdb.com/static/Group_44_aebf626eba.png" align="right" height="240"/></div>
 
 
 
@@ -78,7 +78,10 @@ All this makes Apache Doris an ideal tool for scenarios including report analysi
 
 As shown in the figure below, after various data integration and processing, the data sources are usually stored in the real-time data warehouse Apache Doris and the offline data lake or data warehouse (in Apache Hive, Apache Iceberg or Apache Hudi).
 
+<br />
 <img src="https://cdn.selectdb.com/static/What_is_Apache_Doris_3_a61692c2ce.png">
+
+<br />
 
 Apache Doris is widely used in the following scenarios:
 
@@ -106,7 +109,9 @@ The overall architecture of Apache Doris is shown in the following figure. The D
 
 Both types of processes are horizontally scalable, and a single cluster can support up to hundreds of machines and tens of petabytes of storage capacity. And these two types of processes guarantee high availability of services and high reliability of data through consistency protocols. This highly integrated architecture design greatly reduces the operation and maintenance cost of a distributed system.
 
+<br />
 ![The overall architecture of Apache Doris](https://cdn.selectdb.com/static/What_is_Apache_Doris_adb26397e2.png)
+<br />
 
 In terms of interfaces, Apache Doris adopts MySQL protocol, supports standard SQL, and is highly compatible with MySQL dialect. Users can access Doris through various client tools and it supports seamless connection with BI tools.
 
@@ -136,11 +141,15 @@ Doris also supports strongly consistent materialized views. Materialized views a
 
 Doris adopts the MPP model in its query engine to realize parallel execution between and within nodes. It also supports distributed shuffle join for multiple large tables so as to handle complex queries.
 
+<br />
 ![Query Engine](https://cdn.selectdb.com/static/What_is_Apache_Doris_1_c6f5ba2af9.png)
+<br />
 
 The Doris query engine is vectorized, with all memory structures laid out in a columnar format. This can largely reduce virtual function calls, improve cache hit rates, and make efficient use of SIMD instructions. Doris delivers a 5–10 times higher performance in wide table aggregation scenarios than non-vectorized engines.
 
+<br />
 ![Doris query engine](https://cdn.selectdb.com/static/What_is_Apache_Doris_2_29cf58cc6b.png)
+<br />
 
 Apache Doris uses Adaptive Query Execution technology to dynamically adjust the execution plan based on runtime statistics. For example, it can generate runtime filter, push it to the probe side, and automatically penetrate it to the Scan node at the bottom, which drastically reduces the amount of data in the probe and increases join performance. The runtime filter in Doris supports In/Min/Max/Bloom filter.
 
