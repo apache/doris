@@ -17,11 +17,15 @@
 
 package org.apache.doris.catalog.authorizer.ranger.doris;
 
-import org.apache.ranger.plugin.service.RangerBasePlugin;
+import org.apache.doris.catalog.authorizer.ranger.RangerPlugin;
+import org.apache.doris.catalog.authorizer.ranger.cache.RangerRefreshCacheService;
 
-public class RangerDorisPlugin extends RangerBasePlugin {
+public class RangerDorisPlugin extends RangerPlugin {
     public RangerDorisPlugin(String serviceName) {
-        super(serviceName, null, null);
-        super.init();
+        this(serviceName, null);
+    }
+
+    public RangerDorisPlugin(String serviceName, RangerRefreshCacheService rangerRefreshCacheService) {
+        super(serviceName, rangerRefreshCacheService);
     }
 }

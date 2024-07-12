@@ -15,16 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer.ranger.hive;
+package org.apache.doris.catalog.authorizer.ranger.cache;
 
-import org.apache.doris.mysql.privilege.AccessControllerFactory;
-import org.apache.doris.mysql.privilege.CatalogAccessController;
+import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 
-import java.util.Map;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-public class RangerHiveAccessControllerFactory implements AccessControllerFactory {
+public class RangerRefreshCacheServiceImpl implements RangerRefreshCacheService {
+    private static final Logger LOG = LogManager.getLogger(RangerDorisAccessController.class);
+
+    private RangerCache cache;
+
+    public RangerRefreshCacheServiceImpl(RangerCache cache) {
+        this.cache = cache;
+    }
+
     @Override
-    public CatalogAccessController createAccessController(Map<String, String> prop) {
-        return new RangerCacheHiveAccessController(prop);
+    public void afterRefreshPoliciesAndTags() {
+        LOG.info("afterRefreshPoliciesAndTags");
+        cache.invalidateDatamaskCache();
+        cache.invalidateRowFilterCache();
     }
 }

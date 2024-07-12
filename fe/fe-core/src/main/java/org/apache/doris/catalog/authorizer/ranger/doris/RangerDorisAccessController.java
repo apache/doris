@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
+import org.apache.doris.catalog.authorizer.ranger.cache.RangerRefreshCacheService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -50,7 +51,11 @@ public class RangerDorisAccessController extends RangerAccessController {
     // private RangerHiveAuditHandler auditHandler;
 
     public RangerDorisAccessController(String serviceName) {
-        dorisPlugin = new RangerDorisPlugin(serviceName);
+        this(serviceName, null);
+    }
+
+    public RangerDorisAccessController(String serviceName, RangerRefreshCacheService rangerRefreshCacheService) {
+        dorisPlugin = new RangerDorisPlugin(serviceName, rangerRefreshCacheService);
         // auditHandler = new RangerHiveAuditHandler(dorisPlugin.getConfig());
         // start a timed log flusher
         // logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);

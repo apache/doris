@@ -15,17 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer.ranger.hive;
+package org.apache.doris.catalog.authorizer.ranger;
 
-import org.apache.doris.catalog.authorizer.ranger.RangerPlugin;
 import org.apache.doris.catalog.authorizer.ranger.cache.RangerRefreshCacheService;
 
-public class RangerHivePlugin extends RangerPlugin {
-    public RangerHivePlugin(String serviceName) {
-        super(serviceName, null);
+import org.apache.ranger.plugin.service.RangerBasePlugin;
+
+public class RangerPlugin extends RangerBasePlugin {
+    private RangerRefreshCacheService rangerRefreshCacheService;
+
+    public RangerPlugin(String serviceName, RangerRefreshCacheService rangerRefreshCacheService) {
+        super(serviceName, null, null);
+        super.init();
+        this.rangerRefreshCacheService = rangerRefreshCacheService;
     }
 
-    public RangerHivePlugin(String serviceName, RangerRefreshCacheService rangerRefreshCacheService) {
-        super(serviceName, rangerRefreshCacheService);
+    @Override
+    public void refreshPoliciesAndTags() {
+        long oldVersion = super.getPoliciesVersion();
+        super.refreshPoliciesAndTags();
+        long newVersion = super.getPoliciesVersion();
+        if (oldVersion != newVersion && rangerRefreshCacheService != null) {
+            rangerRefreshCacheService.afterRefreshPoliciesAndTags();
+        }
     }
 }

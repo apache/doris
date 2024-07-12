@@ -15,16 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer.ranger.hive;
+package org.apache.doris.catalog.authorizer.ranger.cache;
 
-import org.apache.doris.mysql.privilege.AccessControllerFactory;
-import org.apache.doris.mysql.privilege.CatalogAccessController;
+public interface RangerRefreshCacheService {
 
-import java.util.Map;
-
-public class RangerHiveAccessControllerFactory implements AccessControllerFactory {
-    @Override
-    public CatalogAccessController createAccessController(Map<String, String> prop) {
-        return new RangerCacheHiveAccessController(prop);
-    }
+    void afterRefreshPoliciesAndTags();
 }
