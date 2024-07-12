@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -162,6 +163,8 @@ public class StatementContext implements Closeable {
     private boolean isShortCircuitQuery;
 
     private ShortCircuitQueryContext shortCircuitQueryContext;
+
+    private FormatOptions formatOptions = FormatOptions.getDefault();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -478,6 +481,14 @@ public class StatementContext implements Closeable {
 
     public void setPlaceholders(List<Placeholder> placeholders) {
         this.placeholders = placeholders;
+    }
+
+    public void setFormatOptions(FormatOptions options) {
+        this.formatOptions = options;
+    }
+
+    public FormatOptions getFormatOptions() {
+        return formatOptions;
     }
 
     private static class CloseableResource implements Closeable {

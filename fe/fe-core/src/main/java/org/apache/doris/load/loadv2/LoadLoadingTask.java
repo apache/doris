@@ -76,6 +76,7 @@ public class LoadLoadingTask extends LoadTask {
     private final boolean useNewLoadScanNode;
 
     private final boolean enableMemTableOnSinkNode;
+    private final int batchSize;
 
     private LoadingTaskPlanner planner;
 
@@ -90,7 +91,7 @@ public class LoadLoadingTask extends LoadTask {
             long txnId, LoadTaskCallback callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
-            boolean useNewLoadScanNode, Priority priority, boolean enableMemTableOnSinkNode) {
+            boolean useNewLoadScanNode, Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
         super(callback, TaskType.LOADING, priority);
         this.db = db;
         this.table = table;
@@ -112,6 +113,7 @@ public class LoadLoadingTask extends LoadTask {
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.useNewLoadScanNode = useNewLoadScanNode;
         this.enableMemTableOnSinkNode = enableMemTableOnSinkNode;
+        this.batchSize = batchSize;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
@@ -163,6 +165,7 @@ public class LoadLoadingTask extends LoadTask {
          */
         curCoordinator.setLoadMemLimit(execMemLimit);
         curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);
+        curCoordinator.setBatchSize(batchSize);
 
         long leftTimeMs = getLeftTimeMs();
         if (leftTimeMs <= 0) {

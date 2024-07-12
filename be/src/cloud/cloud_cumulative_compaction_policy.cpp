@@ -25,7 +25,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "olap/olap_common.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"

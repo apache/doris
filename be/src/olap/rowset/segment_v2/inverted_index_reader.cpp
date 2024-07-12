@@ -314,7 +314,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             query_info.terms.emplace_back(search_str);
         } else {
             if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-                RETURN_IF_ERROR(PhraseQuery::parser_slop(search_str, query_info));
+                PhraseQuery::parser_slop(search_str, query_info);
             }
 
             InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
@@ -355,6 +355,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             std::string str_tokens = join(query_info.terms, " ");
             if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
                 str_tokens += " " + std::to_string(query_info.slop);
+                str_tokens += " " + std::to_string(query_info.ordered);
             }
             cache_key = {index_file_key, column_name, query_type, str_tokens};
         }
@@ -450,8 +451,18 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
 
     const auto* search_query = reinterpret_cast<const StringRef*>(query_value);
     auto act_len = strnlen(search_query->data, search_query->size);
+
+    // If the written value exceeds ignore_above, it will be written as null.
+    // The queried value exceeds ignore_above means the written value cannot be found.
+    // The query needs to be downgraded to read from the segment file.
+    if (int ignore_above =
+                std::stoi(get_parser_ignore_above_value_from_properties(_index_meta.properties()));
+        act_len > ignore_above) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "query value is too long, evaluate skipped.");
+    }
+
     std::string search_str(search_query->data, act_len);
-    // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
     std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
