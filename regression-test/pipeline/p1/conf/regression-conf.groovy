@@ -76,7 +76,7 @@ s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 s3Provider = "COS"
 
-max_failure_num=0
+max_failure_num=-1
 
 externalEnvIp="127.0.0.1"
 
