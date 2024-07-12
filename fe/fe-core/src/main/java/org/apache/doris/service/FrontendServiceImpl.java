@@ -3264,8 +3264,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (target.partitions != null) {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
         }
-        analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId,
-                target.columns, tableStats, partitionNames);
+        if (target.isTruncate) {
+            analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
+                    target.tableId, tableStats, partitionNames);
+        } else {
+            analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId,
+                    target.columns, tableStats, partitionNames);
+        }
         return new TStatus(TStatusCode.OK);
     }
 
