@@ -124,6 +124,9 @@ Status IndexBuilder::update_inverted_index_info() {
                     }
                 }
                 _dropped_inverted_indexes.push_back(*index_meta);
+                // ATTN: DO NOT REMOVE INDEX AFTER OUTPUT_ROWSET_WRITER CREATED.
+                // remove dropped index_meta from output rowset tablet schema
+                output_rs_tablet_schema->remove_index(index_meta->index_id());
             }
         } else {
             // base on input rowset's tablet_schema to build
@@ -297,10 +300,6 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                                                     inverted_index_size);
             output_rowset_meta->set_index_disk_size(output_rowset_meta->index_disk_size() +
                                                     inverted_index_size);
-        }
-        // remove dropped index_meta from output rowset tablet schema
-        for (auto& index_meta : _dropped_inverted_indexes) {
-            output_rs_tablet_schema->remove_index(index_meta.index_id());
         }
         LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
         return Status::OK();
