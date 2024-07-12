@@ -35,11 +35,11 @@ import java.util.concurrent.ExecutionException;
 
 public class RangerCache {
     private static final Logger LOG = LoggerFactory.getLogger(RangerCache.class);
-    public static final long MAX_EXTERNAL_SCHEMA_CACHE_NUM = 1000;
+    public static final long MAX_CACHE_NUM = 1000;
 
     private CatalogAccessController controller;
     private LoadingCache<DatamaskCacheKey, Optional<DataMaskPolicy>> datamaskCache = CacheBuilder.newBuilder()
-            .maximumSize(MAX_EXTERNAL_SCHEMA_CACHE_NUM)
+            .maximumSize(MAX_CACHE_NUM)
             .build(new CacheLoader<DatamaskCacheKey, Optional<DataMaskPolicy>>() {
                 @Override
                 public Optional<DataMaskPolicy> load(DatamaskCacheKey key) {
@@ -48,7 +48,7 @@ public class RangerCache {
             });
 
     private LoadingCache<RowFilterCacheKey, List<? extends RowFilterPolicy>> rowFilterCache = CacheBuilder.newBuilder()
-            .maximumSize(MAX_EXTERNAL_SCHEMA_CACHE_NUM)
+            .maximumSize(MAX_CACHE_NUM)
             .build(new CacheLoader<RowFilterCacheKey, List<? extends RowFilterPolicy>>() {
                 @Override
                 public List<? extends RowFilterPolicy> load(RowFilterCacheKey key) {
