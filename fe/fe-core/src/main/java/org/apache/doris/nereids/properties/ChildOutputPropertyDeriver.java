@@ -279,7 +279,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 case RIGHT_SEMI_JOIN:
                 case RIGHT_ANTI_JOIN:
                 case RIGHT_OUTER_JOIN:
-                    if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
+                    if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
                         return new PhysicalProperties(rightHashSpec);
                     } else {
                         // retain left shuffle type, since coordinator use left most node to schedule fragment
