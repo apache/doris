@@ -31,12 +31,12 @@ suite ("test_modify_reorder_column") {
             k1 TINYINT,
             colnotnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NOT NULL,
             colnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NULL,
-            v VARIANT
+            v int
         ) duplicate key(k1) distributed by hash(k1) buckets 1
         properties( "replication_num" = "1" ); """
 
     sql """insert into ${tbl1} values
-        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, '{"a" : 1, "b" : [1], "c": 1.0}') """
+        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, 10) """
     qt_dup """ select * from ${tbl1} order by k1;"""
 
     sql "ALTER TABLE ${tbl1} MODIFY COLUMN colnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NULL AFTER v"
@@ -55,7 +55,7 @@ suite ("test_modify_reorder_column") {
     }
 
     sql """insert into ${tbl1} values
-        (2, {"E", "F", 30, 484.3234}, '{"a" : 1, "b" : [1], "c": 1.0}', null) """
+        (2, {"E", "F", 30, 484.3234}, 20, null) """
     qt_dup """ select * from ${tbl1} order by k1;"""
     sql """DROP TABLE IF EXISTS ${tbl1} FORCE; """
 
@@ -67,12 +67,12 @@ suite ("test_modify_reorder_column") {
             k1 TINYINT,
             colnotnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NOT NULL,
             colnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NULL,
-            v VARIANT
+            v int
         ) unique key(k1) distributed by hash(k1) buckets 1
         properties( "replication_num" = "1", "enable_unique_key_merge_on_write" = "false" ); """
 
     sql """insert into ${tbl2} values
-        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, '{"a" : 1, "b" : [1], "c": 1.0}') """
+        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, 10) """
     qt_mor """ select * from ${tbl2} order by k1;"""
 
     sql "ALTER TABLE ${tbl2} MODIFY COLUMN colnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NULL AFTER v"
@@ -90,7 +90,7 @@ suite ("test_modify_reorder_column") {
     }
 
     sql """insert into ${tbl2} values
-        (2, {"E", "F", 30, 484.3234}, '{"a" : 1, "b" : [1], "c": 1.0}', null) """
+        (2, {"E", "F", 30, 484.3234}, 20, null) """
     qt_mor """ select * from ${tbl2} order by k1;"""
     sql """DROP TABLE IF EXISTS ${tbl2} FORCE; """
 
@@ -102,12 +102,12 @@ suite ("test_modify_reorder_column") {
             k1 TINYINT,
             colnotnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NOT NULL,
             colnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NULL,
-            v VARIANT
+            v int
         ) unique key(k1) distributed by hash(k1) buckets 1
         properties( "replication_num" = "1", "enable_unique_key_merge_on_write" = "false" ); """
 
     sql """insert into ${tbl3} values
-        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, '{"a" : 1, "b" : [1], "c": 1.0}') """
+        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, 10) """
     qt_mow """ select * from ${tbl3} order by k1;"""
 
     sql "ALTER TABLE ${tbl3} MODIFY COLUMN colnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NULL AFTER v"
@@ -125,7 +125,7 @@ suite ("test_modify_reorder_column") {
     }
 
     sql """insert into ${tbl3} values
-        (2, {"E", "F", 30, 484.3234}, '{"a" : 1, "b" : [1], "c": 1.0}', null) """
+        (2, {"E", "F", 30, 484.3234}, 20, null) """
     qt_mow """ select * from ${tbl3} order by k1;"""
     sql """DROP TABLE IF EXISTS ${tbl3} FORCE; """
 }
