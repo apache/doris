@@ -224,13 +224,12 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 }
             } else {
                 // Now only query stmt will pull results from BE.
+                final ByteString handle;
                 if (connectContext.getSessionVariable().enableParallelResultSink()) {
-                    final ByteString handle = ByteString.copyFromUtf8(
-                            DebugUtil.printId(connectContext.queryId()) + ":" + query);
+                    handle = ByteString.copyFromUtf8(DebugUtil.printId(connectContext.queryId()) + ":" + query);
                 } else {
                     // only one instance
-                    final ByteString handle = ByteString.copyFromUtf8(
-                            DebugUtil.printId(connectContext.getFinstId()) + ":" + query);
+                    handle = ByteString.copyFromUtf8(DebugUtil.printId(connectContext.getFinstId()) + ":" + query);
                 }
                 Schema schema = flightSQLConnectProcessor.fetchArrowFlightSchema(5000);
                 if (schema == null) {
