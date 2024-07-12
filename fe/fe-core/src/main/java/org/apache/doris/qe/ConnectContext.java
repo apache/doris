@@ -152,10 +152,10 @@ public class ConnectContext {
     // This context is used for SSL connection between server and mysql client.
     private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
 
-    private long userQueryTimeout;
-
-    public void setUserQueryTimeout(long queryTimeout) {
-        this.userQueryTimeout = queryTimeout;
+    public void setUserQueryTimeout(int queryTimeout) {
+        if (queryTimeout > 0) {
+            sessionVariable.setQueryTimeoutS(queryTimeout);
+        }
     }
 
     private StatementContext statementContext;
@@ -571,23 +571,11 @@ public class ConnectContext {
                 killConnection = true;
             }
         } else {
-            if (userQueryTimeout > 0) {
-                // user set query_timeout property
-                if (delta > userQueryTimeout * 1000) {
-                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                            getMysqlChannel().getRemoteHostPortString(), userQueryTimeout);
+            if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
+                LOG.warn("kill query timeout, remote: {}, query timeout: {}",
+                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
 
-                    killFlag = true;
-                }
-            } else {
-                // default use session query_timeout
-                if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
-                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                            getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
-
-                    // Only kill
-                    killFlag = true;
-                }
+                killFlag = true;
             }
         }
         if (killFlag) {
