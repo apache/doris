@@ -11,7 +11,7 @@ UNIQUE KEY (`s_suppkey`)
 CLUSTER BY (`s_nation`, `s_region`, `s_city`, `s_name`)
 DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 10
 PROPERTIES (
-"enable_light_delete" = "true",
+"enable_mow_light_delete" = "true",
 "function_column.sequence_type" = 'int',
 "compression"="zstd",
 "replication_num" = "1",

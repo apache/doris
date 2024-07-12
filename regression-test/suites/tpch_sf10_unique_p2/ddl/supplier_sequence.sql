@@ -11,7 +11,7 @@ UNIQUE KEY(`s_suppkey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 12
 PROPERTIES (
-    "enable_light_delete" = "true",
+    "enable_mow_light_delete" = "true",
     "function_column.sequence_type" = 'int',
     "replication_num" = "3"
 )

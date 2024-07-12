@@ -13,7 +13,7 @@ UNIQUE KEY(`p_partkey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 24
 PROPERTIES (
-    "enable_light_delete" = "true",
+    "enable_mow_light_delete" = "true",
     "function_column.sequence_type" = 'int',
     "replication_num" = "3"
 )

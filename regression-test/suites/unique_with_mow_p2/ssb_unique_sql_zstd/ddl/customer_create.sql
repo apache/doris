@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS `customer` (
 UNIQUE KEY (`c_custkey`)
 DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 10
 PROPERTIES (
-"enable_light_delete" = "true",
+"enable_mow_light_delete" = "true",
 "compression"="zstd",
 "replication_num" = "1",
 "enable_unique_key_merge_on_write" = "true"
