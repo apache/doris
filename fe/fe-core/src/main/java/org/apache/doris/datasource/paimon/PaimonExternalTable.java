@@ -121,9 +121,9 @@ public class PaimonExternalTable extends ExternalTable {
                         tsScale = 6;
                     }
                 } else if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
-                    scale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
-                    if (scale > 6) {
-                        scale = 6;
+                    tsScale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
                     }
                 }
                 return ScalarType.createDatetimeV2Type(tsScale);
