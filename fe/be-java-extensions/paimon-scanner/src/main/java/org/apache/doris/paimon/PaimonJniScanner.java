@@ -100,7 +100,7 @@ public class PaimonJniScanner extends JniScanner {
             initTable();
             initReader();
             resetDatetimeV2Precision();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.warn("Failed to open paimon_scanner: " + e.getMessage(), e);
             throw e;
         }
