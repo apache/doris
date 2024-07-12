@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include <azure/storage/blobs/blob_options.hpp>
+#include <chrono>
 #include <unordered_set>
 
 #include "common/config.h"
@@ -138,7 +139,10 @@ void test_s3_accessor(S3Accessor& accessor) {
     ret = accessor.list_all(&iter);
     ASSERT_EQ(ret, 0);
     list_files.clear();
+    using namespace std::chrono;
+    int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+        EXPECT_LT(now - file->mtime_s, 60);
         list_files.insert(std::move(file->path));
     }
     ASSERT_EQ(list_files.size(), files.size());
