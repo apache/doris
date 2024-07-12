@@ -39,6 +39,7 @@ struct InvertedIndexQueryInfo {
     std::wstring field_name;
     std::vector<std::string> terms;
     int32_t slop = 0;
+    bool ordered = false;
 };
 
 class Query {
