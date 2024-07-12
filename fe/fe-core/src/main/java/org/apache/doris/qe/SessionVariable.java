@@ -610,6 +610,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
 
+    public static final String ENABLE_ES_PARALLEL_SCROLL = "enable_es_parallel_scroll";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -2020,6 +2022,24 @@ public class SessionVariable implements Serializable, Writable {
                     + " whether to set the length of such a column to MAX, which is 65533. The default is true."
     })
     public boolean useMaxLengthOfVarcharInCtas = true;
+
+    /**
+     * When enabling shard scroll, FE will plan scan ranges by shards of ES indices.
+     * Otherwise, FE will plan a single query to ES.
+     */
+    @VariableMgr.VarAttr(name = ENABLE_ES_PARALLEL_SCROLL, description = {
+        "ES catalog 是否开启 shard 级别并发的 scroll 请求，默认开启。",
+        "Whether to enable shard-level parallel scroll requests for ES catalog, enabled by default."
+    })
+    public boolean enableESParallelScroll = true;
+
+    public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
+        this.enableESParallelScroll = enableESParallelScroll;
+    }
+
+    public boolean isEnableESParallelScroll() {
+        return enableESParallelScroll;
+    }
 
     public boolean isEnableJoinSpill() {
         return enableJoinSpill;
