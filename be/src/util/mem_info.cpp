@@ -39,23 +39,12 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
-#include "runtime/exec_env.h"
-#include "runtime/memory/cache_manager.h"
-#include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/workload_group/workload_group.h"
-#include "runtime/workload_group/workload_group_manager.h"
 #include "util/cgroup_util.h"
-#include "util/defer_op.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
-#include "util/runtime_profile.h"
-#include "util/stopwatch.hpp"
 #include "util/string_parser.hpp"
 
 namespace doris {
-
-bvar::PassiveStatus<int64_t> g_sys_mem_avail(
-        "meminfo_sys_mem_avail", [](void*) { return MemInfo::sys_mem_available(); }, nullptr);
 
 bool MemInfo::_s_initialized = false;
 std::atomic<int64_t> MemInfo::_s_physical_mem = std::numeric_limits<int64_t>::max();
@@ -63,9 +52,7 @@ std::atomic<int64_t> MemInfo::_s_mem_limit = std::numeric_limits<int64_t>::max()
 std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::max();
 
 std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
-std::string MemInfo::_s_allocator_cache_mem_str = "";
 std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
-std::atomic<int64_t> MemInfo::refresh_interval_memory_growth = 0;
 
 int64_t MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
 int64_t MemInfo::_s_cgroup_mem_usage = std::numeric_limits<int64_t>::min();
@@ -99,9 +86,6 @@ void MemInfo::refresh_allocator_mem() {
                                          get_je_metrics("stats.metadata") +
                                          get_je_all_arena_metrics("pdirty") * get_page_size(),
                                  std::memory_order_relaxed);
-    _s_allocator_cache_mem_str = PrettyPrinter::print(
-            static_cast<uint64_t>(_s_allocator_cache_mem.load(std::memory_order_relaxed)),
-            TUnit::BYTES);
     _s_virtual_memory_used.store(get_je_metrics("stats.mapped"), std::memory_order_relaxed);
 #else
     _s_allocator_cache_mem.store(get_tc_metrics("tcmalloc.pageheap_free_bytes") +
@@ -109,263 +93,10 @@ void MemInfo::refresh_allocator_mem() {
                                          get_tc_metrics("tcmalloc.transfer_cache_free_bytes") +
                                          get_tc_metrics("tcmalloc.thread_cache_free_bytes"),
                                  std::memory_order_relaxed);
-    _s_allocator_cache_mem_str = PrettyPrinter::print(
-            static_cast<uint64_t>(_s_allocator_cache_mem.load(std::memory_order_relaxed)),
-            TUnit::BYTES);
     _s_virtual_memory_used.store(get_tc_metrics("generic.total_physical_bytes") +
                                          get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"),
                                  std::memory_order_relaxed);
 #endif
-}
-
-// step1: free all cache
-// step2: free resource groups memory that enable overcommit
-// step3: free global top overcommit query, if enable query memory overcommit
-// TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
-bool MemInfo::process_minor_gc() {
-    MonotonicStopWatch watch;
-    watch.start();
-    int64_t freed_mem = 0;
-    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
-    std::string pre_vm_rss = PerfCounters::get_vm_rss_str();
-    std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
-
-    Defer defer {[&]() {
-        MemInfo::notify_je_purge_dirty_pages();
-        std::stringstream ss;
-        profile->pretty_print(&ss);
-        LOG(INFO) << fmt::format(
-                "[MemoryGC] end minor GC, free memory {}. cost(us): {}, details: {}",
-                PrettyPrinter::print(freed_mem, TUnit::BYTES), watch.elapsed_time() / 1000,
-                ss.str());
-    }};
-
-    freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
-    MemInfo::notify_je_purge_dirty_pages();
-    if (freed_mem > MemInfo::process_minor_gc_size()) {
-        return true;
-    }
-
-    if (config::enable_workload_group_memory_gc) {
-        RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
-        freed_mem += tg_enable_overcommit_group_gc(MemInfo::process_minor_gc_size() - freed_mem,
-                                                   tg_profile, true);
-        if (freed_mem > MemInfo::process_minor_gc_size()) {
-            return true;
-        }
-    }
-
-    if (config::enable_query_memory_overcommit) {
-        VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-                "[MemoryGC] before free top memory overcommit query in minor GC",
-                MemTrackerLimiter::Type::QUERY);
-        RuntimeProfile* toq_profile =
-                profile->create_child("FreeTopOvercommitMemoryQuery", true, true);
-        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
-                MemInfo::process_minor_gc_size() - freed_mem, pre_vm_rss, pre_sys_mem_available,
-                toq_profile);
-        if (freed_mem > MemInfo::process_minor_gc_size()) {
-            return true;
-        }
-    }
-    return false;
-}
-
-// step1: free all cache
-// step2: free resource groups memory that enable overcommit
-// step3: free global top memory query
-// step4: free top overcommit load, load retries are more expensive, So cancel at the end.
-// step5: free top memory load
-bool MemInfo::process_full_gc() {
-    MonotonicStopWatch watch;
-    watch.start();
-    int64_t freed_mem = 0;
-    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
-    std::string pre_vm_rss = PerfCounters::get_vm_rss_str();
-    std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
-
-    Defer defer {[&]() {
-        MemInfo::notify_je_purge_dirty_pages();
-        std::stringstream ss;
-        profile->pretty_print(&ss);
-        LOG(INFO) << fmt::format(
-                "[MemoryGC] end full GC, free Memory {}. cost(us): {}, details: {}",
-                PrettyPrinter::print(freed_mem, TUnit::BYTES), watch.elapsed_time() / 1000,
-                ss.str());
-    }};
-
-    freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
-    MemInfo::notify_je_purge_dirty_pages();
-    if (freed_mem > MemInfo::process_full_gc_size()) {
-        return true;
-    }
-
-    if (config::enable_workload_group_memory_gc) {
-        RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
-        freed_mem += tg_enable_overcommit_group_gc(MemInfo::process_full_gc_size() - freed_mem,
-                                                   tg_profile, false);
-        if (freed_mem > MemInfo::process_full_gc_size()) {
-            return true;
-        }
-    }
-
-    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-            "[MemoryGC] before free top memory query in full GC", MemTrackerLimiter::Type::QUERY);
-    RuntimeProfile* tmq_profile = profile->create_child("FreeTopMemoryQuery", true, true);
-    freed_mem += MemTrackerLimiter::free_top_memory_query(
-            MemInfo::process_full_gc_size() - freed_mem, pre_vm_rss, pre_sys_mem_available,
-            tmq_profile);
-    if (freed_mem > MemInfo::process_full_gc_size()) {
-        return true;
-    }
-
-    if (config::enable_query_memory_overcommit) {
-        VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-                "[MemoryGC] before free top memory overcommit load in full GC",
-                MemTrackerLimiter::Type::LOAD);
-        RuntimeProfile* tol_profile =
-                profile->create_child("FreeTopMemoryOvercommitLoad", true, true);
-        freed_mem += MemTrackerLimiter::free_top_overcommit_load(
-                MemInfo::process_full_gc_size() - freed_mem, pre_vm_rss, pre_sys_mem_available,
-                tol_profile);
-        if (freed_mem > MemInfo::process_full_gc_size()) {
-            return true;
-        }
-    }
-
-    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-            "[MemoryGC] before free top memory load in full GC", MemTrackerLimiter::Type::LOAD);
-    RuntimeProfile* tml_profile = profile->create_child("FreeTopMemoryLoad", true, true);
-    freed_mem +=
-            MemTrackerLimiter::free_top_memory_load(MemInfo::process_full_gc_size() - freed_mem,
-                                                    pre_vm_rss, pre_sys_mem_available, tml_profile);
-    return freed_mem > MemInfo::process_full_gc_size();
-}
-
-int64_t MemInfo::tg_disable_overcommit_group_gc() {
-    MonotonicStopWatch watch;
-    watch.start();
-    std::vector<WorkloadGroupPtr> task_groups;
-    std::unique_ptr<RuntimeProfile> tg_profile = std::make_unique<RuntimeProfile>("WorkloadGroup");
-    int64_t total_free_memory = 0;
-
-    ExecEnv::GetInstance()->workload_group_mgr()->get_related_workload_groups(
-            [](const WorkloadGroupPtr& workload_group) {
-                return workload_group->is_mem_limit_valid() &&
-                       !workload_group->enable_memory_overcommit();
-            },
-            &task_groups);
-    if (task_groups.empty()) {
-        return 0;
-    }
-
-    std::vector<WorkloadGroupPtr> task_groups_overcommit;
-    for (const auto& workload_group : task_groups) {
-        if (workload_group->memory_used() > workload_group->memory_limit()) {
-            task_groups_overcommit.push_back(workload_group);
-        }
-    }
-    if (task_groups_overcommit.empty()) {
-        return 0;
-    }
-
-    LOG(INFO) << fmt::format(
-            "[MemoryGC] start GC work load group that not enable overcommit, number of overcommit "
-            "group: {}, "
-            "if it exceeds the limit, try free size = (group used - group limit).",
-            task_groups_overcommit.size());
-
-    Defer defer {[&]() {
-        if (total_free_memory > 0) {
-            std::stringstream ss;
-            tg_profile->pretty_print(&ss);
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] end GC work load group that not enable overcommit, number of "
-                    "overcommit group: {}, free memory {}. cost(us): {}, details: {}",
-                    task_groups_overcommit.size(),
-                    PrettyPrinter::print(total_free_memory, TUnit::BYTES),
-                    watch.elapsed_time() / 1000, ss.str());
-        }
-    }};
-
-    for (const auto& workload_group : task_groups_overcommit) {
-        auto used = workload_group->memory_used();
-        total_free_memory += workload_group->gc_memory(used - workload_group->memory_limit(),
-                                                       tg_profile.get(), false);
-    }
-    return total_free_memory;
-}
-
-int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory, RuntimeProfile* profile,
-                                               bool is_minor_gc) {
-    MonotonicStopWatch watch;
-    watch.start();
-    std::vector<WorkloadGroupPtr> task_groups;
-    ExecEnv::GetInstance()->workload_group_mgr()->get_related_workload_groups(
-            [](const WorkloadGroupPtr& workload_group) {
-                return workload_group->is_mem_limit_valid() &&
-                       workload_group->enable_memory_overcommit();
-            },
-            &task_groups);
-    if (task_groups.empty()) {
-        return 0;
-    }
-
-    int64_t total_exceeded_memory = 0;
-    std::vector<int64_t> used_memorys;
-    std::vector<int64_t> exceeded_memorys;
-    for (const auto& workload_group : task_groups) {
-        int64_t used_memory = workload_group->memory_used();
-        int64_t exceeded = used_memory - workload_group->memory_limit();
-        int64_t exceeded_memory = exceeded > 0 ? exceeded : 0;
-        total_exceeded_memory += exceeded_memory;
-        used_memorys.emplace_back(used_memory);
-        exceeded_memorys.emplace_back(exceeded_memory);
-    }
-
-    int64_t total_free_memory = 0;
-    bool gc_all_exceeded = request_free_memory >= total_exceeded_memory;
-    std::string log_prefix = fmt::format(
-            "work load group that enable overcommit, number of group: {}, request_free_memory:{}, "
-            "total_exceeded_memory:{}",
-            task_groups.size(), request_free_memory, total_exceeded_memory);
-    if (gc_all_exceeded) {
-        LOG(INFO) << fmt::format(
-                "[MemoryGC] start GC {}, request more than exceeded, try free size = (group used - "
-                "group limit).",
-                log_prefix);
-    } else {
-        LOG(INFO) << fmt::format(
-                "[MemoryGC] start GC {}, request less than exceeded, try free size = ((group used "
-                "- group limit) / all group total_exceeded_memory) * request_free_memory.",
-                log_prefix);
-    }
-
-    Defer defer {[&]() {
-        if (total_free_memory > 0) {
-            std::stringstream ss;
-            profile->pretty_print(&ss);
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] end GC {}, free memory {}. cost(us): {}, details: {}", log_prefix,
-                    PrettyPrinter::print(total_free_memory, TUnit::BYTES),
-                    watch.elapsed_time() / 1000, ss.str());
-        }
-    }};
-
-    for (int i = 0; i < task_groups.size(); ++i) {
-        if (exceeded_memorys[i] == 0) {
-            continue;
-        }
-
-        // todo: GC according to resource group priority
-        auto tg_need_free_memory = int64_t(
-                gc_all_exceeded ? exceeded_memorys[i]
-                                : static_cast<double>(exceeded_memorys[i]) / total_exceeded_memory *
-                                          request_free_memory); // exceeded memory as a weight
-        auto workload_group = task_groups[i];
-        total_free_memory += workload_group->gc_memory(tg_need_free_memory, profile, is_minor_gc);
-    }
-    return total_free_memory;
 }
 
 #ifndef __APPLE__
@@ -546,13 +277,15 @@ void MemInfo::init() {
         getline(vminfo, line);
         boost::algorithm::trim(line);
         StringParser::ParseResult result;
-        int64_t mem_value = StringParser::string_to_int<int64_t>(line.data(), line.size(), &result);
+        auto mem_value = StringParser::string_to_int<int64_t>(line.data(), line.size(), &result);
 
         if (result == StringParser::PARSE_SUCCESS) {
             _s_vm_min_free_kbytes = mem_value * 1024L;
         }
     }
-    if (vminfo.is_open()) vminfo.close();
+    if (vminfo.is_open()) {
+        vminfo.close();
+    }
 
     // Redhat 4.x OS, `/proc/meminfo` has no `MemAvailable`.
     if (_mem_info_bytes.find("MemAvailable") != _mem_info_bytes.end()) {
@@ -576,7 +309,9 @@ void MemInfo::init() {
     std::string hugepage_enable;
     // If file not exist, getline returns an empty string.
     getline(sys_transparent_hugepage, hugepage_enable);
-    if (sys_transparent_hugepage.is_open()) sys_transparent_hugepage.close();
+    if (sys_transparent_hugepage.is_open()) {
+        sys_transparent_hugepage.close();
+    }
     if (hugepage_enable == "[always] madvise never") {
         std::cout << "[WARNING!] /sys/kernel/mm/transparent_hugepage/enabled: " << hugepage_enable
                   << ", Doris not recommend turning on THP, which may cause the BE process to use "
@@ -591,7 +326,9 @@ void MemInfo::init() {
     std::ifstream sys_vm("/proc/sys/vm/overcommit_memory", std::ios::in);
     std::string vm_overcommit;
     getline(sys_vm, vm_overcommit);
-    if (sys_vm.is_open()) sys_vm.close();
+    if (sys_vm.is_open()) {
+        sys_vm.close();
+    }
     if (!vm_overcommit.empty() && std::stoi(vm_overcommit) == 2) {
         std::cout << "[WARNING!] /proc/sys/vm/overcommit_memory: " << vm_overcommit
                   << ", expect is 1, memory limit check is handed over to Doris Allocator, "
@@ -632,12 +369,11 @@ void MemInfo::init() {
 
 std::string MemInfo::debug_string() {
     DCHECK(_s_initialized);
-    CGroupUtil util;
     std::stringstream stream;
     stream << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
            << std::endl;
     stream << "Memory Limt: " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES) << std::endl;
-    stream << "CGroup Info: " << util.debug_string() << std::endl;
+    stream << "CGroup Info: " << doris::CGroupUtil::debug_string() << std::endl;
     return stream.str();
 }
 

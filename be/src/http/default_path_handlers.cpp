@@ -40,6 +40,7 @@
 #include "gutil/strings/substitute.h"
 #include "http/action/tablets_info_action.h"
 #include "http/web_page_handler.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/easy_json.h"
@@ -155,6 +156,8 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
                                                    MemTrackerLimiter::Type::SCHEMA_CHANGE);
         } else if (iter->second == "other") {
             MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::OTHER);
+        } else if (iter->second == "reserved_memory") {
+            GlobalMemoryArbitrator::make_reserved_memory_snapshots(&snapshots);
         }
     } else {
         (*output) << "<h4>*Notice:</h4>\n";
