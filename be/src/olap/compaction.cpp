@@ -39,7 +39,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -149,6 +149,15 @@ void Compaction::init_profile(const std::string& label) {
     _merge_rowsets_latency_timer = ADD_TIMER(_profile, "merge_rowsets_latency");
 }
 
+int64_t Compaction::merge_way_num() {
+    int64_t way_num = 0;
+    for (auto&& rowset : _input_rowsets) {
+        way_num += rowset->rowset_meta()->get_merge_way_num();
+    }
+
+    return way_num;
+}
+
 Status Compaction::merge_input_rowsets() {
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
     input_rs_readers.reserve(_input_rowsets.size());
@@ -170,18 +179,22 @@ Status Compaction::merge_input_rowsets() {
         _stats.rowid_conversion = &_rowid_conversion;
     }
 
+    int64_t way_num = merge_way_num();
+
     Status res;
     {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         if (_is_vertical) {
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                                  input_rs_readers, _output_rs_writer.get(),
-                                                 get_avg_segment_rows(), &_stats);
+                                                 get_avg_segment_rows(), way_num, &_stats);
         } else {
             res = Merger::vmerge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                          input_rs_readers, _output_rs_writer.get(), &_stats);
         }
     }
+
+    _tablet->last_compaction_status = res;
 
     if (!res.ok()) {
         LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
@@ -729,9 +742,13 @@ Status Compaction::do_inverted_index_compaction() {
             status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
         }
     }
+
+    uint64_t inverted_index_file_size = 0;
     for (auto& inverted_index_file_writer : inverted_index_file_writers) {
         if (Status st = inverted_index_file_writer->close(); !st.ok()) {
             status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
+        } else {
+            inverted_index_file_size += inverted_index_file_writer->get_index_file_size();
         }
     }
     // check index compaction status. If status is not ok, we should return error and end this compaction round.
@@ -739,11 +756,22 @@ Status Compaction::do_inverted_index_compaction() {
         return status;
     }
 
+    // index compaction should update total disk size and index disk size
+    _output_rowset->rowset_meta()->set_data_disk_size(_output_rowset->data_disk_size() +
+                                                      inverted_index_file_size);
+    _output_rowset->rowset_meta()->set_total_disk_size(_output_rowset->data_disk_size() +
+                                                       inverted_index_file_size);
+    _output_rowset->rowset_meta()->set_index_disk_size(_output_rowset->index_disk_size() +
+                                                       inverted_index_file_size);
+
+    COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
+
     LOG(INFO) << "succeed to do index compaction"
               << ". tablet=" << _tablet->tablet_id() << ", input row number=" << _input_row_num
               << ", output row number=" << _output_rowset->num_rows()
               << ", input_rowset_size=" << _input_rowsets_size
               << ", output_rowset_size=" << _output_rowset->data_disk_size()
+              << ", inverted index file size=" << inverted_index_file_size
               << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
 
     return Status::OK();

@@ -41,15 +41,6 @@ class SipHash;
 
 namespace doris::vectorized {
 
-namespace ErrorCodes {
-extern const int NOT_IMPLEMENTED;
-extern const int BAD_ARGUMENTS;
-extern const int PARAMETER_OUT_OF_BOUND;
-extern const int SIZES_OF_COLUMNS_DOESNT_MATCH;
-extern const int LOGICAL_ERROR;
-extern const int TOO_LARGE_ARRAY_SIZE;
-} // namespace ErrorCodes
-
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
     const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());

@@ -164,7 +164,6 @@ private:
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_inverted_index_iterators();
-
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
@@ -389,6 +388,9 @@ private:
 
     bool _can_opt_topn_reads() const;
 
+    void _initialize_predicate_results();
+    bool _check_all_predicates_passed_inverted_index_for_column(ColumnId cid);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -498,6 +500,9 @@ private:
     std::unique_ptr<HierarchicalDataReader> _path_reader;
 
     std::vector<uint8_t> _ret_flags;
+
+    std::unordered_map<int, std::unordered_map<std::string, bool>>
+            _column_predicate_inverted_index_status;
 };
 
 } // namespace segment_v2

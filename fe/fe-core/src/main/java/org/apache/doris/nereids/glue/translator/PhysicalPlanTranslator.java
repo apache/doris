@@ -193,6 +193,7 @@ import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
@@ -294,7 +295,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 && context.getFirstAggregateInFragment(inputFragment) == child) {
             PhysicalHashAggregate<?> hashAggregate = (PhysicalHashAggregate<?>) child;
             if (hashAggregate.getAggPhase() == AggPhase.LOCAL
-                    && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER) {
+                    && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER
+                    && hashAggregate.getTopnPushInfo() == null) {
                 AggregationNode aggregationNode = (AggregationNode) inputFragment.getPlanRoot();
                 aggregationNode.setUseStreamingPreagg(hashAggregate.isMaybeUsingStream());
             }
@@ -430,8 +432,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // This statement is only used in the group_commit mode
         if (context.getConnectContext().isGroupCommit()) {
             sink = new GroupCommitBlockSink(olapTableSink.getTargetTable(), olapTuple,
-                olapTableSink.getTargetTable().getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
-                context.getSessionVariable().getGroupCommit(), 0);
+                    olapTableSink.getTargetTable().getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
+                    context.getSessionVariable().getGroupCommit(),
+                    ConnectContext.get().getSessionVariable().getEnableInsertStrict() ? 0 : 1);
         } else {
             sink = new OlapTableSink(
                 olapTableSink.getTargetTable(),
@@ -1058,6 +1061,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // local exchanger will be used.
             aggregationNode.setColocate(true);
         }
+        if (aggregate.getTopnPushInfo() != null) {
+            List<Expr> orderingExprs = Lists.newArrayList();
+            List<Boolean> ascOrders = Lists.newArrayList();
+            List<Boolean> nullsFirstParams = Lists.newArrayList();
+            aggregate.getTopnPushInfo().orderkeys.forEach(k -> {
+                orderingExprs.add(ExpressionTranslator.translate(k.getExpr(), context));
+                ascOrders.add(k.isAsc());
+                nullsFirstParams.add(k.isNullFirst());
+            });
+            SortInfo sortInfo = new SortInfo(orderingExprs, ascOrders, nullsFirstParams, outputTupleDesc);
+            aggregationNode.setSortByGroupKey(sortInfo);
+            if (aggregationNode.getLimit() == -1) {
+                aggregationNode.setLimit(aggregate.getTopnPushInfo().limit);
+            }
+        } else {
+            aggregationNode.setSortByGroupKey(null);
+        }
         setPlanRoot(inputPlanFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {
             aggregationNode.setCardinality((long) aggregate.getStats().getRowCount());
@@ -1091,6 +1111,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             default:
                 throw new AnalysisException("Unsupported storage layer aggregate: "
                         + storageLayerAggregate.getAggOp());
+        }
+
+        if (storageLayerAggregate.getRelation() instanceof PhysicalFileScan
+                && pushAggOp.equals(TPushAggOp.COUNT)
+                && !ConnectContext.get().getSessionVariable().isEnableCountPushDownForExternalTable()) {
+            pushAggOp = TPushAggOp.NONE;
         }
 
         context.setRelationPushAggOp(

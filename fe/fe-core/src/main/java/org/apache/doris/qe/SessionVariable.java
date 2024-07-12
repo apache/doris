@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
+import org.apache.doris.thrift.TSerdeDialect;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -127,6 +128,7 @@ public class SessionVariable implements Serializable, Writable {
     // mem limit can't smaller than bufferpool's default page size
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
+    public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
@@ -269,8 +271,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
-    public static final String ENABLE_BUCKET_SHUFFLE_DOWNGRADE = "enable_bucket_shuffle_downgrade";
-
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
@@ -319,6 +319,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
+    public static final String LEFT_SEMI_OR_ANTI_PROBE_FACTOR = "left_semi_or_anti_probe_factor";
     public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
 
     // percentage of EXEC_MEM_LIMIT
@@ -510,6 +511,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SQL_DIALECT = "sql_dialect";
 
+    public static final String SERDE_DIALECT = "serde_dialect";
+
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
 
     public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
@@ -595,6 +598,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
+
     public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
 
     public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
@@ -604,6 +609,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
 
     public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
+
+    public static final String ENABLE_ES_PARALLEL_SCROLL = "enable_es_parallel_scroll";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -618,6 +625,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
 
     public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
+
+    public static final String MAX_FETCH_REMOTE_TABLET_COUNT = "max_fetch_remote_schema_tablet_count";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -842,6 +851,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
     public int batchSize = 4064;
 
+    // 16352 + 16 + 16 = 16384
+    @VariableMgr.VarAttr(name = BROKER_LOAD_BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
+    public int brokerLoadBatchSize = 16352;
+
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
     public boolean disableStreamPreaggregations = false;
 
@@ -853,9 +866,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_DOWNGRADE, needForward = true)
-    public boolean enableBucketShuffleDownGrade = false;
 
     /**
      * explode function row count enlarge factor.
@@ -1038,7 +1048,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
-    public boolean enableFoldConstantByBe = true;
+    public boolean enableFoldConstantByBe = false;
     @VariableMgr.VarAttr(name = DEBUG_SKIP_FOLD_CONSTANT)
     public boolean debugSkipFoldConstant = false;
 
@@ -1238,7 +1248,7 @@ public class SessionVariable implements Serializable, Writable {
      * would be coming soon.
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true,
-            fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL)
+            fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     private boolean enableNereidsPlanner = true;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
@@ -1270,6 +1280,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
     private int rewriteOrToInPredicateThreshold = 2;
 
+    @VariableMgr.VarAttr(name = "push_topn_to_agg", fuzzy = false, needForward = true)
+    public boolean pushTopnToAgg = true;
+
     @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR, needForward = true)
     private double nereidsCboPenaltyFactor = 0.7;
 
@@ -1284,6 +1297,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
     private double broadcastRightTableScaleFactor = 0.0;
+
+    @VariableMgr.VarAttr(name = LEFT_SEMI_OR_ANTI_PROBE_FACTOR)
+    private double leftSemiOrAntiProbeFactor = 0.1;
 
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
     private double broadcastRowCountLimit = 30000000;
@@ -1672,15 +1688,21 @@ public class SessionVariable implements Serializable, Writable {
     public int invertedIndexMaxExpansions = 50;
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_SKIP_THRESHOLD,
-                description = {"在倒排索引中如果预估命中量占比总量超过百分比阈值，则跳过索引直接进行匹配。",
-                        "In the inverted index,"
-                        + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
-                        + " then skip the index and proceed directly to matching."})
+            description = {"在倒排索引中如果预估命中量占比总量超过百分比阈值，则跳过索引直接进行匹配。",
+                    "In the inverted index,"
+                            + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
+                            + " then skip the index and proceed directly to matching."})
     public int invertedIndexSkipThreshold = 50;
 
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
     public String sqlDialect = "doris";
+
+    @VariableMgr.VarAttr(name = SERDE_DIALECT, needForward = true, checker = "checkSerdeDialect",
+            description = {"返回给 MySQL 客户端时各数据类型的输出格式方言",
+                    "The output format dialect of each data type returned to the MySQL client."},
+            options = {"doris", "presto", "trino"})
+    public String serdeDialect = "doris";
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
@@ -1836,6 +1858,10 @@ public class SessionVariable implements Serializable, Writable {
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
+            description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
+    private boolean enableCountPushDownForExternalTable = true;
+
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
@@ -1922,6 +1948,9 @@ public class SessionVariable implements Serializable, Writable {
     // fetch remote schema rpc timeout
     @VariableMgr.VarAttr(name = FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS, fuzzy = true)
     public long fetchRemoteSchemaTimeoutSeconds = 120;
+    // max tablet count for fetch remote schema
+    @VariableMgr.VarAttr(name = MAX_FETCH_REMOTE_TABLET_COUNT, fuzzy = true)
+    public int maxFetchRemoteTabletCount = 512;
 
     @VariableMgr.VarAttr(
             name = ENABLE_JOIN_SPILL,
@@ -1993,6 +2022,24 @@ public class SessionVariable implements Serializable, Writable {
                     + " whether to set the length of such a column to MAX, which is 65533. The default is true."
     })
     public boolean useMaxLengthOfVarcharInCtas = true;
+
+    /**
+     * When enabling shard scroll, FE will plan scan ranges by shards of ES indices.
+     * Otherwise, FE will plan a single query to ES.
+     */
+    @VariableMgr.VarAttr(name = ENABLE_ES_PARALLEL_SCROLL, description = {
+        "ES catalog 是否开启 shard 级别并发的 scroll 请求，默认开启。",
+        "Whether to enable shard-level parallel scroll requests for ES catalog, enabled by default."
+    })
+    public boolean enableESParallelScroll = true;
+
+    public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
+        this.enableESParallelScroll = enableESParallelScroll;
+    }
+
+    public boolean isEnableESParallelScroll() {
+        return enableESParallelScroll;
+    }
 
     public boolean isEnableJoinSpill() {
         return enableJoinSpill;
@@ -2573,10 +2620,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableBucketShuffleJoin;
     }
 
-    public boolean isEnableBucketShuffleDownGrade() {
-        return enableBucketShuffleDownGrade;
-    }
-
     public boolean isEnableOdbcTransaction() {
         return enableOdbcTransaction;
     }
@@ -2731,6 +2774,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setBroadcastRightTableScaleFactor(double broadcastRightTableScaleFactor) {
         this.broadcastRightTableScaleFactor = broadcastRightTableScaleFactor;
+    }
+
+    public double getLeftSemiOrAntiProbeFactor() {
+        return leftSemiOrAntiProbeFactor;
+    }
+
+    public void setLeftSemiOrAntiProbeFactor(double leftSemiOrAntiProbeFactor) {
+        this.leftSemiOrAntiProbeFactor = leftSemiOrAntiProbeFactor;
     }
 
     public double getBroadcastRowCountLimit() {
@@ -3545,6 +3596,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParallelResultSink(enableParallelResultSink);
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
+        tResult.setSerdeDialect(getSerdeDialect());
         return tResult;
     }
 
@@ -3836,6 +3888,15 @@ public class SessionVariable implements Serializable, Writable {
                 new SetVar(SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER, new StringLiteral("true")));
     }
 
+    public void disableConstantFoldingByBEOnce() throws DdlException {
+        if (!enableFoldConstantByBe) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this,
+                new SetVar(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, new StringLiteral("false")));
+    }
+
     public void disableNereidsPlannerOnce() throws DdlException {
         if (!enableNereidsPlanner) {
             return;
@@ -3979,6 +4040,20 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkSerdeDialect(String serdeDialect) {
+        if (StringUtils.isEmpty(serdeDialect)) {
+            LOG.warn("serdeDialect value is empty");
+            throw new UnsupportedOperationException("serdeDialect value is empty");
+        }
+
+        if (!serdeDialect.equalsIgnoreCase("doris") && !serdeDialect.equalsIgnoreCase("presto")
+                && !serdeDialect.equalsIgnoreCase("trino")) {
+            LOG.warn("serdeDialect value is invalid, the invalid value is {}", serdeDialect);
+            throw new UnsupportedOperationException(
+                    "sqlDialect value is invalid, the invalid value is " + serdeDialect);
+        }
+    }
+
     public void checkBatchSize(String batchSize) {
         Long batchSizeValue = Long.valueOf(batchSize);
         if (batchSizeValue < 1 || batchSizeValue > 65535) {
@@ -4077,6 +4152,10 @@ public class SessionVariable implements Serializable, Writable {
         forceJniScanner = force;
     }
 
+    public boolean isEnableCountPushDownForExternalTable() {
+        return enableCountPushDownForExternalTable;
+    }
+
     public boolean isForceToLocalShuffle() {
         return enableLocalShuffle && enableNereidsPlanner && forceToLocalShuffle;
     }
@@ -4091,5 +4170,17 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getMaxMsgSizeOfResultReceiver() {
         return this.maxMsgSizeOfResultReceiver;
+    }
+
+    public TSerdeDialect getSerdeDialect() {
+        switch (serdeDialect) {
+            case "doris":
+                return TSerdeDialect.DORIS;
+            case "presto":
+            case "trino":
+                return TSerdeDialect.PRESTO;
+            default:
+                throw new IllegalArgumentException("Unknown serde dialect: " + serdeDialect);
+        }
     }
 }

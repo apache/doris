@@ -21,7 +21,7 @@ suite("test_assert_num_rows") {
     """
 
     qt_sql_2 """
-        SELECT * from numbers("number"="10") WHERE  ( SELECT * FROM (SELECT 3) __DORIS_DUAL__ ) IS NOT NULL
+        SELECT * from numbers("number"="10") WHERE  ( SELECT * FROM (SELECT 3) __DORIS_DUAL__ ) IS NOT NULL ORDER BY number
     """
     sql """
         DROP TABLE IF EXISTS table_9_undef_undef;

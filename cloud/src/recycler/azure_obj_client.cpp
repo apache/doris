@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <azure/core/datetime.hpp>
 #include <azure/core/io/body_stream.hpp>
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
@@ -32,7 +33,7 @@
 #include <ranges>
 
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 
 using namespace Azure::Storage::Blobs;
 
@@ -45,16 +46,23 @@ template <typename Func>
 ObjectStorageResponse do_azure_client_call(Func f, std::string_view url, std::string_view key) {
     try {
         f();
-    } catch (Azure::Storage::StorageException& e) {
+    } catch (Azure::Core::RequestFailedException& e) {
         auto msg = fmt::format(
                 "Azure request failed because {}, http_code: {}, request_id: {}, url: {}, "
                 "key: {}",
                 e.Message, static_cast<int>(e.StatusCode), e.RequestId, url, key);
         LOG_WARNING(msg);
         return {-1, std::move(msg)};
+    } catch (std::exception& e) {
+        auto msg = fmt::format("Azure request failed because {}, url: {}, key: {}", e.what(), url,
+                               key);
+        LOG_WARNING(msg);
+        return {-1, std::move(msg)};
     }
     return {};
 }
+
+static const Azure::DateTime SystemClockEpoch {1970, 1, 1};
 
 class AzureListIterator final : public ObjectListIterator {
 public:
@@ -91,7 +99,12 @@ public:
                 results_.emplace_back(ObjectMeta {
                         .key = std::move(item.Name),
                         .size = item.BlobSize,
-                        .mtime_s = item.Details.LastModified.time_since_epoch().count()});
+                        // `Azure::DateTime` adds the offset of `SystemClockEpoch` to the given Unix timestamp,
+                        // so here we need to subtract this offset to obtain the Unix timestamp of the mtime.
+                        // https://github.com/Azure/azure-sdk-for-cpp/blob/azure-core_1.12.0/sdk/core/azure-core/inc/azure/core/datetime.hpp#L129
+                        .mtime_s = duration_cast<std::chrono::seconds>(item.Details.LastModified -
+                                                                       SystemClockEpoch)
+                                           .count()});
             }
         } catch (Azure::Storage::StorageException& e) {
             LOG_WARNING(
