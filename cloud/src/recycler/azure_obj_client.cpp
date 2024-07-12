@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <azure/core/datetime.hpp>
 #include <azure/core/io/body_stream.hpp>
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
@@ -61,6 +62,8 @@ ObjectStorageResponse do_azure_client_call(Func f, std::string_view url, std::st
     return {};
 }
 
+static const Azure::DateTime SystemClockEpoch {1970, 1, 1};
+
 class AzureListIterator final : public ObjectListIterator {
 public:
     AzureListIterator(std::shared_ptr<BlobContainerClient> client, std::string prefix)
@@ -96,7 +99,12 @@ public:
                 results_.emplace_back(ObjectMeta {
                         .key = std::move(item.Name),
                         .size = item.BlobSize,
-                        .mtime_s = item.Details.LastModified.time_since_epoch().count()});
+                        // `Azure::DateTime` adds the offset of `SystemClockEpoch` to the given Unix timestamp,
+                        // so here we need to subtract this offset to obtain the Unix timestamp of the mtime.
+                        // https://github.com/Azure/azure-sdk-for-cpp/blob/azure-core_1.12.0/sdk/core/azure-core/inc/azure/core/datetime.hpp#L129
+                        .mtime_s = duration_cast<std::chrono::seconds>(item.Details.LastModified -
+                                                                       SystemClockEpoch)
+                                           .count()});
             }
         } catch (Azure::Storage::StorageException& e) {
             LOG_WARNING(
