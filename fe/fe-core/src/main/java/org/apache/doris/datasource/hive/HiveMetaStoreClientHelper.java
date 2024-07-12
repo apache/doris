@@ -873,4 +873,21 @@ public class HiveMetaStoreClientHelper {
         }
         return defaultValue;
     }
+
+    /**
+     * Return the byte value of the number string.
+     *
+     * @param altValue
+     *                 The string containing a number.
+     */
+    public static String getByte(String altValue) {
+        if (altValue != null && altValue.length() > 0) {
+            try {
+                return Character.toString((char) (Byte.parseByte(altValue) + 256) % 256);
+            } catch (NumberFormatException e) {
+                return altValue.substring(0, 1);
+            }
+        }
+        return null;
+    }
 }
