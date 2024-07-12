@@ -1102,7 +1102,10 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     private void compatibilityErrEnum() {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_129) {
+        // APPR: Due to the cloud version being significantly outdated,
+        // to ensure compatibility with the cloud version,
+        // the version value has been lowered to 123
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_123) {
             if (Config.isNotCloudMode()) {
                 // not cloud mode,
                 // SHOW_VIEW_PRIV_DEPRECATED -> SHOW_VIEW_PRIV (9 -> 14)
