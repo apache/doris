@@ -19,7 +19,7 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 
 import org.apache.doris.catalog.authorizer.ranger.cache.CatalogCacheAccessController;
 import org.apache.doris.catalog.authorizer.ranger.cache.RangerCache;
-import org.apache.doris.catalog.authorizer.ranger.cache.RangerRefreshCacheServiceImpl;
+import org.apache.doris.catalog.authorizer.ranger.cache.RangerCacheInvalidateListener;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 
 public class RangerCacheDorisAccessController extends CatalogCacheAccessController {
@@ -28,7 +28,7 @@ public class RangerCacheDorisAccessController extends CatalogCacheAccessControll
 
     public RangerCacheDorisAccessController(String serviceName) {
         this.cache = new RangerCache();
-        this.proxyController = new RangerDorisAccessController(serviceName, new RangerRefreshCacheServiceImpl(cache));
+        this.proxyController = new RangerDorisAccessController(serviceName, new RangerCacheInvalidateListener(cache));
         this.cache.init(proxyController);
     }
 

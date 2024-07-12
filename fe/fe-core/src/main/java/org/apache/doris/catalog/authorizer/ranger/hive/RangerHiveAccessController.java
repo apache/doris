@@ -21,7 +21,6 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
-import org.apache.doris.catalog.authorizer.ranger.cache.RangerRefreshCacheService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
@@ -36,6 +35,7 @@ import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
 import org.apache.ranger.plugin.policyengine.RangerPolicyEngine;
+import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.ArrayList;
@@ -60,9 +60,9 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     public RangerHiveAccessController(Map<String, String> properties,
-            RangerRefreshCacheService rangerRefreshCacheService) {
+            RangerAuthContextListener rangerAuthContextListener) {
         String serviceName = properties.get("ranger.service.name");
-        hivePlugin = new RangerHivePlugin(serviceName, rangerRefreshCacheService);
+        hivePlugin = new RangerHivePlugin(serviceName, rangerAuthContextListener);
         auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
         // start a timed log flusher
         logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);

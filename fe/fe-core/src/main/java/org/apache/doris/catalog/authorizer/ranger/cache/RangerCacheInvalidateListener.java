@@ -17,7 +17,25 @@
 
 package org.apache.doris.catalog.authorizer.ranger.cache;
 
-public interface RangerRefreshCacheService {
+import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 
-    void afterRefreshPoliciesAndTags();
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.ranger.plugin.service.RangerAuthContextListener;
+
+public class RangerCacheInvalidateListener implements RangerAuthContextListener {
+    private static final Logger LOG = LogManager.getLogger(RangerDorisAccessController.class);
+
+    private RangerCache cache;
+
+    public RangerCacheInvalidateListener(RangerCache cache) {
+        this.cache = cache;
+    }
+
+    @Override
+    public void contextChanged() {
+        LOG.info("ranget contextChanged");
+        cache.invalidateDatamaskCache();
+        cache.invalidateRowFilterCache();
+    }
 }
