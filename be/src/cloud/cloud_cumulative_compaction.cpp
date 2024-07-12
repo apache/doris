@@ -173,7 +173,8 @@ PREPARE_TRY_AGAIN:
             .tag("tablet_max_version", cloud_tablet()->max_version_unlocked())
             .tag("cumulative_point", cloud_tablet()->cumulative_layer_point())
             .tag("num_rowsets", cloud_tablet()->fetch_add_approximate_num_rowsets(0))
-            .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0));
+            .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0))
+            .tag("lightman 0711 alter_version", cloud_tablet()->alter_version());
     return st;
 }
 
@@ -371,7 +372,7 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
         _cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
         int64_t candidate_version = std::max(
                 std::max(cloud_tablet()->cumulative_layer_point(), _max_conflict_version + 1),
-                cloud_tablet()->alter_version());
+                cloud_tablet()->alter_version() + 1);
         // Get all rowsets whose version >= `candidate_version` as candidate rowsets
         cloud_tablet()->traverse_rowsets(
                 [&candidate_rowsets, candidate_version](const RowsetSharedPtr& rs) {

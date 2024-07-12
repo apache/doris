@@ -19,7 +19,9 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <chrono>
 #include <memory>
+#include <thread>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
@@ -34,6 +36,7 @@
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -59,10 +62,9 @@ CloudSchemaChangeJob::CloudSchemaChangeJob(CloudStorageEngine& cloud_storage_eng
 CloudSchemaChangeJob::~CloudSchemaChangeJob() = default;
 
 Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
-    LOG(INFO) << "Begin to alter tablet. base_tablet_id=" << request.base_tablet_id
-              << ", new_tablet_id=" << request.new_tablet_id
-              << ", alter_version=" << request.alter_version << ", job_id=" << _job_id;
 
+    DBUG_EXECUTE_IF("SchemaChangeJob.process_alter_tablet.sleep",
+                    { std::this_thread::sleep_for(std::chrono::seconds(600)); });
     // new tablet has to exist
     _new_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.new_tablet_id));
     if (_new_tablet->tablet_state() == TABLET_RUNNING) {
@@ -123,8 +125,15 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, start_resp.alter_version()},
                                                          &rs_splits, false));
     }
+    Defer defer {[&]() {
+        _new_tablet->set_alter_version(-1);
+        _base_tablet->set_alter_version(-1);
+    }};
     _new_tablet->set_alter_version(start_resp.alter_version());
     _base_tablet->set_alter_version(start_resp.alter_version());
+    LOG(INFO) << "Begin to alter tablet. base_tablet_id=" << request.base_tablet_id
+              << ", new_tablet_id=" << request.new_tablet_id
+              << ", alter_version=" << start_resp.alter_version() << ", job_id=" << _job_id;
     sc_job->set_alter_version(start_resp.alter_version());
     // FIXME(cyx): Should trigger compaction on base_tablet if there are too many rowsets to convert.
 
