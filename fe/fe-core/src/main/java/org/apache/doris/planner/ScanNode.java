@@ -94,6 +94,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected PartitionInfo partitionsInfo = null;
     protected SplitAssignment splitAssignment = null;
 
+    protected long selectedPartitionNum = 0;
+    protected long selectedSplitNum = 0;
+
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
 
@@ -740,5 +743,13 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     public boolean shouldUseOneInstance(ConnectContext ctx) {
         long limitRowsForSingleInstance = ctx == null ? 10000 : ctx.getSessionVariable().limitRowsForSingleInstance;
         return hasLimit() && getLimit() < limitRowsForSingleInstance && conjuncts.isEmpty();
+    }
+
+    public long getSelectedPartitionNum() {
+        return selectedPartitionNum;
+    }
+
+    public long getSelectedSplitNum() {
+        return selectedSplitNum;
     }
 }
