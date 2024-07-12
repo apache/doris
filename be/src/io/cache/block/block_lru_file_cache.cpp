@@ -479,7 +479,7 @@ std::pair<size_t, size_t> LRUFileCache::try_merge() {
 }
 
 Status LRUFileCache::async_merge(const Key& key) {
-    ThreadPool* merge_pool = ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool();
+    ThreadPool* merge_pool = ExecEnv::GetInstance()->file_cache_thread_pool();
     return merge_pool->submit_func([file_key = key, this]() {
         std::unordered_map<Key, std::vector<std::vector<size_t>>, HashCachedFileKey> merged_files;
         {

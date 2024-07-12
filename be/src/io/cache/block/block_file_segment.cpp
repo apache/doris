@@ -43,7 +43,7 @@ FileBlock::FileBlock(size_t offset_, size_t size_, const Key& key_, IFileCache* 
           _file_key(key_),
           _cache(cache_),
           _cache_type(cache_type) {
-    _async_write_pool = ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool();
+    _async_write_pool = ExecEnv::GetInstance()->file_cache_thread_pool();
     /// On creation, file segment state can be EMPTY, DOWNLOADED, DOWNLOADING.
     switch (_download_state) {
     /// EMPTY is used when file segment is not in cache and
@@ -163,7 +163,7 @@ bool FileBlock::is_downloader_impl(std::lock_guard<std::mutex>& /* segment_lock 
 }
 
 Status FileBlock::async_write(std::shared_ptr<char[]> buffer, size_t offset, size_t length) {
-    return _async_write_pool->submit_func(
+    Status st = _async_write_pool->submit_func(
             [block_ptr = shared_from_this(), buffer_ptr = buffer, off = offset, size = length]() {
                 if (!block_ptr->_status) {
                     return;
@@ -182,6 +182,11 @@ Status FileBlock::async_write(std::shared_ptr<char[]> buffer, size_t offset, siz
                     block_ptr->async_remove();
                 }
             });
+    if (!st) {
+        LOG(WARNING) << "Failed to submit async write file cache: " << st;
+        _download_state = State::EMPTY;
+    }
+    return st;
 }
 
 void FileBlock::async_remove() {
@@ -192,7 +197,13 @@ void FileBlock::async_remove() {
         block_ptr->complete_unlocked(segment_lock);
         cache->remove(block_ptr, cache_lock, segment_lock);
     });
-    LOG(WARNING) << "Failed to remove file block " << _file_key.to_string() << ": " << st;
+    if (!st) {
+        LOG(WARNING) << "Failed to submit async remove file cache: " << st;
+        std::lock_guard cache_lock(_cache->_mutex);
+        std::lock_guard segment_lock(_mutex);
+        complete_unlocked(segment_lock);
+        _cache->remove(shared_from_this(), cache_lock, segment_lock);
+    }
 }
 
 Status FileBlock::append(Slice data) {
