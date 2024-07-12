@@ -32,10 +32,12 @@ public class RangerCacheDorisAccessController extends CatalogCacheAccessControll
         this.cache.init(proxyController);
     }
 
+    @Override
     public CatalogAccessController getProxyController() {
         return proxyController;
     }
 
+    @Override
     public RangerCache getCache() {
         return cache;
     }

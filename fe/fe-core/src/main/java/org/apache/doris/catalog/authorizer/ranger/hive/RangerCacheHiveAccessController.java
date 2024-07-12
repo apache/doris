@@ -35,10 +35,12 @@ public class RangerCacheHiveAccessController extends CatalogCacheAccessControlle
         this.cache.init(proxyController);
     }
 
+    @Override
     public CatalogAccessController getProxyController() {
         return proxyController;
     }
 
+    @Override
     public RangerCache getCache() {
         return cache;
     }
