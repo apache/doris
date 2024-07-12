@@ -142,7 +142,7 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
                           << ", runtime_state=" << runtime_state;
             }
         }
-        _get_cond.wait_for(l, std::chrono::milliseconds(std::min(left_milliseconds, 10000L)));
+        _get_cond.wait_for(l, std::chrono::milliseconds(std::min(left_milliseconds, 10000LL)));
     }
     if (runtime_state->is_cancelled()) {
         auto st = Status::Cancelled<false>(runtime_state->cancel_reason());
