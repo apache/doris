@@ -57,9 +57,6 @@ under the License.
 
 ---
 
-<br />
-
-<div><img src="https://cdn.selectdb.com/static/Group_44_aebf626eba.png" align="right" height="240"/></div>
 
 
 
