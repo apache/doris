@@ -2022,7 +2022,15 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         }
 
         DBUG_EXECUTE_IF("segment_iterator._read_columns_by_index", {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>("{} does not need to read data");
+            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "segment_iterator._read_columns_by_index", "column_name", "");
+            if (debug_col_name.empty()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("{} does not need to read data");
+            }
+            auto col_name = _opts.tablet_schema->column(cid).name();
+            if (debug_col_name.find(col_name) != std::string::npos) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("{} does not need to read data");
+            }
         })
 
         if (is_continuous) {
