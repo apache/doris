@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <roaring/roaring.hh>
+#include <thread>
 #include <tuple>
 #include <utility>
 
