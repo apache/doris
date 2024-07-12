@@ -1189,7 +1189,8 @@ void FragmentMgr::cancel_worker() {
                             bool fe_host_is_standing = std::any_of(
                                     running_fes.begin(), running_fes.end(),
                                     [query_context](const auto& fe) {
-                                        return fe.first.hostname == query_context->coord_addr.hostname &&
+                                        return fe.first.hostname ==
+                                                       query_context->coord_addr.hostname &&
                                                fe.first.port == 0;
                                     });
                             if (fe_host_is_standing) {
@@ -1197,7 +1198,8 @@ void FragmentMgr::cancel_worker() {
                                         "Coordinator {}:{} is not found, but its host is still "
                                         "running with an unstable brpc port, not going to cancel "
                                         "it.",
-                                        query_context->coord_addr.hostname, query_context->coord_addr.port,
+                                        query_context->coord_addr.hostname,
+                                        query_context->coord_addr.port,
                                         print_id(query_context->query_id()));
                                 continue;
                             } else {
@@ -1205,7 +1207,8 @@ void FragmentMgr::cancel_worker() {
                                         "Could not find target coordinator {}:{} of query {}, "
                                         "going to "
                                         "cancel it.",
-                                        query_context->coord_addr.hostname, query_context->coord_addr.port,
+                                        query_context->coord_addr.hostname,
+                                        query_context->coord_addr.port,
                                         print_id(query_context->query_id()));
                             }
                         }
