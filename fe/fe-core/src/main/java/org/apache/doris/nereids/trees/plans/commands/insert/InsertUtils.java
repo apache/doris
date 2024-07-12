@@ -26,6 +26,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
@@ -102,9 +103,10 @@ public class InsertUtils {
 
         TransactionEntry txnEntry = ctx.getTxnEntry();
         int effectRows = 0;
+        FormatOptions options = FormatOptions.getDefault();
         for (List<NamedExpression> row : constantExprsList) {
             ++effectRows;
-            InternalService.PDataRow data = getRowStringValue(row);
+            InternalService.PDataRow data = getRowStringValue(row, options);
             if (data == null) {
                 continue;
             }
@@ -147,7 +149,7 @@ public class InsertUtils {
     /**
      * literal expr in insert operation
      */
-    public static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols) {
+    public static InternalService.PDataRow getRowStringValue(List<NamedExpression> cols, FormatOptions options) {
         if (cols.isEmpty()) {
             return null;
         }
@@ -164,7 +166,7 @@ public class InsertUtils {
                 row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
                 row.addColBuilder().setValue(String.format("\"%s\"",
-                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray()));
+                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray(options)));
             } else {
                 row.addColBuilder().setValue(String.format("\"%s\"",
                         ((Literal) expr).toLegacyLiteral().getStringValue()));

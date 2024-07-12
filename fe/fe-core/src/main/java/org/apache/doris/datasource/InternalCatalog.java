@@ -1001,13 +1001,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         return true;
     }
 
-    public void dropTable(Database db, long tableId, boolean isForceDrop,
+    private void dropTable(Database db, long tableId, boolean isForceDrop, boolean isReplay,
                           Long recycleTime) throws MetaNotFoundException {
         Table table = db.getTableOrMetaException(tableId);
         db.writeLock();
         table.writeLock();
         try {
-            unprotectDropTable(db, table, isForceDrop, true, recycleTime);
+            unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), tableId);
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
@@ -1018,7 +1018,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
             Long recycleTime) throws MetaNotFoundException {
-        dropTable(db, tableId, isForceDrop, recycleTime);
+        dropTable(db, tableId, isForceDrop, true, recycleTime);
     }
 
     public void replayEraseTable(long tableId) {
@@ -2458,18 +2458,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
         boolean enableDeleteOnDeletePredicate = false;
-        if (keysType == KeysType.UNIQUE_KEYS) {
-            try {
-                enableDeleteOnDeletePredicate = PropertyAnalyzer.analyzeEnableDeleteOnDeletePredicate(properties);
-            } catch (AnalysisException e) {
-                throw new DdlException(e.getMessage());
-            }
-            if (enableDeleteOnDeletePredicate && !enableUniqueKeyMergeOnWrite) {
-                throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_DELETE_ON_DELETE_PREDICATE
-                        + " property is not supported for unique merge-on-read table");
-            }
+        try {
+            enableDeleteOnDeletePredicate = PropertyAnalyzer.analyzeEnableDeleteOnDeletePredicate(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
         }
-        olapTable.setEnableDeleteOnDeletePredicate(enableDeleteOnDeletePredicate);
+        if (enableDeleteOnDeletePredicate && !enableUniqueKeyMergeOnWrite) {
+            throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE
+                    + " property is only supported for unique merge-on-write table");
+        }
+        olapTable.setEnableMowLightDelete(enableDeleteOnDeletePredicate);
 
         boolean enableSingleReplicaCompaction = false;
         try {
@@ -2806,6 +2804,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // if failed in any step, use this set to do clear things
         Set<Long> tabletIdSet = new HashSet<>();
         // create partition
+        boolean hadLogEditCreateTable = false;
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 if (properties != null && !properties.isEmpty()) {
@@ -2937,11 +2936,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!result.first) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
-            if (DebugPointUtil.isEnable("FE.createOlapTable.exception")) {
-                LOG.info("debug point FE.createOlapTable.exception, throw e");
-                // not commit, not log edit
-                throw new DdlException("debug point FE.createOlapTable.exception");
-            }
 
             if (result.second) {
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
@@ -2954,6 +2948,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 LOG.info("duplicate create table[{};{}], skip next steps", tableName, tableId);
             } else {
+                // if table not exists, then db.createTableWithLock will write an editlog.
+                hadLogEditCreateTable = true;
+
                 // we have added these index to memory, only need to persist here
                 if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                     GroupId groupId = Env.getCurrentColocateIndex().getGroup(tableId);
@@ -2972,17 +2969,27 @@ public class InternalCatalog implements CatalogIf<Database> {
                         .createOrUpdateRuntimeInfo(tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME,
                                 TimeUtils.getCurrentFormatTime());
             }
+
+            if (DebugPointUtil.isEnable("FE.createOlapTable.exception")) {
+                LOG.info("debug point FE.createOlapTable.exception, throw e");
+                throw new DdlException("debug point FE.createOlapTable.exception");
+            }
         } catch (DdlException e) {
             LOG.warn("create table failed {} - {}", tabletIdSet, e.getMessage());
             for (Long tabletId : tabletIdSet) {
                 Env.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
-            // only remove from memory, because we have not persist it
+            // edit log write DropTableInfo will result in deleting colocate group,
+            // but follow fe may need wait 30s (recycle bin mgr run every 30s).
             if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
                 Env.getCurrentColocateIndex().removeTable(tableId);
             }
             try {
-                dropTable(db, tableId, true, 0L);
+                dropTable(db, tableId, true, false, 0L);
+                if (hadLogEditCreateTable) {
+                    DropInfo info = new DropInfo(db.getId(), tableId, olapTable.getName(), -1L, true, 0L);
+                    Env.getCurrentEnv().getEditLog().logDropTable(info);
+                }
             } catch (Exception ex) {
                 LOG.warn("drop table", ex);
             }
@@ -3332,6 +3339,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         List<Partition> newPartitions = Lists.newArrayList();
         // tabletIdSet to save all newly created tablet ids.
         Set<Long> tabletIdSet = Sets.newHashSet();
+        Runnable failedCleanCallback = () -> {
+            for (Long tabletId : tabletIdSet) {
+                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+            }
+        };
         Map<Integer, Integer> clusterKeyMap = new TreeMap<>();
         for (int i = 0; i < olapTable.getBaseSchema().size(); i++) {
             Column column = olapTable.getBaseSchema().get(i);
@@ -3384,9 +3396,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         } catch (DdlException e) {
             // create partition failed, remove all newly created tablets
-            for (Long tabletId : tabletIdSet) {
-                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
-            }
+            failedCleanCallback.run();
             throw e;
         }
         Preconditions.checkState(origPartitions.size() == newPartitions.size());
@@ -3394,16 +3404,19 @@ public class InternalCatalog implements CatalogIf<Database> {
         // all partitions are created successfully, try to replace the old partitions.
         // before replacing, we need to check again.
         // Things may be changed outside the table lock.
-        olapTable = (OlapTable) db.getTableOrDdlException(copiedTbl.getId());
-        olapTable.writeLockOrDdlException();
         List<Partition> oldPartitions = Lists.newArrayList();
+        boolean hasWriteLock = false;
         try {
+            olapTable = (OlapTable) db.getTableOrDdlException(copiedTbl.getId());
+            olapTable.writeLockOrDdlException();
+            hasWriteLock = true;
             olapTable.checkNormalStateForAlter();
             // check partitions
             for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
-                Partition partition = copiedTbl.getPartition(entry.getValue());
+                Partition partition = olapTable.getPartition(entry.getValue());
                 if (partition == null || !partition.getName().equalsIgnoreCase(entry.getKey())) {
-                    throw new DdlException("Partition [" + entry.getKey() + "] is changed");
+                    throw new DdlException("Partition [" + entry.getKey() + "] is changed"
+                            + " during truncating table, please retry");
                 }
             }
 
@@ -3447,6 +3460,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 }
             }
+            if (DebugPointUtil.isEnable("InternalCatalog.truncateTable.metaChanged")) {
+                metaChanged = true;
+                LOG.warn("debug set truncate table meta changed");
+            }
 
             if (metaChanged) {
                 throw new DdlException("Table[" + copiedTbl.getName() + "]'s meta has been changed. try again.");
@@ -3461,8 +3478,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                             newPartitions,
                             truncateEntireTable, truncateTableStmt.toSqlWithoutTable());
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
+        } catch (DdlException e) {
+            failedCleanCallback.run();
+            throw e;
         } finally {
-            olapTable.writeUnlock();
+            if (hasWriteLock) {
+                olapTable.writeUnlock();
+            }
         }
 
         erasePartitionDropBackendReplicas(oldPartitions);

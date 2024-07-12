@@ -22,12 +22,13 @@
 #include <gtest/gtest.h>
 
 #include <azure/storage/blobs/blob_options.hpp>
+#include <chrono>
 #include <unordered_set>
 
 #include "common/config.h"
 #include "common/configbase.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 
 using namespace doris;
 
@@ -138,7 +139,10 @@ void test_s3_accessor(S3Accessor& accessor) {
     ret = accessor.list_all(&iter);
     ASSERT_EQ(ret, 0);
     list_files.clear();
+    using namespace std::chrono;
+    int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+        EXPECT_LT(now - file->mtime_s, 60);
         list_files.insert(std::move(file->path));
     }
     ASSERT_EQ(list_files.size(), files.size());
@@ -206,24 +210,30 @@ TEST(S3AccessorTest, s3) {
     ASSERT_EQ(ret, 0);
 
     auto* sp = SyncPoint::get_instance();
-    sp->set_call_back("S3ObjListIterator", [](void* arg) {
-        auto* req = static_cast<Aws::S3::Model::ListObjectsV2Request*>(arg);
-        req->SetMaxKeys(7);
-    });
-    sp->set_call_back("S3ObjClient::delete_objects", [](void* arg) {
-        auto* delete_batch_size = static_cast<size_t*>(arg);
-        *delete_batch_size = 7;
-    });
-    sp->set_call_back("ObjStorageClient::delete_objects_recursively_", [](void* arg) {
-        auto* delete_batch_size = static_cast<size_t*>(arg);
-        *delete_batch_size = 7;
-    });
+    std::vector<SyncPoint::CallbackGuard> guards;
+    sp->set_call_back(
+            "S3ObjListIterator",
+            [](auto&& args) {
+                auto* req = try_any_cast<Aws::S3::Model::ListObjectsV2Request*>(args[0]);
+                req->SetMaxKeys(7);
+            },
+            &guards.emplace_back());
+    sp->set_call_back(
+            "S3ObjClient::delete_objects",
+            [](auto&& args) {
+                auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
+                *delete_batch_size = 7;
+            },
+            &guards.emplace_back());
+    sp->set_call_back(
+            "ObjStorageClient::delete_objects_recursively_",
+            [](auto&& args) {
+                auto* delete_batch_size = try_any_cast<size_t*>(args);
+                *delete_batch_size = 7;
+            },
+            &guards.emplace_back());
 
     test_s3_accessor(*accessor);
-
-    sp->clear_call_back("S3ObjListIterator");
-    sp->clear_call_back("S3ObjClient::delete_objects");
-    sp->clear_call_back("ObjStorageClient::delete_objects_recursively_");
 }
 
 TEST(S3AccessorTest, azure) {
@@ -242,24 +252,30 @@ TEST(S3AccessorTest, azure) {
     ASSERT_EQ(ret, 0);
 
     auto* sp = SyncPoint::get_instance();
-    sp->set_call_back("AzureListIterator", [](void* arg) {
-        auto* req = static_cast<Azure::Storage::Blobs::ListBlobsOptions*>(arg);
-        req->PageSizeHint = 7;
-    });
-    sp->set_call_back("AzureObjClient::delete_objects", [](void* arg) {
-        auto* delete_batch_size = static_cast<size_t*>(arg);
-        *delete_batch_size = 7;
-    });
-    sp->set_call_back("ObjStorageClient::delete_objects_recursively_", [](void* arg) {
-        auto* delete_batch_size = static_cast<size_t*>(arg);
-        *delete_batch_size = 7;
-    });
+    std::vector<SyncPoint::CallbackGuard> guards;
+    sp->set_call_back(
+            "AzureListIterator",
+            [](auto&& args) {
+                auto* req = try_any_cast<Azure::Storage::Blobs::ListBlobsOptions*>(args[0]);
+                req->PageSizeHint = 7;
+            },
+            &guards.emplace_back());
+    sp->set_call_back(
+            "AzureObjClient::delete_objects",
+            [](auto&& args) {
+                auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
+                *delete_batch_size = 7;
+            },
+            &guards.emplace_back());
+    sp->set_call_back(
+            "ObjStorageClient::delete_objects_recursively_",
+            [](auto&& args) {
+                auto* delete_batch_size = try_any_cast<size_t*>(args);
+                *delete_batch_size = 7;
+            },
+            &guards.emplace_back());
 
     test_s3_accessor(*accessor);
-
-    sp->clear_call_back("AzureListIterator");
-    sp->clear_call_back("AzureObjClient::delete_objects");
-    sp->clear_call_back("ObjStorageClient::delete_objects_recursively_");
 }
 
 TEST(S3AccessorTest, gcs) {
@@ -278,24 +294,30 @@ TEST(S3AccessorTest, gcs) {
     ASSERT_EQ(ret, 0);
 
     auto* sp = SyncPoint::get_instance();
-    sp->set_call_back("S3ObjListIterator", [](void* arg) {
-        auto* req = static_cast<Aws::S3::Model::ListObjectsV2Request*>(arg);
-        req->SetMaxKeys(7);
-    });
-    sp->set_call_back("S3ObjClient::delete_objects", [](void* arg) {
-        auto* delete_batch_size = static_cast<size_t*>(arg);
-        *delete_batch_size = 7;
-    });
-    sp->set_call_back("ObjStorageClient::delete_objects_recursively_", [](void* arg) {
-        auto* delete_batch_size = static_cast<size_t*>(arg);
-        *delete_batch_size = 7;
-    });
+    std::vector<SyncPoint::CallbackGuard> guards;
+    sp->set_call_back(
+            "S3ObjListIterator",
+            [](auto&& args) {
+                auto* req = try_any_cast<Aws::S3::Model::ListObjectsV2Request*>(args[0]);
+                req->SetMaxKeys(7);
+            },
+            &guards.emplace_back());
+    sp->set_call_back(
+            "S3ObjClient::delete_objects",
+            [](auto&& args) {
+                auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
+                *delete_batch_size = 7;
+            },
+            &guards.emplace_back());
+    sp->set_call_back(
+            "ObjStorageClient::delete_objects_recursively_",
+            [](auto&& args) {
+                auto* delete_batch_size = try_any_cast<size_t*>(args);
+                *delete_batch_size = 7;
+            },
+            &guards.emplace_back());
 
     test_s3_accessor(*accessor);
-
-    sp->clear_call_back("S3ObjListIterator");
-    sp->clear_call_back("S3ObjClient::delete_objects");
-    sp->clear_call_back("ObjStorageClient::delete_objects_recursively_");
 }
 
 } // namespace doris::cloud
