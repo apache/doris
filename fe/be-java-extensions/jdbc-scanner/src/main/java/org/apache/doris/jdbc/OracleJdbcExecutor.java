@@ -65,37 +65,42 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
 
     @Override
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
-        switch (type.getType()) {
-            case TINYINT:
-                return resultSet.getObject(columnIndex + 1, Byte.class);
-            case SMALLINT:
-                return resultSet.getObject(columnIndex + 1, Short.class);
-            case INT:
-                return resultSet.getObject(columnIndex + 1, Integer.class);
-            case BIGINT:
-                return resultSet.getObject(columnIndex + 1, Long.class);
-            case FLOAT:
-                return resultSet.getObject(columnIndex + 1, Float.class);
-            case DOUBLE:
-                return resultSet.getObject(columnIndex + 1, Double.class);
-            case LARGEINT:
-            case DECIMALV2:
-            case DECIMAL32:
-            case DECIMAL64:
-            case DECIMAL128:
-                return resultSet.getObject(columnIndex + 1, BigDecimal.class);
-            case DATE:
-            case DATEV2:
-                return resultSet.getObject(columnIndex + 1, LocalDate.class);
-            case DATETIME:
-            case DATETIMEV2:
-                return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
-            case CHAR:
-            case VARCHAR:
-            case STRING:
-                return resultSet.getObject(columnIndex + 1);
-            default:
-                throw new IllegalArgumentException("Unsupported column type: " + type.getType());
+        try {
+            switch (type.getType()) {
+                case TINYINT:
+                    return resultSet.getObject(columnIndex + 1, Byte.class);
+                case SMALLINT:
+                    return resultSet.getObject(columnIndex + 1, Short.class);
+                case INT:
+                    return resultSet.getObject(columnIndex + 1, Integer.class);
+                case BIGINT:
+                    return resultSet.getObject(columnIndex + 1, Long.class);
+                case FLOAT:
+                    return resultSet.getObject(columnIndex + 1, Float.class);
+                case DOUBLE:
+                    return resultSet.getObject(columnIndex + 1, Double.class);
+                case LARGEINT:
+                case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                    return resultSet.getObject(columnIndex + 1, BigDecimal.class);
+                case DATE:
+                case DATEV2:
+                    return resultSet.getObject(columnIndex + 1, LocalDate.class);
+                case DATETIME:
+                case DATETIMEV2:
+                    return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
+                case CHAR:
+                case VARCHAR:
+                case STRING:
+                    return resultSet.getObject(columnIndex + 1);
+                default:
+                    throw new IllegalArgumentException("Unsupported column type: " + type.getType());
+            }
+        } catch (AbstractMethodError e) {
+            LOG.warn("Detected an outdated ojdbc driver. Please use ojdbc8 or above.", e);
+            throw new SQLException("Detected an outdated ojdbc driver. Please use ojdbc8 or above.");
         }
     }
 

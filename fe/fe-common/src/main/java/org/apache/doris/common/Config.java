@@ -2757,7 +2757,7 @@ public class Config extends ConfigBase {
     public static boolean enable_light_index_change = true;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_create_bitmap_index_as_inverted_index = false;
+    public static boolean enable_create_bitmap_index_as_inverted_index = true;
 
     @ConfField(mutable = true)
     public static boolean enable_create_inverted_index_for_array = false;
@@ -2899,6 +2899,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"存算分离模式下streamload导入使用的转发策略, 可选值为public-private或者空",
             "streamload route policy in cloud mode, availale options are public-private and empty string"})
     public static String streamload_redirect_policy = "";
+
+    @ConfField(mutable = true)
+    public static boolean enable_cooldown_replica_affinity = true;
 
     //==========================================================================
     //                      end of cloud config
