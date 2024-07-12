@@ -86,6 +86,7 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String DEFAULT_LINE_DELIMITER = "\n";
     public static final String PROP_SEPARATOR_CHAR = "separatorChar";
     public static final String PROP_QUOTE_CHAR = "quoteChar";
+    public static final String PROP_SERIALIZATION_FORMAT = "serialization.format";
 
     public static final String PROP_COLLECTION_DELIMITER_HIVE2 = "colelction.delim";
     public static final String PROP_COLLECTION_DELIMITER_HIVE3 = "collection.delim";
@@ -447,29 +448,32 @@ public class HiveScanNode extends FileQueryScanNode {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
 
         // 1. set column separator
-        Optional<String> fieldDelim =
-                HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(), PROP_FIELD_DELIMITER);
-        Optional<String> columnSeparator =
-                HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(), PROP_SEPARATOR_CHAR);
-        textParams.setColumnSeparator(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_FIELD_DELIMITER, fieldDelim, columnSeparator));
+        Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_FIELD_DELIMITER);
+        Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_SERIALIZATION_FORMAT);
+        Optional<String> columnSeparator = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_SEPARATOR_CHAR);
+        textParams.setColumnSeparator(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_FIELD_DELIMITER, fieldDelim, columnSeparator, serFormat)));
         // 2. set line delimiter
-        Optional<String> lineDelim =
-                HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(), PROP_LINE_DELIMITER);
-        textParams.setLineDelimiter(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_LINE_DELIMITER, lineDelim));
+        Optional<String> lineDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_LINE_DELIMITER);
+        textParams.setLineDelimiter(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_LINE_DELIMITER, lineDelim)));
         // 3. set mapkv delimiter
-        Optional<String> mapkvDelim =
-                HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(), PROP_MAP_KV_DELIMITER);
-        textParams.setMapkvDelimiter(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_MAP_KV_DELIMITER, mapkvDelim));
+        Optional<String> mapkvDelim = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_MAP_KV_DELIMITER);
+        textParams.setMapkvDelimiter(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_MAP_KV_DELIMITER, mapkvDelim)));
         // 4. set collection delimiter
-        Optional<String> collectionDelimHive2 =
-                HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(), PROP_COLLECTION_DELIMITER_HIVE2);
-        Optional<String> collectionDelimHive3 =
-                HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(), PROP_COLLECTION_DELIMITER_HIVE3);
-        textParams.setCollectionDelimiter(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_COLLECTION_DELIMITER, collectionDelimHive2, collectionDelimHive3));
+        Optional<String> collectionDelimHive2 = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_COLLECTION_DELIMITER_HIVE2);
+        Optional<String> collectionDelimHive3 = HiveMetaStoreClientHelper.getSerdeProperty(hmsTable.getRemoteTable(),
+                PROP_COLLECTION_DELIMITER_HIVE3);
+        textParams.setCollectionDelimiter(
+                HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
+                        DEFAULT_COLLECTION_DELIMITER, collectionDelimHive2, collectionDelimHive3)));
         // 5. set quote char
         Map<String, String> serdeParams = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
         if (serdeParams.containsKey(PROP_QUOTE_CHAR)) {
