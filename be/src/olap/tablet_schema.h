@@ -360,8 +360,8 @@ public:
     void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
-    void set_row_column_page_size(long page_size) { _row_column_page_size = page_size; }
-    long row_column_page_size() const { return _row_column_page_size; }
+    void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
+    long row_store_page_size() const { return _row_store_page_size; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
     bool has_inverted_index() const {
@@ -511,7 +511,7 @@ private:
     size_t _num_rows_per_row_block = 0;
     CompressKind _compress_kind = COMPRESS_NONE;
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
-    long _row_column_page_size = segment_v2::ROW_COLUMN_PAGE_SIZE_DEFAULT_VALUE;
+    long _row_store_page_size = segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     size_t _next_column_unique_id = 0;
     std::string _auto_increment_column;
 

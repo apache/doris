@@ -3511,9 +3511,9 @@ public class Env {
                 sb.append(olapTable.storeRowColumn()).append("\"");
             }
 
-            // row column page size
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ROW_COLUMN_PAGE_SIZE).append("\" = \"");
-            sb.append(olapTable.rowColumnPageSize()).append("\"");
+            // row store page size
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE).append("\" = \"");
+            sb.append(olapTable.rowStorePageSize()).append("\"");
         }
 
         // skip inverted index on load

@@ -96,8 +96,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_COMPRESSION = "compression";
 
     // row store page size, default 16KB
-    public static final String PROPERTIES_ROW_COLUMN_PAGE_SIZE = "row_store_page_size";
-    public static final long ROW_COLUMN_PAGE_SIZE_DEFAULT_VALUE = 16384;
+    public static final String PROPERTIES_ROW_STORE_PAGE_SIZE = "row_store_page_size";
+    public static final long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384;
 
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
@@ -1020,25 +1020,25 @@ public class PropertyAnalyzer {
         return (size + 4095) & ~4095;
     }
 
-    // analyzeRowColumnPageSize will parse the row_column_page_size from properties
-    public static long analyzeRowColumnPageSize(Map<String, String> properties) throws AnalysisException {
-        long rowColumnPageSize = ROW_COLUMN_PAGE_SIZE_DEFAULT_VALUE;
-        if (properties != null && properties.containsKey(PROPERTIES_ROW_COLUMN_PAGE_SIZE)) {
-            String rowColumnPageSizeStr = properties.get(PROPERTIES_ROW_COLUMN_PAGE_SIZE);
+    // analyzeRowStorePageSize will parse the row_store_page_size from properties
+    public static long analyzeRowStorePageSize(Map<String, String> properties) throws AnalysisException {
+        long rowStorePageSize = ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_ROW_STORE_PAGE_SIZE)) {
+            String rowStorePageSizeStr = properties.get(PROPERTIES_ROW_STORE_PAGE_SIZE);
             try {
-                rowColumnPageSize = alignTo4K(Long.parseLong(rowColumnPageSizeStr));
+                rowStorePageSize = alignTo4K(Long.parseLong(rowStorePageSizeStr));
             } catch (NumberFormatException e) {
-                throw new AnalysisException("Invalid row column page size: " + rowColumnPageSizeStr);
+                throw new AnalysisException("Invalid row store page size: " + rowStorePageSizeStr);
             }
 
-            if (rowColumnPageSize <= 0) {
-                throw new AnalysisException("Row column page size should larger than 0.");
+            if (rowStorePageSize <= 0) {
+                throw new AnalysisException("Row store page size should larger than 0.");
             }
 
-            properties.remove(PROPERTIES_ROW_COLUMN_PAGE_SIZE);
+            properties.remove(PROPERTIES_ROW_STORE_PAGE_SIZE);
         }
 
-        return rowColumnPageSize;
+        return rowStorePageSize;
     }
 
     // analyzeStorageFormat will parse the storage format from properties

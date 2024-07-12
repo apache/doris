@@ -211,7 +211,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.disableAutoCompaction(),
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     tbl.getEnableMowLightDelete(), null,
-                                    tbl.rowColumnPageSize());
+                                    tbl.rowStorePageSize());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

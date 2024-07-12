@@ -1559,9 +1559,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
                         olapTable.storeRowColumn().toString());
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_COLUMN_PAGE_SIZE)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_ROW_COLUMN_PAGE_SIZE,
-                        Long.toString(olapTable.rowColumnPageSize()));
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
+                        Long.toString(olapTable.rowStorePageSize()));
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD,
@@ -1696,7 +1696,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     singlePartitionDesc.isInMemory(),
                     singlePartitionDesc.getTabletType(),
                     storagePolicy, idGeneratorBuffer,
-                    binlogConfig, dataProperty.isStorageMediumSpecified(), null, olapTable.rowColumnPageSize());
+                    binlogConfig, dataProperty.isStorageMediumSpecified(), null, olapTable.rowStorePageSize());
             // TODO cluster key ids
 
             // check again
@@ -1986,7 +1986,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                                                    IdGeneratorBuffer idGeneratorBuffer,
                                                    BinlogConfig binlogConfig,
                                                    boolean isStorageMediumSpecified,
-                                                   List<Integer> clusterKeyIndexes, long rowColumnPageSize)
+                                                   List<Integer> clusterKeyIndexes, long rowStorePageSize)
             throws DdlException {
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
@@ -2070,7 +2070,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getTimeSeriesCompactionLevelThreshold(),
                             tbl.storeRowColumn(), binlogConfig,
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                            objectPool, rowColumnPageSize);
+                            objectPool, rowStorePageSize);
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2445,15 +2445,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setCompressionType(compressionType);
 
-        // get row_column_page_size
-        long rowColumnPageSize = PropertyAnalyzer.ROW_COLUMN_PAGE_SIZE_DEFAULT_VALUE;
+        // get row_store_page_size
+        long rowStorePageSize = PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
         try {
-            rowColumnPageSize = PropertyAnalyzer.analyzeRowColumnPageSize(properties);
+            rowStorePageSize = PropertyAnalyzer.analyzeRowStorePageSize(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
 
-        olapTable.setRowColumnPageSize(rowColumnPageSize);
+        olapTable.setRowStorePageSize(rowStorePageSize);
 
         // check data sort properties
         int keyColumnSize = CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnIds()) ? keysDesc.keysColumnSize() :
@@ -2853,7 +2853,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         idGeneratorBuffer,
                         binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified(),
-                        keysDesc.getClusterKeysColumnIds(), olapTable.rowColumnPageSize());
+                        keysDesc.getClusterKeysColumnIds(), olapTable.rowStorePageSize());
                 afterCreatePartitions(db.getId(), olapTable.getId(), null,
                         olapTable.getIndexIdList(), true);
                 olapTable.addPartition(partition);
@@ -2936,7 +2936,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             partionStoragePolicy, idGeneratorBuffer,
                             binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified(),
-                            keysDesc.getClusterKeysColumnIds(), olapTable.rowColumnPageSize());
+                            keysDesc.getClusterKeysColumnIds(), olapTable.rowStorePageSize());
                     olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                             .setStoragePolicy(partionStoragePolicy);
@@ -3403,7 +3403,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
                         idGeneratorBuffer, binlogConfig,
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).isStorageMediumSpecified(),
-                        clusterKeyIdxes, olapTable.rowColumnPageSize());
+                        clusterKeyIdxes, olapTable.rowStorePageSize());
                 newPartitions.add(newPartition);
             }
 

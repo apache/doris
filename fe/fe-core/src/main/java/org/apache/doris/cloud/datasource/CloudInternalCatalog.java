@@ -174,7 +174,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                         tbl.getEnableMowLightDelete(),
                         tbl.getInvertedIndexFileStorageFormat(),
-                        tbl.rowColumnPageSize());
+                        tbl.rowStorePageSize());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -348,7 +348,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
             }
         }
-        schemaBuilder.setRowColumnPageSize(pageSize);
+        schemaBuilder.setRowStorePageSize(pageSize);
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);

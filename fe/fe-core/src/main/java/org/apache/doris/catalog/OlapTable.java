@@ -2505,18 +2505,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildCompressionType();
     }
 
-    public void setRowColumnPageSize(long pageSize) {
+    public void setRowStorePageSize(long pageSize) {
         TableProperty tableProperty = getOrCreatTableProperty();
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ROW_COLUMN_PAGE_SIZE,
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
                 Long.valueOf(pageSize).toString());
-        tableProperty.buildRowColumnPageSize();
+        tableProperty.buildRowStorePageSize();
     }
 
-    public long rowColumnPageSize() {
+    public long rowStorePageSize() {
         if (tableProperty != null) {
-            return tableProperty.rowColumnPageSize();
+            return tableProperty.rowStorePageSize();
         }
-        return PropertyAnalyzer.ROW_COLUMN_PAGE_SIZE_DEFAULT_VALUE;
+        return PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {
