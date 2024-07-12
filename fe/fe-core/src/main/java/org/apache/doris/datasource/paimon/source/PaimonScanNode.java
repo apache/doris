@@ -279,22 +279,6 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
     }
 
-    //When calling 'setPaimonParams' and 'getSplits', the column trimming has not been performed yet,
-    // Therefore, paimon_column_names is temporarily reset here
-    @Override
-    public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
-        super.updateRequiredSlots(planTranslatorContext, requiredByProjectSlotIdSet);
-        String cols = desc.getSlots().stream().map(slot -> slot.getColumn().getName())
-                .collect(Collectors.joining(","));
-        for (TScanRangeLocations tScanRangeLocations : scanRangeLocations) {
-            List<TFileRangeDesc> ranges = tScanRangeLocations.scan_range.ext_scan_range.file_scan_range.ranges;
-            for (TFileRangeDesc tFileRangeDesc : ranges) {
-                tFileRangeDesc.table_format_params.paimon_params.setPaimonColumnNames(cols);
-            }
-        }
-    }
-
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
         return getLocationType(((FileStoreTable) source.getPaimonTable()).location().toString());

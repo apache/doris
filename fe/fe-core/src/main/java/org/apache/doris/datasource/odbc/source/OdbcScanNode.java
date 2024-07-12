@@ -119,12 +119,6 @@ public class OdbcScanNode extends ExternalScanNode {
     }
 
     @Override
-    public void updateRequiredSlots(PlanTranslatorContext context, Set<SlotId> requiredByProjectSlotIdSet)
-            throws UserException {
-        createOdbcColumns();
-    }
-
-    @Override
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList(createSingleScanRangeLocations(backendPolicy));
     }

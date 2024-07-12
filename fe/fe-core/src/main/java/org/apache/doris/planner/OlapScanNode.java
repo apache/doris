@@ -74,6 +74,7 @@ import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TOlapScanNode;
 import org.apache.doris.thrift.TOlapTableIndex;
@@ -1738,6 +1739,14 @@ public class OlapScanNode extends ScanNode {
         computeStatsForNereids();
         // NOTICE: must call here to get selected tablet row count to let block rules work well.
         mockRowCountInStatistic();
+
+        outputColumnUniqueIds.clear();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (!slot.isMaterialized()) {
+                continue;
+            }
+            outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
+        }
     }
 
     private void computeStatsForNereids() {
@@ -1754,17 +1763,6 @@ public class OlapScanNode extends ScanNode {
         return olapTable != null
                 ? olapTable.getDistributionColumnNames()
                 : Sets.newTreeSet();
-    }
-
-    @Override
-    public void updateRequiredSlots(PlanTranslatorContext context,
-            Set<SlotId> requiredByProjectSlotIdSet) {
-        outputColumnUniqueIds.clear();
-        for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
-            if (requiredByProjectSlotIdSet.contains(slot.getId()) && slot.getColumn() != null) {
-                outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
-            }
-        }
     }
 
     @Override

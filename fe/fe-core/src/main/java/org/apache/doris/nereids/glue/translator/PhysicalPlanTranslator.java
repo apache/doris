@@ -46,8 +46,6 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.es.source.EsScanNode;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -274,6 +272,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 scans.forEach(builder::append);
                 throw new AnalysisException("tables with unknown column stats: " + builder);
             }
+        }
+        for (ScanNode scanNode : context.getScanNodes()) {
+            Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         }
         return rootFragment;
     }
@@ -646,7 +647,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 )
         );
         context.getTopnFilterContext().translateTarget(esScan, esScanNode, context);
-        Utils.execWithUncheckedException(esScanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), esScanNode, dataPartition);
         context.addPlanFragment(planFragment);
@@ -697,7 +697,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 )
         );
         context.getTopnFilterContext().translateTarget(fileScan, scanNode, context);
-        Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         // Create PlanFragment
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = createPlanFragment(scanNode, dataPartition, fileScan);
@@ -723,7 +722,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 )
         );
         context.getTopnFilterContext().translateTarget(jdbcScan, jdbcScanNode, context);
-        Utils.execWithUncheckedException(jdbcScanNode::finalizeForNereids);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), jdbcScanNode, dataPartition);
         context.addPlanFragment(planFragment);
@@ -748,7 +746,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 )
         );
         context.getTopnFilterContext().translateTarget(odbcScan, odbcScanNode, context);
-        Utils.execWithUncheckedException(odbcScanNode::finalizeForNereids);
         context.getTopnFilterContext().translateTarget(odbcScan, odbcScanNode, context);
         DataPartition dataPartition = DataPartition.RANDOM;
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), odbcScanNode, dataPartition);
@@ -827,8 +824,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         );
         context.getTopnFilterContext().translateTarget(olapScan, olapScanNode, context);
         olapScanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(olapScan.getRelationId()));
-        // TODO: we need to remove all finalizeForNereids
-        olapScanNode.finalizeForNereids();
         // Create PlanFragment
         // TODO: use a util function to convert distribution to DataPartition
         DataPartition dataPartition = DataPartition.RANDOM;
@@ -915,7 +910,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                 .translateRuntimeFilterTarget(expr, finalScanNode, context)
                 )
         );
-        Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         context.addScanNode(scanNode, schemaScan);
         PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, schemaScan);
         context.addPlanFragment(planFragment);
@@ -937,7 +931,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         .forEach(expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
                 )
         );
-        Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         context.addScanNode(scanNode, tvfRelation);
 
         // TODO: it is weird update label in this way
@@ -2446,22 +2439,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (scanNode.getTupleDesc().getSlots().isEmpty()) {
             scanNode.getTupleDesc().getSlots().add(smallest);
         }
-        try {
-            if (context.getSessionVariable() != null
-                    && context.getSessionVariable().forbidUnknownColStats
-                    && !StatisticConstants.isSystemTable(scanNode.getTupleDesc().getTable())) {
-                for (SlotId slotId : requiredByProjectSlotIdSet) {
-                    if (context.isColumnStatsUnknown(scanNode, slotId)) {
-                        String colName = scanNode.getTupleDesc().getSlot(slotId.asInt()).getColumn().getName();
-                        throw new AnalysisException("meet unknown column stats: " + colName);
-                    }
+        if (context.getSessionVariable() != null
+                && context.getSessionVariable().forbidUnknownColStats
+                && !StatisticConstants.isSystemTable(scanNode.getTupleDesc().getTable())) {
+            for (SlotId slotId : requiredByProjectSlotIdSet) {
+                if (context.isColumnStatsUnknown(scanNode, slotId)) {
+                    String colName = scanNode.getTupleDesc().getSlot(slotId.asInt()).getColumn().getName();
+                    throw new AnalysisException("meet unknown column stats: " + colName);
                 }
-                context.removeScanFromStatsUnknownColumnsMap(scanNode);
             }
-            scanNode.updateRequiredSlots(context, requiredByProjectSlotIdSet);
-        } catch (UserException e) {
-            Util.logAndThrowRuntimeException(LOG,
-                    "User Exception while reset external file scan node contexts.", e);
+            context.removeScanFromStatsUnknownColumnsMap(scanNode);
         }
     }
 

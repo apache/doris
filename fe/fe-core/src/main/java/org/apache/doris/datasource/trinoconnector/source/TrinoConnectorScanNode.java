@@ -321,31 +321,6 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         }
     }
 
-    // When calling 'setTrinoConnectorParams' and 'getSplits', the column trimming has not been performed yet,
-    // Therefore, trino_connector_column_names is temporarily reset here
-    @Override
-    public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
-        super.updateRequiredSlots(planTranslatorContext, requiredByProjectSlotIdSet);
-        Map<String, ColumnMetadata> columnMetadataMap = source.getTargetTable().getColumnMetadataMap();
-        Map<String, ColumnHandle> columnHandleMap = source.getTargetTable().getColumnHandleMap();
-        List<ColumnHandle> columnHandles = new ArrayList<>();
-        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
-            String colName = slotDescriptor.getColumn().getName();
-            if (columnMetadataMap.containsKey(colName)) {
-                columnHandles.add(columnHandleMap.get(colName));
-            }
-        }
-
-        for (TScanRangeLocations tScanRangeLocations : scanRangeLocations) {
-            List<TFileRangeDesc> ranges = tScanRangeLocations.scan_range.ext_scan_range.file_scan_range.ranges;
-            for (TFileRangeDesc tFileRangeDesc : ranges) {
-                tFileRangeDesc.table_format_params.trino_connector_params.setTrinoConnectorColumnHandles(
-                        encodeObjectToString(columnHandles, objectMapperProvider));
-            }
-        }
-    }
-
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
         return getLocationType("");

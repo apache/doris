@@ -183,16 +183,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params.setSrcTupleId(-1);
     }
 
-    /**
-     * Reset required_slots in contexts. This is called after Nereids planner do the projection.
-     * In the projection process, some slots may be removed. So call this to update the slots info.
-     */
-    @Override
-    public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
-        updateRequiredSlots();
-    }
-
     private void updateRequiredSlots() throws UserException {
         params.unsetRequiredSlots();
         for (SlotDescriptor slot : desc.getSlots()) {

@@ -174,15 +174,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return false;
     }
 
-    /**
-     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
-     * In the projection process, some slots may be removed. So call this to update the slots info.
-     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
-     */
-    public void updateRequiredSlots(PlanTranslatorContext context,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
-    }
-
     private void computeColumnFilter(Column column, SlotDescriptor slotDesc, PartitionInfo partitionsInfo) {
         // Set `columnFilters` all the time because `DistributionPruner` also use this.
         // Maybe we could use `columnNameToRange` for `DistributionPruner` and
