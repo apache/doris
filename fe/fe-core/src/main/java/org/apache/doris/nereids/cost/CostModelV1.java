@@ -275,20 +275,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         // shuffle
         if (spec instanceof DistributionSpecHash) {
-            double base = 0.05 * intputRowCount * childStatistics.dataSizeFactor(
-                    distribute.child().getOutput()) / beNumber;
-            List<ExprId> keyExprIds = ((DistributionSpecHash) spec).getOrderedShuffledColumns();
-            List<Slot> keySlots = new ArrayList<>();
-            for (Slot slot : distribute.getOutput()) {
-                if (keyExprIds.contains(slot.getExprId())) {
-                    keySlots.add(slot);
-                }
-            }
-            double keyMem = childStatistics.computeSize(keySlots);
             return CostV1.of(context.getSessionVariable(),
                     intputRowCount / beNumber,
                     0,
-                    base
+                    intputRowCount * childStatistics.dataSizeFactor(
+                            distribute.child().getOutput()) / beNumber
                     );
         }
 
