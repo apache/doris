@@ -87,9 +87,20 @@ public class StmtExecutorTest {
         ctx = new ConnectContext();
 
         SessionVariable sessionVariable = new SessionVariable();
+        new Expectations(ctx) {
+            {
+                ctx.getSessionVariable();
+                minTimes = 0;
+                result = sessionVariable;
+
+                ConnectContext.get().getSessionVariable();
+                minTimes = 0;
+                result = sessionVariable;
+            }
+        };
+
         MysqlSerializer serializer = MysqlSerializer.newInstance();
         Env env = AccessTestUtil.fetchAdminCatalog();
-
         new Expectations(channel) {
             {
                 channel.sendOnePacket((ByteBuffer) any);
@@ -154,10 +165,6 @@ public class StmtExecutorTest {
                 ctx.getDatabase();
                 minTimes = 0;
                 result = "testDb";
-
-                ctx.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
 
                 ctx.setStmtId(anyLong);
                 minTimes = 0;

@@ -39,8 +39,8 @@
 #include "common/config.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
@@ -297,7 +297,6 @@ void Checker::do_inspect(const InstanceInfoPB& instance) {
                     : bucket_lifecycle_days * 86400000;
     TEST_SYNC_POINT_CALLBACK("Checker:do_inspect", &last_ctime_ms);
     if (now - last_ctime_ms >= expiration_ms) {
-        TEST_SYNC_POINT("Checker.do_inspect1");
         LOG_CHECK_INTERVAL_ALARM << "check risks, instance_id: " << instance.instance_id()
                                  << " last_ctime_ms: " << last_ctime_ms
                                  << " job_status: " << job_status
@@ -694,10 +693,8 @@ int InstanceChecker::do_inverted_check() {
 
     // TODO(Xiaocc): Currently we haven't implemented one generator-like s3 accessor list function
     // so we choose to skip here.
-    {
-        [[maybe_unused]] int tmp_ret = 0;
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", &tmp_ret);
-    }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", (int)0);
+
     for (auto& [_, accessor] : accessor_map_) {
         std::unique_ptr<ListIterator> list_iter;
         int ret = accessor->list_directory("data", &list_iter);

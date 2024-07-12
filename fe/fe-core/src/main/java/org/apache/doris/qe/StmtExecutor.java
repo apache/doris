@@ -726,6 +726,13 @@ public class StmtExecutor {
                     return;
                 }
             }
+
+            // Query following createting table would throw table not exist error.
+            // For example.
+            // t1: client issues create table to master fe
+            // t2: client issues query sql to observer fe, the query would fail due to not exist table in plan phase.
+            // t3: observer fe receive editlog creating the table from the master fe
+            syncJournalIfNeeded();
             try {
                 ((Command) logicalPlan).run(context, this);
             } catch (MustFallbackException e) {
@@ -760,6 +767,13 @@ public class StmtExecutor {
         } else {
             context.getState().setIsQuery(true);
             // create plan
+            // Query following createting table would throw table not exist error.
+            // For example.
+            // t1: client issues create table to master fe
+            // t2: client issues query sql to observer fe, the query would fail due to not exist table in
+            //     plan phase.
+            // t3: observer fe receive editlog creating the table from the master fe
+            syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
             if (context.getSessionVariable().isEnableMaterializedViewRewrite()) {
                 planner.addHook(InitMaterializationContextHook.INSTANCE);
@@ -806,7 +820,6 @@ public class StmtExecutor {
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
-        syncJournalIfNeeded();
         int retryTime = Config.max_query_retry_time;
         for (int i = 0; i <= retryTime; i++) {
             try {
@@ -956,6 +969,13 @@ public class StmtExecutor {
                     }
                 }
             } else {
+                // Query following createting table would throw table not exist error.
+                // For example.
+                // t1: client issues create table to master fe
+                // t2: client issues query sql to observer fe, the query would fail due to not exist table
+                //     in plan phase.
+                // t3: observer fe receive editlog creating the table from the master fe
+                syncJournalIfNeeded();
                 analyzer = new Analyzer(context.getEnv(), context);
                 parsedStmt.analyze(analyzer);
                 parsedStmt.checkPriv();
