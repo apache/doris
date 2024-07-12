@@ -144,6 +144,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"是否启用插件", "Whether to enable the plugin"})
     public static boolean plugin_enable = true;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"是否启用Image压缩", "enable compression for FE Image"})
+    public static boolean meta_enable_compress = false;
+
     @ConfField(description = {
             "JDBC 驱动的存放路径。在创建 JDBC Catalog 时，如果指定的驱动文件路径不是绝对路径，则会在这个目录下寻找",
             "The path to save jdbc drivers. When creating JDBC Catalog,"
