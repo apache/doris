@@ -43,7 +43,10 @@ suite("test_alter_add_multi_partition") {
     sql "ALTER TABLE add_multi_partition ADD PARTITIONS FROM ('2000-02-05') TO ('2000-03-01') INTERVAL 4 DAY;"
     List<List<Object>> result2  = sql "show partitions from add_multi_partition;"
     assertEquals(result2.size(), 8)
-    qt_sql """show partitions from add_multi_partition where PartitionName = 'p_20000229';"""
+    def  partitionName = sql "show partitions from add_multi_partition where PartitionName = 'p_20000229';"
+    for (pn in partitionName) {
+        assertTrue(pn[1] == "p_20000229")
+    }
     sql "DROP TABLE IF EXISTS add_multi_partition FORCE"
 
     
