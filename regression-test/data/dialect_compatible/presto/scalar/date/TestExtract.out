@@ -57,137 +57,77 @@
 10
 
 -- !TestExtract_20 --
-10
+2
 
 -- !TestExtract_21 --
-10
+2
 
 -- !TestExtract_22 --
-7
+2
 
 -- !TestExtract_23 --
 2
 
 -- !TestExtract_24 --
-7
-
--- !TestExtract_25 --
-2
-
--- !TestExtract_26 --
-131
-
--- !TestExtract_27 --
-131
-
--- !TestExtract_28 --
-131
-
--- !TestExtract_29 --
-131
-
--- !TestExtract_30 --
-2
-
--- !TestExtract_31 --
-2
-
--- !TestExtract_32 --
-2
-
--- !TestExtract_33 --
-2
-
--- !TestExtract_34 --
 0
 
--- !TestExtract_35 --
+-- !TestExtract_25 --
 2020
+
+-- !TestExtract_26 --
+1960
+
+-- !TestExtract_27 --
+2020
+
+-- !TestExtract_28 --
+1960
+
+-- !TestExtract_29 --
+5
+
+-- !TestExtract_30 --
+5
+
+-- !TestExtract_31 --
+5
+
+-- !TestExtract_32 --
+5
+
+-- !TestExtract_33 --
+19
+
+-- !TestExtract_34 --
+19
+
+-- !TestExtract_35 --
+19
 
 -- !TestExtract_36 --
-1960
+19
 
 -- !TestExtract_37 --
-2020
+10
 
 -- !TestExtract_38 --
-1960
+10
 
 -- !TestExtract_39 --
-5
+10
 
 -- !TestExtract_40 --
-5
+10
 
 -- !TestExtract_41 --
-5
+2
 
 -- !TestExtract_42 --
-5
+2
 
 -- !TestExtract_43 --
-19
+2
 
 -- !TestExtract_44 --
-19
-
--- !TestExtract_45 --
-19
-
--- !TestExtract_46 --
-19
-
--- !TestExtract_47 --
-10
-
--- !TestExtract_48 --
-10
-
--- !TestExtract_49 --
-10
-
--- !TestExtract_50 --
-10
-
--- !TestExtract_51 --
-10
-
--- !TestExtract_52 --
-10
-
--- !TestExtract_53 --
-7
-
--- !TestExtract_54 --
-2
-
--- !TestExtract_55 --
-7
-
--- !TestExtract_56 --
-2
-
--- !TestExtract_57 --
-131
-
--- !TestExtract_58 --
-131
-
--- !TestExtract_59 --
-131
-
--- !TestExtract_60 --
-131
-
--- !TestExtract_61 --
-2
-
--- !TestExtract_62 --
-2
-
--- !TestExtract_63 --
-2
-
--- !TestExtract_64 --
 2
 
