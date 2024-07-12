@@ -33,6 +33,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
+#include "util/profile_collector.h"
 #include "util/runtime_profile.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -58,7 +59,7 @@ namespace doris::vectorized {
 /**
  * Connector to java jni scanner, which should extend org.apache.doris.common.jni.JniScanner
  */
-class JniConnector {
+class JniConnector : public ProfileCollector {
 public:
     /**
      * The predicates that can be pushed down to java side.
@@ -242,6 +243,9 @@ public:
     static std::string get_hive_type(const TypeDescriptor& desc);
 
     static Status generate_meta_info(Block* block, std::unique_ptr<long[]>& meta);
+
+protected:
+    void _collect_profile_before_close() override;
 
 private:
     std::string _connector_name;

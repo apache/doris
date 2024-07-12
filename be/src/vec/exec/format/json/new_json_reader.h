@@ -94,6 +94,9 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
 
+protected:
+    void _collect_profile_before_close() override;
+
 private:
     Status _get_range_params();
     void _init_system_properties();
