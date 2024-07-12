@@ -787,8 +787,7 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_PARQUET: {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, *_params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()),
-                    _io_ctx.get(), _state,
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
                     _shoudl_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
                                                      : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
