@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_data", "p2") {
+suite("test_show_data", "p1") {
     // define a sql table
     def testTableWithoutIndex = "test_show_data_httplogs_without_index"
     def testTableWithIndex = "test_show_data_httplogs_with_index"
@@ -212,7 +212,7 @@ suite("test_show_data", "p2") {
     }
 }
 
-suite("test_show_data_for_bkd", "p2") {
+suite("test_show_data_for_bkd", "p1") {
     // define a sql table
     def testTableWithoutBKDIndex = "test_show_data_httplogs_without_bkd_index"
     def testTableWithBKDIndex = "test_show_data_httplogs_with_bkd_index"
@@ -409,7 +409,7 @@ suite("test_show_data_for_bkd", "p2") {
     }
 }
 
-suite("test_show_data_multi_add", "p2") {
+suite("test_show_data_multi_add", "p1") {
     // define a sql table
     def testTableWithoutIndex = "test_show_data_httplogs_multi_add_without_index"
     def testTableWithIndex = "test_show_data_httplogs_multi_add_with_index"
@@ -612,7 +612,7 @@ suite("test_show_data_multi_add", "p2") {
     }
 }
 
-suite("test_show_data_with_compaction", "p2, nonConcurrent") {
+suite("test_show_data_with_compaction", "p1") {
     // define a sql table
     def tableWithIndexCompaction = "test_with_index_compaction"
     def tableWithOutIndexCompaction = "test_without_index_compaction"

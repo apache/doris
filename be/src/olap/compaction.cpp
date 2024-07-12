@@ -660,8 +660,8 @@ Status Compaction::do_inverted_index_compaction() {
                     DORIS_TRY(inverted_index_file_reader->get_all_directories());
             // V1: each index is a separate file
             // V2: all indexes are in a single file
-            if (_cur_tablet_schema->get_inverted_index_storage_format() ==
-                doris::InvertedIndexStorageFormatPB::V2) {
+            if (_cur_tablet_schema->get_inverted_index_storage_format() !=
+                doris::InvertedIndexStorageFormatPB::V1) {
                 int64_t fsize = 0;
                 st = ctx.fs()->file_size(
                         InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix), &fsize);
