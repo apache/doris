@@ -37,6 +37,9 @@ namespace doris {
 
 std::string get_stack_trace(int start_pointers_index, std::string dwarf_location_info_mode) {
 #ifdef ENABLE_STACKTRACE
+    if (!config::enable_stacktrace) {
+        return "no enable stacktrace";
+    }
     if (dwarf_location_info_mode.empty()) {
         dwarf_location_info_mode = config::dwarf_location_info_mode;
     }
