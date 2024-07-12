@@ -588,6 +588,13 @@ public class StmtExecutor {
                     return;
                 }
             }
+            // Query following createting table would throw table not exist error.
+            // For example.
+            // t1: client issues create table to master fe
+            // t2: client issues query sql to observer fe, the query would fail due to not exist table in
+            //     plan phase.
+            // t3: observer fe receive editlog creating the table from the master fe
+            syncJournalIfNeeded();
             try {
                 ((Command) logicalPlan).run(context, this);
             } catch (QueryStateException e) {
@@ -611,6 +618,13 @@ public class StmtExecutor {
                 ConnectContext.get().setStatsErrorEstimator(new StatsErrorEstimator());
             }
             // create plan
+            // Query following createting table would throw table not exist error.
+            // For example.
+            // t1: client issues create table to master fe
+            // t2: client issues query sql to observer fe, the query would fail due to not exist table in
+            //     plan phase.
+            // t3: observer fe receive editlog creating the table from the master fe
+            syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
@@ -643,7 +657,6 @@ public class StmtExecutor {
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
-        syncJournalIfNeeded();
         QueueOfferToken offerRet = null;
         QueryQueue queryQueue = null;
         if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
@@ -760,6 +773,13 @@ public class StmtExecutor {
                     LOG.debug("no need to transfer to Master. stmt: {}", context.getStmtId());
                 }
             } else {
+                // Query following createting table would throw table not exist error.
+                // For example.
+                // t1: client issues create table to master fe
+                // t2: client issues query sql to observer fe, the query would fail due to not exist table
+                //     in plan phase.
+                // t3: observer fe receive editlog creating the table from the master fe
+                syncJournalIfNeeded();
                 analyzer = new Analyzer(context.getEnv(), context);
                 parsedStmt.analyze(analyzer);
                 parsedStmt.checkPriv();
@@ -947,7 +967,7 @@ public class StmtExecutor {
     }
 
     // Analyze one statement to structure in memory.
-    public void analyze(TQueryOptions tQueryOptions) throws UserException, InterruptedException {
+    public void analyze(TQueryOptions tQueryOptions) throws UserException, InterruptedException, Exception {
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(),
                     context.getForwardedStmtId());
@@ -988,6 +1008,13 @@ public class StmtExecutor {
             return;
         }
 
+        // Query following createting table would throw table not exist error.
+        // For example.
+        // t1: client issues create table to master fe
+        // t2: client issues query sql to observer fe, the query would fail due to not exist table in
+        //     plan phase.
+        // t3: observer fe receive editlog creating the table from the master fe
+        syncJournalIfNeeded();
         analyzer = new Analyzer(context.getEnv(), context);
 
         if (parsedStmt instanceof PrepareStmt || context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
