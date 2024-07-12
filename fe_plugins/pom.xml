@@ -75,7 +75,7 @@ under the License.
         <trino.parser.version>395</trino.parser.version>
         <log4j2.version>2.18.0</log4j2.version>
         <log4j.verion>1.2.17</log4j.verion>
-        <lombok.version>1.18.24</lombok.version>
+        <lombok.version>1.18.32</lombok.version>
         <junit.version>5.8.2</junit.version>
         <jmockit.version>1.49</jmockit.version>
     </properties>
