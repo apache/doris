@@ -103,15 +103,15 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 Utils.getUnCorrelatedExprs(correlatedPredicate, apply.getCorrelationSlot());
         newGroupby.addAll(agg.getGroupByExpressions());
         Map<Expression, Slot> unCorrelatedExprToSlot = Maps.newHashMap();
-        newAggOutput.addAll(newGroupby.stream().map(expression -> {
+        for (Expression expression : newGroupby) {
             if (expression instanceof Slot) {
-                return (NamedExpression) expression;
+                newAggOutput.add((NamedExpression) expression);
             } else {
                 Alias alias = new Alias(expression);
                 unCorrelatedExprToSlot.put(expression, alias.toSlot());
-                return alias;
+                newAggOutput.add(alias);
             }
-        }).collect(ImmutableList.toImmutableList()));
+        }
         correlatedPredicate = ExpressionUtils.replace(correlatedPredicate, unCorrelatedExprToSlot);
         LogicalAggregate newAgg = new LogicalAggregate<>(newGroupby, newAggOutput,
                 PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child()));
