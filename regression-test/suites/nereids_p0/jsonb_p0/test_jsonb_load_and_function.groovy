@@ -544,7 +544,7 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
 
     // explode_json_object function
-    qt_order_select_explode_json_object "select id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id, k;"
+    qt_order_select_explode_json_object "select id, j, k,v from ${testTable} lateral view explode_json_object(j) tmp as k,v order by id, k;"
     qt_order_select_explode_json_object_out "select id, j, k,v from ${testTable} lateral view explode_json_object_outer(j) tmp as k,v order by id, k;"
 
     // json_parse
