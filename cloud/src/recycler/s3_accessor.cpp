@@ -21,6 +21,7 @@
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/s3/S3Client.h>
+#include <bvar/reducer.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
@@ -42,6 +43,9 @@
 #include "recycler/storage_vault_accessor.h"
 
 namespace {
+
+bvar::Adder<uint64_t> too_many_request_http_retry_times("too_many_request_http_retry_times");
+
 class CustomRetryStrategy final : public Aws::Client::DefaultRetryStrategy {
 public:
     CustomRetryStrategy(int maxRetries) : DefaultRetryStrategy(maxRetries) {}
@@ -50,6 +54,7 @@ public:
                      long attemptedRetries) const override {
         if (attemptedRetries < m_maxRetries &&
             error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS) {
+            too_many_request_http_retry_times << 1;
             return true;
         }
         return Aws::Client::DefaultRetryStrategy::ShouldRetry(error, attemptedRetries);
