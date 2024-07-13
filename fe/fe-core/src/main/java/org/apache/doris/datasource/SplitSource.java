@@ -44,17 +44,18 @@ import java.util.concurrent.atomic.AtomicLong;
 public class SplitSource {
     private static final AtomicLong UNIQUE_ID_GENERATOR = new AtomicLong(0);
     private static final long WAIT_TIME_OUT = 100; // 100ms
-    private static final long MAX_WAIT_TIME_OUT = 500; // 500ms
 
     private final long uniqueId;
     private final Backend backend;
     private final SplitAssignment splitAssignment;
     private final AtomicBoolean isLastBatch;
+    private final long maxWaitTime;
 
-    public SplitSource(Backend backend, SplitAssignment splitAssignment) {
+    public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime) {
         this.uniqueId = UNIQUE_ID_GENERATOR.getAndIncrement();
         this.backend = backend;
         this.splitAssignment = splitAssignment;
+        this.maxWaitTime = maxWaitTime;
         this.isLastBatch = new AtomicBoolean(false);
         splitAssignment.registerSource(uniqueId);
     }
@@ -71,7 +72,7 @@ public class SplitSource {
             return Collections.emptyList();
         }
         List<TScanRangeLocations> scanRanges = Lists.newArrayListWithExpectedSize(maxBatchSize);
-        long maxTimeOut = 0;
+        long startTime = System.currentTimeMillis();
         while (scanRanges.size() < maxBatchSize) {
             BlockingQueue<Collection<TScanRangeLocations>> splits = splitAssignment.getAssignedSplits(backend);
             if (splits == null) {
@@ -81,17 +82,18 @@ public class SplitSource {
             while (scanRanges.size() < maxBatchSize) {
                 try {
                     Collection<TScanRangeLocations> splitCollection = splits.poll(WAIT_TIME_OUT, TimeUnit.MILLISECONDS);
+                    if (splitCollection != null) {
+                        scanRanges.addAll(splitCollection);
+                    }
+                    if (!scanRanges.isEmpty() && System.currentTimeMillis() - startTime > maxWaitTime) {
+                        return scanRanges;
+                    }
                     if (splitCollection == null) {
-                        maxTimeOut += WAIT_TIME_OUT;
                         break;
                     }
-                    scanRanges.addAll(splitCollection);
                 } catch (InterruptedException e) {
                     throw new UserException("Failed to get next batch of splits", e);
                 }
-            }
-            if (maxTimeOut >= MAX_WAIT_TIME_OUT && !scanRanges.isEmpty()) {
-                break;
             }
         }
         return scanRanges;

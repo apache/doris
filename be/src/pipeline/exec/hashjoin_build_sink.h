@@ -78,7 +78,6 @@ protected:
     int64_t _build_side_last_mem_used = 0;
 
     size_t _build_side_rows = 0;
-    std::vector<vectorized::Block> _build_blocks;
 
     vectorized::MutableBlock _build_side_mutable_block;
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
@@ -148,8 +147,8 @@ public:
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
     bool require_data_distribution() const override {
-        return _join_distribution == TJoinDistributionType::COLOCATE ||
-               _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE;
+        return _join_distribution != TJoinDistributionType::BROADCAST &&
+               _join_distribution != TJoinDistributionType::NONE;
     }
 
 private:

@@ -944,6 +944,12 @@ struct TPreAggregationNode {
   2: required list<Exprs.TExpr> aggregate_exprs
 }
 
+enum TSortAlgorithm {
+   HEAP_SORT,
+   TOPN_SORT,
+   FULL_SORT
+ }
+
 struct TSortNode {
   1: required TSortInfo sort_info
   // Indicates whether the backend service should use topn vs. sorting
@@ -957,6 +963,7 @@ struct TSortNode {
   8: optional bool merge_by_exchange
   9: optional bool is_analytic_sort
   10: optional bool is_colocate
+  11: optional TSortAlgorithm algorithm
 }
 
 enum TopNAlgorithm {

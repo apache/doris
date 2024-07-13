@@ -43,12 +43,12 @@ suite('test_new_partial_update_delete') {
                     PROPERTIES (
                         "disable_auto_compaction" = "true",
                         "enable_unique_key_merge_on_write" = "false",
-                        "enable_mow_delete_on_delete_predicate" = "true",
+                        "enable_mow_light_delete" = "true",
                         "replication_num" = "1",
                         "store_row_column" = "${use_row_store}"); """
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+                assertTrue(e.getMessage().contains('enable_mow_light_delete property is only supported for unique merge-on-write table'))
             }
 
             try {
@@ -67,10 +67,10 @@ suite('test_new_partial_update_delete') {
                         "enable_unique_key_merge_on_write" = "false",
                         "replication_num" = "1",
                         "store_row_column" = "${use_row_store}"); """
-                sql """alter table ${tableMorName2} set ("enable_mow_delete_on_delete_predicate"="true")"""
+                sql """alter table ${tableMorName2} set ("enable_mow_light_delete"="true")"""
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+                assertTrue(e.getMessage().contains('enable_mow_light_delete property is only supported for unique merge-on-write table'))
             }
 
             def tableName1 = "test_new_partial_update_delete1"
@@ -88,7 +88,8 @@ suite('test_new_partial_update_delete') {
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
-            qt_sql_table1 "show create table ${tableName1}"
+            def output1 = sql "show create table ${tableName1}"
+            assertTrue output1[0][1].contains("\"enable_mow_light_delete\" = \"false\"");
             sql "insert into ${tableName1} values(1,1,1,1,1)"
             // 1,1,1,1,1
             qt_sql1 "select * from ${tableName1} order by k1;"
@@ -107,10 +108,11 @@ suite('test_new_partial_update_delete') {
 
 
 
-            sql """alter table ${tableName1} set ("enable_mow_delete_on_delete_predicate"="true") """
+            sql """alter table ${tableName1} set ("enable_mow_light_delete"="true") """
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict=true;"
-            qt_sql_table2 "show create table ${tableName1}"
+            def output2 = sql "show create table ${tableName1}"
+            assertTrue output2[0][1].contains("\"enable_mow_light_delete\" = \"true\"");
             sql "insert into ${tableName1} values(2,2,2,2,2)"
             // 1,2,NULL,NULL,NULL
             // 2,2,2,2,2
@@ -154,12 +156,12 @@ suite('test_new_partial_update_delete') {
                     PROPERTIES (
                         "disable_auto_compaction" = "true",
                         "enable_unique_key_merge_on_write" = "false",
-                        "enable_mow_delete_on_delete_predicate" = "true",
+                        "enable_mow_light_delete" = "true",
                         "replication_num" = "1",
                         "store_row_column" = "${use_row_store}"); """
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+                assertTrue(e.getMessage().contains('enable_mow_light_delete property is only supported for unique merge-on-write table'))
             }
 
             try {
@@ -178,10 +180,10 @@ suite('test_new_partial_update_delete') {
                         "enable_unique_key_merge_on_write" = "false",
                         "replication_num" = "1",
                         "store_row_column" = "${use_row_store}"); """
-                sql """alter table ${tableMorName4} set ("enable_mow_delete_on_delete_predicate"="true")"""
+                sql """alter table ${tableMorName4} set ("enable_mow_light_delete"="true")"""
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains('enable_mow_delete_on_delete_predicate property is not supported for unique merge-on-read table'))
+                assertTrue(e.getMessage().contains('enable_mow_light_delete property is only supported for unique merge-on-write table'))
             }
             sql "set enable_nereids_planner=false"
             def tableName2 = "test_new_partial_update_delete2"
@@ -199,7 +201,8 @@ suite('test_new_partial_update_delete') {
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
-            qt_sql_table21 "show create table ${tableName2}"
+            def output3 = sql "show create table ${tableName2}"
+            assertTrue output3[0][1].contains("\"enable_mow_light_delete\" = \"false\"");
             sql "insert into ${tableName2} values(1,1,1,1,1)"
             // 1,1,1,1,1
             qt_sql21 "select * from ${tableName2} order by k1;"
@@ -218,10 +221,11 @@ suite('test_new_partial_update_delete') {
 
 
 
-            sql """alter table ${tableName2} set ("enable_mow_delete_on_delete_predicate"="true") """
+            sql """alter table ${tableName2} set ("enable_mow_light_delete"="true") """
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict=true;"
-            qt_sql_table32 "show create table ${tableName2}"
+            def output4 = sql "show create table ${tableName2}"
+            assertTrue output4[0][1].contains("\"enable_mow_light_delete\" = \"true\"");
             sql "insert into ${tableName2} values(2,2,2,2,2)"
             // 1,2,NULL,NULL,NULL
             // 2,2,2,2,2
@@ -247,6 +251,49 @@ suite('test_new_partial_update_delete') {
             sql "set enable_insert_strict=true;"
 
             sql "drop table if exists ${tableName2};"
+        }
+    }
+
+    connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        sql "use ${db};"
+        try {
+            def tableAggName = "test_new_partial_update_agg_delete"
+            sql "DROP TABLE IF EXISTS ${tableAggName};"
+            sql """ CREATE TABLE IF NOT EXISTS ${tableAggName} (
+                    `k1` int NOT NULL,
+                    `c1` int replace,
+                    `c2` int replace,
+                    `c3` int replace,
+                    `c4` int replace
+                    )AGGREGATE KEY(k1)
+                DISTRIBUTED BY HASH(k1) BUCKETS 1
+                PROPERTIES (
+                    "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "true",
+                    "replication_num" = "1"); """
+        } catch (Exception e) {
+            log.info(e.getMessage())
+            assertTrue(e.getMessage().contains('enable_mow_light_delete property is only supported for unique merge-on-write table'))
+        }
+
+        try {
+            def tableDupName = "test_new_partial_update_dup_delete"
+            sql "DROP TABLE IF EXISTS ${tableDupName};"
+            sql """ CREATE TABLE IF NOT EXISTS ${tableDupName} (
+                    `k1` int NOT NULL,
+                    `c1` int,
+                    `c2` int,
+                    `c3` int,
+                    `c4` int
+                    )DUPLICATE KEY(k1)
+                DISTRIBUTED BY HASH(k1) BUCKETS 1
+                PROPERTIES (
+                    "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "true",
+                    "replication_num" = "1"); """
+        } catch (Exception e) {
+            log.info(e.getMessage())
+            assertTrue(e.getMessage().contains('enable_mow_light_delete property is only supported for unique merge-on-write table'))
         }
     }
 }

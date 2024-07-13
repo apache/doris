@@ -318,17 +318,21 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    String get_ccr_body(String table) {
+    String get_ccr_body(String table, String db = null) {
+        if (db == null) {
+            db = context.dbName
+        }
+
         Gson gson = new Gson()
 
-        Map<String, String> srcSpec = context.getSrcSpec()
+        Map<String, String> srcSpec = context.getSrcSpec(db)
         srcSpec.put("table", table)
 
-        Map<String, String> destSpec = context.getDestSpec()
+        Map<String, String> destSpec = context.getDestSpec(db)
         destSpec.put("table", table)
 
         Map<String, Object> body = Maps.newHashMap()
-        body.put("name", context.suiteName + "_" + context.dbName + "_" + table)
+        body.put("name", context.suiteName + "_" + db + "_" + table)
         body.put("src", srcSpec)
         body.put("dest", destSpec)
 
@@ -454,6 +458,31 @@ class Suite implements GroovyInterceptable {
             result = DataUtils.sortByToString(result)
         }
         return result
+    }
+
+    def target_sql_return_maparray(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute ${isOrder ? "order_" : ""}target_sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeToList(context.getTargetConnection(this), sqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+
+        // get all column names as list
+        List<String> columnNames = new ArrayList<>()
+        for (int i = 0; i < meta.getColumnCount(); i++) {
+            columnNames.add(meta.getColumnName(i + 1))
+        }
+
+        // add result to res map list, each row is a map with key is column name
+        List<Map<String, Object>> res = new ArrayList<>()
+        for (int i = 0; i < result.size(); i++) {
+            Map<String, Object> row = new HashMap<>()
+            for (int j = 0; j < columnNames.size(); j++) {
+                row.put(columnNames.get(j), result.get(i).get(j))
+            }
+            res.add(row)
+        }
+        return res
     }
 
     List<List<String>> sql_meta(String sqlStr, boolean isOrder = false) {
@@ -894,21 +923,6 @@ class Suite implements GroovyInterceptable {
         return;
     }
 
-    String getProvider() {
-        String s3Endpoint = context.config.otherConfigs.get("s3Endpoint")
-        return getProvider(s3Endpoint)
-    }
-
-    String getProvider(String endpoint) {
-        def providers = ["cos", "oss", "s3", "obs", "bos"]
-        for (final def provider in providers) {
-            if (endpoint.containsIgnoreCase(provider)) {
-                return provider
-            }
-        }
-        return ""
-    }
-
     int getTotalLine(String filePath) {
         def file = new File(filePath)
         int lines = 0;
@@ -1345,6 +1359,10 @@ class Suite implements GroovyInterceptable {
                 }
         }
         return enableStorageVault;
+    }
+
+    boolean isGroupCommitMode() {
+        return getFeConfig("wait_internal_group_commit_finish").equals("true")
     }
 
     String getFeConfig(String key) {

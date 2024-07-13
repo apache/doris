@@ -45,7 +45,7 @@
 #include <vector>
 
 #include "cloud/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -475,6 +475,11 @@ Status VNodeChannel::open_wait() {
             _cancelled = true;
             auto error_code = open_callback->cntl_->ErrorCode();
             auto error_text = open_callback->cntl_->ErrorText();
+            if (error_text.find("Reached timeout") != std::string::npos) {
+                LOG(WARNING) << "failed to open tablet writer may caused by timeout. increase BE "
+                                "config `tablet_writer_open_rpc_timeout_sec` if you are sure that "
+                                "your table building and data are reasonable.";
+            }
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                     "failed to open tablet writer, error={}, error_text={}, info={}",
                     berror(error_code), error_text, channel_info());
@@ -523,8 +528,11 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     }
 
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
-    RETURN_IF_ERROR(
-            block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first)));
+    st = block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first));
+    if (!st.ok()) {
+        _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
+        return st;
+    }
     for (auto tablet_id : payload->second) {
         _cur_add_block_request->add_tablet_ids(tablet_id);
     }
@@ -820,10 +828,15 @@ void VNodeChannel::_add_block_failed_callback(const WriteBlockCallbackContext& c
     SCOPED_ATTACH_TASK(_state);
     // If rpc failed, mark all tablets on this node channel as failed
     _index_channel->mark_as_failed(this,
-                                   fmt::format("rpc failed, error coed:{}, error text:{}",
+                                   fmt::format("rpc failed, error code:{}, error text:{}",
                                                _send_block_callback->cntl_->ErrorCode(),
                                                _send_block_callback->cntl_->ErrorText()),
                                    -1);
+    if (_send_block_callback->cntl_->ErrorText().find("Reached timeout") != std::string::npos) {
+        LOG(WARNING) << "rpc failed may caused by timeout. increase BE config "
+                        "`min_load_rpc_timeout_ms` of to avoid this if you are sure that your "
+                        "table building and data are reasonable.";
+    }
     Status st = _index_channel->check_intolerable_failure();
     if (!st.ok()) {
         _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
@@ -1197,6 +1210,8 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
+    // if partition_type is TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
+    // on exchange node rather than on TabletWriter
     _block_convertor->init_autoinc_info(
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
             _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),

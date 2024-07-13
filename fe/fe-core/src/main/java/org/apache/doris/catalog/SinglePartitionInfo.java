@@ -29,6 +29,7 @@ public class SinglePartitionInfo extends PartitionInfo {
         super(PartitionType.UNPARTITIONED);
     }
 
+    @Deprecated
     public static PartitionInfo read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
             return GsonUtils.GSON.fromJson(Text.readString(in), SinglePartitionInfo.class);

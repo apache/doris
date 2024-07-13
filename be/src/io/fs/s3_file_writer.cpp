@@ -28,7 +28,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_block.h"
@@ -152,9 +152,7 @@ Status S3FileWriter::close(bool non_block) {
 Status S3FileWriter::_close_impl() {
     VLOG_DEBUG << "S3FileWriter::close, path: " << _obj_storage_path_opts.path.native();
 
-    const auto& upload_id =
-            _obj_storage_path_opts.upload_id.has_value() ? *_obj_storage_path_opts.upload_id : "";
-    if (upload_id.empty() && _pending_buf) {
+    if (_cur_part_num == 1 && _pending_buf) {
         RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
     }
 
@@ -339,9 +337,9 @@ Status S3FileWriter::_complete() {
         if (_failed || _completed_parts.size() != _cur_part_num) {
             _st = Status::InternalError(
                     "error status {}, have failed {}, complete parts {}, cur part num {}, whole "
-                    "parts {}, file path {}",
+                    "parts {}, file path {}, file size {}, has left buffer {}",
                     _st, _failed, _completed_parts.size(), _cur_part_num, _dump_completed_part(),
-                    _obj_storage_path_opts.path.native());
+                    _obj_storage_path_opts.path.native(), _bytes_appended, _pending_buf != nullptr);
             LOG(WARNING) << _st;
             return _st;
         }

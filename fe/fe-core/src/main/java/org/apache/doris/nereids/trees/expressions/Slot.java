@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -37,7 +38,11 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
         return this;
     }
 
-    public Slot withNullable(boolean newNullable) {
+    public Slot withNullable(boolean nullable) {
+        throw new RuntimeException("Do not implement");
+    }
+
+    public Slot withNullableAndDataType(boolean nullable, DataType dataType) {
         throw new RuntimeException("Do not implement");
     }
 

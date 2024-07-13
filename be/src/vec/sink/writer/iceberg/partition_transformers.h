@@ -66,16 +66,12 @@ public:
     }
 
     static std::string human_year(int year_ordinal) {
-        auto year = std::chrono::year_month_day(
-                            std::chrono::sys_days(std::chrono::floor<std::chrono::days>(
-                                    EPOCH + std::chrono::years(year_ordinal))))
-                            .year();
-        return std::to_string(static_cast<int>(year));
+        auto ymd = std::chrono::year_month_day {EPOCH} + std::chrono::years(year_ordinal);
+        return std::to_string(static_cast<int>(ymd.year()));
     }
 
     static std::string human_month(int month_ordinal) {
-        auto ymd = std::chrono::year_month_day(std::chrono::sys_days(
-                std::chrono::floor<std::chrono::days>(EPOCH + std::chrono::months(month_ordinal))));
+        auto ymd = std::chrono::year_month_day {EPOCH} + std::chrono::months(month_ordinal);
         return fmt::format("{:04d}-{:02d}", static_cast<int>(ymd.year()),
                            static_cast<unsigned>(ymd.month()));
     }
@@ -98,7 +94,7 @@ public:
     }
 
 private:
-    static const std::chrono::time_point<std::chrono::system_clock> EPOCH;
+    static const std::chrono::sys_days EPOCH;
     PartitionColumnTransformUtils() = default;
 };
 
@@ -112,7 +108,7 @@ public:
 
     virtual const TypeDescriptor& get_result_type() const = 0;
 
-    virtual ColumnWithTypeAndName apply(Block& block, int column_pos) = 0;
+    virtual ColumnWithTypeAndName apply(const Block& block, int column_pos) = 0;
 
     virtual std::string to_human_string(const TypeDescriptor& type, const std::any& value) const;
 
@@ -129,7 +125,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _source_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         return {column_with_type_and_name.column, column_with_type_and_name.type,
                 column_with_type_and_name.name};
@@ -148,9 +144,9 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _source_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
+        static_cast<void>(_width);
         auto int_type = std::make_shared<DataTypeInt32>();
-        size_t num_columns_without_result = block.columns();
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
 
         ColumnPtr string_column_ptr;
@@ -165,29 +161,31 @@ public:
             string_column_ptr = column_with_type_and_name.column;
             is_nullable = false;
         }
-        block.replace_by_position(column_pos, std::move(string_column_ptr));
-        block.insert(
-                {int_type->create_column_const(block.rows(), to_field(1)), int_type, "const 1"});
-        block.insert({int_type->create_column_const(block.rows(), to_field(_width)), int_type,
-                      fmt::format("const {}", _width)});
-        block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
-        ColumnNumbers temp_arguments(3);
-        temp_arguments[0] = column_pos;                     // str column
-        temp_arguments[1] = num_columns_without_result;     // pos
-        temp_arguments[2] = num_columns_without_result + 1; // width
-        size_t result_column_id = num_columns_without_result + 2;
 
-        SubstringUtil::substring_execute(block, temp_arguments, result_column_id, block.rows());
+        // Create a temp_block to execute substring function.
+        Block temp_block;
+        temp_block.insert(column_with_type_and_name);
+        temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field(1)), int_type,
+                           "const 1"});
+        temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field(_width)),
+                           int_type, fmt::format("const {}", _width)});
+        temp_block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
+        ColumnNumbers temp_arguments(3);
+        temp_arguments[0] = 0; // str column
+        temp_arguments[1] = 1; // pos
+        temp_arguments[2] = 2; // width
+        size_t result_column_id = 3;
+
+        SubstringUtil::substring_execute(temp_block, temp_arguments, result_column_id,
+                                         temp_block.rows());
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(block.get_by_position(result_column_id).column,
-                                                     null_map_column_ptr);
-            Block::erase_useless_column(&block, num_columns_without_result);
+            auto res_column = ColumnNullable::create(
+                    temp_block.get_by_position(result_column_id).column, null_map_column_ptr);
             return {std::move(res_column),
                     DataTypeFactory::instance().create_data_type(get_result_type(), true),
                     column_with_type_and_name.name};
         } else {
-            auto res_column = block.get_by_position(result_column_id).column;
-            Block::erase_useless_column(&block, num_columns_without_result);
+            auto res_column = temp_block.get_by_position(result_column_id).column;
             return {std::move(res_column),
                     DataTypeFactory::instance().create_data_type(get_result_type(), false),
                     column_with_type_and_name.name};
@@ -208,7 +206,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _source_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -267,7 +265,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _source_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -327,7 +325,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _source_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
 
         ColumnPtr column_ptr;
@@ -388,7 +386,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -417,7 +415,8 @@ public:
         while (p_in < end_in) {
             Int64 long_value = static_cast<Int64>(*p_in);
             uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
-            *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+            //            *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+            *p_out = (hash_value & INT32_MAX) % _bucket_num;
             ++p_in;
             ++p_out;
         }
@@ -450,7 +449,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -469,16 +468,17 @@ public:
         const auto& in_data = assert_cast<const ColumnInt64*>(column_ptr.get())->get_data();
 
         //3) do partition routing
-        auto col_res = ColumnInt64::create();
-        ColumnInt64::Container& out_data = col_res->get_data();
+        auto col_res = ColumnInt32::create();
+        ColumnInt32::Container& out_data = col_res->get_data();
         out_data.resize(in_data.size());
         const Int64* end_in = in_data.data() + in_data.size();
         const Int64* __restrict p_in = in_data.data();
-        Int64* __restrict p_out = out_data.data();
+        Int32* __restrict p_out = out_data.data();
         while (p_in < end_in) {
             Int64 long_value = static_cast<Int64>(*p_in);
             uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
-            int value = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+            //            int value = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+            int value = (hash_value & INT32_MAX) % _bucket_num;
             *p_out = value;
             ++p_in;
             ++p_out;
@@ -513,7 +513,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -546,7 +546,7 @@ public:
         while (p_in < end_in) {
             std::string buffer = BitUtil::IntToByteBuffer(*p_in);
             uint32_t hash_value = HashUtil::murmur_hash3_32(buffer.data(), buffer.size(), 0);
-            *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+            *p_out = (hash_value & INT32_MAX) % _bucket_num;
             ++p_in;
             ++p_out;
         }
@@ -592,13 +592,12 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
         CHECK(column_ptr != nullptr);
 
-        //2) get the input data from block
         //2) get the input data from block
         ColumnPtr null_map_column_ptr;
         bool is_nullable = false;
@@ -628,7 +627,7 @@ public:
             Int64 long_value = static_cast<Int64>(days_from_unix_epoch);
             uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
 
-            *p_out = ((hash_value >> 1) & INT32_MAX) % _bucket_num;
+            *p_out = (hash_value & INT32_MAX) % _bucket_num;
             ++p_in;
             ++p_out;
         }
@@ -661,7 +660,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -742,7 +741,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -807,7 +806,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -877,7 +876,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -947,7 +946,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -1017,7 +1016,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -1087,7 +1086,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -1163,7 +1162,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -1238,7 +1237,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         //1) get the target column ptr
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
         ColumnPtr column_ptr = column_with_type_and_name.column->convert_to_full_column_if_const();
@@ -1308,7 +1307,7 @@ public:
 
     const TypeDescriptor& get_result_type() const override { return _target_type; }
 
-    ColumnWithTypeAndName apply(Block& block, int column_pos) override {
+    ColumnWithTypeAndName apply(const Block& block, int column_pos) override {
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
 
         ColumnPtr column_ptr;

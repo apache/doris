@@ -135,10 +135,11 @@ Status VFileScanner::prepare(
     _convert_to_output_block_timer =
             ADD_TIMER(_local_state->scanner_profile(), "FileScannerConvertOuputBlockTime");
     _empty_file_counter = ADD_COUNTER(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT);
+    _not_found_file_counter =
+            ADD_COUNTER(_local_state->scanner_profile(), "NotFoundFileNum", TUnit::UNIT);
     _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
     _has_fully_rf_file_counter =
             ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
-    _get_split_timer = ADD_TIMER(_local_state->scanner_profile(), "GetSplitTime");
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -284,9 +285,9 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
             // And the file may already be removed from storage.
             // Just ignore not found files.
             Status st = _get_next_reader();
-            if (st.is<ErrorCode::NOT_FOUND>()) {
+            if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
                 _cur_reader_eof = true;
-                COUNTER_UPDATE(_empty_file_counter, 1);
+                COUNTER_UPDATE(_not_found_file_counter, 1);
                 continue;
             } else if (!st) {
                 return st;
@@ -450,13 +451,10 @@ Status VFileScanner::_fill_columns_from_path(size_t rows) {
         auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
-        vector<Slice> slices(rows);
-        for (int i = 0; i < rows; i++) {
-            slices[i] = {value.data(), value.size()};
-        }
         int num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_json_vector(*col_ptr, slices, &num_deserialized,
-                                                             _text_formatOptions) != Status::OK()) {
+        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
+                                                            &num_deserialized,
+                                                            _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
         }
@@ -1163,7 +1161,6 @@ Status VFileScanner::close(RuntimeState* state) {
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());
     }
-    COUNTER_UPDATE(_get_split_timer, _split_source->get_split_time());
 
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();

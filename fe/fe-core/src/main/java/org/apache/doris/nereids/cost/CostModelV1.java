@@ -140,9 +140,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
-        if (context.getStatementContext() == null || context.getStatementContext().isDpHyp()) {
-            return CostV1.zero();
-        }
+        double exprCost = expressionTreeCost(filter.getExpressions());
         double filterCostFactor = 0.0001;
         if (ConnectContext.get() != null) {
             filterCostFactor = ConnectContext.get().getSessionVariable().filterCostFactor;
@@ -165,7 +163,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             }
         }
         return CostV1.ofCpu(context.getSessionVariable(),
-                (filter.getConjuncts().size() - prefixIndexMatched) * filterCostFactor);
+                (filter.getConjuncts().size() - prefixIndexMatched + exprCost) * filterCostFactor);
     }
 
     @Override
@@ -351,7 +349,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
-        if (leftRowCount == rightRowCount) {
+        if ((long) leftRowCount == (long) rightRowCount) {
             // reorder by connectivity to be friendly to runtime filter.
             if (physicalHashJoin.getGroupExpression().isPresent()
                     && physicalHashJoin.getGroupExpression().get().getOwnerGroup() != null
@@ -388,7 +386,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     leftRowCount + rightRowCount
             );
         }
-
+        double probeShortcutFactor = 1.0;
+        if (physicalHashJoin.getJoinType().isLeftSemiOrAntiJoin()
+                && physicalHashJoin.getOtherJoinConjuncts().isEmpty()
+                && physicalHashJoin.getMarkJoinConjuncts().isEmpty()) {
+            // left semi/anti has short-cut opt, add probe side factor for distinguishing from the right ones
+            probeShortcutFactor = context.getSessionVariable().getLeftSemiOrAntiProbeFactor();
+        }
         if (context.isBroadcastJoin()) {
             // compared with shuffle join, bc join will be taken a penalty for both build and probe side;
             // currently we use the following factor as the penalty factor:
@@ -410,14 +414,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 }
             }
             return CostV1.of(context.getSessionVariable(),
-                    leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,
+                    leftRowCount * probeShortcutFactor
+                            + rightRowCount * buildSideFactor
+                            + outputRowCount * probeSideFactor,
                     rightRowCount,
                     0
             );
         }
-        return CostV1.of(context.getSessionVariable(), leftRowCount + rightRowCount + outputRowCount,
-                rightRowCount,
-                0
+        return CostV1.of(context.getSessionVariable(),
+                leftRowCount * probeShortcutFactor + rightRowCount + outputRowCount,
+                        rightRowCount, 0
         );
     }
 

@@ -25,7 +25,6 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -136,7 +135,7 @@ public class DatabaseTransactionMgr {
 
     // transactionId -> final status TransactionState
     private final Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newHashMap();
-    private final Map<Long, Long> subTxnIdToTxnId = Maps.newHashMap();
+    private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
 
     // The following 2 queues are to store transactionStates with final status
     // These queues are mainly used to avoid traversing all txns and speed up the cleaning time
@@ -1466,12 +1465,9 @@ public class DatabaseTransactionMgr {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
-                String partitionRange = "";
-                if (tblPartitionInfo.getType() == PartitionType.RANGE
-                        || tblPartitionInfo.getType() == PartitionType.LIST) {
-                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
-                }
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange, -1, -1,
+                String partitionRange = tblPartitionInfo.getPartitionRangeString(partitionId);
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(
+                        partitionId, partitionRange, -1, -1,
                         table.isTemporaryPartition(partitionId));
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
@@ -1479,21 +1475,12 @@ public class DatabaseTransactionMgr {
         }
         // persist transactionState
         unprotectUpsertTransactionState(transactionState, false);
-
-        // add publish version tasks. set task to null as a placeholder.
-        // tasks will be created when publishing version.
-        for (long backendId : totalInvolvedBackends) {
-            transactionState.addPublishVersionTask(backendId, null);
-        }
+        transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
     private PartitionCommitInfo generatePartitionCommitInfo(OlapTable table, long partitionId, long partitionVersion) {
         PartitionInfo tblPartitionInfo = table.getPartitionInfo();
-        String partitionRange = "";
-        if (tblPartitionInfo.getType() == PartitionType.RANGE
-                || tblPartitionInfo.getType() == PartitionType.LIST) {
-            partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
-        }
+        String partitionRange = tblPartitionInfo.getPartitionRangeString(partitionId);
         return new PartitionCommitInfo(partitionId, partitionRange,
                 partitionVersion, System.currentTimeMillis() /* use as partition visible time */,
                 table.isTemporaryPartition(partitionId));
@@ -1516,12 +1503,7 @@ public class DatabaseTransactionMgr {
         }
         // persist transactionState
         unprotectUpsertTransactionState(transactionState, false);
-
-        // add publish version tasks. set task to null as a placeholder.
-        // tasks will be created when publishing version.
-        for (long backendId : totalInvolvedBackends) {
-            transactionState.addPublishVersionTask(backendId, null);
-        }
+        transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
     private void checkBeforeUnprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds) {
@@ -1589,16 +1571,13 @@ public class DatabaseTransactionMgr {
         }
         // persist transactionState
         unprotectUpsertTransactionState(transactionState, false);
-
-        // add publish version tasks. set task to null as a placeholder.
-        // tasks will be created when publishing version.
         transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
     protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
-            LOG.warn("Unknow exception. state of transaction [{}] changed, failed to commit transaction",
+            LOG.warn("Unknown exception. state of transaction [{}] changed, failed to commit transaction",
                     transactionState.getTransactionId());
             return;
         }
@@ -2694,7 +2673,7 @@ public class DatabaseTransactionMgr {
                             PublishVersionTask publishVersionTask = null;
                             if (publishVersionTasks != null) {
                                 List<PublishVersionTask> matchedTasks = publishVersionTasks.stream()
-                                        .filter(t -> t.getTransactionId() == subTransactionId
+                                        .filter(t -> t != null && t.getTransactionId() == subTransactionId
                                                 && t.getPartitionVersionInfos().stream()
                                                 .anyMatch(s -> s.getPartitionId() == partitionId))
                                         .collect(Collectors.toList());

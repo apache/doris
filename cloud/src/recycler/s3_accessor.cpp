@@ -21,14 +21,7 @@
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/s3/S3Client.h>
-#include <aws/s3/model/DeleteObjectRequest.h>
-#include <aws/s3/model/DeleteObjectsRequest.h>
-#include <aws/s3/model/GetBucketLifecycleConfigurationRequest.h>
-#include <aws/s3/model/GetBucketVersioningRequest.h>
-#include <aws/s3/model/HeadObjectRequest.h>
-#include <aws/s3/model/LifecycleRule.h>
-#include <aws/s3/model/ListObjectsV2Request.h>
-#include <aws/s3/model/PutObjectRequest.h>
+#include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
 #include <azure/storage/blobs/blob_container_client.hpp>
@@ -38,11 +31,15 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/encryption_util.h"
 #include "common/logging.h"
+#include "common/string_util.h"
+#include "common/util.h"
 #include "rate-limiter/s3_rate_limiter.h"
 #include "recycler/azure_obj_client.h"
-#include "recycler/obj_store_accessor.h"
+#include "recycler/obj_storage_client.h"
 #include "recycler/s3_obj_client.h"
+#include "recycler/storage_vault_accessor.h"
 
 namespace doris::cloud {
 
@@ -124,9 +121,89 @@ private:
     Aws::SDKOptions aws_options_;
 };
 
-S3Accessor::S3Accessor(S3Conf conf) : ObjStoreAccessor(AccessorType::S3), conf_(std::move(conf)) {
-    path_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
+class S3ListIterator final : public ListIterator {
+public:
+    S3ListIterator(std::unique_ptr<ObjectListIterator> iter, size_t prefix_length)
+            : iter_(std::move(iter)), prefix_length_(prefix_length) {}
+
+    ~S3ListIterator() override = default;
+
+    bool is_valid() override { return iter_->is_valid(); }
+
+    bool has_next() override { return iter_->has_next(); }
+
+    std::optional<FileMeta> next() override {
+        std::optional<FileMeta> ret;
+        if (auto obj = iter_->next(); obj.has_value()) {
+            ret = FileMeta {
+                    .path = get_relative_path(obj->key),
+                    .size = obj->size,
+                    .mtime_s = obj->mtime_s,
+            };
+        }
+        return ret;
+    }
+
+private:
+    std::string get_relative_path(const std::string& key) const {
+        return key.substr(prefix_length_);
+    }
+
+    std::unique_ptr<ObjectListIterator> iter_;
+    size_t prefix_length_;
+};
+
+std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_info,
+                                                  bool skip_aksk) {
+    S3Conf s3_conf;
+
+    switch (obj_info.provider()) {
+    case ObjectStoreInfoPB_Provider_OSS:
+    case ObjectStoreInfoPB_Provider_S3:
+    case ObjectStoreInfoPB_Provider_COS:
+    case ObjectStoreInfoPB_Provider_OBS:
+    case ObjectStoreInfoPB_Provider_BOS:
+        s3_conf.provider = S3Conf::S3;
+        break;
+    case ObjectStoreInfoPB_Provider_GCP:
+        s3_conf.provider = S3Conf::GCS;
+        break;
+    case ObjectStoreInfoPB_Provider_AZURE:
+        s3_conf.provider = S3Conf::AZURE;
+        break;
+    default:
+        LOG_WARNING("unknown provider type {}").tag("obj_info", proto_to_json(obj_info));
+        return std::nullopt;
+    }
+
+    if (!skip_aksk) {
+        if (obj_info.has_encryption_info()) {
+            AkSkPair plain_ak_sk_pair;
+            int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), obj_info.encryption_info(),
+                                           &plain_ak_sk_pair);
+            if (ret != 0) {
+                LOG_WARNING("fail to decrypt ak sk").tag("obj_info", proto_to_json(obj_info));
+                return std::nullopt;
+            } else {
+                s3_conf.ak = std::move(plain_ak_sk_pair.first);
+                s3_conf.sk = std::move(plain_ak_sk_pair.second);
+            }
+        } else {
+            s3_conf.ak = obj_info.ak();
+            s3_conf.sk = obj_info.sk();
+        }
+    }
+
+    s3_conf.endpoint = obj_info.endpoint();
+    s3_conf.region = obj_info.region();
+    s3_conf.bucket = obj_info.bucket();
+    s3_conf.prefix = obj_info.prefix();
+
+    return s3_conf;
 }
+
+S3Accessor::S3Accessor(S3Conf conf)
+        : StorageVaultAccessor(AccessorType::S3), conf_(std::move(conf)) {}
 
 S3Accessor::~S3Accessor() = default;
 
@@ -134,146 +211,186 @@ std::string S3Accessor::get_key(const std::string& relative_path) const {
     return conf_.prefix + '/' + relative_path;
 }
 
-std::string S3Accessor::get_relative_path(const std::string& key) const {
-    return key.find(conf_.prefix + "/") != 0 ? "" : key.substr(conf_.prefix.length() + 1);
+std::string S3Accessor::to_uri(const std::string& relative_path) const {
+    return uri_ + '/' + relative_path;
+}
+
+int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
+    switch (conf.provider) {
+    case S3Conf::GCS:
+        *accessor = std::make_shared<GcsAccessor>(std::move(conf));
+        break;
+    default:
+        *accessor = std::make_shared<S3Accessor>(std::move(conf));
+        break;
+    }
+
+    return (*accessor)->init();
 }
 
 int S3Accessor::init() {
-    static S3Environment s3_env;
-    if (type() == AccessorType::AZURE) {
+    switch (conf_.provider) {
+    case S3Conf::AZURE: {
         auto cred =
                 std::make_shared<Azure::Storage::StorageSharedKeyCredential>(conf_.ak, conf_.sk);
-        const std::string container_name = conf_.bucket;
-        const std::string uri =
-                fmt::format("http://{}.blob.core.windows.net/{}", conf_.ak, container_name);
+        uri_ = fmt::format("{}://{}.blob.core.windows.net/{}", config::s3_client_http_scheme,
+                           conf_.ak, conf_.bucket);
         auto container_client =
-                std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
+                std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri_, cred);
+        // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}
+        uri_ = uri_ + '/' + conf_.prefix;
         obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
         return 0;
     }
-    Aws::Auth::AWSCredentials aws_cred(conf_.ak, conf_.sk);
-    Aws::Client::ClientConfiguration aws_config;
-    aws_config.endpointOverride = conf_.endpoint;
-    aws_config.region = conf_.region;
-    aws_config.retryStrategy = std::make_shared<Aws::Client::DefaultRetryStrategy>(
-            /*maxRetries = 10, scaleFactor = 25*/);
-    auto s3_client = std::make_shared<Aws::S3::S3Client>(
-            std::move(aws_cred), std::move(aws_config),
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-            true /* useVirtualAddressing */);
-    obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client));
-    return 0;
+    default: {
+        uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
+
+        static S3Environment s3_env;
+
+        // S3Conf::S3
+        Aws::Auth::AWSCredentials aws_cred(conf_.ak, conf_.sk);
+        Aws::Client::ClientConfiguration aws_config;
+        aws_config.endpointOverride = conf_.endpoint;
+        aws_config.region = conf_.region;
+        if (config::s3_client_http_scheme == "http") {
+            aws_config.scheme = Aws::Http::Scheme::HTTP;
+        }
+        aws_config.retryStrategy = std::make_shared<Aws::Client::DefaultRetryStrategy>(
+                /*maxRetries = 10, scaleFactor = 25*/);
+        auto s3_client = std::make_shared<Aws::S3::S3Client>(
+                std::move(aws_cred), std::move(aws_config),
+                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                true /* useVirtualAddressing */);
+        obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client), conf_.endpoint);
+        return 0;
+    }
+    }
 }
 
-int S3Accessor::delete_objects_by_prefix(const std::string& relative_path) {
-    return s3_get_rate_limit([&]() {
-               return obj_client_->delete_objects_recursively(
-                       {.bucket = conf_.bucket, .prefix = get_key(relative_path)});
-           })
+int S3Accessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {
+    LOG_INFO("delete prefix").tag("uri", to_uri(path_prefix));
+    return obj_client_
+            ->delete_objects_recursively({.bucket = conf_.bucket, .key = get_key(path_prefix)},
+                                         expiration_time)
             .ret;
 }
 
-int S3Accessor::delete_objects(const std::vector<std::string>& relative_paths) {
-    if (relative_paths.empty()) {
+int S3Accessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time) {
+    auto norm_path_prefix = path_prefix;
+    strip_leading(norm_path_prefix, "/");
+    if (norm_path_prefix.empty()) {
+        LOG_WARNING("invalid path_prefix {}", path_prefix);
+        return -1;
+    }
+
+    return delete_prefix_impl(norm_path_prefix, expiration_time);
+}
+
+int S3Accessor::delete_directory(const std::string& dir_path) {
+    auto norm_dir_path = dir_path;
+    strip_leading(norm_dir_path, "/");
+    if (norm_dir_path.empty()) {
+        LOG_WARNING("invalid dir_path {}", dir_path);
+        return -1;
+    }
+
+    return delete_prefix_impl(!norm_dir_path.ends_with('/') ? norm_dir_path + '/' : norm_dir_path);
+}
+
+int S3Accessor::delete_all(int64_t expiration_time) {
+    return delete_prefix_impl("", expiration_time);
+}
+
+int S3Accessor::delete_files(const std::vector<std::string>& paths) {
+    if (paths.empty()) {
         return 0;
     }
-    // `DeleteObjectsRequest` can only contain 1000 keys at most.
-    constexpr size_t max_delete_batch = 1000;
-    auto path_iter = relative_paths.begin();
 
-    do {
-        Aws::Vector<std::string> objects;
-        auto path_begin = path_iter;
-        for (; path_iter != relative_paths.end() && (path_iter - path_begin < max_delete_batch);
-             ++path_iter) {
-            auto key = get_key(*path_iter);
-            LOG_INFO("delete object")
-                    .tag("endpoint", conf_.endpoint)
-                    .tag("bucket", conf_.bucket)
-                    .tag("key", key)
-                    .tag("size", objects.size());
-            objects.emplace_back(std::move(key));
-        }
-        if (objects.empty()) {
-            return 0;
-        }
-        if (auto delete_resp = s3_put_rate_limit([&]() {
-                return obj_client_->delete_objects({.bucket = conf_.bucket}, std::move(objects));
-            });
-            delete_resp.ret != 0) {
-            return delete_resp.ret;
-        }
-    } while (path_iter != relative_paths.end());
+    std::vector<std::string> keys;
+    keys.reserve(paths.size());
+    for (auto&& path : paths) {
+        LOG_INFO("delete file").tag("uri", to_uri(path));
+        keys.emplace_back(get_key(path));
+    }
 
+    return obj_client_->delete_objects(conf_.bucket, std::move(keys)).ret;
+}
+
+int S3Accessor::delete_file(const std::string& path) {
+    LOG_INFO("delete file").tag("uri", to_uri(path));
+    return obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(path)}).ret;
+}
+
+int S3Accessor::put_file(const std::string& path, const std::string& content) {
+    return obj_client_->put_object({.bucket = conf_.bucket, .key = get_key(path)}, content).ret;
+}
+
+int S3Accessor::list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res) {
+    *res = std::make_unique<S3ListIterator>(
+            obj_client_->list_objects({conf_.bucket, get_key(path_prefix)}),
+            conf_.prefix.length() + 1 /* {prefix}/ */);
     return 0;
 }
 
-int S3Accessor::delete_object(const std::string& relative_path) {
-    return s3_put_rate_limit([&]() {
-        return obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(relative_path)})
-                .ret;
-    });
+int S3Accessor::list_directory(const std::string& dir_path, std::unique_ptr<ListIterator>* res) {
+    auto norm_dir_path = dir_path;
+    strip_leading(norm_dir_path, "/");
+    if (norm_dir_path.empty()) {
+        LOG_WARNING("invalid dir_path {}", dir_path);
+        return -1;
+    }
+
+    return list_prefix(!norm_dir_path.ends_with('/') ? norm_dir_path + '/' : norm_dir_path, res);
 }
 
-int S3Accessor::put_object(const std::string& relative_path, const std::string& content) {
-    return s3_put_rate_limit([&]() {
-        return obj_client_
-                ->put_object({.bucket = conf_.bucket, .key = get_key(relative_path)}, content)
-                .ret;
-    });
+int S3Accessor::list_all(std::unique_ptr<ListIterator>* res) {
+    return list_prefix("", res);
 }
 
-int S3Accessor::list(const std::string& relative_path, std::vector<ObjectMeta>* files) {
-    return s3_get_rate_limit([&]() {
-        auto resp = obj_client_->list_objects(
-                {.bucket = conf_.bucket, .prefix = get_key(relative_path)}, files);
+int S3Accessor::exists(const std::string& path) {
+    ObjectMeta obj_meta;
+    return obj_client_->head_object({.bucket = conf_.bucket, .key = get_key(path)}, &obj_meta).ret;
+}
 
-        if (resp.ret == 0) {
-            auto pos = conf_.prefix.size() + 1;
-            for (auto&& file : *files) {
-                file.path = file.path.substr(pos);
-            }
+int S3Accessor::get_life_cycle(int64_t* expiration_days) {
+    return obj_client_->get_life_cycle(conf_.bucket, expiration_days).ret;
+}
+
+int S3Accessor::check_versioning() {
+    return obj_client_->check_versioning(conf_.bucket).ret;
+}
+
+int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {
+    LOG_INFO("delete prefix").tag("uri", to_uri(path_prefix));
+
+    int ret = 0;
+    auto iter = obj_client_->list_objects({conf_.bucket, get_key(path_prefix)});
+    for (auto obj = iter->next(); obj.has_value(); obj = iter->next()) {
+        if (expiration_time > 0 && obj->mtime_s > expiration_time) {
+            continue;
         }
 
-        return resp.ret;
-    });
+        // FIXME(plat1ko): Delete objects by batch
+        if (int del_ret = obj_client_->delete_object({conf_.bucket, obj->key}).ret; del_ret != 0) {
+            ret = del_ret;
+        }
+    }
+
+    if (!iter->is_valid()) {
+        return -1;
+    }
+
+    return ret;
 }
 
-int S3Accessor::exist(const std::string& relative_path) {
-    return s3_get_rate_limit([&]() {
-        return obj_client_->head_object({.bucket = conf_.bucket, .key = get_key(relative_path)})
-                .ret;
-    });
-}
+int GcsAccessor::delete_files(const std::vector<std::string>& paths) {
+    std::vector<int> delete_rets(paths.size());
+    std::transform(std::execution::par, paths.begin(), paths.end(), delete_rets.begin(),
+                   [this](const std::string& path) {
+                       LOG_INFO("delete file").tag("uri", to_uri(path));
+                       return delete_file(path);
+                   });
 
-int S3Accessor::delete_expired_objects(const std::string& relative_path, int64_t expired_time) {
-    return s3_put_rate_limit([&]() {
-        return obj_client_
-                ->delete_expired(
-                        {.path_opts = {.bucket = conf_.bucket, .prefix = get_key(relative_path)},
-                         .relative_path_factory =
-                                 [&](const std::string& key) { return get_relative_path(key); }},
-                        expired_time)
-                .ret;
-    });
-}
-
-int S3Accessor::get_bucket_lifecycle(int64_t* expiration_days) {
-    return s3_get_rate_limit([&]() {
-        return obj_client_->get_life_cycle({.bucket = conf_.bucket}, expiration_days).ret;
-    });
-}
-
-int S3Accessor::check_bucket_versioning() {
-    return s3_get_rate_limit(
-            [&]() { return obj_client_->check_versioning({.bucket = conf_.bucket}).ret; });
-}
-
-int GcsAccessor::delete_objects(const std::vector<std::string>& relative_paths) {
-    std::vector<int> delete_rets(relative_paths.size());
-    std::transform(std::execution::par, relative_paths.begin(), relative_paths.end(),
-                   delete_rets.begin(),
-                   [this](const std::string& path) { return delete_object(path); });
     int ret = 0;
     for (int delete_ret : delete_rets) {
         if (delete_ret != 0) {
@@ -283,4 +400,5 @@ int GcsAccessor::delete_objects(const std::vector<std::string>& relative_paths) 
     }
     return ret;
 }
+
 } // namespace doris::cloud

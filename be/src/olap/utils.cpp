@@ -546,7 +546,8 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
     }
 
     size_t number_length = value_str.size();
-    if (value_str[0] == '-') {
+    bool is_negative = value_str[0] == '-';
+    if (is_negative) {
         --number_length;
     }
 
@@ -557,7 +558,7 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
         integer_len = number_length;
         fractional_len = 0;
     } else {
-        integer_len = point_pos;
+        integer_len = point_pos - (is_negative ? 1 : 0);
         fractional_len = number_length - point_pos - 1;
     }
 

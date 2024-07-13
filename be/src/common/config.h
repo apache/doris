@@ -108,6 +108,7 @@ DECLARE_mString(public_access_ip);
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
+DECLARE_Int32(brpc_idle_timeout_sec);
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -158,12 +159,15 @@ DECLARE_mInt32(max_fill_rate);
 
 DECLARE_mInt32(double_resize_threshold);
 
-// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
-// actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
-// with large memory larger than 16G.
-// Turn up max. On machines with more than 16G memory, more memory buffers will be reserved for Full GC.
+// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 6.4G,
+// actual low water mark=min(6.4G, MemTotal * 5%), avoid wasting too much memory on machines
+// with large memory larger than 128G.
+// Turn up max. On machines with more than 128G memory, more memory buffers will be reserved for Full GC.
 // Turn down max. will use as much memory as possible.
 DECLARE_Int64(max_sys_mem_available_low_water_mark_bytes);
+
+// reserve a small amount of memory so we do not trigger MinorGC
+DECLARE_Int64(memtable_limiter_reserved_memory_bytes);
 
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 DECLARE_mString(process_minor_gc_size);
@@ -438,6 +442,7 @@ DECLARE_mInt32(max_single_replica_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
+DECLARE_mInt64(base_compaction_max_compaction_score);
 DECLARE_mDouble(base_compaction_min_data_ratio);
 DECLARE_mInt64(base_compaction_dup_key_max_file_size_mbytes);
 
@@ -468,6 +473,7 @@ DECLARE_mInt64(compaction_min_size_mbytes);
 // cumulative compaction policy: min and max delta file's number
 DECLARE_mInt64(cumulative_compaction_min_deltas);
 DECLARE_mInt64(cumulative_compaction_max_deltas);
+DECLARE_mInt32(cumulative_compaction_max_deltas_factor);
 
 // This config can be set to limit thread number in  multiget thread pool.
 DECLARE_mInt32(multi_get_max_threads);
@@ -617,6 +623,8 @@ DECLARE_String(pprof_profile_dir);
 DECLARE_mString(jeprofile_dir);
 // Purge all unused dirty pages for all arenas.
 DECLARE_mBool(enable_je_purge_dirty_pages);
+// Purge all unused Jemalloc dirty pages for all arenas when exceed je_dirty_pages_mem_limit and process exceed soft limit.
+DECLARE_mString(je_dirty_pages_mem_limit_percent);
 
 // to forward compatibility, will be removed later
 DECLARE_mBool(enable_token_check);
@@ -742,6 +750,10 @@ DECLARE_Int32(high_priority_flush_thread_num_per_store);
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DECLARE_Int32(max_flush_thread_num_per_cpu);
+
+// workload group flush pool params
+DECLARE_mInt32(wg_flush_thread_num_per_store);
+DECLARE_mInt32(wg_flush_thread_num_per_cpu);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1045,8 +1057,6 @@ DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
-// only cache index pages (prerequisite: enable_file_cache = true)
-DECLARE_Bool(file_cache_index_only);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
@@ -1054,6 +1064,9 @@ DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
 DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
+// If true, evict the ttl cache using LRU when full.
+// Otherwise, only expiration can evict ttl and new data won't add to cache when full.
+DECLARE_Bool(enable_ttl_cache_evict_using_lru);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1185,6 +1198,8 @@ DECLARE_mBool(enable_merge_on_write_correctness_check);
 DECLARE_mBool(enable_mow_compaction_correctness_check_core);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
+// missing rows correctness check when compaction for mow table
+DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
@@ -1240,7 +1255,8 @@ DECLARE_mBool(exit_on_exception);
 
 // cgroup
 DECLARE_mString(doris_cgroup_cpu_path);
-DECLARE_mBool(enable_cgroup_cpu_soft_limit);
+DECLARE_mBool(enable_be_proc_monitor);
+DECLARE_mInt32(be_proc_monitor_interval_ms);
 
 DECLARE_mBool(enable_workload_group_memory_gc);
 
@@ -1249,9 +1265,6 @@ DECLARE_Bool(enable_flush_file_cache_async);
 
 // Remove predicate that is always true for a segment.
 DECLARE_Bool(ignore_always_true_predicate_for_segment);
-
-// Dir of default timezone files
-DECLARE_String(default_tzfiles_path);
 
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
@@ -1344,9 +1357,6 @@ DECLARE_mInt32(thrift_client_open_num_tries);
 // http scheme in S3Client to use. E.g. http or https
 DECLARE_String(s3_client_http_scheme);
 
-// enable injection point in regression-test
-DECLARE_mBool(enable_injection_point);
-
 DECLARE_mBool(ignore_schema_change_check);
 
 /** Only use in fuzzy test **/
@@ -1398,6 +1408,18 @@ DECLARE_Bool(enable_file_logger);
 
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
+
+DECLARE_mInt64(compaction_memory_bytes_limit);
+
+DECLARE_mInt64(compaction_batch_size);
+
+DECLARE_mBool(enable_parquet_page_index);
+
+// Wheather to ignore not found file in external teble(eg, hive)
+// Default is true, if set to false, the not found file will result in query failure.
+DECLARE_mBool(ignore_not_found_file_in_external_table);
+
+DECLARE_mBool(enable_hdfs_mem_limiter);
 
 #ifdef BE_TEST
 // test s3

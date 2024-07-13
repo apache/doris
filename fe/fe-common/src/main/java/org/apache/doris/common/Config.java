@@ -162,6 +162,10 @@ public class Config extends ConfigBase {
             "MySQL Jdbc Catalog mysql does not support pushdown functions"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
+    @ConfField(description = {"强制 SQLServer Jdbc Catalog 加密为 false",
+            "Force SQLServer Jdbc Catalog encrypt to false"})
+    public static boolean force_sqlserver_jdbc_encrypt_false = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 8;
@@ -1944,16 +1948,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static long max_hive_partition_cache_num = 100000;
 
-    @ConfField(mutable = false, masterOnly = false, description = {"Hive表到分区名列表缓存的最大数量。",
-        "Max cache number of hive table to partition names list."})
+    @ConfField(mutable = false, masterOnly = false, description = {"Hive表名缓存的最大数量。",
+            "Max cache number of hive table name list."})
     public static long max_hive_table_cache_num = 1000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "Hive分区表缓存的最大数量", "Max cache number of hive partition table"
+    })
+    public static long max_hive_partition_table_cache_num = 1000;
+
     @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
-        "Max number of hive partition values to return while list partitions, -1 means no limitation."})
+            "Max number of hive partition values to return while list partitions, -1 means no limitation."})
     public static short max_hive_list_partition_num = -1;
 
     @ConfField(mutable = false, masterOnly = false, description = {"远程文件系统缓存的最大数量",
-        "Max cache number of remote file system."})
+            "Max cache number of remote file system."})
     public static long max_remote_file_system_cache_num = 100;
 
     @ConfField(mutable = false, masterOnly = false, description = {"外表行数缓存最大数量",
@@ -2271,7 +2280,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false, description = {
         "Hive行数估算分区采样数",
         "Sample size for hive row count estimation."})
-    public static int hive_stats_partition_sample_size = 3000;
+    public static int hive_stats_partition_sample_size = 30;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "启用Hive分桶表",
@@ -2626,7 +2635,7 @@ public class Config extends ConfigBase {
                     + "DELETE statements, but partial column updates after a DELETE may result in erroneous data. "
                     + "If disabled, it will reduce the performance of DELETE statements to ensure accuracy."
     })
-    public static boolean enable_mow_delete_on_predicate = false;
+    public static boolean enable_mow_light_delete = false;
 
     @ConfField(description = {
             "是否开启 Proxy Protocol 支持",
@@ -2662,6 +2671,9 @@ public class Config extends ConfigBase {
             "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
             "Should the request content be logged before each request starts, specifically the query statements"})
     public static boolean enable_print_request_before_execution = false;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cooldown_replica_affinity = true;
 
     //==========================================================================
     //                    begin of cloud config
@@ -2748,7 +2760,7 @@ public class Config extends ConfigBase {
     public static boolean enable_light_index_change = true;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_create_bitmap_index_as_inverted_index = false;
+    public static boolean enable_create_bitmap_index_as_inverted_index = true;
 
     @ConfField(mutable = true)
     public static boolean enable_create_inverted_index_for_array = false;
@@ -2894,7 +2906,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"存算分离模式下建表是否检查残留recycler key, 默认true",
         "create table in cloud mode, check recycler key remained, default true"})
     public static boolean check_create_table_recycle_key_remained = true;
-
+    // ATTN: DONOT add any config not related to cloud mode here
+    // ATTN: DONOT add any config not related to cloud mode here
+    // ATTN: DONOT add any config not related to cloud mode here
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
