@@ -35,7 +35,7 @@
 #include "common/logging.h"
 #include "common/string_util.h"
 #include "common/util.h"
-#include "rate-limiter/s3_rate_limiter.h"
+#include "cpp/s3_rate_limiter.h"
 #include "recycler/azure_obj_client.h"
 #include "recycler/obj_storage_client.h"
 #include "recycler/s3_obj_client.h"

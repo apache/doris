@@ -15,21 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/s3_rate_limiter.h"
+#include "s3_rate_limiter.h"
 
 #include <chrono>
+#include <mutex>
 #include <thread>
-
-#include "common/status.h"
-#include "util/s3_util.h"
-#include "util/spinlock.h"
-#include "util/time.h"
-#if defined(__APPLE__)
-#include <ctime>
-#define CURRENT_TIME std::chrono::system_clock::now()
-#else
-#define CURRENT_TIME std::chrono::high_resolution_clock::now()
-#endif
 
 namespace doris {
 // Just 10^6.
@@ -57,7 +47,8 @@ std::pair<size_t, double> S3RateLimiter::_update_remain_token(
 
 int64_t S3RateLimiter::add(size_t amount) {
     // Values obtained under lock to be checked after release
-    auto [count_value, tokens_value] = _update_remain_token(CURRENT_TIME, amount);
+    auto [count_value, tokens_value] =
+            _update_remain_token(std::chrono::high_resolution_clock::now(), amount);
 
     if (_limit && count_value > _limit) {
         // CK would throw exception
@@ -73,6 +64,33 @@ int64_t S3RateLimiter::add(size_t amount) {
 
     return sleep_time_ms;
 }
+
+S3RateLimiterHolder::S3RateLimiterHolder(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit,
+                        std::function<void(int64_t)> metric_func)
+        : rate_limiter(std::make_unique<S3RateLimiter>(max_speed, max_burst, limit)),
+          metric_func(std::move(metric_func)) {
+}
+
+int64_t S3RateLimiterHolder::add(size_t amount) {
+    int64_t sleep;
+    {
+        std::shared_lock read {rate_limiter_rw_lock};
+        sleep = rate_limiter->add(amount);
+    }
+    if (sleep > 0) {
+        metric_func(sleep);
+    }
+    return sleep;
+}
+
+int S3RateLimiterHolder::reset(size_t max_speed, size_t max_burst, size_t limit) {
+    {
+        std::unique_lock write {rate_limiter_rw_lock};
+        rate_limiter = std::make_unique<S3RateLimiter>(max_speed, max_burst, limit);
+    }
+    return 0;
+}
+
 std::string to_string(S3RateLimitType type) {
     switch (type) {
     case S3RateLimitType::GET:
@@ -92,38 +110,4 @@ S3RateLimitType string_to_s3_rate_limit_type(std::string_view value) {
     }
     return S3RateLimitType::UNKNOWN;
 }
-
-Status reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
-                             size_t limit) {
-    if (type == S3RateLimitType::UNKNOWN) {
-        return Status::InternalError("Unknown rate limit type");
-    }
-    return S3ClientFactory::instance().rate_limiter(type)->reset(max_speed, max_burst, limit);
-}
-
-S3RateLimiterHolder::S3RateLimiterHolder(S3RateLimitType type, size_t max_speed, size_t max_burst,
-                                         size_t limit)
-        : rate_limiter(std::make_unique<S3RateLimiter>(max_speed, max_burst, limit)),
-          rate_limit_bvar(bvar::Adder<uint64_t>(fmt::format("{}_rate_limit_ms", to_string(type)))) {
-}
-
-int64_t S3RateLimiterHolder::add(size_t amount) {
-    int64_t sleep;
-    {
-        std::shared_lock read {rate_limiter_rw_lock};
-        sleep = rate_limiter->add(amount);
-    }
-    if (sleep > 0) {
-        rate_limit_bvar << sleep;
-    }
-    return sleep;
-}
-
-Status S3RateLimiterHolder::reset(size_t max_speed, size_t max_burst, size_t limit) {
-    {
-        std::unique_lock write {rate_limiter_rw_lock};
-        rate_limiter = std::make_unique<S3RateLimiter>(max_speed, max_burst, limit);
-    }
-    return Status::OK();
-}
-} // namespace doris
+} // namespace doris::cloud

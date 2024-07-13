@@ -24,7 +24,6 @@
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/cloud.pb.h>
-#include <stdint.h>
 
 #include <map>
 #include <memory>
@@ -34,7 +33,7 @@
 
 #include "common/status.h"
 #include "io/fs/obj_storage_client.h"
-#include "util/s3_rate_limiter.h"
+#include "cpp/s3_rate_limiter.h"
 #include "vec/common/string_ref.h"
 
 namespace Aws::S3 {

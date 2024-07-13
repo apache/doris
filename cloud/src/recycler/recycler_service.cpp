@@ -28,7 +28,7 @@
 #include "common/util.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv_error.h"
-#include "rate-limiter/s3_rate_limiter.h"
+#include "cpp/s3_rate_limiter.h"
 #include "recycler/checker.h"
 #include "recycler/meta_checker.h"
 #include "recycler/recycler.h"

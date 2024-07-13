@@ -31,7 +31,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
-#include "rate-limiter/s3_rate_limiter.h"
+#include "cpp/s3_rate_limiter.h"
 #include "recycler/s3_accessor.h"
 
 namespace doris::cloud {
