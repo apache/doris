@@ -627,7 +627,7 @@ std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& 
     std::string column_name = block.get_by_position(arguments[0]).name;
     pred_result_sign +=
             BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" + function_name + "_";
-    if (function_name == "in") {
+    if (function_name == "in" || function_name == "not_in") {
         // Generating 'result_sign' from 'inlist' requires sorting the values.
         std::set<std::string> values;
         for (size_t i = 1; i < arguments.size(); i++) {
