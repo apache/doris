@@ -1400,10 +1400,15 @@ message GetDeleteBitmapUpdateLockRequest {
     optional int64 lock_id = 4;
     optional int64 initiator = 5;
     optional int64 expiration = 6;
+    optional bool require_compaction_stats = 7 [default = false];
+    repeated TabletIndexPB tablet_indexes = 8;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
     optional MetaServiceResponseStatus status = 1;
+    repeated int64 base_compaction_cnts = 2;
+    repeated int64 cumulative_compaction_cnts = 3;
+    repeated int64 cumulative_points = 4;
 }
 
 message GetRLTaskCommitAttachRequest {

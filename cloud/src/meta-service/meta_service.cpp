@@ -1936,6 +1936,32 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         }
     }
 
+    bool require_tablet_stats =
+            request->has_require_compaction_stats() ? request->require_compaction_stats() : false;
+    if (require_tablet_stats) {
+        // this request is from fe when it commits txn for MOW table, we send the compaction stats
+        // along with the GetDeleteBitmapUpdateLockResponse which will be sent to BE later to let
+        // BE eliminate unnecessary sync_rowsets() calls if possible
+        for (const auto& tablet_index : request->tablet_indexes()) {
+            TabletIndexPB idx(tablet_index);
+            TabletStatsPB tablet_stat;
+            internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, true);
+            if (code != MetaServiceCode::OK) {
+                response->clear_base_compaction_cnts();
+                response->clear_cumulative_compaction_cnts();
+                response->clear_cumulative_points();
+                LOG_WARNING(
+                        "failed to get tablet stats when get_delete_bitmap_update_lock, "
+                        "lock_id={}, initiator={}, tablet_id={}",
+                        request->lock_id(), request->initiator(), tablet_index.tablet_id());
+                return;
+            }
+            response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
+            response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
+            response->add_cumulative_points(tablet_stat.cumulative_point());
+        }
+    }
+
     lock_info.set_lock_id(request->lock_id());
     lock_info.set_expiration(now + request->expiration());
     bool found = false;
