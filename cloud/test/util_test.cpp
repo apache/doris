@@ -73,7 +73,7 @@ TEST(StringUtilTest, test_string_strip) {
         {""              , ""     },
         {"/"             , ""     },
         {"\t////"        , ""     },
-        {"/a ///"        , "a "   },
+        {"/a ///"        , "a"   },
         {"/a/b/c/"       , "a/b/c"},
         {"a/b/c/"        , "a/b/c"},
         {"a/b/c"         , "a/b/c"},
