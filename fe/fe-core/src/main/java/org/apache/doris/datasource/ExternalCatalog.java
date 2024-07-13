@@ -22,6 +22,8 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -820,5 +822,26 @@ public abstract class ExternalCatalog
             ret = true;
         }
         return ret;
+    }
+
+    @Override
+    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+        }
+        try {
+            TableRef tableRef = stmt.getTblRef();
+            TableName tableName = tableRef.getName();
+            // delete all table data if null
+            List<String> partitions = null;
+            if (tableRef.getPartitionNames() != null) {
+                partitions = tableRef.getPartitionNames().getPartitionNames();
+            }
+            metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop a table", e);
+            throw e;
+        }
     }
 }

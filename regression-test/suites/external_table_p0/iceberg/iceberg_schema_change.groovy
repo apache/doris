@@ -15,30 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_schema_change", "p2,external,iceberg,external_remote,external_remote_iceberg") {
+suite("iceberg_schema_change", "p0,external,doris,external_docker,external_docker_doris") {
 
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    String enabled = context.config.otherConfigs.get("enableIcebergTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable iceberg test.")
+        return
+    }
 
-        String catalog_name = "test_external_iceberg_schema_change"
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHdfsPort = context.config.otherConfigs.get("extHdfsPort")
-        sql """drop catalog if exists ${catalog_name};"""
-        sql """
-            create catalog if not exists ${catalog_name} properties (
-                'type'='iceberg',
-                'iceberg.catalog.type'='hadoop',
-                'warehouse' = 'hdfs://${extHiveHmsHost}:${extHdfsPort}/usr/hive/warehouse/hadoop_catalog'
-            );
-        """
+    // TODO 找当时的人看下怎么构造的这个表
+    return
+
+    String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
+    String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String catalog_name = "iceberg_schema_change"
+
+    sql """drop catalog if exists ${catalog_name}"""
+    sql """
+    CREATE CATALOG ${catalog_name} PROPERTIES (
+        'type'='iceberg',
+        'iceberg.catalog.type'='rest',
+        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        "s3.access_key" = "admin",
+        "s3.secret_key" = "password",
+        "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+        "s3.region" = "us-east-1"
+    );"""
 
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
         sql """ use multi_catalog;""" 
-
-
-
 
 
         qt_parquet_v1_1  """ desc complex_parquet_v1_schema_change ;""" 
@@ -92,9 +100,6 @@ suite("iceberg_schema_change", "p2,external,iceberg,external_remote,external_rem
         qt_orc_v2_9  """ select id,count(col_add) from  complex_orc_v2_schema_change  group by id order by id desc ; """ 
         qt_orc_v2_10  """ select col_add from  complex_orc_v2_schema_change where col_add -1 = col_add2 order by id; """ 
 
-
-
-    }
 }
 /*
 before schema: 

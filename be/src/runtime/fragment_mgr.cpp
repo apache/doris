@@ -37,6 +37,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/transport/TTransportException.h>
 
+#include <algorithm>
 #include <atomic>
 
 #include "common/status.h"
@@ -1173,21 +1174,50 @@ void FragmentMgr::cancel_worker() {
                         continue;
                     }
 
-                    auto itr = running_fes.find(q.second->coord_addr);
+                    auto query_context = q.second;
+
+                    auto itr = running_fes.find(query_context->coord_addr);
                     if (itr != running_fes.end()) {
-                        if (q.second->get_fe_process_uuid() == itr->second.info.process_uuid ||
+                        if (query_context->get_fe_process_uuid() == itr->second.info.process_uuid ||
                             itr->second.info.process_uuid == 0) {
                             continue;
                         } else {
-                            LOG_WARNING("Coordinator of query {} restarted, going to cancel it.",
-                                        print_id(q.second->query_id()));
+                            // In some rear cases, the rpc port of follower is not updated in time,
+                            // then the port of this follower will be zero, but acutally it is still running,
+                            // and be has already received the query from follower.
+                            // So we need to check if host is in running_fes.
+                            bool fe_host_is_standing = std::any_of(
+                                    running_fes.begin(), running_fes.end(),
+                                    [query_context](const auto& fe) {
+                                        return fe.first.hostname ==
+                                                       query_context->coord_addr.hostname &&
+                                               fe.first.port == 0;
+                                    });
+                            if (fe_host_is_standing) {
+                                LOG_WARNING(
+                                        "Coordinator {}:{} is not found, but its host is still "
+                                        "running with an unstable brpc port, not going to cancel "
+                                        "it.",
+                                        query_context->coord_addr.hostname,
+                                        query_context->coord_addr.port,
+                                        print_id(query_context->query_id()));
+                                continue;
+                            } else {
+                                LOG_WARNING(
+                                        "Could not find target coordinator {}:{} of query {}, "
+                                        "going to "
+                                        "cancel it.",
+                                        query_context->coord_addr.hostname,
+                                        query_context->coord_addr.port,
+                                        print_id(query_context->query_id()));
+                            }
                         }
                     } else {
                         LOG_WARNING(
                                 "Could not find target coordinator {}:{} of query {}, going to "
                                 "cancel it.",
-                                q.second->coord_addr.hostname, q.second->coord_addr.port,
-                                print_id(q.second->query_id()));
+                                query_context->coord_addr.hostname, query_context->coord_addr.port,
+                                print_id(query_context->query_id()));
                     }
 
                     // Coorninator of this query has already dead.

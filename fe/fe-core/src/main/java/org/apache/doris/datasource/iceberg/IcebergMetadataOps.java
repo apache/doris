@@ -178,4 +178,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         db.setUnInitialized(true);
     }
 
+    @Override
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {
+        throw new UnsupportedOperationException("Truncate Iceberg table is not supported.");
+    }
 }
