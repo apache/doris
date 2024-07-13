@@ -68,7 +68,7 @@ TEST(StringUtilTest, test_string_strip) {
     }
 
     idx = 0;
-    std::vector<std::tuple<std::string, std::string, std::string>> trim_inputs {
+    std::vector<std::tuple<std::string, std::string>> trim_inputs {
         {""              , ""     },
         {""              , ""     },
         {"/"             , ""     },
