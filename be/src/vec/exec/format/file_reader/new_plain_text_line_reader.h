@@ -86,7 +86,7 @@ protected:
     bool use_memmem = true;
 };
 
-class PlainTextLineReaderCtx final : public BaseTextLineReaderContext<PlainTextLineReaderCtx> {
+class PlainTextLineReaderCtx : public BaseTextLineReaderContext<PlainTextLineReaderCtx> {
 public:
     explicit PlainTextLineReaderCtx(const std::string& line_delimiter_,
                                     const size_t line_delimiter_len_, const bool keep_cr_)
@@ -123,8 +123,7 @@ struct ReaderStateWrapper {
     ReaderState prev_state = ReaderState::START;
 };
 
-class EncloseCsvLineReaderContext final
-        : public BaseTextLineReaderContext<EncloseCsvLineReaderContext> {
+class EncloseCsvLineReaderContext final : public PlainTextLineReaderCtx {
     // using a function ptr to decrease the overhead (found very effective during test).
     using FindDelimiterFunc = const uint8_t* (*)(const uint8_t*, size_t, const char*, size_t);
 
@@ -134,11 +133,19 @@ public:
                                          const std::string& column_sep_,
                                          const size_t column_sep_len_, size_t col_sep_num,
                                          const char enclose, const char escape, const bool keep_cr_)
-            : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_, keep_cr_),
+            : PlainTextLineReaderCtx(line_delimiter_, line_delimiter_len_, keep_cr_),
               _enclose(enclose),
               _escape(escape),
               _column_sep_len(column_sep_len_),
               _column_sep(column_sep_) {
+        //        if ()
+        //            use_memmem = line_delimiter_len != 1 || line_delimiter != "\n" || keep_cr;
+
+        //        if (use_memmem) {
+        //             find_bound_func = (FindDelimiterFunc)(memmem);
+        //        } else {
+        //            find_bound_func = (FindDelimiterFunc)(read_csv_line_tt);
+        //        }
         if (column_sep_len_ == 1) {
             find_col_sep_func = &EncloseCsvLineReaderContext::look_for_column_sep_pos<true>;
         } else {
@@ -189,6 +196,7 @@ private:
     std::vector<size_t> _column_sep_positions;
 
     FindDelimiterFunc find_col_sep_func;
+    //    FindDelimiterFunc find_bound_func;
 };
 
 using TextLineReaderCtxPtr = std::shared_ptr<TextLineReaderContextIf>;

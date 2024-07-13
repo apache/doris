@@ -158,11 +158,20 @@ void EncloseCsvLineReaderContext::on_col_sep_found(const uint8_t* start,
 
 size_t EncloseCsvLineReaderContext::update_reading_bound(const uint8_t* start) {
     _result = (uint8_t*)memmem(start + _idx, _total_len - _idx, line_delimiter.c_str(),
-                               line_delimiter_len);
+                               line_delimiter_len); // ... TODO(cyw)
+    if (use_memmem) {
+        _result = (uint8_t*)memmem(start + _idx, _total_len - _idx, line_delimiter.c_str(),
+                                   line_delimiter_len); // ... TODO(cyw)
+
+    } else {
+        _result = read_csv_line(start + _idx, _total_len - _idx);
+    }
+    //"a","b","xxxx"\r\n
+    //"c","d","yyyyy"\n
     if (_result == nullptr) {
         return _total_len;
     }
-    return _result - start + line_delimiter_len;
+    return _result - start + line_delimiter_length();
 }
 
 template <bool SingleChar>
