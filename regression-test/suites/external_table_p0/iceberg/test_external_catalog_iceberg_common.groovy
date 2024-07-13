@@ -15,20 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_external_catalog_iceberg_common", "p2,external,iceberg,external_remote,external_remote_iceberg") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "test_external_catalog_iceberg_partition"
+suite("test_external_catalog_iceberg_common", "p0,external,doris,external_docker,external_docker_doris") {
+    String enabled = context.config.otherConfigs.get("enableIcebergTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable iceberg test.")
+        return
+    }
 
-        sql """drop catalog if exists ${catalog_name};"""
-        sql """
-            create catalog if not exists ${catalog_name} properties (
-                'type'='hms',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
-            );
-        """
+    String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
+    String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String catalog_name = "test_external_catalog_iceberg_common"
+
+    sql """drop catalog if exists ${catalog_name}"""
+    sql """
+    CREATE CATALOG ${catalog_name} PROPERTIES (
+        'type'='iceberg',
+        'iceberg.catalog.type'='rest',
+        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        "s3.access_key" = "admin",
+        "s3.secret_key" = "password",
+        "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+        "s3.region" = "us-east-1"
+    );"""
+
 
         sql """switch ${catalog_name};"""
         // test parquet format
@@ -44,10 +54,10 @@ suite("test_external_catalog_iceberg_common", "p2,external,iceberg,external_remo
                         ) as dc_1;
                     """
         }
-        sql """ use `iceberg_catalog`; """
-        q01_parquet()
+        sql """ use `multi_catalog`; """
+        // TODO support table:lineitem later
+        // q01_parquet()  // 599715
 
         // test the special characters in table fields
         qt_sanitize_mara """select MaTnR, NtgEW, `/dsd/Sv_cnt_grP` from sanitize_mara order by mAtNr"""
-    }
 }
