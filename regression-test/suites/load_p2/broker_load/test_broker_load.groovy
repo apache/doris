@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_broker_load_p2", "p2") {
-
+    def s3BucketName = getS3BucketName()
     def tables = ["part",
                   "upper_case",
                   "reverse",
@@ -49,37 +49,37 @@ suite("test_broker_load_p2", "p2") {
                   "orc_s3_case9", // table column uppercase * load column lowercase * orc file uppercase
                   "csv_s3_case_line_delimiter" // csv format table with special line delimiter
                  ]
-    def paths = ["s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/path/*/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_100k_rows.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_uppercase.orc",
-                 "s3://doris-build-1308700295/regression/line_delimiter/lineitem_0x7.csv.gz"
+    def paths = ["s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/path/*/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/part*",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_100k_rows.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_lowercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+                 "s3://${s3BucketName}/regression/load/data/orc/hits_10k_rows_uppercase.orc",
+                 "s3://${s3BucketName}/regression/line_delimiter/lineitem_0x7.csv.gz"
     ]
     def columns_list = ["""p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
                    """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
@@ -392,11 +392,11 @@ suite("test_broker_load_p2", "p2") {
             def label_22666 = "part_" + UUID.randomUUID().toString().replace("-", "0")
             sql """
                 LOAD LABEL ${label_22666} (
-                    DATA INFILE("s3://doris-build-1308700295/regression/load/data/part0.parquet")
+                    DATA INFILE("s3://${s3BucketName}/regression/load/data/part0.parquet")
                     INTO TABLE ${tbl_22666}
                     FORMAT AS "PARQUET"
                     (p_partkey, p_name, p_mfgr),
-                    DATA INFILE("s3://doris-build-1308700295/regression/load/data/part1.parquet")
+                    DATA INFILE("s3://${s3BucketName}/regression/load/data/part1.parquet")
                     INTO TABLE ${tbl_22666}
                     FORMAT AS "PARQUET"
                     (p_partkey, p_brand, p_type)

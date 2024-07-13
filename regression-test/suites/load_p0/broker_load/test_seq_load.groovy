@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_seq_load", "load_p0") {
-
+    def s3BucketName = getS3BucketName()
     def tableName = "uniq_tbl_basic_seq"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -83,7 +83,7 @@ suite("test_seq_load", "load_p0") {
     """
 
     def label = UUID.randomUUID().toString().replace("-", "0")
-    def path = "s3://doris-build-1308700295/regression/load/data/basic_data.csv"
+    def path = "s3://${s3BucketName}/regression/load/data/basic_data.csv"
     def format_str = "CSV"
     def ak = getS3AK()
     def sk = getS3SK()

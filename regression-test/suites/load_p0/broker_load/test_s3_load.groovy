@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_s3_load", "load_p0") {
-
+    def s3BucketName = getS3BucketName()
     sql "create workload group if not exists broker_load_test properties ( 'cpu_share'='1024'); "
 
     sql "set workload_group=broker_load_test;"
@@ -98,71 +98,71 @@ suite("test_s3_load", "load_p0") {
     ]
 
     /* ========================================================== normal ========================================================== */
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", ""))
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(K00,K01,K02,K03,K04,K05,K06,K07,K08,K09,K10,K11,K12,K13,K14,K15,K16,K17,K18)",
             "", "", "", "", ""))
 
     /* ========================================================== error ========================================================== */
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data_with_errors.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data_with_errors.csv",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", "", true))
 
     /* ========================================================== wrong column sep ========================================================== */
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"csv\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", "", true))
 
 
     /* ========================================================== wrong line delim ========================================================== */
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
             "${table}", "LINES TERMINATED BY \"\t\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", "", true))
 
 
     /* ========================================================== strict mode ========================================================== */
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data_with_errors.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data_with_errors.csv",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "","", true).addProperties("strict_mode", "true"))
 
     /* ========================================================== timezone ========================================================== */
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "SET (k00=unix_timestamp('2023-09-01 12:00:00'))", "","").addProperties("timezone", "Asia/Shanghai"))
 
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "SET (k00=unix_timestamp('2023-09-01 12:00:00'))", "","").addProperties("timezone", "America/Chicago"))
 
     /* ========================================================== compress type ========================================================== */
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv.gz",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", ""))
 
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv.bz2",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", ""))
 
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv.lz4",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", ""))
 
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv.gz",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv.gz",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", ""))
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv.bz2",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv.bz2",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", ""))
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv.lz4",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv.lz4",
             "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", ""))
 
@@ -172,20 +172,20 @@ suite("test_s3_load", "load_p0") {
 
     /*========================================================== json ==========================================================*/
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.json",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.json",
             "${table}", "", "", "FORMAT AS \"json\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", "PROPERTIES(\"strip_outer_array\" = \"true\", \"fuzzy_parse\" = \"true\")"))
 
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data_by_line.json",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data_by_line.json",
             "${table}", "", "", "FORMAT AS \"JSON\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", "PROPERTIES(\"read_json_by_line\" = \"true\")"))
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.parq",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.parq",
             "${table}", "", "", "FORMAT AS \"parquet\"", "(K00,K01,K02,K03,K04,K05,K06,K07,K08,K09,K10,K11,K12,K13,K14,K15,K16,K17,K18)",
             "", "", "", "", ""))
 
-    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.orc",
+    attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.orc",
             "${table}", "", "", "FORMAT AS \"orc\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
             "", "", "", "", ""))
 

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_etl_failed", "load_p0") {
+    def s3BucketName = getS3BucketName()
     def tableName = "test_etl_failed"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -33,7 +34,7 @@ suite("test_etl_failed", "load_p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1"); 
     """
     String label = "test_etl_failed"
-    String path = "s3://doris-build-1308700295/regression/load/data/etl_failure/etl-failure.csv"
+    String path = "s3://${s3BucketName}/regression/load/data/etl_failure/etl-failure.csv"
     String format = "CSV"
     String ak = getS3AK()
     String sk = getS3SK()

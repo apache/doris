@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_multi_table_load", "load_p0") {
-
+    def s3BucketName = getS3BucketName()
     def tableName = "test_multi_table_load"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -81,7 +81,7 @@ suite("test_multi_table_load", "load_p0") {
         );
     """
 
-    def path = "s3://doris-build-1308700295/regression/load/data/basic_data.csv"
+    def path = "s3://${s3BucketName}/regression/load/data/basic_data.csv"
     def format_str = "CSV"
     def ak = getS3AK()
     def sk = getS3SK()

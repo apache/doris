@@ -97,7 +97,7 @@ PROPERTIES (
     "replication_num" = "1"
 );
 """
-    def loadAttribute =new LoadAttributes("s3://doris-build-1308700295/regression/load/data/basic_data.csv",
+    def loadAttribute =new LoadAttributes("s3://${getS3BucketName()}/regression/load/data/basic_data.csv",
                 "dup_tbl_basic", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
                 "", "", "", "", "")
 
