@@ -29,6 +29,8 @@ def getProfile = { id ->
 
 // ref https://github.com/apache/doris/blob/3525a03815814f66ec78aa2ad6bbd9225b0e7a6b/regression-test/suites/load_p0/broker_load/test_s3_load.groovy
 suite('s3_load_profile_test') {
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     sql "drop table if exists dup_tbl_basic;"
     sql """
     CREATE TABLE dup_tbl_basic
@@ -128,8 +130,8 @@ PROPERTIES (
         WITH S3 (
             "AWS_ACCESS_KEY" = "$ak",
             "AWS_SECRET_KEY" = "$sk",
-            "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-            "AWS_REGION" = "ap-beijing",
+            "AWS_ENDPOINT" = "${s3Endpoint}",
+            "AWS_REGION" = "${s3Region}",
             "use_path_style" = "$loadAttribute.usePathStyle",
             "provider" = "${getS3Provider()}"
         )

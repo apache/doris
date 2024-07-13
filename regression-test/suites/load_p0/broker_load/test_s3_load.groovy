@@ -17,6 +17,8 @@
 
 suite("test_s3_load", "load_p0") {
     def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     sql "create workload group if not exists broker_load_test properties ( 'cpu_share'='1024'); "
 
     sql "set workload_group=broker_load_test;"
@@ -217,8 +219,8 @@ suite("test_s3_load", "load_p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing",
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}",
                 "use_path_style" = "$attributes.usePathStyle",
                 "provider" = "${getS3Provider()}"
             )

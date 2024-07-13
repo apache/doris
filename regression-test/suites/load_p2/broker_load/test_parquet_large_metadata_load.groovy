@@ -16,7 +16,8 @@
 // under the License.
 
 suite("test_parquet_large_metadata_load_p2", "p2") {
-
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     def tables = ["parquet_large_metadata_100mb" // metadata size more than 100MB
     ]
     def paths = ["s3://${getS3BucketName()}/regression/load/metadata/parquet_large_metadata_100mb.parquet"
@@ -30,7 +31,7 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
                                      "uri" = "https://${getS3BucketName()}.${getS3Endpoint()}/regression/load/metadata/parquet_large_metadata_100mb.parquet",
                                      "s3.access_key" = "$ak",
                                      "s3.secret_key" = "$sk",
-                                     "s3.region" = "ap-beijing",
+                                     "s3.region" = "${s3Region}",
                                      "provider" = "${getS3Provider()}",
                                      "format" = "parquet"
                                    ) order by `1`,`2` limit 5;
@@ -48,8 +49,8 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing",
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}",
                 "provider" = "${getS3Provider()}"
             )
             PROPERTIES
@@ -61,7 +62,7 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
     }
     
     def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=45000"]
-    def task_info = ["cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0"]
+    def task_info = ["cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"]
     def error_msg = [""]
     // test unified load
     if (enabled != null && enabled.equalsIgnoreCase("true")) {

@@ -17,6 +17,8 @@
 
 suite("test_s3_load_properties", "p2") {
     def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     sql "create workload group if not exists broker_load_test properties ( 'cpu_share'='1024'); "
 
     sql "set workload_group=broker_load_test;"
@@ -87,33 +89,33 @@ suite("test_s3_load_properties", "p2") {
     }
     // TODO: should be success ?
 //    for (String table : basicTables) {
-//        attributesList.add(new LoadAttributes("s3://cos.ap-beijing.myqcloud.com/${s3BucketName}/regression/load/data/basic_data.csv",
+//        attributesList.add(new LoadAttributes("s3://${s3Endpoint}/${s3BucketName}/regression/load/data/basic_data.csv",
 //                "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
 //                "", "", "", "", "").withPathStyle())
 //    }
 //
-//    attributesList.add(new LoadAttributes("s3://cos.ap-beijing.myqcloud.com/${s3BucketName}/regression/load/data/basic_data.csv",
+//    attributesList.add(new LoadAttributes("s3://${s3Endpoint}/${s3BucketName}/regression/load/data/basic_data.csv",
 //            "agg_tbl_basic", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\" ", "FORMAT AS \"csv\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
 //            "", "", "SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))", "", "").withPathStyle())
 //
 //    for (String table : arrayTables) {
-//        attributesList.add(new LoadAttributes("s3://cos.ap-beijing.myqcloud.com/${s3BucketName}/regression/load/data/basic_array_data.csv",
+//        attributesList.add(new LoadAttributes("s3://${s3Endpoint}/${s3BucketName}/regression/load/data/basic_array_data.csv",
 //                "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17)",
 //                "", "", "", "", "").withPathStyle())
 //    }
 //
 //    for (String table : basicTables) {
-//        attributesList.add(new LoadAttributes("s3://cos.ap-beijing.myqcloud.com/${s3BucketName}/regression/load/data/basic_data.csv",
+//        attributesList.add(new LoadAttributes("s3://${s3Endpoint}/${s3BucketName}/regression/load/data/basic_data.csv",
 //                "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
 //                "", "", "", "", "").withPathStyle())
 //    }
 //
-//    attributesList.add(new LoadAttributes("s3://cos.ap-beijing.myqcloud.com/${s3BucketName}/regression/load/data/basic_data.csv",
+//    attributesList.add(new LoadAttributes("s3://${s3Endpoint}/${s3BucketName}/regression/load/data/basic_data.csv",
 //            "agg_tbl_basic", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\" ", "FORMAT AS \"csv\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
 //            "", "", "SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))", "", "").withPathStyle())
 //
 //    for (String table : arrayTables) {
-//        attributesList.add(new LoadAttributes("s3://cos.ap-beijing.myqcloud.com/${s3BucketName}/regression/load/data/basic_array_data.csv",
+//        attributesList.add(new LoadAttributes("s3://${s3Endpoint}/${s3BucketName}/regression/load/data/basic_array_data.csv",
 //                "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17)",
 //                "", "", "", "", "").withPathStyle())
 //    }
@@ -482,8 +484,8 @@ suite("test_s3_load_properties", "p2") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing",
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}",
                 "use_path_style" = "$attributes.usePathStyle",
                 "provider" = "${getS3Provider()}"
             )

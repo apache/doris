@@ -29,6 +29,7 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
 
         String s3ak = getS3AK()
         String s3sk = getS3SK()
+        def s3Endpoint = getS3Endpoint()
 
         def cos = """select c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c18 from ${catalog_cos}.zd.all_table order by c18"""
         def oss = """select * from ${catalog_oss}.paimonossdb1.test_tableoss order by a"""
@@ -41,7 +42,7 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
                 "warehouse" = "cosn://paimon-1308700295/paimoncos",
                 "cos.access_key" = "${s3ak}",
                 "cos.secret_key" = "${s3sk}",
-                "cos.endpoint" = "cos.ap-beijing.myqcloud.com"
+                "cos.endpoint" = "${s3Endpoint}"
             );
         """
         sql """

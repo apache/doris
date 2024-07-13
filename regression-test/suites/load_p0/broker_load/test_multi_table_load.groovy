@@ -17,6 +17,9 @@
 
 suite("test_multi_table_load", "load_p0") {
     def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
+    
     def tableName = "test_multi_table_load"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -129,8 +132,8 @@ suite("test_multi_table_load", "load_p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing",
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}",
                 "provider" = "${getS3Provider()}"
             )
             properties(
@@ -178,8 +181,8 @@ suite("test_multi_table_load", "load_p0") {
         WITH S3 (
             "AWS_ACCESS_KEY" = "$ak",
             "AWS_SECRET_KEY" = "$sk",
-            "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-            "AWS_REGION" = "ap-beijing",
+            "AWS_ENDPOINT" = "${s3Endpoint}",
+            "AWS_REGION" = "${s3Region}",
             "provider" = "${getS3Provider()}"
         )
         properties(

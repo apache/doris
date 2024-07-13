@@ -17,6 +17,8 @@
 
 suite("test_seq_load", "load_p0") {
     def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     def tableName = "uniq_tbl_basic_seq"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -101,8 +103,8 @@ suite("test_seq_load", "load_p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}"
             )
             properties(
                 "use_new_load_scan_node" = "true"

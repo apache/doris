@@ -17,6 +17,8 @@
 
 suite("test_broker_load_p2", "p2") {
     def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     def tables = ["part",
                   "upper_case",
                   "reverse",
@@ -194,37 +196,37 @@ suite("test_broker_load_p2", "p2") {
                     "\\N"
                     ]
 
-    def task_info = ["cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0"
+    def task_info = ["cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0",
+                     "cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"
     ]
 
     def error_msg = ["",
@@ -291,8 +293,8 @@ suite("test_broker_load_p2", "p2") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing",
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}",
                 "provider" = "${getS3Provider()}"
             )
             properties(
@@ -404,8 +406,8 @@ suite("test_broker_load_p2", "p2") {
                 WITH S3 (
                     "AWS_ACCESS_KEY" = "$ak",
                     "AWS_SECRET_KEY" = "$sk",
-                    "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                    "AWS_REGION" = "ap-beijing",
+                    "AWS_ENDPOINT" = "${s3Endpoint}",
+                    "AWS_REGION" = "${s3Region}",
                     "provider" = "${getS3Provider()}"
                 );
             """

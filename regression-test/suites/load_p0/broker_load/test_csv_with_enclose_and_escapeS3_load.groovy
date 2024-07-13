@@ -20,6 +20,7 @@ suite("test_csv_with_enclose_and_escapeS3_load", "load_p0") {
 
     def tableName = "test_csv_with_enclose_and_escape"
     def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -93,8 +94,8 @@ suite("test_csv_with_enclose_and_escapeS3_load", "load_p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing",
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}",
                 "provider" = "${getS3Provider()}"
             )
             ${prop}
