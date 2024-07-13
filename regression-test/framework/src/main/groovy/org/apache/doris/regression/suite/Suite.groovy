@@ -41,7 +41,9 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.RunMode
 import org.junit.jupiter.api.Assertions
+
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import groovy.util.logging.Slf4j
@@ -306,17 +308,21 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    String get_ccr_body(String table) {
+    String get_ccr_body(String table, String db = null) {
+        if (db == null) {
+            db = context.dbName
+        }
+
         Gson gson = new Gson()
 
-        Map<String, String> srcSpec = context.getSrcSpec()
+        Map<String, String> srcSpec = context.getSrcSpec(db)
         srcSpec.put("table", table)
 
-        Map<String, String> destSpec = context.getDestSpec()
+        Map<String, String> destSpec = context.getDestSpec(db)
         destSpec.put("table", table)
 
         Map<String, Object> body = Maps.newHashMap()
-        body.put("name", context.suiteName + "_" + context.dbName + "_" + table)
+        body.put("name", context.suiteName + "_" + db + "_" + table)
         body.put("src", srcSpec)
         body.put("dest", destSpec)
 
@@ -442,6 +448,31 @@ class Suite implements GroovyInterceptable {
             result = DataUtils.sortByToString(result)
         }
         return result
+    }
+
+    def target_sql_return_maparray(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute ${isOrder ? "order_" : ""}target_sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeToList(context.getTargetConnection(this), sqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+
+        // get all column names as list
+        List<String> columnNames = new ArrayList<>()
+        for (int i = 0; i < meta.getColumnCount(); i++) {
+            columnNames.add(meta.getColumnName(i + 1))
+        }
+
+        // add result to res map list, each row is a map with key is column name
+        List<Map<String, Object>> res = new ArrayList<>()
+        for (int i = 0; i < result.size(); i++) {
+            Map<String, Object> row = new HashMap<>()
+            for (int j = 0; j < columnNames.size(); j++) {
+                row.put(columnNames.get(j), result.get(i).get(j))
+            }
+            res.add(row)
+        }
+        return res
     }
 
     List<List<String>> sql_meta(String sqlStr, boolean isOrder = false) {
@@ -1164,8 +1195,9 @@ class Suite implements GroovyInterceptable {
         return result.last().get(0);
     }
 
-    boolean isCloudCluster() {
-        return !getFeConfig("cloud_unique_id").isEmpty()
+    boolean isCloudMode() {
+        // APPR: in 2.1 branch not have cloud, so just return false
+        return false
     }
 
     String getFeConfig(String key) {

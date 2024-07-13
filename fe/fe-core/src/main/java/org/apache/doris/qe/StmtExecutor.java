@@ -98,6 +98,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.NereidsSqlCacheManager;
@@ -326,7 +327,8 @@ public class StmtExecutor {
                 context.getSessionVariable().profileLevel, context.getSessionVariable().getEnablePipelineXEngine());
     }
 
-    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
+    public static InternalService.PDataRow getRowStringValue(List<Expr> cols,
+            FormatOptions options) throws UserException {
         if (cols.isEmpty()) {
             return null;
         }
@@ -339,9 +341,9 @@ public class StmtExecutor {
             if (expr instanceof NullLiteral) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
-                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForStreamLoad()));
+                row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForStreamLoad(options)));
             } else {
-                String stringValue = expr.getStringValueForStreamLoad();
+                String stringValue = expr.getStringValueForStreamLoad(options);
                 if (stringValue.equals(NULL_VALUE_FOR_LOAD) || stringValue.startsWith("\"") || stringValue.endsWith(
                         "\"")) {
                     row.addColBuilder().setValue(String.format("\"%s\"", stringValue));
@@ -691,6 +693,13 @@ public class StmtExecutor {
                     return;
                 }
             }
+
+            // Query following createting table would throw table not exist error.
+            // For example.
+            // t1: client issues create table to master fe
+            // t2: client issues query sql to observer fe, the query would fail due to not exist table in plan phase.
+            // t3: observer fe receive editlog creating the table from the master fe
+            syncJournalIfNeeded();
             try {
                 ((Command) logicalPlan).run(context, this);
             } catch (MustFallbackException e) {
@@ -725,6 +734,13 @@ public class StmtExecutor {
         } else {
             context.getState().setIsQuery(true);
             // create plan
+            // Query following createting table would throw table not exist error.
+            // For example.
+            // t1: client issues create table to master fe
+            // t2: client issues query sql to observer fe, the query would fail due to not exist table in
+            //     plan phase.
+            // t3: observer fe receive editlog creating the table from the master fe
+            syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
             if (context.getSessionVariable().isEnableMaterializedViewRewrite()) {
                 planner.addHook(InitMaterializationContextHook.INSTANCE);
@@ -770,8 +786,6 @@ public class StmtExecutor {
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
-        syncJournalIfNeeded();
-
         int retryTime = Config.max_query_retry_time;
         for (int i = 0; i < retryTime; i++) {
             try {
@@ -861,6 +875,13 @@ public class StmtExecutor {
                     }
                 }
             } else {
+                // Query following createting table would throw table not exist error.
+                // For example.
+                // t1: client issues create table to master fe
+                // t2: client issues query sql to observer fe, the query would fail due to not exist table
+                //     in plan phase.
+                // t3: observer fe receive editlog creating the table from the master fe
+                syncJournalIfNeeded();
                 analyzer = new Analyzer(context.getEnv(), context);
                 parsedStmt.analyze(analyzer);
                 parsedStmt.checkPriv();
@@ -1069,7 +1090,7 @@ public class StmtExecutor {
     }
 
     // Analyze one statement to structure in memory.
-    public void analyze(TQueryOptions tQueryOptions) throws UserException, InterruptedException {
+    public void analyze(TQueryOptions tQueryOptions) throws UserException, InterruptedException, Exception {
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(),
                     context.getForwardedStmtId());
@@ -1111,6 +1132,13 @@ public class StmtExecutor {
             return;
         }
 
+        // Query following createting table would throw table not exist error.
+        // For example.
+        // t1: client issues create table to master fe
+        // t2: client issues query sql to observer fe, the query would fail due to not exist table in
+        //     plan phase.
+        // t3: observer fe receive editlog creating the table from the master fe
+        syncJournalIfNeeded();
         analyzer = new Analyzer(context.getEnv(), context);
 
         if (parsedStmt instanceof PrepareStmt || context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
@@ -2013,9 +2041,10 @@ public class StmtExecutor {
                     throw new TException("Column count doesn't match value count");
                 }
             }
+            FormatOptions options = FormatOptions.getDefault();
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
                 ++effectRows;
-                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
+                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row, options);
                 if (data == null) {
                     continue;
                 }

@@ -2120,7 +2120,11 @@ Status Tablet::create_transient_rowset_writer(
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = std::make_shared<TabletSchema>();
-    context.tablet_schema->copy_from(*(rowset_ptr->tablet_schema()));
+    // During a partial update, the extracted columns of a variant should not be included in the tablet schema.
+    // This is because the partial update for a variant needs to ignore the extracted columns.
+    // Otherwise, the schema types in different rowsets might be inconsistent. When performing a partial update,
+    // the complete variant is constructed by reading all the sub-columns of the variant.
+    context.tablet_schema = rowset_ptr->tablet_schema()->copy_without_variant_extracted_columns();
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = table_id();
     context.enable_segcompaction = false;
@@ -2897,22 +2901,20 @@ Status Tablet::sort_block(vectorized::Block& in_block, vectorized::Block& output
     vectorized::MutableBlock mutable_output_block =
             vectorized::MutableBlock::build_mutable_block(&output_block);
 
-    std::vector<RowInBlock*> _row_in_blocks;
-    _row_in_blocks.reserve(in_block.rows());
-
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
             std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema().get());
     vec_row_comparator->set_block(&mutable_input_block);
 
-    std::vector<RowInBlock*> row_in_blocks;
+    std::vector<std::unique_ptr<RowInBlock>> row_in_blocks;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_in_blocks.reserve(in_block.rows());
     for (size_t i = 0; i < in_block.rows(); ++i) {
-        row_in_blocks.emplace_back(new RowInBlock {i});
+        row_in_blocks.emplace_back(std::make_unique<RowInBlock>(i));
     }
     std::sort(row_in_blocks.begin(), row_in_blocks.end(),
-              [&](const RowInBlock* l, const RowInBlock* r) -> bool {
-                  auto value = (*vec_row_comparator)(l, r);
+              [&](const std::unique_ptr<RowInBlock>& l,
+                  const std::unique_ptr<RowInBlock>& r) -> bool {
+                  auto value = (*vec_row_comparator)(l.get(), r.get());
                   DCHECK(value != 0) << "value equel when sort block, l_pos: " << l->_row_pos
                                      << " r_pos: " << r->_row_pos;
                   return value < 0;
@@ -2944,6 +2946,13 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 rowset_schema->has_sequence_col() &&
                 (std::find(including_cids.cbegin(), including_cids.cend(),
                            rowset_schema->sequence_col_idx()) != including_cids.cend());
+    }
+    if (rowset_schema->num_variant_columns() > 0) {
+        // During partial updates, the extracted columns of a variant should not be included in the rowset schema.
+        // This is because the partial update for a variant needs to ignore the extracted columns.
+        // Otherwise, the schema types in different rowsets might be inconsistent. When performing a partial update,
+        // the complete variant is constructed by reading all the sub-columns of the variant.
+        rowset_schema = rowset_schema->copy_without_variant_extracted_columns();
     }
     // use for partial update
     PartialUpdateReadPlan read_plan_ori;

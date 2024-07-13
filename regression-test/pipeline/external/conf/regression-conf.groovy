@@ -109,6 +109,11 @@ hive3HdfsPort=8320
 hive3ServerPort=13000
 hive3PgPort=5732
 
+// iceberg test config
+iceberg_rest_uri_port=18181
+iceberg_minio_port=19001
+enableIcebergTest=true
+
 enableEsTest=true
 es_5_port=59200
 es_6_port="19200/"

@@ -24,6 +24,39 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
+template <typename TAllocator>
+PageBase<TAllocator>::PageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type)
+        : LRUCacheValueBase(),
+          _size(b),
+          _capacity(b),
+          _use_cache(use_cache),
+          _page_type(page_type) {
+    if (_use_cache) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                StoragePageCache::instance()->mem_tracker(_page_type));
+        _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
+    } else {
+        _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
+    }
+}
+
+template <typename TAllocator>
+PageBase<TAllocator>::~PageBase() {
+    if (_data != nullptr) {
+        DCHECK(_capacity != 0 && _size != 0);
+        if (_use_cache) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    StoragePageCache::instance()->mem_tracker(_page_type));
+            TAllocator::free(_data, _capacity);
+        } else {
+            TAllocator::free(_data, _capacity);
+        }
+    }
+}
+
+template class PageBase<Allocator<true>>;
+template class PageBase<Allocator<false>>;
+
 StoragePageCache* StoragePageCache::create_global_cache(size_t capacity,
                                                         int32_t index_cache_percentage,
                                                         int64_t pk_index_cache_capacity,
@@ -70,7 +103,7 @@ void StoragePageCache::insert(const CacheKey& key, DataPage* data, PageCacheHand
     }
 
     auto* cache = _get_page_cache(page_type);
-    auto* lru_handle = cache->insert_no_tracking(key.encode(), data, data->capacity(), priority);
+    auto* lru_handle = cache->insert(key.encode(), data, data->capacity(), 0, priority);
     *handle = PageCacheHandle(cache, lru_handle);
 }
 

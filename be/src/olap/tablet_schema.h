@@ -454,7 +454,7 @@ public:
 
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
-    std::shared_ptr<TabletSchema> copy_without_extracted_columns();
+    std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
     InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
         return _inverted_index_storage_format;
     }

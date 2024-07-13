@@ -173,18 +173,20 @@ int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile,
                     MemTracker::print_bytes(_memory_limit), BackendOptions::get_localhost());
         }
     }
-    std::string process_mem_usage_str = GlobalMemoryArbitrator::process_mem_log_str();
-    auto cancel_top_overcommit_str = [cancel_str, process_mem_usage_str](int64_t mem_consumption,
-                                                                         const std::string& label) {
+    auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
+                                                  const std::string& label) {
         return fmt::format(
-                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}",
-                cancel_str, label, MemTracker::print_bytes(mem_consumption), process_mem_usage_str);
+                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}, Execute "
+                "again after enough memory, details see be.INFO.",
+                cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
     };
-    auto cancel_top_usage_str = [cancel_str, process_mem_usage_str](int64_t mem_consumption,
-                                                                    const std::string& label) {
-        return fmt::format("{} cancel top memory used tracker <{}> consumption {}. details:{}",
-                           cancel_str, label, MemTracker::print_bytes(mem_consumption),
-                           process_mem_usage_str);
+    auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
+        return fmt::format(
+                "{} cancel top memory used tracker <{}> consumption {}. details:{}, Execute again "
+                "after enough memory, details see be.INFO.",
+                cancel_str, label, MemTracker::print_bytes(mem_consumption),
+                GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str());
     };
 
     LOG(INFO) << fmt::format(

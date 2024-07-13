@@ -563,6 +563,10 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _column_path->from_protobuf(column.column_path_info());
         _parent_col_unique_id = column.column_path_info().parrent_column_unique_id();
     }
+    if (is_variant_type() && !column.has_column_path_info()) {
+        // set path info for variant root column, to prevent from missing
+        _column_path = std::make_shared<vectorized::PathInData>(_col_name_lower_case);
+    }
     for (auto& column_pb : column.sparse_columns()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
@@ -854,7 +858,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     _cols.push_back(std::make_shared<TabletColumn>(std::move(column)));
     // The dropped column may have same name with exsiting column, so that
     // not add to name to index map, only for uid to index map
-    if (col_type == ColumnType::VARIANT || _cols.back()->is_variant_type()) {
+    if (col_type == ColumnType::VARIANT || _cols.back()->is_variant_type() ||
+        _cols.back()->is_extracted_column()) {
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
         _field_path_to_index[_cols.back()->path_info_ptr().get()] = _num_columns;
     } else if (col_type == ColumnType::NORMAL) {
@@ -1112,7 +1117,7 @@ void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
     }
 }
 
-TabletSchemaSPtr TabletSchema::copy_without_extracted_columns() {
+TabletSchemaSPtr TabletSchema::copy_without_variant_extracted_columns() {
     TabletSchemaSPtr copy = std::make_shared<TabletSchema>();
     TabletSchemaPB tablet_schema_pb;
     this->to_schema_pb(&tablet_schema_pb);

@@ -241,8 +241,12 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
             MetricRepo.COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("opCode = {}, journal size = {}", op, theData.getSize());
+
+        if (LOG.isDebugEnabled() || theData.getSize() > (1 << 20)) {
+            LOG.info("opCode = {}, journal size = {}", op, theData.getSize());
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_LARGE_EDIT_LOG.increase(1L);
+            }
         }
 
         // Write the key value pair to bdb.
@@ -702,5 +706,28 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             return "replicatedEnvironment is null";
         }
         return bdbEnvironment.getNotReadyReason();
+    }
+
+    @Override
+    public boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
+        JournalEntity entity = new JournalEntity();
+        entity.setOpCode(op);
+        entity.setData(writable);
+
+        DataOutputBuffer buffer = new DataOutputBuffer(OUTPUT_BUFFER_INIT_SIZE);
+        entity.write(buffer);
+
+        DatabaseEntry theData = new DatabaseEntry(buffer.getData());
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("opCode = {}, journal size = {}", op, theData.getSize());
+        }
+
+        // 1GB
+        if (theData.getSize() > (1 << 30)) {
+            return true;
+        }
+
+        return false;
     }
 }

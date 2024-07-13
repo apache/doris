@@ -160,8 +160,6 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
             return Status::OK();
         }
 
-        RETURN_IF_ERROR(check_file_exist(index_file_key));
-
         if (!dir) {
             // TODO: ugly code here, try to refact.
             auto directory = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
@@ -210,7 +208,7 @@ Status InvertedIndexReader::handle_searcher_cache(
         auto mem_tracker = std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         IndexSearcherPtr searcher;
-        RETURN_IF_ERROR(check_file_exist(index_file_key));
+
         auto dir = DORIS_TRY(_inverted_index_file_reader->open(&_index_meta));
         // try to reuse index_searcher's directory to read null_bitmap to cache
         // to avoid open directory additionally for null_bitmap
@@ -243,17 +241,6 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
     mem_tracker->consume(index_searcher_builder->get_reader_size());
     return Status::OK();
 };
-
-Status InvertedIndexReader::check_file_exist(const std::string& index_file_key) {
-    bool exists = false;
-    RETURN_IF_ERROR(_inverted_index_file_reader->index_file_exist(&_index_meta, &exists));
-    if (!exists) {
-        LOG(WARNING) << "inverted index: " << index_file_key << " not exist.";
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "inverted index input file {} not found", index_file_key);
-    }
-    return Status::OK();
-}
 
 Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
                                          std::unique_ptr<InvertedIndexIterator>* iterator) {
@@ -418,8 +405,18 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
 
     const auto* search_query = reinterpret_cast<const StringRef*>(query_value);
     auto act_len = strnlen(search_query->data, search_query->size);
+
+    // If the written value exceeds ignore_above, it will be written as null.
+    // The queried value exceeds ignore_above means the written value cannot be found.
+    // The query needs to be downgraded to read from the segment file.
+    if (int ignore_above =
+                std::stoi(get_parser_ignore_above_value_from_properties(_index_meta.properties()));
+        act_len > ignore_above) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "query value is too long, evaluate skipped.");
+    }
+
     std::string search_str(search_query->data, act_len);
-    // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
     std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);

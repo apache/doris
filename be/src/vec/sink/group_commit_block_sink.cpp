@@ -50,7 +50,6 @@ GroupCommitBlockSink::~GroupCommitBlockSink() {
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();
         _load_block_queue->remove_load_id(_load_id);
-        _load_block_queue->group_commit_load_count.fetch_add(1);
     }
 }
 

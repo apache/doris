@@ -34,6 +34,7 @@
 #include "olap/uint24.h"
 #include "runtime/collection_value.h"
 #include "util/slice.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
@@ -77,6 +78,9 @@ public:
     void set_source_content(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     Status set_source_content_with_specifid_columns(const vectorized::Block* block, size_t row_pos,
                                                     size_t num_rows, std::vector<uint32_t> cids);
+    Status set_source_content_with_specifid_column(const ColumnWithTypeAndName& typed_column,
+                                                   size_t row_pos, size_t num_rows, uint32_t cid);
+
     void clear_source_content();
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
@@ -487,8 +491,8 @@ private:
 
     class OlapColumnDataConvertorVariant : public OlapColumnDataConvertorBase {
     public:
-        OlapColumnDataConvertorVariant()
-                : _root_data_convertor(std::make_unique<OlapColumnDataConvertorVarChar>(true)) {}
+        OlapColumnDataConvertorVariant() = default;
+
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         Status convert_to_olap() override;
@@ -497,10 +501,11 @@ private:
         const void* get_data_at(size_t offset) const override;
 
     private:
-        // encodes sparsed columns
-        const ColumnString* _root_data_column;
-        // _nullmap contains null info for this variant
+        // // encodes sparsed columns
+        // const ColumnString* _root_data_column;
+        // // _nullmap contains null info for this variant
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
+        ColumnObject* _source_column_ptr;
     };
 
 private:

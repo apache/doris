@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "olap/iterators.h"
+#include "olap/olap_common.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
 #include "util/metrics.h"
@@ -31,6 +32,8 @@ namespace doris {
 struct RowSetSplits;
 struct RowsetWriterContext;
 class RowsetWriter;
+
+enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
 
 // Base class for all tablet classes
 class BaseTablet {
@@ -105,6 +108,12 @@ public:
     std::mutex sample_info_lock;
     std::vector<CompactionSampleInfo> sample_infos;
     Status last_compaction_status = Status::OK();
+
+    std::atomic<int64_t> read_block_count = 0;
+    std::atomic<int64_t> write_count = 0;
+    std::atomic<int64_t> compaction_count = 0;
+
+    CompactionStage compaction_stage = CompactionStage::NOT_SCHEDULED;
 };
 
 } /* namespace doris */

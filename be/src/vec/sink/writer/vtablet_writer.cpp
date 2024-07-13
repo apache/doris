@@ -62,6 +62,7 @@
 #include "exec/tablet_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/memory_reclamation.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
@@ -516,8 +517,11 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     }
 
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
-    RETURN_IF_ERROR(
-            block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first)));
+    st = block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first));
+    if (!st.ok()) {
+        _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
+        return st;
+    }
     for (auto tablet_id : payload->second) {
         _cur_add_block_request->add_tablet_ids(tablet_id);
     }
@@ -551,7 +555,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
     DBUG_EXECUTE_IF("VNodeChannel.try_send_and_fetch_status_full_gc",
-                    { MemInfo::process_full_gc(); });
+                    { MemoryReclamation::process_full_gc(); });
 
     if (_cancelled || _send_finished) { // not run
         return 0;
@@ -872,7 +876,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 }
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
-    DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", { MemInfo::process_full_gc(); });
+    DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", { MemoryReclamation::process_full_gc(); });
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     // set _is_closed to true finally
     Defer set_closed {[&]() {

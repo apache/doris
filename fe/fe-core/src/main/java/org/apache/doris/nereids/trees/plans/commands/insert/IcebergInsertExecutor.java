@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -39,9 +40,9 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
      * constructor
      */
     public IcebergInsertExecutor(ConnectContext ctx, IcebergExternalTable table,
-                                 String labelName, NereidsPlanner planner,
-                                 Optional<InsertCommandContext> insertCtx,
-                                 boolean emptyInsert) {
+            String labelName, NereidsPlanner planner,
+            Optional<InsertCommandContext> insertCtx,
+            boolean emptyInsert) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
     }
 
@@ -52,10 +53,22 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
     }
 
     @Override
-    protected void doBeforeCommit() throws UserException {
+    protected void beforeExec() {
+        String dbName = ((IcebergExternalTable) table).getDbName();
+        String tbName = table.getName();
+        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbName);
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        loadedRows = transaction.getUpdateCnt();
-        transaction.finishInsert();
+        transaction.beginInsert(tableInfo);
+    }
+
+    @Override
+    protected void doBeforeCommit() throws UserException {
+        String dbName = ((IcebergExternalTable) table).getDbName();
+        String tbName = table.getName();
+        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbName);
+        IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
+        this.loadedRows = transaction.getUpdateCnt();
+        transaction.finishInsert(tableInfo, insertCtx);
     }
 
     @Override
@@ -63,9 +76,4 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
         return TransactionType.ICEBERG;
     }
 
-    @Override
-    protected void beforeExec() {
-        IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        transaction.beginInsert(((IcebergExternalTable) table).getDbName(), table.getName());
-    }
 }
