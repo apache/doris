@@ -61,7 +61,7 @@ public class IcebergApiSource implements IcebergSource {
 
     @Override
     public String getFileFormat() {
-        return IcebergUtils.getFileFormat(originTable);
+        return IcebergUtils.getFileFormat(originTable).name();
     }
 
     @Override

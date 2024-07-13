@@ -66,6 +66,7 @@ public:
 
     int64_t for_each_cache_prune_all(RuntimeProfile* profile = nullptr);
 
+    void clear_once();
     void clear_once(CachePolicy::CacheType type);
 
     bool need_prune(int64_t* last_timestamp, const std::string& type) {
