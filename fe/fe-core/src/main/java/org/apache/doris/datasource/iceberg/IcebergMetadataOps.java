@@ -64,6 +64,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
+    public IcebergExternalCatalog getExternalCatalog() {
+        return dorisCatalog;
+    }
+
     @Override
     public void close() {
     }
