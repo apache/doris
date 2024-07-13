@@ -541,7 +541,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             if (!modColumn.isKey()) {
                 if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                    modColumn.setAggregationType(AggregateType.NONE, false);
+                    modColumn.setAggregationType(AggregateType.NONE, true);
                 } else {
                     modColumn.setAggregationType(AggregateType.REPLACE, true);
                 }
@@ -928,7 +928,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             if (!newColumn.isKey()) {
                 if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                    newColumn.setAggregationType(AggregateType.NONE, false);
+                    newColumn.setAggregationType(AggregateType.NONE, true);
                 } else {
                     newColumn.setAggregationType(AggregateType.REPLACE, true);
                 }
