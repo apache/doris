@@ -89,7 +89,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
 
 
@@ -119,7 +118,6 @@ public class ConnectContext {
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
-    protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
     protected volatile String traceId;
     // id for this connection
     protected volatile int connectionId;
@@ -870,10 +868,6 @@ public class ConnectContext {
 
     public TUniqueId queryId() {
         return queryId;
-    }
-
-    public TUniqueId nextInstanceId() {
-        return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
     }
 
     public String getSqlHash() {

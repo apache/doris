@@ -466,18 +466,4 @@ public class Utils {
         }
         return firstChar + input.substring(1);
     }
-
-    /** addLinePrefix */
-    public static String addLinePrefix(String str, String prefix) {
-        StringBuilder newStr = new StringBuilder((int) (str.length() * 1.2));
-        String[] lines = str.split("\n");
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i];
-            newStr.append(prefix).append(line);
-            if (i + 1 < lines.length) {
-                newStr.append("\n");
-            }
-        }
-        return newStr.toString();
-    }
 }

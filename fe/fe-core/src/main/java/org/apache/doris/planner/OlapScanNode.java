@@ -169,8 +169,6 @@ public class OlapScanNode extends ScanNode {
     private int selectedPartitionNum = 0;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
     private long totalBytes = 0;
-    // tablet id to single replica bytes
-    private Map<Long, Long> tabletBytes = Maps.newLinkedHashMap();
 
     private SortInfo sortInfo = null;
     private Set<Integer> outputColumnUniqueIds = new HashSet<>();
@@ -193,7 +191,6 @@ public class OlapScanNode extends ScanNode {
     // a bucket seq may map to many tablets, and each tablet has a
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
-    public Map<Integer, Long> bucketSeq2Bytes = Maps.newLinkedHashMap();
 
     boolean isFromPrepareStmt = false;
     // For point query
@@ -751,10 +748,6 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    public Long getTabletSingleReplicaSize(Long tabletId) {
-        return tabletBytes.get(tabletId);
-    }
-
     private void addScanRangeLocations(Partition partition,
             List<Tablet> tablets) throws UserException {
         long visibleVersion = Partition.PARTITION_INIT_VERSION;
@@ -884,9 +877,6 @@ public class OlapScanNode extends ScanNode {
             boolean tabletIsNull = true;
             boolean collectedStat = false;
             List<String> errs = Lists.newArrayList();
-
-            int replicaInTablet = 0;
-            long oneReplicaBytes = 0;
             for (Replica replica : replicas) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
                 if (backend == null || !backend.isAlive()) {
@@ -926,13 +916,7 @@ public class OlapScanNode extends ScanNode {
 
                 // for CBO
                 if (!collectedStat && replica.getRowCount() != -1) {
-                    long dataSize = replica.getDataSize();
-                    if (replicaInTablet == 0) {
-                        oneReplicaBytes = dataSize;
-                        tabletBytes.put(tabletId, dataSize);
-                    }
-                    replicaInTablet++;
-                    totalBytes += dataSize;
+                    totalBytes += replica.getDataSize();
                     collectedStat = true;
                 }
                 scanBackendIds.add(backend.getId());
@@ -950,9 +934,8 @@ public class OlapScanNode extends ScanNode {
             scanRange.setPaloScanRange(paloRange);
             locations.setScanRange(scanRange);
 
-            Integer bucketSeq = tabletId2BucketSeq.get(tabletId);
-            bucketSeq2locations.put(bucketSeq, locations);
-            bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
+            bucketSeq2locations.put(tabletId2BucketSeq.get(tabletId), locations);
+
             scanRangeLocations.add(locations);
         }
 
@@ -1418,20 +1401,6 @@ public class OlapScanNode extends ScanNode {
     @Override
     public boolean getShouldColoScan() {
         return shouldColoScan;
-    }
-
-    public int getBucketNum() {
-        // In bucket shuffle join, we have 2 situation.
-        // 1. Only one partition: in this case, we use scanNode.getTotalTabletsNum() to get the right bucket num
-        //    because when table turn on dynamic partition, the bucket number in default distribution info
-        //    is not correct.
-        // 2. Table is colocated: in this case, table could have more than one partition, but all partition's
-        //    bucket number must be same, so we use default bucket num is ok.
-        if (olapTable.isColocateTable()) {
-            return olapTable.getDefaultDistributionInfo().getBucketNum();
-        } else {
-            return (int) totalTabletsNum;
-        }
     }
 
     @Override

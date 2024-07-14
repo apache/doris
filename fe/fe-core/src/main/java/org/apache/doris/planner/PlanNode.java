@@ -59,8 +59,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Consumer;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -1257,28 +1255,5 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void addIntermediateProjectList(List<Expr> exprs) {
         intermediateProjectListList.add(exprs);
-    }
-
-    public <T extends PlanNode> List<T> collectInCurrentFragment(Predicate<PlanNode> predicate) {
-        List<PlanNode> result = Lists.newArrayList();
-        foreachDownInCurrentFragment(child -> {
-            if (predicate.test(child)) {
-                result.add(child);
-            }
-        });
-        return (List) result;
-    }
-
-    /** foreachDownInCurrentFragment */
-    public void foreachDownInCurrentFragment(Consumer<PlanNode> visitor) {
-        int currentFragmentId = getFragmentId().asInt();
-        foreachDown(child -> {
-            PlanNode childNode = (PlanNode) child;
-            if (childNode.getFragmentId().asInt() != currentFragmentId) {
-                return false;
-            }
-            visitor.accept(childNode);
-            return true;
-        });
     }
 }

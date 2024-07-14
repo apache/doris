@@ -46,7 +46,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -214,12 +213,12 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                 || joinType == JoinType.FULL_OUTER_JOIN);
         boolean isSpecInScope = (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                 || rightHashSpec.getShuffleType() == ShuffleType.NATURAL);
-        return isJoinTypeInScope && isSpecInScope && !SessionVariable.canUseNereidsDistributePlanner();
+        return isJoinTypeInScope && isSpecInScope;
     }
 
     @Override
-    public Boolean visitPhysicalHashJoin(
-            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, Void context) {
+    public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
+            Void context) {
         Preconditions.checkArgument(children.size() == 2, "children.size() != 2");
         Preconditions.checkArgument(childrenProperties.size() == 2);
         Preconditions.checkArgument(requiredProperties.size() == 2);
@@ -304,24 +303,13 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
         } else if (leftHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED
                 && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
-            if (SessionVariable.canUseNereidsDistributePlanner()) {
-                // nereids coordinator can exchange left side to right side to do bucket shuffle join
-                // TODO: maybe we should check if left child is PhysicalDistribute.
-                //  If so add storage bucketed shuffle on left side. Other wise,
-                //  add execution bucketed shuffle on right side.
-                updatedForLeft = Optional.of(calAnotherSideRequired(
-                        ShuffleType.STORAGE_BUCKETED, rightHashSpec, leftHashSpec,
-                        (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec(),
-                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec()));
-            } else {
-                // legacy coordinator could not do right be selection in this case,
-                // since it always to check the left most node whether olap scan node.
-                // so we can only shuffle right to left side to do normal shuffle join
-                updatedForRight = Optional.of(calAnotherSideRequired(
-                        ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
-                        (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
-                        (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
-            }
+            // TODO: we must do shuffle on right because coordinator could not do right be selection in this case,
+            //  since it always to check the left most node whether olap scan node.
+            //  after we fix coordinator problem, we could do right to left bucket shuffle
+            updatedForRight = Optional.of(calAnotherSideRequired(
+                    ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
+                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                    (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
         } else if (leftHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED
                 && rightHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED) {
             if (bothSideShuffleKeysAreSameOrder(rightHashSpec, leftHashSpec,
@@ -549,20 +537,20 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
      * calAnotherSideRequiredShuffleIds's comment.
      *
      * @param shuffleType real output shuffle type
-     * @param notNeedShuffleSideOutput not shuffle side real output used hash spec
-     * @param needShuffleSideOutput shuffle side real output used hash spec
-     * @param notNeedShuffleSideRequired not shuffle side required used hash spec
-     * @param needShuffleSideRequired shuffle side required hash spec
+     * @param notShuffleSideOutput not shuffle side real output used hash spec
+     * @param shuffleSideOutput shuffle side real output used hash spec
+     * @param notShuffleSideRequired not shuffle side required used hash spec
+     * @param shuffleSideRequired shuffle side required hash spec
      * @return shuffle side new required hash spec
      */
     private PhysicalProperties calAnotherSideRequired(ShuffleType shuffleType,
-            DistributionSpecHash notNeedShuffleSideOutput, DistributionSpecHash needShuffleSideOutput,
-            DistributionSpecHash notNeedShuffleSideRequired, DistributionSpecHash needShuffleSideRequired) {
-        List<ExprId> shuffleSideIds = calAnotherSideRequiredShuffleIds(notNeedShuffleSideOutput,
-                notNeedShuffleSideRequired, needShuffleSideRequired);
+            DistributionSpecHash notShuffleSideOutput, DistributionSpecHash shuffleSideOutput,
+            DistributionSpecHash notShuffleSideRequired, DistributionSpecHash shuffleSideRequired) {
+        List<ExprId> shuffleSideIds = calAnotherSideRequiredShuffleIds(notShuffleSideOutput,
+                notShuffleSideRequired, shuffleSideRequired);
         return new PhysicalProperties(new DistributionSpecHash(shuffleSideIds, shuffleType,
-                needShuffleSideOutput.getTableId(), needShuffleSideOutput.getSelectedIndexId(),
-                needShuffleSideOutput.getPartitionIds()));
+                shuffleSideOutput.getTableId(), shuffleSideOutput.getSelectedIndexId(),
+                shuffleSideOutput.getPartitionIds()));
     }
 
     private void updateChildEnforceAndCost(int index, PhysicalProperties targetProperties) {

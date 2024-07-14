@@ -20,8 +20,6 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
-import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
 
@@ -110,14 +108,6 @@ public class Profile {
                 }
                 summaryInfo.put(SummaryProfile.PHYSICAL_PLAN,
                         builder.toString().replace("\n", "\n     "));
-
-                FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
-                if (distributedPlans != null) {
-                    summaryInfo.put(SummaryProfile.DISTRIBUTED_PLAN,
-                            DistributedPlan.toString(Lists.newArrayList(distributedPlans.values()))
-                                    .replace("\n", "\n     ")
-                    );
-                }
             }
             summaryProfile.update(summaryInfo);
             for (ExecutionProfile executionProfile : executionProfiles) {

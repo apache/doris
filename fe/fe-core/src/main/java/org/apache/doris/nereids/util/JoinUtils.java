@@ -25,7 +25,6 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -225,25 +224,12 @@ public class JoinUtils {
      * return true if we should do bucket shuffle join when translate plan.
      */
     public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
-        if (isStorageBucketed(join.right().getPhysicalProperties())) {
-            return true;
-        } else if (SessionVariable.canUseNereidsDistributePlanner()
-                && isStorageBucketed(join.left().getPhysicalProperties())) {
-            return true;
-        }
-        return false;
-    }
-
-    private static boolean isStorageBucketed(PhysicalProperties physicalProperties) {
-        DistributionSpec distributionSpec = physicalProperties.getDistributionSpec();
-        if (!(distributionSpec instanceof DistributionSpecHash)) {
+        DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
+        if (!(rightDistributionSpec instanceof DistributionSpecHash)) {
             return false;
         }
-        DistributionSpecHash rightHash = (DistributionSpecHash) distributionSpec;
-        if (rightHash.getShuffleType() == ShuffleType.STORAGE_BUCKETED) {
-            return true;
-        }
-        return false;
+        DistributionSpecHash rightHash = (DistributionSpecHash) rightDistributionSpec;
+        return rightHash.getShuffleType() == ShuffleType.STORAGE_BUCKETED;
     }
 
     /**

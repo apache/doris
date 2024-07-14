@@ -59,10 +59,6 @@ public class DataGenScanNode extends ExternalScanNode {
         super.init(analyzer);
     }
 
-    public DataGenTableValuedFunction getTvf() {
-        return tvf;
-    }
-
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         return scanRangeLocations;

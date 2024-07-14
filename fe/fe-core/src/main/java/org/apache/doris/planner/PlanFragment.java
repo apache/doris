@@ -27,8 +27,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.TreeNode;
-import org.apache.doris.nereids.trees.plans.distribute.NereidsSpecifyInstances;
-import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
@@ -36,7 +34,6 @@ import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -46,9 +43,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -153,11 +148,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     // has colocate plan node
     protected boolean hasColocatePlanNode = false;
-    protected final Supplier<Boolean> hasBucketShuffleJoin;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
-
-    public Optional<NereidsSpecifyInstances<ScanSource>> specifyInstances = Optional.empty();
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -170,7 +162,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.transferQueryStatisticsWithEveryBatch = false;
         this.builderRuntimeFilterIds = new HashSet<>();
         this.targetRuntimeFilterIds = new HashSet<>();
-        this.hasBucketShuffleJoin = buildHasBucketShuffleJoin();
         setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
     }
@@ -185,18 +176,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this(id, root, partition);
         this.builderRuntimeFilterIds = new HashSet<>(builderRuntimeFilterIds);
         this.targetRuntimeFilterIds = new HashSet<>(targetRuntimeFilterIds);
-    }
-
-    private Supplier<Boolean> buildHasBucketShuffleJoin() {
-        return Suppliers.memoize(() -> {
-            List<HashJoinNode> hashJoinNodes = getPlanRoot().collectInCurrentFragment(HashJoinNode.class::isInstance);
-            for (HashJoinNode hashJoinNode : hashJoinNodes) {
-                if (hashJoinNode.isBucketShuffle()) {
-                    return true;
-                }
-            }
-            return false;
-        });
     }
 
     /**
@@ -259,10 +238,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public void setHasColocatePlanNode(boolean hasColocatePlanNode) {
         this.hasColocatePlanNode = hasColocatePlanNode;
-    }
-
-    public boolean hasBucketShuffleJoin() {
-        return hasBucketShuffleJoin.get();
     }
 
     public void setResultSinkType(TResultSinkType resultSinkType) {
