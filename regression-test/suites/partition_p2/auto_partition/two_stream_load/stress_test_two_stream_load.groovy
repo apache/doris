@@ -26,7 +26,7 @@ suite("stress_test_two_stream_load", "p2,nonConcurrent") {
     // get doris-db from s3
     def dirPath = context.file.parent
     def fileName = "doris-dbgen"
-    def fileUrl = "http://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
+    def fileUrl = "http://${getS3BucketName()}.${getS3Endpoint()}/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
     def filePath = Paths.get(dirPath, fileName)
     if (!Files.exists(filePath)) {
         new URL(fileUrl).withInputStream { inputStream ->
