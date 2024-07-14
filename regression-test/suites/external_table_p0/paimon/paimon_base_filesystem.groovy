@@ -50,8 +50,8 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
                 "type" = "paimon",
                 "warehouse" = "oss://paimon-zd/paimonoss",
                 "oss.access_key"="${ak}",
-                "oss.secret_key"="${sk}"
-                "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
+                "oss.secret_key"="${sk}",
+                "oss.endpoint"="oss-cn-beijing.aliyuncs.com"
             );
         """
         logger.info("catalog " + catalog_cos + " created")
