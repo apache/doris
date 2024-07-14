@@ -44,11 +44,11 @@ suite("test_iceberg_time_travel", "p0,external,doris,external_docker,external_do
         // test for 'FOR TIME AS OF' and 'FOR VERSION AS OF'
         def q01 = {
             qt_q1 """ select count(*) from iceberg_position_gen_data """  // 5632
-            qt_q2 """ select count(*) from iceberg_position_gen_data FOR TIME AS OF '2024-07-14 11:58:42' """  // 60
+            qt_q2 """ select count(*) from iceberg_position_gen_data FOR TIME AS OF '2024-07-14 14:17:01' """// 120
             qt_q3 """ select * from iceberg_position_gen_data order by id limit 10""" 
-            qt_q4 """ select * from iceberg_position_gen_data FOR TIME AS OF '2024-07-14 11:58:42' order by id limit 10""" 
-            qt_q5 """ select count(*) from iceberg_position_gen_data FOR VERSION AS OF 5659318386919434348 """ // 240
-            qt_q6 """ select * from iceberg_position_gen_data FOR VERSION AS OF 5659318386919434348 order by id limit 10""" 
+            qt_q4 """ select * from iceberg_position_gen_data FOR TIME AS OF '2024-07-14 14:17:01' order by id limit 10""" 
+            qt_q5 """ select count(*) from iceberg_position_gen_data FOR VERSION AS OF 3106988132043095748 """ // 240
+            qt_q6 """ select * from iceberg_position_gen_data FOR VERSION AS OF 3106988132043095748 order by id limit 10""" 
         }
         
         q01()

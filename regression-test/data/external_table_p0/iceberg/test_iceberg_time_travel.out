@@ -3,7 +3,7 @@
 5632
 
 -- !q2 --
-60
+30
 
 -- !q3 --
 2	select xxxxxxxxx
@@ -20,17 +20,17 @@
 -- !q4 --
 1	hello world
 1	hello world
-1	hello world
-1	hello world
-2	select xxxxxxxxx
-2	select xxxxxxxxx
 2	select xxxxxxxxx
 2	select xxxxxxxxx
 3	example xxxx
 3	example xxxx
+4	more dataxxx
+4	more dataxxx
+5	another examplexxx
+5	another examplexxx
 
 -- !q5 --
-240
+480
 
 -- !q6 --
 1	hello world
