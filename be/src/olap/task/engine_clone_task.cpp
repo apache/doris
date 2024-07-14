@@ -263,7 +263,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             // change all rowset ids because they maybe its id same with local rowset
             status = SnapshotManager::instance()->convert_rowset_ids(
                     local_data_path, _clone_req.tablet_id, _clone_req.replica_id,
-                    _clone_req.schema_hash);
+                    _clone_req.table_id, _clone_req.partition_id, _clone_req.schema_hash);
         } else {
             LOG_WARNING("failed to download snapshot from remote BE")
                     .tag("url", remote_url_prefix)
