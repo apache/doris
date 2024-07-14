@@ -15,27 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_position_delete", "p2,external,iceberg,external_remote,external_remote_iceberg") {
+suite("test_iceberg_position_delete", "p0,external,doris,external_docker,external_docker_doris") {
+    String enabled = context.config.otherConfigs.get("enableIcebergTest")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disable iceberg test.")
+        return
+    }
 
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
+    String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String catalog_name = "test_iceberg_position_delete"
 
-        String catalog_name = "test_external_iceberg_position_delete"
-        String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
-        String extHdfsPort = context.config.otherConfigs.get("extHdfsPort")
-        sql """drop catalog if exists ${catalog_name};"""
-        sql """
-            create catalog if not exists ${catalog_name} properties (
-                'type'='iceberg',
-                'iceberg.catalog.type'='hadoop',
-                'warehouse' = 'hdfs://${extHiveHmsHost}:${extHdfsPort}/usr/hive/warehouse/hadoop_catalog'
-            );
-        """
+    sql """drop catalog if exists ${catalog_name}"""
+    sql """
+    CREATE CATALOG ${catalog_name} PROPERTIES (
+        'type'='iceberg',
+        'iceberg.catalog.type'='rest',
+        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        "s3.access_key" = "admin",
+        "s3.secret_key" = "password",
+        "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+        "s3.region" = "us-east-1"
+    );"""
 
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
-        sql """ use multi_catalog;""" 
+        sql """ use test_db;""" 
 
         qt_gen_data_1 """ select * from iceberg_position_gen_data where  name = 'xyzxxxxxx' and id != 9;""" 
         qt_gen_data_2 """ select * from iceberg_position_gen_data where id = 1; """
@@ -158,7 +165,6 @@ suite("iceberg_position_delete", "p2,external,iceberg,external_remote,external_r
         assertTrue(iceberg_position_gen_7.size() == 5632)
 
         sql """drop catalog ${catalog_name}"""
-    }
 }
 /*
 

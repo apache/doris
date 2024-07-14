@@ -75,7 +75,6 @@ import org.apache.iceberg.util.DateTimeUtil;
 import org.apache.iceberg.util.TableScanUtil;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -322,11 +321,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         List<IcebergDeleteFileFilter> filters = new ArrayList<>();
         for (DeleteFile delete : spitTask.deletes()) {
             if (delete.content() == FileContent.POSITION_DELETES) {
-                ByteBuffer lowerBoundBytes = delete.lowerBounds().get(MetadataColumns.DELETE_FILE_POS.fieldId());
-                Optional<Long> positionLowerBound = Optional.ofNullable(lowerBoundBytes)
+                Optional<Long> positionLowerBound = Optional.ofNullable(delete.lowerBounds())
+                        .map(m -> m.get(MetadataColumns.DELETE_FILE_POS.fieldId()))
                         .map(bytes -> Conversions.fromByteBuffer(MetadataColumns.DELETE_FILE_POS.type(), bytes));
-                ByteBuffer upperBoundBytes = delete.upperBounds().get(MetadataColumns.DELETE_FILE_POS.fieldId());
-                Optional<Long> positionUpperBound = Optional.ofNullable(upperBoundBytes)
+                Optional<Long> positionUpperBound = Optional.ofNullable(delete.upperBounds())
+                        .map(m -> m.get(MetadataColumns.DELETE_FILE_POS.fieldId()))
                         .map(bytes -> Conversions.fromByteBuffer(MetadataColumns.DELETE_FILE_POS.type(), bytes));
                 filters.add(IcebergDeleteFileFilter.createPositionDelete(delete.path().toString(),
                         positionLowerBound.orElse(-1L), positionUpperBound.orElse(-1L)));
