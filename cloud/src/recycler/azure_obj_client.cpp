@@ -33,8 +33,8 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "cpp/sync_point.h"
 #include "cpp/s3_rate_limiter.h"
+#include "cpp/sync_point.h"
 #include "recycler/s3_accessor.h"
 
 using namespace Azure::Storage::Blobs;

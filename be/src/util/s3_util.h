@@ -32,8 +32,8 @@
 #include <unordered_map>
 
 #include "common/status.h"
-#include "io/fs/obj_storage_client.h"
 #include "cpp/s3_rate_limiter.h"
+#include "io/fs/obj_storage_client.h"
 #include "vec/common/string_ref.h"
 
 namespace Aws::S3 {

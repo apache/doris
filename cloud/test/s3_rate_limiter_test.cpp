@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
 #include <cpp/s3_rate_limiter.h>
+#include <gtest/gtest.h>
 
 #include <atomic>
 #include <chrono>
