@@ -66,6 +66,11 @@ public:
               line_delimiter_len(line_delimiter_len_),
               keep_cr(keep_cr_) {
         use_memmem = line_delimiter_len != 1 || line_delimiter != "\n" || keep_cr;
+        if (use_memmem) {
+            find_line_delimiter_func = &BaseTextLineReaderContext::find_multi_char_line_sep;
+        } else {
+            find_line_delimiter_func = &BaseTextLineReaderContext::find_lf_crlf_line_sep;
+        }
     }
 
     inline const uint8_t* read_line(const uint8_t* start, const size_t len) final {
@@ -78,29 +83,105 @@ public:
 
     inline void refresh() final { return static_cast<Ctx*>(this)->refresh_impl(); };
 
+    inline const uint8_t* find_multi_char_line_sep(const uint8_t* start, const size_t length) {
+        return static_cast<uint8_t*>(
+                memmem(start, length, line_delimiter.c_str(), line_delimiter_len));
+    }
+
+    const uint8_t* find_lf_crlf_line_sep(const uint8_t* start, const size_t length) {
+        line_crlf = false;
+        if (start == nullptr || length == 0) {
+            return nullptr;
+        }
+        size_t i = 0;
+#ifdef __AVX2__
+        // const uint8_t* end = start + length;
+        const __m256i newline = _mm256_set1_epi8('\n');
+        const __m256i carriage_return = _mm256_set1_epi8('\r');
+
+        const size_t simd_width = 32;
+
+        // Process 32 bytes at a time using AVX2
+        for (; i + simd_width < length; i += simd_width) {
+            __m256i data = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(start + i));
+
+            // Compare with '\n' and '\r'
+            __m256i cmp_newline = _mm256_cmpeq_epi8(data, newline);
+            __m256i cmp_carriage_return = _mm256_cmpeq_epi8(data, carriage_return);
+
+            // Check if there is a match
+            int mask_newline = _mm256_movemask_epi8(cmp_newline);
+            int mask_carriage_return = _mm256_movemask_epi8(cmp_carriage_return);
+
+            int loc = -1;
+            if (mask_newline != 0) {
+                // Find the position of the first '\n'
+                int pos = __builtin_ffs(mask_newline) - 1;
+                loc = i + pos;
+            }
+            int loc2 = -1;
+            if (mask_carriage_return != 0) {
+                // Find the position of the first '\r'
+                int pos = __builtin_ffs(mask_carriage_return) - 1;
+                // Check if the next character is '\n'
+                if (i + pos + 1 < length && start[i + pos + 1] == '\n') {
+                    loc2 = i + pos;
+                }
+            }
+
+            if (loc == -1 && loc2 == -1) {
+                continue;
+            } else if (loc == -1) {
+                line_crlf = true;
+                return start + loc2;
+            } else if (loc2 == -1) {
+                return start + loc;
+            } else {
+                if (loc < loc2) {
+                    return start + loc;
+                } else {
+                    line_crlf = true;
+                    return start + loc2;
+                }
+            }
+        }
+
+        // Process remaining bytes
+#endif
+        for (i = 0; i < length; ++i) {
+            if (start[i] == '\n') {
+                return &start[i];
+            }
+            if (start[i] == '\r' && (i + 1 < length) && start[i + 1] == '\n') {
+                line_crlf = true;
+                return &start[i];
+            }
+        }
+        return nullptr;
+    }
+    const uint8_t* call_find_line_sep(const uint8_t* start, const size_t length) {
+        return (this->*find_line_delimiter_func)(start, length);
+    }
+
 protected:
     const std::string line_delimiter;
     const size_t line_delimiter_len;
     bool keep_cr = false;
     bool line_crlf = false;
     bool use_memmem = true;
+    using FindLineDelimiterFunc = const uint8_t* (BaseTextLineReaderContext::*)(const uint8_t*,
+                                                                                size_t);
+    FindLineDelimiterFunc find_line_delimiter_func;
 };
-
-class PlainTextLineReaderCtx : public BaseTextLineReaderContext<PlainTextLineReaderCtx> {
+class PlainTextLineReaderCtx final : public BaseTextLineReaderContext<PlainTextLineReaderCtx> {
 public:
     explicit PlainTextLineReaderCtx(const std::string& line_delimiter_,
                                     const size_t line_delimiter_len_, const bool keep_cr_)
             : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_, keep_cr_) {}
 
     inline const uint8_t* read_line_impl(const uint8_t* start, const size_t length) {
-        if (use_memmem) {
-            return (uint8_t*)memmem(start, length, line_delimiter.c_str(), line_delimiter_len);
-        } else {
-            return read_csv_line(start, length);
-        }
+        return call_find_line_sep(start, length);
     }
-
-    const uint8_t* read_csv_line(const uint8_t* start, const size_t length);
 
     inline void refresh_impl() {}
 };
@@ -123,7 +204,8 @@ struct ReaderStateWrapper {
     ReaderState prev_state = ReaderState::START;
 };
 
-class EncloseCsvLineReaderContext final : public PlainTextLineReaderCtx {
+class EncloseCsvLineReaderContext final
+        : public BaseTextLineReaderContext<EncloseCsvLineReaderContext> {
     // using a function ptr to decrease the overhead (found very effective during test).
     using FindDelimiterFunc = const uint8_t* (*)(const uint8_t*, size_t, const char*, size_t);
 
@@ -133,19 +215,11 @@ public:
                                          const std::string& column_sep_,
                                          const size_t column_sep_len_, size_t col_sep_num,
                                          const char enclose, const char escape, const bool keep_cr_)
-            : PlainTextLineReaderCtx(line_delimiter_, line_delimiter_len_, keep_cr_),
+            : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_, keep_cr_),
               _enclose(enclose),
               _escape(escape),
               _column_sep_len(column_sep_len_),
               _column_sep(column_sep_) {
-        //        if ()
-        //            use_memmem = line_delimiter_len != 1 || line_delimiter != "\n" || keep_cr;
-
-        //        if (use_memmem) {
-        //             find_bound_func = (FindDelimiterFunc)(memmem);
-        //        } else {
-        //            find_bound_func = (FindDelimiterFunc)(read_csv_line_tt);
-        //        }
         if (column_sep_len_ == 1) {
             find_col_sep_func = &EncloseCsvLineReaderContext::look_for_column_sep_pos<true>;
         } else {
@@ -196,7 +270,6 @@ private:
     std::vector<size_t> _column_sep_positions;
 
     FindDelimiterFunc find_col_sep_func;
-    //    FindDelimiterFunc find_bound_func;
 };
 
 using TextLineReaderCtxPtr = std::shared_ptr<TextLineReaderContextIf>;
