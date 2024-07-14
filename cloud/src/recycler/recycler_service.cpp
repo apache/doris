@@ -186,6 +186,12 @@ void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& 
         }
     }
     auto recycler = std::make_unique<InstanceRecycler>(txn_kv, instance);
+    if (recycler->init() != 0) {
+        LOG(WARNING) << "failed to init InstanceRecycler recycle_copy_jobs on instance "
+                     << instance_id;
+        return;
+    }
+
     std::thread worker([recycler = std::move(recycler), instance_id] {
         LOG(INFO) << "manually trigger recycle_copy_jobs on instance " << instance_id;
         recycler->recycle_copy_jobs();
