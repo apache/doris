@@ -25,6 +25,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -74,7 +75,7 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     public static UnboundSlot quoted(String name) {
-        return new UnboundSlot(Lists.newArrayList(name));
+        return new UnboundSlot(Lists.newArrayList(Arrays.asList(name.split("\\."))));
     }
 
     @Override
