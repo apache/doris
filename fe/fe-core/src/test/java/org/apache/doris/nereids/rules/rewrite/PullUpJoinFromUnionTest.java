@@ -135,4 +135,37 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
                 .rewrite()
                 .matches(logicalJoin(logicalProject(logicalUnion()), any()));
     }
+
+    @Test
+    void testMultipleJoinConditions() {
+        String sql = "select * from t1 join t2 on t1.id = t2.id and t1.name = t2.name "
+                + "union all "
+                + "select * from t1 join t3 on t1.id = t3.id and t1.name = t3.name;";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+    }
+
+    @Test
+    void testNonEqualityJoinConditions() {
+        String sql = "select * from t1 join t2 on t1.id < t2.id "
+                + "union all "
+                + "select * from t1 join t3 on t1.id < t3.id;";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin(logicalProject(logicalUnion()), any()));
+    }
+
+    @Test
+    void testSubqueries() {
+        String sql = "select * from t1 join (select * from t2 where t2.id > 10) s2 on t1.id = s2.id "
+                + "union all "
+                + "select * from t1 join (select * from t3 where t3.id > 10) s3 on t1.id = s3.id;";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+    }
 }
