@@ -36,7 +36,7 @@ public:
         }
     }
 
-    void unlock() { _flag.clear(std::memory_order_acq_rel); }
+    void unlock() { _flag.clear(std::memory_order_release); }
 
 private:
     std::atomic_flag _flag = ATOMIC_FLAG_INIT;
