@@ -641,7 +641,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                              to_lower(_tablet_schema->column(cids_missing[i]).default_value())
                                              .find(to_lower("CURRENT_TIMESTAMP")) !=
                                      std::string::npos)) {
-                    DateV2Value<DateTimeV2ValueType> dtv;
+                    vectorized::DateV2Value<vectorized::DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
                                       _opts.rowset_ctx->partial_update_info->timezone);
                     default_value = dtv.debug_string();
@@ -651,7 +651,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                                    to_lower(_tablet_schema->column(cids_missing[i]).default_value())
                                                    .find(to_lower("CURRENT_DATE")) !=
                                            std::string::npos)) {
-                    DateV2Value<DateV2ValueType> dv;
+                    vectorized::DateV2Value<vectorized::DateV2ValueType> dv;
                     dv.from_unixtime(_opts.rowset_ctx->partial_update_info->timestamp_ms / 1000,
                                      _opts.rowset_ctx->partial_update_info->timezone);
                     default_value = dv.debug_string();

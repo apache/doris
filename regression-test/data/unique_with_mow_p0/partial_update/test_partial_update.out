@@ -39,7 +39,7 @@
 1
 
 -- !select_timestamp2 --
-11
+0
 
 -- !select_date --
 1
@@ -87,7 +87,7 @@
 1
 
 -- !select_timestamp2 --
-11
+0
 
 -- !select_date --
 1
