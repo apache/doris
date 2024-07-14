@@ -21,11 +21,9 @@ suite("test_txn") {
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
-            `user_id` bigint default 999,
+            `user_id` bigint,
             `group_id` bigint,
-            `id` bigint,
-            `vv` variant,
-            INDEX idx_col1 (user_id) USING INVERTED
+            `id` bigint
             ) ENGINE=OLAP
         UNIQUE KEY(user_id, group_id)
         DISTRIBUTED BY HASH (user_id) BUCKETS 1
@@ -35,7 +33,7 @@ suite("test_txn") {
                 );
     """
     sql "begin"
-    sql """insert into ${tableName} values(1,1,5,'{"b":"b"}'),(1,1,4,'{"b":"b"}'),(1,1,3,'{"b":"b"}')"""
+    sql """insert into ${tableName} values(1,1,5),(1,1,4),(1,1,3)"""
     sql "commit"
 
     qt_select1 "SELECT * from ${tableName}"

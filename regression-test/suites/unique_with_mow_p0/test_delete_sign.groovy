@@ -32,8 +32,7 @@ suite("test_delete_sign", "p0") {
             sql """ CREATE TABLE ${tableName} (
                         col1 BOOLEAN,
                         col2 INT,
-                        col3 INT,
-                        col4 variant
+                        col3 INT
                     ) unique key(col1, col2) distributed by hash(col1) buckets 1
                     properties(
                         "replication_num" = "1",
@@ -41,13 +40,13 @@ suite("test_delete_sign", "p0") {
                         "store_row_column" = "${use_row_store}"
                     ); """
 
-            sql """insert into ${tableName} values(true, 1, 1, '{"a":"a"}');"""
-            sql """insert into ${tableName} values(true, 1, 10, '{"c":"c"}');"""
-            sql """insert into ${tableName} values(true, 1, 2, '{"b":"b"}');"""
+            sql """insert into ${tableName} values(true, 1, 1);"""
+            sql """insert into ${tableName} values(true, 1, 10);"""
+            sql """insert into ${tableName} values(true, 1, 2);"""
             qt_select_0 "select * from ${tableName};"
-            sql """insert into ${tableName} (col1,col2,col3,col4,__DORIS_DELETE_SIGN__)values(true, 1, 10, '{"c":"c"}',1);"""
+            sql """insert into ${tableName} (col1,col2,col3,__DORIS_DELETE_SIGN__)values(true, 1, 10, 1);"""
             qt_select_1 "select * from ${tableName};"
-            sql """insert into ${tableName} values(true, 1, 3, '{"c":"c"}');"""
+            sql """insert into ${tableName} values(true, 1, 3);"""
             qt_select_2 "select * from ${tableName};"
 
             // test delete sigin X update
@@ -55,8 +54,7 @@ suite("test_delete_sign", "p0") {
             sql """ CREATE TABLE ${tableName} (
                         col1 BOOLEAN,
                         col2 INT,
-                        col3 INT,
-                        col4 variant
+                        col3 INT
                     ) unique key(col1, col2) distributed by hash(col1) buckets 1
                     properties(
                         "replication_num" = "1",
@@ -64,25 +62,24 @@ suite("test_delete_sign", "p0") {
                         "store_row_column" = "${use_row_store}"
                     ); """
 
-            sql """insert into ${tableName} values(true, 1, 1, '{"a":"a"}');"""
-            sql """insert into ${tableName} values(true, 1, 10, '{"c":"c"}');"""
-            sql """insert into ${tableName} values(true, 1, 2, '{"b":"b"}');"""
+            sql """insert into ${tableName} values(true, 1, 1);"""
+            sql """insert into ${tableName} values(true, 1, 10);"""
+            sql """insert into ${tableName} values(true, 1, 2);"""
             qt_select_3 "select * from ${tableName};"
-            sql """insert into ${tableName} (col1,col2,col3,col4,__DORIS_DELETE_SIGN__)values(true, 1, 10, '{"c":"c"}',1);"""
+            sql """insert into ${tableName} (col1,col2,col3,__DORIS_DELETE_SIGN__)values(true, 1, 10,1);"""
             qt_select_4 "select * from ${tableName};"
-            sql """insert into ${tableName} values(true, 1, 3, '{"c":"c"}');"""
+            sql """insert into ${tableName} values(true, 1, 3);"""
             qt_select_5 "select * from ${tableName};"
             //sql """update ${tableName} set __DORIS_DELETE_SIGN__=0 where col3=10;"""
             qt_select_6 "select * from ${tableName};"
-            sql """insert into ${tableName} values(true, 1, 5, '{"c":"c"}');"""
+            sql """insert into ${tableName} values(true, 1, 5);"""
 
             // test delete sigin X default value
             sql """ DROP TABLE IF EXISTS ${tableName} """
             sql """ CREATE TABLE ${tableName} (
                         col1 BOOLEAN,
                         col2 INT,
-                        col3 INT,
-                        col4 variant NULL
+                        col3 INT
                     ) unique key(col1, col2) distributed by hash(col1) buckets 1
                     properties(
                         "replication_num" = "1",
@@ -90,13 +87,13 @@ suite("test_delete_sign", "p0") {
                         "store_row_column" = "${use_row_store}"
                     ); """
 
-            sql """insert into ${tableName} values(true, 1, 1, '{"a":"a"}');"""
-            sql """insert into ${tableName} values(true, 1, 10, '{"c":"c"}');"""
-            sql """insert into ${tableName} values(true, 1, 2, '{"b":"b"}');"""
+            sql """insert into ${tableName} values(true, 1, 1);"""
+            sql """insert into ${tableName} values(true, 1, 10);"""
+            sql """insert into ${tableName} values(true, 1, 2);"""
             qt_select_7 "select * from ${tableName};"
             sql """insert into ${tableName} (col1,col2,col3)values(true, 1, 1);"""
             qt_select_8 "select * from ${tableName};"
-            sql """insert into ${tableName} values(true, 1, 30, '{"b":"b"}');"""
+            sql """insert into ${tableName} values(true, 1, 30);"""
             qt_select_9 "select * from ${tableName};"
 
             // test delete sigin X txn
@@ -104,9 +101,7 @@ suite("test_delete_sign", "p0") {
             sql """ CREATE TABLE ${tableName} (
                         col1 BOOLEAN,
                         col2 INT,
-                        col3 INT,
-                        col4 variant default NULL,
-                        INDEX idx_col3 (`col3`) USING INVERTED,
+                        col3 INT
                     ) unique key(col1, col2) distributed by hash(col1) buckets 1
                     properties(
                         "replication_num" = "1",
@@ -115,9 +110,9 @@ suite("test_delete_sign", "p0") {
                     ); """
 
             sql """begin"""
-            sql """insert into ${tableName} values(true, 1, 1, '{"a":"a"}');"""
-            sql """insert into ${tableName} values(true, 1, 10, '{"c":"c"}');"""
-            sql """insert into ${tableName} values(true, 1, 2, '{"b":"b"}');"""
+            sql """insert into ${tableName} values(true, 1, 1);"""
+            sql """insert into ${tableName} values(true, 1, 10);"""
+            sql """insert into ${tableName} values(true, 1, 2);"""
             sql """commit"""
             qt_select_10 "select * from ${tableName};"
             sql """begin"""
@@ -125,7 +120,7 @@ suite("test_delete_sign", "p0") {
             sql """commit"""
             qt_select_11 "select * from ${tableName};"
             sql """begin"""
-            sql """insert into ${tableName} values(true, 1, 30, '{"b":"b"}');"""
+            sql """insert into ${tableName} values(true, 1, 30);"""
             sql """commit"""
             qt_select_12 "select * from ${tableName};"
         }

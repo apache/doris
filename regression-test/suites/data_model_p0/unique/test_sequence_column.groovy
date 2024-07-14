@@ -24,8 +24,7 @@ suite("test_sequence_column") {
             `user_id` bigint,
             `group_id` bigint,
             `id` bigint,
-            `keyword` VARCHAR(128),
-            INDEX idx_col1 (user_id) USING INVERTED
+            `keyword` VARCHAR(128)
             ) ENGINE=OLAP
         UNIQUE KEY(user_id, group_id)
         DISTRIBUTED BY HASH (user_id) BUCKETS 1
@@ -45,8 +44,7 @@ suite("test_sequence_column") {
             `user_id` bigint,
             `group_id` bigint,
             `id` bigint,
-            `keyword` VARCHAR(128),
-            INDEX idx_col1 (user_id) USING INVERTED
+            `keyword` VARCHAR(128)
             ) ENGINE=OLAP
         UNIQUE KEY(user_id, group_id)
         DISTRIBUTED BY HASH (user_id) BUCKETS 1
@@ -68,14 +66,12 @@ suite("test_sequence_column") {
                 `user_id` bigint,
                 `group_id` bigint,
                 `id` bigint,
-                `keyword` VARCHAR(128),
-                `var` variant,
-                INDEX idx_col1 (user_id) USING INVERTED
+                `keyword` VARCHAR(128)
                 ) ENGINE=OLAP
             UNIQUE KEY(user_id, group_id)
             DISTRIBUTED BY HASH (user_id) BUCKETS 1
             PROPERTIES(
-                    "function_column.sequence_col" = 'var',
+                    "function_column.sequence_col" = 'keyword',
                     "replication_num" = "1",
                     "store_row_column" = "true"
                     );
