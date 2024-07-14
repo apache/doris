@@ -2527,11 +2527,17 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (info != null) {
                     storageVaultName = info.first;
                     storageVaultId = info.second;
+                } else {
+                    throw new DdlException("No default storage vault."
+                            + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                            + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
                 }
             }
 
             if (storageVaultName == null || storageVaultName.isEmpty()) {
-                throw new DdlException("Invalid Storage Vault, please set one useful storage vault");
+                throw new DdlException("Invalid Storage Vault. "
+                        + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                        + " and pick one to set the table property `\"storage_vault_name\" = \"<vault_name>\"`");
             }
 
             // Check if user has storage vault usage privilege
