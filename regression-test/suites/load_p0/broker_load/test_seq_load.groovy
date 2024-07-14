@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_seq_load", "load_p0") {
-    def s3BucketName = getS3BucketName()
-    def s3Endpoint = getS3Endpoint()
-    def s3Region = getS3Region()
     def tableName = "uniq_tbl_basic_seq"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -85,7 +82,7 @@ suite("test_seq_load", "load_p0") {
     """
 
     def label = UUID.randomUUID().toString().replace("-", "0")
-    def path = "s3://${s3BucketName}/regression/load/data/basic_data.csv"
+    def path = "s3://${getS3BucketName()}/regression/load/data/basic_data.csv"
     def format_str = "CSV"
     def ak = getS3AK()
     def sk = getS3SK()
@@ -103,8 +100,8 @@ suite("test_seq_load", "load_p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "${s3Endpoint}",
-                "AWS_REGION" = "${s3Region}"
+                "AWS_ENDPOINT" = "${getS3Endpoint()}",
+                "AWS_REGION" = "${getS3Region()}",
             )
             properties(
                 "use_new_load_scan_node" = "true"

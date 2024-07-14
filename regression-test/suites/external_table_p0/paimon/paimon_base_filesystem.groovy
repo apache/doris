@@ -42,16 +42,16 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
                 "warehouse" = "cosn://paimon-1308700295/paimoncos",
                 "cos.access_key" = "${s3ak}",
                 "cos.secret_key" = "${s3sk}",
-                "cos.endpoint" = "${s3Endpoint}"
+                "cos.endpoint" = "cos.ap-beijing.myqcloud.com"
             );
         """
         sql """
             create catalog if not exists ${catalog_oss} properties (
                 "type" = "paimon",
                 "warehouse" = "oss://paimon-zd/paimonoss",
-                "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
                 "oss.access_key"="${ak}",
                 "oss.secret_key"="${sk}"
+                "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
             );
         """
         logger.info("catalog " + catalog_cos + " created")
