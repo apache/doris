@@ -32,9 +32,9 @@ enum class S3RateLimitType : int {
 extern std::string to_string(S3RateLimitType type);
 extern S3RateLimitType string_to_s3_rate_limit_type(std::string_view value);
 
-class SpinLock {
+class SimpleSpinLock {
 public:
-    SpinLock() = default;
+    SimpleSpinLock() = default;
 
     void lock() {
         while (_flag.test_and_set(std::memory_order_acq_rel)) {
@@ -69,7 +69,7 @@ private:
     const size_t _max_speed {0}; // in tokens per second. which indicates the QPS
     const size_t _max_burst {0}; // in tokens. which indicates the token bucket size
     const uint64_t _limit {0};   // 0 - not limited.
-    SpinLock _mutex;
+    SimpleSpinLock _mutex;
     // Amount of remain_tokens available in token bucket. Updated in `add` method.
     double _remain_tokens {0};
     std::chrono::system_clock::time_point _prev_ms; // Previous `add` call time (in nanoseconds).

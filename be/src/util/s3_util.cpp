@@ -87,13 +87,16 @@ constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
 
 } // namespace
+
+bvar::Adder<int64_t> get_rate_limit_ms("get_rate_limit_ms");
+bvar::Adder<int64_t> put_rate_limit_ms("put_rate_limit_ms");
+
 S3RateLimiterHolder* S3ClientFactory::rate_limiter(S3RateLimitType type) {
     CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
     return _rate_limiters[static_cast<size_t>(type)].get();
 }
 
-int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
-                             size_t limit) {
+int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit) {
     if (type == S3RateLimitType::UNKNOWN) {
         return -1;
     }
@@ -157,6 +160,14 @@ S3ClientFactory::S3ClientFactory() {
     };
     Aws::InitAPI(_aws_options);
     _ca_cert_file_path = get_valid_ca_cert_path();
+    _rate_limiters = {std::make_unique<S3RateLimiterHolder>(
+                              S3RateLimitType::GET, config::s3_get_token_per_second,
+                              config::s3_get_bucket_tokens, config::s3_get_token_limit,
+                              [&](int64_t ms) { get_rate_limit_ms << ms; }),
+                      std::make_unique<S3RateLimiterHolder>(
+                              S3RateLimitType::PUT, config::s3_put_token_per_second,
+                              config::s3_put_bucket_tokens, config::s3_put_token_limit,
+                              [&](int64_t ms) { put_rate_limit_ms << ms; })};
 }
 
 string S3ClientFactory::get_valid_ca_cert_path() {

@@ -31,7 +31,7 @@ std::pair<size_t, double> S3RateLimiter::_update_remain_token(
     size_t count_value;
     double tokens_value;
     {
-        std::lock_guard<SpinLock> lock(_mutex);
+        std::lock_guard<SimpleSpinLock> lock(_mutex);
         if (_max_speed) {
             double delta_seconds = static_cast<double>((now - _prev_ms).count()) / MS;
             _remain_tokens = std::min<double>(_remain_tokens + _max_speed * delta_seconds - amount,
