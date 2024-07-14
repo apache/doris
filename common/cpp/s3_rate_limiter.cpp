@@ -25,13 +25,36 @@ namespace doris {
 // Just 10^6.
 static constexpr auto MS = 1000000UL;
 
+class S3RateLimiter::SimpleSpinLock {
+public:
+    SimpleSpinLock() = default;
+
+    void lock() {
+        while (_flag.test_and_set(std::memory_order_acq_rel)) {
+            // Spin until we acquire the lock
+        }
+    }
+
+    void unlock() { _flag.clear(std::memory_order_acq_rel); }
+
+private:
+    std::atomic_flag _flag = ATOMIC_FLAG_INIT;
+};
+
+S3RateLimiter::S3RateLimiter(size_t max_speed, size_t max_burst, size_t limit)
+        : _max_speed(max_speed),
+          _max_burst(max_burst),
+          _limit(limit),
+          _mutex(std::make_unique<SimpleSpinLock>()),
+          _remain_tokens(max_burst) {}
+
 std::pair<size_t, double> S3RateLimiter::_update_remain_token(
         std::chrono::system_clock::time_point now, size_t amount) {
     // Values obtained under lock to be checked after release
     size_t count_value;
     double tokens_value;
     {
-        std::lock_guard<SimpleSpinLock> lock(_mutex);
+        std::lock_guard<SimpleSpinLock> lock(*_mutex);
         if (_max_speed) {
             double delta_seconds = static_cast<double>((now - _prev_ms).count()) / MS;
             _remain_tokens = std::min<double>(_remain_tokens + _max_speed * delta_seconds - amount,
@@ -65,11 +88,10 @@ int64_t S3RateLimiter::add(size_t amount) {
     return sleep_time_ms;
 }
 
-S3RateLimiterHolder::S3RateLimiterHolder(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit,
-                        std::function<void(int64_t)> metric_func)
+S3RateLimiterHolder::S3RateLimiterHolder(S3RateLimitType type, size_t max_speed, size_t max_burst,
+                                         size_t limit, std::function<void(int64_t)> metric_func)
         : rate_limiter(std::make_unique<S3RateLimiter>(max_speed, max_burst, limit)),
-          metric_func(std::move(metric_func)) {
-}
+          metric_func(std::move(metric_func)) {}
 
 int64_t S3RateLimiterHolder::add(size_t amount) {
     int64_t sleep;
@@ -110,4 +132,4 @@ S3RateLimitType string_to_s3_rate_limit_type(std::string_view value) {
     }
     return S3RateLimitType::UNKNOWN;
 }
-} // namespace doris::cloud
+} // namespace doris

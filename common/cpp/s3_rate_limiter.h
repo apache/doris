@@ -32,31 +32,11 @@ enum class S3RateLimitType : int {
 extern std::string to_string(S3RateLimitType type);
 extern S3RateLimitType string_to_s3_rate_limit_type(std::string_view value);
 
-class SimpleSpinLock {
-public:
-    SimpleSpinLock() = default;
-
-    void lock() {
-        while (_flag.test_and_set(std::memory_order_acq_rel)) {
-            // Spin until we acquire the lock
-        }
-    }
-
-    void unlock() { _flag.clear(std::memory_order_acq_rel); }
-
-private:
-    std::atomic_flag _flag = ATOMIC_FLAG_INIT;
-};
-
 class S3RateLimiter {
 public:
     static constexpr size_t default_burst_seconds = 1;
 
-    S3RateLimiter(size_t max_speed, size_t max_burst, size_t limit)
-            : _max_speed(max_speed),
-              _max_burst(max_burst),
-              _limit(limit),
-              _remain_tokens(max_burst) {}
+    S3RateLimiter(size_t max_speed, size_t max_burst, size_t limit);
 
     // Use `amount` remain_tokens, sleeps if required or throws exception on limit overflow.
     // Returns duration of sleep in nanoseconds (to distinguish sleeping on different kinds of S3RateLimiters for metrics)
@@ -69,7 +49,8 @@ private:
     const size_t _max_speed {0}; // in tokens per second. which indicates the QPS
     const size_t _max_burst {0}; // in tokens. which indicates the token bucket size
     const uint64_t _limit {0};   // 0 - not limited.
-    SimpleSpinLock _mutex;
+    class SimpleSpinLock;
+    std::unique_ptr<SimpleSpinLock> _mutex;
     // Amount of remain_tokens available in token bucket. Updated in `add` method.
     double _remain_tokens {0};
     std::chrono::system_clock::time_point _prev_ms; // Previous `add` call time (in nanoseconds).
