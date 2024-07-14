@@ -32,8 +32,6 @@ namespace doris {
 class S3RateLimiterHolder;
 
 enum class S3RateLimitType;
-extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
-                                 size_t limit);
 namespace cloud {
 class ObjectStoreInfoPB;
 
