@@ -144,6 +144,12 @@ public:
     static inline size_t allocator_cache_mem() {
         return _s_allocator_cache_mem.load(std::memory_order_relaxed);
     }
+    static inline int64_t je_dirty_pages_mem() {
+        return _s_je_dirty_pages_mem.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_dirty_pages_mem_limit() {
+        return _s_je_dirty_pages_mem_limit.load(std::memory_order_relaxed);
+    }
 
     // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
     // obtained by the process malloc, not the physical memory actually used by the process in the OS.
@@ -178,6 +184,8 @@ private:
     static std::atomic<int64_t> _s_soft_mem_limit;
 
     static std::atomic<int64_t> _s_allocator_cache_mem;
+    static std::atomic<int64_t> _s_je_dirty_pages_mem;
+    static std::atomic<int64_t> _s_je_dirty_pages_mem_limit;
     static std::atomic<int64_t> _s_virtual_memory_used;
 
     static int64_t _s_cgroup_mem_limit;
