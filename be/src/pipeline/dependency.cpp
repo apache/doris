@@ -37,6 +37,7 @@ Dependency* BasicSharedState::create_source_dependency(int operator_id, int node
                                                        std::string name) {
     source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
+    _running_source++;
     return source_deps.back().get();
 }
 

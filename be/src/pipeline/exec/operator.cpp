@@ -392,6 +392,20 @@ Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
 }
 
 template <typename LocalStateType>
+Status DataSinkOperatorX<LocalStateType>::sink_eof(RuntimeState* state, vectorized::Block* in_block,
+                                                   bool eos) {
+    if constexpr (!std::is_same_v<typename LocalStateType::SharedStateType, FakeSharedState> &&
+                  !std::is_same_v<typename LocalStateType::SharedStateType,
+                                  LocalExchangeSharedState>) {
+        auto& local_state = get_local_state(state);
+        if (local_state.source_close()) {
+            return Status::EndOfFile("receiver eof");
+        }
+    }
+    return sink(state, in_block, eos);
+}
+
+template <typename LocalStateType>
 std::shared_ptr<BasicSharedState> DataSinkOperatorX<LocalStateType>::create_shared_state() const {
     if constexpr (std::is_same_v<typename LocalStateType::SharedStateType,
                                  LocalExchangeSharedState>) {
@@ -515,6 +529,9 @@ Status PipelineXLocalState<SharedStateArg>::close(RuntimeState* state) {
     // We must ensure AnalyticSinkOperator will not be blocked if AnalyticSourceOperator already closed.
     if (_shared_state && _shared_state->sink_deps.size() == 1) {
         _shared_state->sink_deps.front()->set_always_ready();
+    }
+    if (_shared_state) {
+        _shared_state->_running_source--;
     }
     return Status::OK();
 }

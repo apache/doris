@@ -412,6 +412,7 @@ public:
             _big_mem_op_num_deced = true;
         }
     }
+    bool source_close() const { return (_shared_state && _shared_state->_running_source == 0); }
 
 protected:
     Dependency* _dependency = nullptr;
@@ -454,6 +455,9 @@ public:
         }
         return result.value()->is_finished();
     }
+
+    [[nodiscard]] virtual Status sink_eof(RuntimeState* state, vectorized::Block* block,
+                                          bool eos) = 0;
 
     [[nodiscard]] virtual Status sink(RuntimeState* state, vectorized::Block* block, bool eos) = 0;
 
@@ -544,6 +548,8 @@ public:
     DataSinkOperatorX(const int id, const int node_id, std::vector<int> sources)
             : DataSinkOperatorXBase(id, node_id, sources) {}
     ~DataSinkOperatorX() override = default;
+
+    Status sink_eof(RuntimeState* state, vectorized::Block* in_block, bool eos) final;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
     std::shared_ptr<BasicSharedState> create_shared_state() const override;
