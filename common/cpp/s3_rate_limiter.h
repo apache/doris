@@ -37,6 +37,7 @@ public:
     static constexpr size_t default_burst_seconds = 1;
 
     S3RateLimiter(size_t max_speed, size_t max_burst, size_t limit);
+    ~S3RateLimiter();
 
     // Use `amount` remain_tokens, sleeps if required or throws exception on limit overflow.
     // Returns duration of sleep in nanoseconds (to distinguish sleeping on different kinds of S3RateLimiters for metrics)
@@ -60,6 +61,7 @@ class S3RateLimiterHolder {
 public:
     S3RateLimiterHolder(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit,
                         std::function<void(int64_t)> metric_func);
+    ~S3RateLimiterHolder();
 
     int64_t add(size_t amount);
 

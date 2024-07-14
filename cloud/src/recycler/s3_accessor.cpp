@@ -47,14 +47,14 @@ bvar::Adder<int64_t> get_rate_limit_ms("get_rate_limit_ms");
 bvar::Adder<int64_t> put_rate_limit_ms("put_rate_limit_ms");
 
 AccessorRateLimiter::AccessorRateLimiter()
-        : _rate_limiters {std::make_unique<S3RateLimiterHolder>(
+        : _rate_limiters({std::make_unique<S3RateLimiterHolder>(
                                   S3RateLimitType::GET, config::s3_get_token_per_second,
                                   config::s3_get_bucket_tokens, config::s3_get_token_limit,
                                   [&](int64_t ms) { get_rate_limit_ms << ms; }),
                           std::make_unique<S3RateLimiterHolder>(
                                   S3RateLimitType::PUT, config::s3_put_token_per_second,
                                   config::s3_put_bucket_tokens, config::s3_put_token_limit,
-                                  [&](int64_t ms) { put_rate_limit_ms << ms; })} {}
+                                  [&](int64_t ms) { put_rate_limit_ms << ms; })}) {}
 
 S3RateLimiterHolder* AccessorRateLimiter::rate_limiter(S3RateLimitType type) {
     CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);

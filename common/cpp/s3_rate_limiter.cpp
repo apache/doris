@@ -28,6 +28,7 @@ static constexpr auto MS = 1000000UL;
 class S3RateLimiter::SimpleSpinLock {
 public:
     SimpleSpinLock() = default;
+    ~SimpleSpinLock() = default;
 
     void lock() {
         while (_flag.test_and_set(std::memory_order_acq_rel)) {
@@ -45,8 +46,12 @@ S3RateLimiter::S3RateLimiter(size_t max_speed, size_t max_burst, size_t limit)
         : _max_speed(max_speed),
           _max_burst(max_burst),
           _limit(limit),
-          _mutex(std::make_unique<SimpleSpinLock>()),
+          _mutex(std::make_unique<S3RateLimiter::SimpleSpinLock>()),
           _remain_tokens(max_burst) {}
+
+S3RateLimiter::~S3RateLimiter() = default;
+
+S3RateLimiterHolder::~S3RateLimiterHolder() = default;
 
 std::pair<size_t, double> S3RateLimiter::_update_remain_token(
         std::chrono::system_clock::time_point now, size_t amount) {
