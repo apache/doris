@@ -593,6 +593,11 @@ public abstract class ExternalCatalog
             // Should not return null.
             // Because replyInitCatalog can only be called when `use_meta_cache` is false.
             // And if `use_meta_cache` is false, getDbForReplay() will not return null
+            if (!db.isPresent()) {
+                LOG.warn("met invalid db id {} in replayInitCatalog, catalog: {}, ignore it to skip bug.",
+                        log.getRefreshDbIds().get(i), name);
+                continue;
+            }
             Preconditions.checkNotNull(db.get());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
