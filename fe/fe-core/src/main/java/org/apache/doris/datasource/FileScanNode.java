@@ -98,7 +98,7 @@ public abstract class FileScanNode extends ExternalScanNode {
     }
 
     public long getPushDownCount() {
-        return 0;
+        return -1;
     }
 
     @Override
