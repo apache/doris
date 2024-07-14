@@ -66,7 +66,7 @@ public class MasterCatalogExecutor {
             TInitExternalCtlMetaResult result = client.initExternalCtlMeta(request);
             if (!result.getStatus().equalsIgnoreCase(STATUS_OK)) {
                 throw new UserException(result.getStatus());
-            }else {
+            } else {
                 // DO NOT wait on journal replayed, this may cause deadlock.
                 // 1. hold table read lock
                 // 2. wait on journal replayed
