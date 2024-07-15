@@ -5381,11 +5381,11 @@ public class Env {
         if (StringUtils.isNotEmpty(currentDB)) {
             // When dropped the current catalog in current context, the current catalog will be null.
             if (ctx.getCurrentCatalog() != null) {
-                catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+                ConnectContext.get().addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
             }
         }
         ctx.changeDefaultCatalog(catalogName);
-        String lastDb = catalogMgr.getLastDB(catalogName);
+        String lastDb = ConnectContext.get().getLastDBOfCatalog(catalogName);
         if (StringUtils.isNotEmpty(lastDb)) {
             ctx.setDatabase(lastDb);
         }
