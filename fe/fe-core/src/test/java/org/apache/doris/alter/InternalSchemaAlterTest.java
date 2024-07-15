@@ -42,10 +42,10 @@ public class InternalSchemaAlterTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-        InternalSchemaInitializer.createDb();
-        InternalSchemaInitializer.createTbl();
         Config.allow_replica_on_same_host = true;
         FeConstants.runningUnitTest = true;
+        InternalSchemaInitializer.createDb();
+        InternalSchemaInitializer.createTbl();
     }
 
     @Test
