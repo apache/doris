@@ -56,7 +56,7 @@ public class MaxBy extends NullableAggregateFunction
     }
 
     private MaxBy(boolean distinct, boolean alwaysNullable, Expression arg0, Expression arg1) {
-        super("max_by", false, false, arg0, arg1);
+        super("max_by", false, alwaysNullable, arg0, arg1);
     }
 
     @Override

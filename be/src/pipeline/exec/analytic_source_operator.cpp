@@ -577,6 +577,7 @@ Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
         RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child_x->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
+        _agg_functions[i]->set_version(state->be_exec_version());
         _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&
                                             !_agg_functions[i]->data_type()->is_nullable());
     }
