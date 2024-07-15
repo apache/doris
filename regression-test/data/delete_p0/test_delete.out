@@ -150,3 +150,6 @@ ccc	ccc
 
 -- !check_decimal --
 true	-1.0	10
+
+-- !check_decimal --
+\N

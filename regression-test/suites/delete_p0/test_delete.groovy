@@ -545,4 +545,30 @@ suite("test_delete") {
     qt_check_decimal """
         select * from table_decimal;
     """
+
+    sql "drop table if exists table_decimal"
+    sql """
+        CREATE TABLE table_decimal (
+          `k1` BOOLEAN NOT NULL,
+          `k2` DECIMAL(7, 7) NOT NULL,
+          `k3` INT NOT NULL
+        ) ENGINE=OLAP 
+        DUPLICATE KEY(`k1`,`k2`,`k3`) 
+        DISTRIBUTED BY HASH(`k1`,`k2`,`k3`) BUCKETS 4 
+        PROPERTIES (
+        "replication_num" = "1",
+        "disable_auto_compaction" = "false"
+        ); 
+    """
+    sql """
+        insert into table_decimal values
+        (false, '0.1234567', -20);
+    """
+
+    sql """
+        delete from table_decimal where k2 = '0.1234567';
+    """
+    qt_check_decimal """
+        select * from table_decimal;
+    """
 }
