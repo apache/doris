@@ -24,7 +24,7 @@ under the License.
 [![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
 [![GitHub release](https://img.shields.io/github/release/apache/doris.svg)](https://github.com/apache/doris/releases)
 [![OSSRank](https://shields.io/endpoint?url=https://ossrank.com/shield/516)](https://ossrank.com/p/516)
-[![Commit activity](https://img.shields.io/github/commit-activity/m/apache/doris)
+[![Commit activity](https://img.shields.io/github/commit-activity/m/apache/doris)](https://github.com/apache/doris/commits/master/)
 [![EN doc](https://img.shields.io/badge/Docs-English-blue.svg)](https://doris.apache.org/docs/get-starting/quick-start)
 [![CN doc](https://img.shields.io/badge/文档-中文版-blue.svg)](https://doris.apache.org/zh-CN/docs/get-starting/quick-start/)
 
