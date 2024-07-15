@@ -63,8 +63,7 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
         if (!config::enable_stream_load_commit_txn_on_be) {
             VLOG_DEBUG << "2pc commit stream load txn with FE support: " << op_info;
             st = StreamLoadExecutor::operate_txn_2pc(ctx);
-        }
-        if (topt == TxnOpParamType::WITH_TXN_ID) {
+        } else if (topt == TxnOpParamType::WITH_TXN_ID) {
             VLOG_DEBUG << "2pc commit stream load txn directly: " << op_info;
             st = _exec_env->storage_engine().to_cloud().meta_mgr().commit_txn(*ctx, true);
         } else if (topt == TxnOpParamType::WITH_LABEL) {
