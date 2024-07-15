@@ -614,7 +614,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(
+                .matches(logicalProject(
                         logicalJoin(
                                 logicalFilter(
                                         logicalOlapScan()
@@ -623,6 +623,26 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                         && filter.getPredicate().toSql().contains("id = 2")),
                                 any()
                         ).when(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
+                );
+    }
+
+    @Test
+    void inferPredicateByConstValue() {
+        String sql = "select c1 from (select 1 c1 from student) t inner join score t2 on t.c1=t2.sid";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalProject(
+                         logicalJoin(any(),
+                                 logicalProject(
+                                         logicalFilter(
+                                            logicalOlapScan()
+                                         ).when(filter -> filter.getConjuncts().size() == 1
+                                         && ExpressionUtils.isInferred(filter.getPredicate())
+                                         && filter.getPredicate().toSql().contains("sid=1"))
+                                 )
+                         ))
                 );
     }
 }
