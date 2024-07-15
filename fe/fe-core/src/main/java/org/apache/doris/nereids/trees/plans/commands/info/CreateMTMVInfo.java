@@ -242,8 +242,6 @@ public class CreateMTMVInfo {
         if (plan.anyMatch(node -> node instanceof OneRowRelation)) {
             throw new AnalysisException("at least contain one table");
         }
-        // can not contain VIEW or MTMV
-        analyzeBaseTables(planner.getAnalyzedPlan());
         // can not contain Random function
         analyzeExpressions(planner.getAnalyzedPlan(), mvProperties);
         // can not contain partition or tablets
@@ -350,25 +348,6 @@ public class CreateMTMVInfo {
             }
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage(), e);
-        }
-    }
-
-    private void analyzeBaseTables(Plan plan) {
-        List<Object> subQuerys = plan.collectToList(node -> node instanceof LogicalSubQueryAlias);
-        for (Object subquery : subQuerys) {
-            List<String> qualifier = ((LogicalSubQueryAlias) subquery).getQualifier();
-            if (!CollectionUtils.isEmpty(qualifier) && qualifier.size() == 3) {
-                try {
-                    TableIf table = Env.getCurrentEnv().getCatalogMgr()
-                            .getCatalogOrAnalysisException(qualifier.get(0))
-                            .getDbOrAnalysisException(qualifier.get(1)).getTableOrAnalysisException(qualifier.get(2));
-                    if (table instanceof View) {
-                        throw new AnalysisException("can not contain VIEW");
-                    }
-                } catch (org.apache.doris.common.AnalysisException e) {
-                    LOG.warn(e.getMessage(), e);
-                }
-            }
         }
     }
 
