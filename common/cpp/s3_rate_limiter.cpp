@@ -17,6 +17,8 @@
 
 #include "s3_rate_limiter.h"
 
+#include <glog/logging.h> // IWYU pragma: export
+
 #include <chrono>
 #include <mutex>
 #include <thread>
@@ -31,7 +33,15 @@ public:
     ~SimpleSpinLock() = default;
 
     void lock() {
+        int spin_count = 0;
+        static constexpr int MAX_SPIN_COUNT = 50;
         while (_flag.test_and_set(std::memory_order_acq_rel)) {
+            spin_count++;
+            if (spin_count >= MAX_SPIN_COUNT) {
+                LOG(WARNING) << "Warning: Excessive spinning detected while acquiring lock. Spin "
+                                "count: ";
+                spin_count = 0;
+            }
             // Spin until we acquire the lock
         }
     }
