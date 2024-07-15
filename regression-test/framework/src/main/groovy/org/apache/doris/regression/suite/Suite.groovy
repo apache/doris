@@ -643,7 +643,7 @@ class Suite implements GroovyInterceptable {
         try {
             userFunction()
         } catch (Exception e) {
-            if (e.getMessage().contains(errorMessage) ) {
+            if (e.getMessage() != errorMessage) {
                 throw e
             }
         }
