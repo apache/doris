@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
+import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
@@ -70,6 +71,7 @@ public abstract class FileScanNode extends ExternalScanNode {
     protected long totalPartitionNum = 0;
     protected long readPartitionNum = 0;
     protected long fileSplitSize;
+    public long rowCount = 0;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {
@@ -93,6 +95,10 @@ public abstract class FileScanNode extends ExternalScanNode {
             fileScanNode.setTableName(desc.getTable().getName());
         }
         planNode.setFileScanNode(fileScanNode);
+    }
+
+    public long getPushDownCount() {
+        return 0;
     }
 
     @Override
@@ -170,7 +176,13 @@ public abstract class FileScanNode extends ExternalScanNode {
             output.append(String.format("avgRowSize=%s, ", avgRowSize));
         }
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
-        output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp)).append("\n");
+
+        // pushdown agg
+        output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp));
+        if (pushDownAggNoGroupingOp.equals(TPushAggOp.COUNT)) {
+            output.append(" (").append(getPushDownCount()).append(")");
+        }
+        output.append("\n");
 
         return output.toString();
     }
