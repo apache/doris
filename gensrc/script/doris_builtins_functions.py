@@ -885,6 +885,7 @@ visible_functions = {
         [['utc_timestamp'], 'DATETIME', [], 'ALWAYS_NOT_NULLABLE'],
         [['timestamp'], 'DATETIME', ['DATETIME'], 'ALWAYS_NULLABLE'],
 
+        [['from_days'], 'DATEV2', ['INT'], 'ALWAYS_NULLABLE'],
         [['from_days'], 'DATE', ['INT'], 'ALWAYS_NULLABLE'],
         [['last_day'], 'DATE', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['last_day'], 'DATE', ['DATE'], 'ALWAYS_NULLABLE'],

@@ -31,4 +31,9 @@ suite("test_json_type_cast", "p0") {
     qt_sql12 """select cast("111111" as json)"""
     qt_sql13 """select cast(111111 as json)"""
     qt_sql14 """select cast(1.1111 as json)"""
+
+    qt_sql15 """select cast("+" as int);"""
+    qt_sql16 """select cast("-" as int);"""
+    qt_sql17 """select cast("a" as int);"""
+    qt_sql18 """select cast("/" as int);"""
 }
