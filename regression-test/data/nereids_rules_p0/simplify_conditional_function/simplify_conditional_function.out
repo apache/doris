@@ -120,14 +120,14 @@ qwe
 \N
 
 -- !test_outer_ref_coalesce --
+ab
 abc
-qwe
 
 -- !test_outer_ref_nvl --
 \N
 1
 
 -- !test_outer_ref_nullif --
+ab
 abc
-qwe
 

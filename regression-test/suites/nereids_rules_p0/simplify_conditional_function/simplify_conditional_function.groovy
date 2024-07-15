@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("simplify_conditional_function") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
     sql "drop table if exists test_simplify_conditional_function"
     sql """create table test_simplify_conditional_function(c int null, b double null, a varchar(100) not null) distributed by hash(c)
     properties("replication_num"="1");
@@ -44,9 +46,7 @@ suite("simplify_conditional_function") {
     qt_test_nullif_nullable_nonnullable "select nullif(a, c) from test_simplify_conditional_function order by 1 "
     qt_test_nullif_null_null "select nullif(null, null) from test_simplify_conditional_function order by 1 "
 
-    qt_test_outer_ref_coalesce "select c1 from (select coalesce(null,a,c) c1,a,b from test_simplify_conditional_function limit 2) t group by c1 order by c1"
+    qt_test_outer_ref_coalesce "select c1 from (select coalesce(null,a,c) c1,a,b from test_simplify_conditional_function order by c1,a,b limit 2) t group by c1 order by c1"
     qt_test_outer_ref_nvl "select c1 from (select ifnull(null, c) c1 from test_simplify_conditional_function order by 1 limit 2) t group by c1 order by c1"
-    qt_test_outer_ref_nullif "select c1 from (select nullif(a, null) c1,c from test_simplify_conditional_function limit 2 ) t group by c1 order by c1"
-
-
+    qt_test_outer_ref_nullif "select c1 from (select nullif(a, null) c1,c from test_simplify_conditional_function order by c1,c limit 2 ) t group by c1 order by c1"
 }
