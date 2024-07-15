@@ -25,6 +25,7 @@ suite("paimon_base_filesystem", "p2,external,paimon,external_remote,external_rem
 
         String s3ak = getS3AK()
         String s3sk = getS3SK()
+        def s3Endpoint = getS3Endpoint()
 
         def cos = """select c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c18 from ${catalog_cos}.zd.all_table order by c18"""
         def oss = """select * from ${catalog_oss}.paimonossdb1.test_tableoss order by a"""
@@ -44,9 +45,9 @@ suite("paimon_base_filesystem", "p2,external,paimon,external_remote,external_rem
             create catalog if not exists ${catalog_oss} properties (
                 "type" = "paimon",
                 "warehouse" = "oss://paimon-zd/paimonoss",
-                "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
                 "oss.access_key"="${ak}",
-                "oss.secret_key"="${sk}"
+                "oss.secret_key"="${sk}",
+                "oss.endpoint"="oss-cn-beijing.aliyuncs.com"
             );
         """
         logger.info("catalog " + catalog_cos + " created")
