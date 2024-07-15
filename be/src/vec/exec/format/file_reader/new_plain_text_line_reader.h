@@ -94,6 +94,51 @@ public:
             return nullptr;
         }
         size_t i = 0;
+#ifdef __AVX2__
+        // const uint8_t* end = start + length;
+        const __m256i newline = _mm256_set1_epi8('\n');
+        const __m256i carriage_return = _mm256_set1_epi8('\r');
+
+        const size_t simd_width = 32;
+        // Process 32 bytes at a time using AVX2
+        for (; i + simd_width <= length; i += simd_width) {
+            __m256i data = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(start + i));
+
+            // Compare with '\n' and '\r'
+            __m256i cmp_newline = _mm256_cmpeq_epi8(data, newline);
+            __m256i cmp_carriage_return = _mm256_cmpeq_epi8(data, carriage_return);
+
+            // Check if there is a match
+            int mask_newline = _mm256_movemask_epi8(cmp_newline);
+            int mask_carriage_return = _mm256_movemask_epi8(cmp_carriage_return);
+
+            if (mask_newline != 0 || mask_carriage_return != 0) {
+                int pos_lf = (mask_newline != 0) ? i + __builtin_ctz(mask_newline) : INT32_MAX;
+                int pos_cr = (mask_carriage_return != 0) ? i + __builtin_ctz(mask_carriage_return)
+                                                         : INT32_MAX;
+                if (pos_lf < pos_cr) {
+                    return start + pos_lf;
+                } else if (pos_cr < pos_lf) {
+                    if (pos_lf != INT32_MAX) {
+                        if (pos_lf - 1 >= 0 && start[pos_lf - 1] == '\r') {
+                            //check   xxx\r\r\r\nxxx
+                            line_crlf = true;
+                            return start + pos_lf - 1;
+                        }
+                        // xxx\rxxxx\nxx
+                        return start + pos_lf;
+                    } else if (i + simd_width < length && start[i + simd_width - 1] == '\r' &&
+                               start[i + simd_width] == '\n') {
+                        //check [/r/r/r/r/r/r/rxxx/r]  [\nxxxx]
+                        line_crlf = true;
+                        return start + i + simd_width - 1;
+                    }
+                }
+            }
+        }
+
+        // Process remaining bytes
+#endif
         for (; i < length; ++i) {
             if (start[i] == '\n') {
                 return &start[i];
