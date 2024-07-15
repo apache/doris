@@ -99,12 +99,12 @@ void VExplodeNumbersTableFunction::get_same_many_values(MutableColumnPtr& column
         if (_is_nullable) {
             assert_cast<ColumnInt32*>(
                     assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
-                    ->insert_raw_integers(_cur_offset, length);
+                    ->insert_many_vals(_cur_offset, length);
             assert_cast<ColumnUInt8*>(
                     assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                     ->insert_many_defaults(length);
         } else {
-            assert_cast<ColumnInt32*>(column.get())->insert_raw_integers(_cur_offset, length);
+            assert_cast<ColumnInt32*>(column.get())->insert_many_vals(_cur_offset, length);
         }
     }
 }
