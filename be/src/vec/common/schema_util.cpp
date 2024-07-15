@@ -496,9 +496,18 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                             : var.get_root();
         }
 
-        variant_column = ColumnObject::create(true);
-        parse_json_to_variant(*variant_column.get(),
-                              assert_cast<const ColumnString&>(*raw_json_column));
+        if (raw_json_column->is_column_string()) {
+            variant_column = ColumnObject::create(true);
+            parse_json_to_variant(*variant_column.get(),
+                                  assert_cast<const ColumnString&>(*raw_json_column));
+        } else {
+            // Root maybe other types rather than string like ColumnObject(Int32).
+            // In this case, we should finlize the root and cast to JSON type
+            auto expected_root_type =
+                    make_nullable(std::make_shared<ColumnObject::MostCommonType>());
+            const_cast<ColumnObject&>(var).ensure_root_node_type(expected_root_type);
+            variant_column = var.assume_mutable();
+        }
 
         // Wrap variant with nullmap if it is nullable
         ColumnPtr result = variant_column->get_ptr();
