@@ -812,8 +812,11 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
     }
 
     ind -= num_of_defaults_in_prefix;
-    for (const auto& part : data) {
+    for (size_t i = 0; i < data.size(); ++i) {
+        const auto& part = data[i];
+        const auto& part_type = data_types[i];
         if (ind < part->size()) {
+            res = vectorized::remove_nullable(part_type)->get_default();
             part->get(ind, res);
             Field new_field;
             convert_field_to_type(res, *least_common_type.get(), &new_field);
