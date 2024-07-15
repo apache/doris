@@ -840,9 +840,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                                 ((LogicalFilter<?>) filter).getGroupExpression(),
                                 Optional.of(((LogicalFilter<?>) filter).getLogicalProperties()), plan);
                         // add update is-null related column stats for other predicate derive
+                        StatisticsBuilder builder = new StatisticsBuilder(stats);
                         for (Expression expr : isNullStats.columnStatistics().keySet()) {
-                            stats.addColumnStats(expr, isNullStats.findColumnStatistics(expr));
+                            builder.putColumnStatistics(expr, isNullStats.findColumnStatistics(expr));
                         }
+                        builder.setRowCount(isNullStats.getRowCount());
+                        stats = builder.build();
+                        stats.enforceValid();
                     }
                 }
             }
