@@ -581,7 +581,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                         doris::InvertedIndexStorageFormatPB::V1) {
                         int64_t fsize = 0;
                         st = ctx.fs()->file_size(
-                                InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix), &fsize);
+                                InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix),
+                                &fsize);
                         if (!st.ok()) {
                             LOG(ERROR) << "file size error in index compaction, error:" << st.msg();
                             return st;
