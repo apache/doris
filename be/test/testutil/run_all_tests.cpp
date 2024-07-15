@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
             doris::TabletSchemaCache::create_global_schema_cache(
                     doris::config::tablet_schema_cache_capacity));
     LOG(INFO) << "init config " << st;
-    Status s = doris::config::set_config("enable_stacktrace", "false").ok();
+    doris::Status s = doris::config::set_config("enable_stacktrace", "false").ok();
     if (!s.ok()) {
         LOG(WARNING) << "set enable_stacktrace=false failed";
     }
