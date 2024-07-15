@@ -79,12 +79,16 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(rowset->load_segments(&segments));
     if (need_load_pk_index_and_bf) {
-        RETURN_IF_ERROR(segments->load_pk_index_and_bf());
+        for (int64_t i = 0; i < rowset->num_segments(); i++) {
+            RETURN_IF_ERROR(segments[i]->load_pk_index_and_bf());
+        }
     }
     if (use_cache && !config::disable_segment_cache) {
         // memory of SegmentCache::CacheValue will be handled by SegmentCache
         SegmentCache::CacheValue* cache_value = new SegmentCache::CacheValue();
-        _cache_mem_usage += segments->meta_mem_usage();
+        for (int64_t i = 0; i < rowset->num_segments(); i++) {
+            _cache_mem_usage += segments[i]->meta_mem_usage();
+        }
         cache_value->segments = std::move(segments);
         _segment_cache->insert(cache_key, *cache_value, cache_handle);
     } else {

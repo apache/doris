@@ -66,48 +66,44 @@ class OlapMeta;
 // And also it should take schema change into account after streaming load.
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static StorageEngine* engine_ref = nullptr;
+
+static StorageEngine* k_engine = nullptr;
 
 static void set_up() {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
-    config::storage_root_path = std::string(buffer) + "/segment_cache_test";
-    auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
-    ASSERT_TRUE(st.ok()) << st;
-    st = io::global_local_filesystem()->create_directory(config::storage_root_path);
-    ASSERT_TRUE(st.ok()) << st;
+    config::storage_root_path = std::string(buffer) + "/data_test";
+    io::global_local_filesystem()->delete_and_create_directory(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    auto engine = std::make_unique<StorageEngine>(options);
-    engine_ref = engine.get();
-    Status s = engine->open();
-    ASSERT_TRUE(s.ok()) << s;
-    ASSERT_TRUE(s.ok()) << s;
+    Status s = doris::StorageEngine::open(options, &k_engine);
+    EXPECT_TRUE(s.ok()) << s.to_string();
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-    exec_env->set_storage_engine(std::move(engine));
+    exec_env->set_storage_engine(k_engine);
+    k_engine->start_bg_threads();
 }
 
 static void tear_down() {
-    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-    exec_env->set_memtable_memory_limiter(nullptr);
-    engine_ref = nullptr;
-    exec_env->set_storage_engine(nullptr);
-    EXPECT_EQ(system("rm -rf ./segment_cache_test"), 0);
-    static_cast<void>(io::global_local_filesystem()->delete_directory(
-            std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX));
+    if (k_engine != nullptr) {
+        k_engine->stop();
+        delete k_engine;
+        k_engine = nullptr;
+    }
+    EXPECT_EQ(system("rm -rf ./data_test"), 0);
+    io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
+                                                    UNUSED_PREFIX);
 }
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
                                                     TCreateTabletReq* request,
                                                     bool enable_mow = false) {
     request->tablet_id = tablet_id;
+    request->partition_id = 10000;
     request->__set_version(1);
-    request->partition_id = 30004;
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::UNIQUE_KEYS;
@@ -189,12 +185,12 @@ static void generate_data(vectorized::Block* block, int8_t k1, int16_t k2, int32
     int16_t c2 = k2;
     columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
-    VecDateTimeValue c3;
+    vectorized::VecDateTimeValue c3;
     c3.from_date_str("2020-07-16 19:39:43", 19);
     int64_t c3_int = c3.to_int64();
     columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
 
-    DateV2Value<DateV2ValueType> c4;
+    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> c4;
     c4.set_time(2022, 6, 6, 0, 0, 0, 0);
     uint32_t c4_int = c4.to_date_int_val();
     columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
@@ -203,10 +199,10 @@ static void generate_data(vectorized::Block* block, int8_t k1, int16_t k2, int32
     columns[4]->insert_data((const char*)&c5, sizeof(c2));
 }
 
-class SegmentCacheTest : public ::testing::Test {
+class SegmentCacheTest: public ::testing::Test {
 public:
-    SegmentCacheTest() = default;
-    ~SegmentCacheTest() = default;
+    SegmentCacheTest() {}
+    ~SegmentCacheTest() {}
     static void SetUpTestSuite() {
         config::min_file_descriptor_number = 100;
         set_up();
@@ -219,34 +215,26 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
-    sleep(20);
-    create_tablet_request_with_sequence_col(55555, 270068377, &request);
-    Status res = engine_ref->create_tablet(request, profile.get());
+    create_tablet_request_with_sequence_col(10005, 270068377, &request);
+    Status res = k_engine->create_tablet(request, profile.get());
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
+    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    auto param = std::make_shared<OlapTableSchemaParam>();
+    OlapTableSchemaParam param;
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req;
-    write_req.tablet_id = 55555;
-    write_req.schema_hash = 270068377;
-    write_req.txn_id = 20003;
-    write_req.partition_id = 30003;
-    write_req.load_id = load_id;
-    write_req.tuple_desc = tuple_desc;
-    write_req.slots = &(tuple_desc->slots());
-    write_req.is_high_priority = false;
-    write_req.table_schema_param = param;
+    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
+                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
+    DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    auto delta_writer =
-            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
+    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
+    ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -257,7 +245,7 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
 
     generate_data(&block, 123, 456, 100);
     res = delta_writer->write(&block, {0});
-    EXPECT_TRUE(res.ok());
+    ASSERT_TRUE(res.ok());
 
     generate_data(&block, 123, 456, 90);
     res = delta_writer->write(&block, {1});
@@ -273,29 +261,29 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
     ASSERT_TRUE(res.ok());
 
     // publish version success
-    TabletSharedPtr tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id);
+    TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
-    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.first = tablet->rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-    engine_ref->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
-                                                       &tablet_related_rs);
+    StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
+            write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     ASSERT_EQ(1, tablet_related_rs.size());
 
     std::cout << "start to publish txn" << std::endl;
     RowsetSharedPtr rowset = tablet_related_rs.begin()->second;
     TabletPublishStatistics pstats;
-    res = engine_ref->txn_manager()->publish_txn(
+    res = k_engine->txn_manager()->publish_txn(
             meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-            tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
+            write_req.schema_hash, tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
     ASSERT_TRUE(res.ok());
     std::cout << "start to add inc rowset:" << rowset->rowset_id()
               << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
@@ -304,7 +292,6 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
     ASSERT_EQ(1, tablet->num_rows());
     std::vector<segment_v2::SegmentSharedPtr> segments;
-
     SegmentCacheHandle handle;
     BetaRowsetSharedPtr rowset_ptr = std::dynamic_pointer_cast<BetaRowset>(rowset);
 
@@ -330,7 +317,6 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
         EXPECT_EQ(SegmentLoader::instance()->cache_mem_usage() - start_size,
                   segment_ptr->meta_mem_usage());
     }
-
     res = ((BetaRowset*)rowset.get())->load_segments(&segments);
     ASSERT_TRUE(res.ok());
     ASSERT_EQ(1, rowset->num_segments());
@@ -348,14 +334,14 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     ASSERT_TRUE(s.ok());
     auto read_block = rowset->tablet_schema()->create_block();
     res = iter->next_batch(&read_block);
-    ASSERT_TRUE(res.ok()) << res;
+    ASSERT_TRUE(res.ok());
     ASSERT_EQ(1, read_block.rows());
     // get the value from sequence column
     auto seq_v = read_block.get_by_position(4).column->get_int(0);
     ASSERT_EQ(100, seq_v);
 
-    res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
+    res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
+    delete delta_writer;
 }
-
 } // namespace doris
