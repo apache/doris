@@ -41,9 +41,9 @@ void MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* block
             pos_to_pull++;
             _multi_cast_blocks.pop_front();
         } else {
-            pos_to_pull->_used_count--;
             pos_to_pull->_block->create_same_struct_block(0)->swap(*block);
             (void)vectorized::MutableBlock(block).merge(*pos_to_pull->_block);
+            pos_to_pull->_used_count--;
             pos_to_pull++;
         }
     }
