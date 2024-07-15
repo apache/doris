@@ -881,7 +881,7 @@ public class HiveMetaStoreClientHelper {
      *                 The string containing a number.
      */
     public static String getByte(String altValue) {
-        if (altValue != null && altValue.length() > 0) {
+        if (altValue != null && !altValue.isEmpty()) {
             try {
                 return Character.toString((char) ((Byte.parseByte(altValue) + 256) % 256));
             } catch (NumberFormatException e) {
