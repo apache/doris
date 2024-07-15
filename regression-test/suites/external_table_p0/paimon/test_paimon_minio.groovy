@@ -50,7 +50,7 @@ suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_do
                         's3.endpoint' = 'http://${externalEnvIp}:${minio_port}',
                         's3.access_key' = 'admin',
                         's3.secret_key' = 'password',
-                        's3.region' = 'minio_ignored',
+                        's3.region' = 'us-west-2',
                         's3.path.style.access' = 'true'
                 );
             """
