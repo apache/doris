@@ -232,7 +232,7 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
     if (_is_close) {
         return Status::OK();
     }
-    return Status::InternalError("Abnormal Ending");
+    return Status::InternalError("Get Arrow Batch Abnormal Ending");
 }
 
 Status BufferControlBlock::close(Status exec_status) {
