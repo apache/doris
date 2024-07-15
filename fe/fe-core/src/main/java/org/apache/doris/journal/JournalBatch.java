@@ -21,6 +21,8 @@ import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.OperationType;
 
+import lombok.Getter;
+
 import java.io.IOException;
 import java.util.ArrayList;
 
@@ -28,6 +30,9 @@ public class JournalBatch {
     private static final int OUTPUT_BUFFER_INIT_SIZE = 128;
 
     private ArrayList<Entity> entities;
+
+    @Getter
+    private long size = 0;
 
     public JournalBatch() {
         entities = new ArrayList<>();
@@ -55,6 +60,7 @@ public class JournalBatch {
         entity.setData(data);
 
         DataOutputBuffer buffer = new DataOutputBuffer(OUTPUT_BUFFER_INIT_SIZE);
+        size += buffer.size();
         entity.write(buffer);
 
         entities.add(new Entity(op, buffer));

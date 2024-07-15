@@ -181,8 +181,12 @@ public class CloudTabletRebalancer extends MasterDaemon {
         // 2 complete route info
         replicaInfos = new ArrayList<UpdateCloudReplicaInfo>();
         completeRouteInfo();
-        for (UpdateCloudReplicaInfo info : replicaInfos) {
-            Env.getCurrentEnv().getEditLog().logUpdateCloudReplica(info);
+        try {
+            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(replicaInfos);
+        } catch (Exception e) {
+            LOG.warn("failed to update cloud replicas", e);
+            // edit log failed, try next time
+            return;
         }
 
         // 3 check whether the inflight preheating task has been completed
@@ -869,17 +873,16 @@ public class CloudTabletRebalancer extends MasterDaemon {
         List<Tablet> tablets = new ArrayList<>();
         if (!beToTabletsGlobal.containsKey(srcBe)) {
             LOG.info("smooth upgrade srcBe={} does not have any tablets, set inactive", srcBe);
-            // TODO(merge-cloud): wait add cloud upgrade mgr
-            // Env.getCurrentEnv().getCloudUpgradeMgr().setBeStateInactive(srcBe);
+            ((CloudEnv) Env.getCurrentEnv()).getCloudUpgradeMgr().setBeStateInactive(srcBe);
             return;
         }
         tablets = beToTabletsGlobal.get(srcBe);
         if (tablets.isEmpty()) {
             LOG.info("smooth upgrade srcBe={} does not have any tablets, set inactive", srcBe);
-            // TODO(merge-cloud): wait add cloud upgrade mgr
-            // Env.getCurrentEnv().getCloudUpgradeMgr().setBeStateInactive(srcBe);
+            ((CloudEnv) Env.getCurrentEnv()).getCloudUpgradeMgr().setBeStateInactive(srcBe);
             return;
         }
+        List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
         for (Tablet tablet : tablets) {
             // get replica
             CloudReplica cloudReplica = (CloudReplica) tablet.getReplicas().get(0);
@@ -915,10 +918,17 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 UpdateCloudReplicaInfo info = new UpdateCloudReplicaInfo(cloudReplica.getDbId(),
                         cloudReplica.getTableId(), cloudReplica.getPartitionId(), cloudReplica.getIndexId(),
                         tablet.getId(), cloudReplica.getId(), clusterId, dstBe);
-                Env.getCurrentEnv().getEditLog().logUpdateCloudReplica(info);
+                infos.add(info);
             } finally {
                 table.readUnlock();
             }
+        }
+        try {
+            Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
+        } catch (Exception e) {
+            LOG.warn("update cloud replicas failed", e);
+            // edit log failed, try next time
+            throw new RuntimeException(e);
         }
 
         try {

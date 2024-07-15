@@ -59,6 +59,7 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.Journal;
+import org.apache.doris.journal.JournalBatch;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.BDBJEJournal;
@@ -103,6 +104,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -1264,6 +1266,22 @@ public class EditLog {
         journal.rollJournal();
     }
 
+    private synchronized <T extends Writable> void logEdit(short op, List<T> entries) throws IOException {
+        List<JournalBatch> batches = new ArrayList<>();
+        JournalBatch batch = new JournalBatch(35);
+        for (T entry : entries) {
+            // the number of batch entities to less than 32 and the batch data size to less than 640KB
+            if (batch.getJournalEntities().size() > 32 || batch.getSize() > 640 * 1024) {
+                batches.add(batch);
+                batch = new JournalBatch(35);
+            }
+            batch.addJournal(op, entry);
+        }
+        for (JournalBatch b : batches) {
+            journal.write(b);
+        }
+    }
+
     /**
      * Write an operation to the edit log. Do not sync to persistent store yet.
      */
@@ -1578,6 +1596,10 @@ public class EditLog {
 
     public void logUpdateCloudReplica(UpdateCloudReplicaInfo info) {
         logEdit(OperationType.OP_UPDATE_CLOUD_REPLICA, info);
+    }
+
+    public void logUpdateCloudReplicas(List<UpdateCloudReplicaInfo> infos) throws IOException {
+        logEdit(OperationType.OP_UPDATE_CLOUD_REPLICA, infos);
     }
 
     public void logExportUpdateState(long jobId, ExportJobState newState) {
