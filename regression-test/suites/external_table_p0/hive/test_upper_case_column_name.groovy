@@ -51,7 +51,7 @@ suite("test_upper_case_column_name", "p0,external,hive,external_docker,external_
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
+        logger.info("disable Hive test.")
         return;
     }
     for (String hivePrefix : ["hive2", "hive3"]) {

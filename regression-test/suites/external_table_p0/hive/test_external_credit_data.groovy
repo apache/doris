@@ -18,7 +18,7 @@
 suite("test_external_credit_data", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
+        logger.info("disable Hive test.")
         return;
     }
     for (String hivePrefix : ["hive2", "hive3"]) {
