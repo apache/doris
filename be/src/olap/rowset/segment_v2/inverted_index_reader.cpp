@@ -270,12 +270,13 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
 
     try {
         int32_t slop = 0;
+        bool ordered = false;
         std::vector<std::string> analyse_result;
         if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
             analyse_result.emplace_back(search_str);
         } else {
             if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-                RETURN_IF_ERROR(PhraseQuery::parser_slop(search_str, slop));
+                PhraseQuery::parser_slop(search_str, slop, ordered);
             }
 
             InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
@@ -327,6 +328,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             }
             if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
                 str_tokens += " " + std::to_string(slop);
+                str_tokens += " " + std::to_string(ordered);
             }
 
             auto* cache = InvertedIndexQueryCache::instance();
@@ -351,17 +353,16 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
 
                 Status res = Status::OK();
                 if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-                    auto* phrase_query = new lucene::search::PhraseQuery();
-                    for (auto& token : analyse_result) {
-                        std::wstring wtoken = StringUtil::string_to_wstring(token);
-                        auto* term = _CLNEW lucene::index::Term(field_ws.c_str(), wtoken.c_str());
-                        phrase_query->add(term);
-                        _CLDECDELETE(term);
+                    TQueryOptions queryOptions = runtime_state->query_options();
+                    try {
+                        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+                        PhraseQuery query(index_searcher, queryOptions);
+                        query.add(field_ws, analyse_result, slop, ordered);
+                        query.search(*term_match_bitmap);
+                    } catch (const CLuceneError& e) {
+                        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                                "CLuceneError occured: {}", e.what());
                     }
-                    phrase_query->setSlop(slop);
-                    query.reset(phrase_query);
-                    res = normal_index_search(stats, query_type, index_searcher,
-                                              null_bitmap_already_read, query, term_match_bitmap);
                 } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
                     res = match_phrase_prefix_index_search(stats, runtime_state, field_ws,
                                                            analyse_result, index_searcher,
