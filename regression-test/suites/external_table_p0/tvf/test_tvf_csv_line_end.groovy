@@ -55,7 +55,32 @@ suite("test_tvf_csv_line_end", "p0,tvf") {
         ) where length(c4) >= 2        
         order by c1,c2,c3,c4;        
     """
-
+    List<List<String>> result1 = sql """
+    select  * from local(
+        "file_path" = "${outFilePath}/${filename}",
+        "backend_id" = "${be_id}",
+        "format" = "csv",
+        "column_separator" = ","
+        ) where length(c4) >= 2        
+        order by c1,c2,c3,c4;   
+    """
+    List<List<String>> result2 = sql """
+    select  * from local(
+        "file_path" = "${outFilePath}/${filename}.gz",
+        "backend_id" = "${be_id}",
+        "format" = "csv",
+        "column_separator" = ",",
+        "compress_type"="gz"
+        ) where length(c4) >= 2        
+        order by c1,c2,c3,c4;   
+    """
+    log.info("result2 = ${result2}")
+    assertTrue(result1.size() == result2.size());
+    for(int  i  =0 ;i < result1.size();i++){
+        for(int j =0 ; j< result1.size();j++) {
+            assertTrue(result1[i][j] ==  result2[i][j] );
+        }
+    }
     
     sql """ set keep_carriage_return = false; """
 
@@ -78,6 +103,33 @@ suite("test_tvf_csv_line_end", "p0,tvf") {
         ) where length(c4) >= 2        
         order by c1,c2,c3,c4;        
     """
+    result1 = sql """
+    select  * from local(
+        "file_path" = "${outFilePath}/${filename}",
+        "backend_id" = "${be_id}",
+        "format" = "csv",
+        "column_separator" = ","
+        ) where length(c4) >= 2        
+        order by c1,c2,c3,c4;   
+    """
+    result2 = sql """
+    select  * from local(
+        "file_path" = "${outFilePath}/${filename}.gz",
+        "backend_id" = "${be_id}",
+        "format" = "csv",
+        "column_separator" = ",",
+        "compress_type"="gz"
+        ) where length(c4) >= 2        
+        order by c1,c2,c3,c4;   
+    """
+    log.info("result2 = ${result2}")
+    assertTrue(result1.size() == result2.size());
+    for(int  i  =0 ;i < result1.size();i++){
+        for(int j =0 ; j< result1.size();j++) {
+            assertTrue(result1[i][j] ==  result2[i][j] );
+        }
+    }
+
 
     filename = "lf_crlf_and_quotes.csv"
 
@@ -104,6 +156,34 @@ suite("test_tvf_csv_line_end", "p0,tvf") {
         order by c1,c2,c3,c4;         
     """
 
+    result1 = sql """
+    select  * from local(
+        "file_path" = "${outFilePath}/${filename}",
+        "backend_id" = "${be_id}",
+        "format" = "csv",
+        "column_separator" = ",",
+        "trim_double_quotes"="true"
+        ) where length(c4) >= 2        
+        order by c1,c2,c3,c4;   
+    """
+    result2 = sql """
+    select  * from local(
+        "file_path" = "${outFilePath}/${filename}.gz",
+        "backend_id" = "${be_id}",
+        "format" = "csv",
+        "column_separator" = ",",
+        "trim_double_quotes"="true",
+        "compress_type"="gz"
+        ) where length(c4) >= 2        
+        order by c1,c2,c3,c4;   
+    """
+    log.info("result2 = ${result2}")
+    assertTrue(result1.size() == result2.size());
+    for(int  i  =0 ;i < result1.size();i++){
+        for(int j =0 ; j< result1.size();j++) {
+            assertTrue(result1[i][j] ==  result2[i][j] );
+        }
+    }
     
     sql """ set keep_carriage_return = false; """
 
@@ -128,6 +208,34 @@ suite("test_tvf_csv_line_end", "p0,tvf") {
         ) where length(c4) >= 2         
         order by c1,c2,c3,c4;      
     """
+    result1 = sql """
+    select  * from local(
+        "file_path" = "${outFilePath}/${filename}",
+        "backend_id" = "${be_id}",
+        "format" = "csv",
+        "column_separator" = ",",
+        "trim_double_quotes"="true"
+        ) where length(c4) >= 2        
+        order by c1,c2,c3,c4;   
+    """
+    result2 = sql """
+    select  * from local(
+        "file_path" = "${outFilePath}/${filename}.gz",
+        "backend_id" = "${be_id}",
+        "format" = "csv",
+        "column_separator" = ",",
+        "trim_double_quotes"="true",
+        "compress_type"="gz"
+        ) where length(c4) >= 2        
+        order by c1,c2,c3,c4;   
+    """
+    log.info("result2 = ${result2}")
+    assertTrue(result1.size() == result2.size());
+    for(int  i  =0 ;i < result1.size();i++){
+        for(int j =0 ; j< result1.size();j++) {
+            assertTrue(result1[i][j] ==  result2[i][j] );
+        }
+    }
 
 
 
