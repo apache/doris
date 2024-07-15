@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 suite("test_create_mv_and_mtmt") {
     def tableName = "test_create_mv_and_mtmt_advertiser_view_record"
     def mvName = "test_create_mv_and_mtmt_advertiser_uv"
@@ -46,24 +47,31 @@ suite("test_create_mv_and_mtmt") {
     sql """ insert into ${tableName} values("2024-07-02",'a', "2024-07-02", 'a',1); """
     sql """ insert into ${tableName} values("2024-07-03",'b', "2024-07-03", 'b',1); """
 
+    var tryTimes = 0
+    def maxTryTime = 10
+    def created = false
     while (true) {
+        Thread.sleep(2000)
         def result = sql """ desc ${tableName} all; """
-        def created = false
         for (row in result) {
             if (row[0] == "${mvName}") {
+                logger.info( "mv ${row[0]} created")
                 created = true
                 break
             }
         }
-        if (created) {
+        if (created || ++tryTimes > maxTryTime) {
             break
-        } else {
-            Thread.sleep(1000)
         }
     }
-
+    if(!created) {
+        throw new IllegalAccessException("Wait mv timeout")
+    }
+    // Hit sync mv when setting enable_sync_mv_cost_based_rewrite as false
+    sql "set enable_sync_mv_cost_based_rewrite=false;"
     explain {
-        sql("""SELECT dt,advertiser,
+        sql("""
+                    SELECT dt,advertiser,
                           count(DISTINCT user_id)
                     FROM ${tableName}
                     GROUP BY dt,advertiser""")
