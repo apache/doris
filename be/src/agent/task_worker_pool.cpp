@@ -545,8 +545,7 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
     for (int i = 0; i < normal_worker_count; ++i) {
-        auto st =
-                Thread::create("Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
+        auto st = Thread::create("Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
         CHECK(st.ok()) << name << ": " << st;
     }
 
