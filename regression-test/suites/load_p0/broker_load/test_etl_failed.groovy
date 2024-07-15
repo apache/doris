@@ -33,7 +33,7 @@ suite("test_etl_failed", "load_p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1"); 
     """
     String label = "test_etl_failed"
-    String path = "s3://doris-build-1308700295/regression/load/data/etl_failure/etl-failure.csv"
+    String path = "s3://${getS3BucketName()}/regression/load/data/etl_failure/etl-failure.csv"
     String format = "CSV"
     String ak = getS3AK()
     String sk = getS3SK()
@@ -46,8 +46,8 @@ suite("test_etl_failed", "load_p0") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_ENDPOINT" = "${getS3Endpoint()}",
+                "AWS_REGION" = "${getS3Region()}"
             )
             PROPERTIES(
                 "use_new_load_scan_node" = "true",
