@@ -19,7 +19,7 @@
 
 #include <google/protobuf/stubs/common.h>
 
-#include <atomic>
+#include <mutex>
 
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
@@ -78,8 +78,9 @@ class AutoReleaseClosure : public google::protobuf::Closure {
     ENABLE_FACTORY_CREATOR(AutoReleaseClosure);
 
 public:
-    AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback)
-            : request_(req), callback_(callback) {
+    AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback,
+                       int use_count = 1)
+            : request_(req), use_count_(use_count), callback_(callback) {
         this->cntl_ = callback->cntl_;
         this->response_ = callback->response_;
     }
@@ -88,7 +89,7 @@ public:
 
     //  Will delete itself
     void Run() override {
-        Defer defer {[&]() { delete this; }};
+        Defer defer {[&]() { sub_use_count(); }};
         // If lock failed, it means the callback object is deconstructed, then no need
         // to deal with the callback any more.
         if (auto tmp = callback_.lock()) {
@@ -101,6 +102,14 @@ public:
         }
     }
 
+    void sub_use_count() {
+        std::unique_lock<std::mutex> l(mtx_);
+        use_count_--;
+        if (!use_count_) {
+            delete this;
+        }
+    }
+
     // controller has to be the same lifecycle with the closure, because brpc may use
     // it in any stage of the rpc.
     std::shared_ptr<brpc::Controller> cntl_;
@@ -109,6 +118,9 @@ public:
     // at any stage.
     std::shared_ptr<Request> request_;
     std::shared_ptr<ResponseType> response_;
+
+    int use_count_ = 0;
+    std::mutex mtx_;
 
 protected:
     virtual void _process_if_rpc_failed() {

@@ -61,7 +61,7 @@ class BloomFilterFuncBase;
 class BitmapFilterFuncBase;
 class TNetworkAddress;
 class TQueryOptions;
-
+class SyncSizeClosure;
 namespace vectorized {
 class VExpr;
 class VExprContext;
@@ -213,7 +213,7 @@ public:
                                                      _filter_id, to_string(_runtime_filter_type)))),
               _need_local_merge(need_local_merge) {}
 
-    ~IRuntimeFilter() = default;
+    ~IRuntimeFilter();
 
     static Status create(RuntimeFilterParamsContext* state, ObjectPool* pool,
                          const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
@@ -369,6 +369,8 @@ public:
 
     bool isset_synced_size() const { return _synced_size != -1; }
 
+    void release_closure();
+
 protected:
     // serialize _wrapper to protobuf
     void to_protobuf(PInFilter* filter);
@@ -440,6 +442,7 @@ protected:
 
     int64_t _synced_size = -1;
     std::shared_ptr<pipeline::Dependency> _dependency;
+    SyncSizeClosure* _sync_closure = nullptr;
 };
 
 // avoid expose RuntimePredicateWrapper
