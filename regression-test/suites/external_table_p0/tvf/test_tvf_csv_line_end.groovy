@@ -27,7 +27,7 @@ suite("test_tvf_csv_line_end", "p0,tvf") {
 
     for (List<Object> backend : backends) {
         def be_host = backend[1]
-        // scpFiles ("changyuwei", be_host, dataFilePath, outFilePath, false);
+        scpFiles ("root", be_host, dataFilePath, outFilePath, false);
     }
 
     String filename = "lf_crlf_not_quotes.csv"
