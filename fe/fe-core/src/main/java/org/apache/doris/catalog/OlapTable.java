@@ -1201,6 +1201,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return null;
     }
 
+    public void setEnableMowLightDelete(boolean enable) {
+        getOrCreatTableProperty().setEnableMowLightDelete(enable);
+    }
+
+    public boolean getEnableMowLightDelete() {
+        return getOrCreatTableProperty().getEnableMowLightDelete();
+    }
+
     public void setGroupCommitIntervalMs(int groupCommitInterValMs) {
         getOrCreatTableProperty().setGroupCommitIntervalMs(groupCommitInterValMs);
     }
