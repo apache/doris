@@ -108,6 +108,7 @@ DECLARE_mString(public_access_ip);
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
+DECLARE_Int32(brpc_idle_timeout_sec);
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -1063,6 +1064,9 @@ DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
 DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
+// If true, evict the ttl cache using LRU when full.
+// Otherwise, only expiration can evict ttl and new data won't add to cache when full.
+DECLARE_Bool(enable_ttl_cache_evict_using_lru);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

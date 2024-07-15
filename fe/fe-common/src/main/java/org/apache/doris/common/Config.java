@@ -2672,6 +2672,9 @@ public class Config extends ConfigBase {
             "Should the request content be logged before each request starts, specifically the query statements"})
     public static boolean enable_print_request_before_execution = false;
 
+    @ConfField(mutable = true)
+    public static boolean enable_cooldown_replica_affinity = true;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
@@ -2757,7 +2760,7 @@ public class Config extends ConfigBase {
     public static boolean enable_light_index_change = true;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_create_bitmap_index_as_inverted_index = false;
+    public static boolean enable_create_bitmap_index_as_inverted_index = true;
 
     @ConfField(mutable = true)
     public static boolean enable_create_inverted_index_for_array = false;
@@ -2900,9 +2903,12 @@ public class Config extends ConfigBase {
             "streamload route policy in cloud mode, availale options are public-private and empty string"})
     public static String streamload_redirect_policy = "";
 
-    @ConfField(mutable = true)
-    public static boolean enable_cooldown_replica_affinity = true;
-
+    @ConfField(description = {"存算分离模式下建表是否检查残留recycler key, 默认true",
+        "create table in cloud mode, check recycler key remained, default true"})
+    public static boolean check_create_table_recycle_key_remained = true;
+    // ATTN: DONOT add any config not related to cloud mode here
+    // ATTN: DONOT add any config not related to cloud mode here
+    // ATTN: DONOT add any config not related to cloud mode here
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

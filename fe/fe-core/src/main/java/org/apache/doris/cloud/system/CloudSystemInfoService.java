@@ -450,7 +450,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                 LOG.warn("cant find clusterId by clusteName {}", clusterName);
                 return "";
             }
-            return getCloudStatusById(clusterId);
+            return getCloudStatusByIdNoLock(clusterId);
         } finally {
             rlock.unlock();
         }
@@ -459,12 +459,16 @@ public class CloudSystemInfoService extends SystemInfoService {
     public String getCloudStatusById(final String clusterId) {
         rlock.lock();
         try {
-            return clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>())
-                .stream().map(Backend::getCloudClusterStatus).findFirst()
-                .orElse(String.valueOf(Cloud.ClusterStatus.UNKNOWN));
+            return getCloudStatusByIdNoLock(clusterId);
         } finally {
             rlock.unlock();
         }
+    }
+
+    public String getCloudStatusByIdNoLock(final String clusterId) {
+        return clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>())
+            .stream().map(Backend::getCloudClusterStatus).findFirst()
+            .orElse(String.valueOf(Cloud.ClusterStatus.UNKNOWN));
     }
 
     public void updateClusterNameToId(final String newName,

@@ -261,12 +261,20 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     }
 
     snapshot.type = "overview";
-    snapshot.label = "tc/jemalloc cache";
+    snapshot.label = "tc/jemalloc_cache";
     snapshot.limit = -1;
     snapshot.cur_consumption = MemInfo::allocator_cache_mem();
     snapshot.peak_consumption = -1;
     (*snapshots).emplace_back(snapshot);
     all_tracker_mem_sum += MemInfo::allocator_cache_mem();
+
+    snapshot.type = "overview";
+    snapshot.label = "tc/jemalloc_metadata";
+    snapshot.limit = -1;
+    snapshot.cur_consumption = MemInfo::allocator_metadata_mem();
+    snapshot.peak_consumption = -1;
+    (*snapshots).emplace_back(snapshot);
+    all_tracker_mem_sum += MemInfo::allocator_metadata_mem();
 
     snapshot.type = "overview";
     snapshot.label = "sum of all trackers"; // is virtual memory
@@ -287,7 +295,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
     (*snapshots).emplace_back(snapshot);
 
     snapshot.type = "overview";
-    snapshot.label = "reserved memory";
+    snapshot.label = "reserve_memory";
     snapshot.limit = -1;
     snapshot.cur_consumption = GlobalMemoryArbitrator::process_reserved_memory();
     snapshot.peak_consumption = -1;
