@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 
 public class TransactionException extends UserException {
@@ -25,6 +26,10 @@ public class TransactionException extends UserException {
 
     public TransactionException(String msg) {
         super(msg);
+    }
+
+    public TransactionException(InternalErrorCode errCode, String msg) {
+        super(errCode, msg);
     }
 
     public TransactionException(String msg, Throwable e) {

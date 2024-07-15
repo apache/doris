@@ -248,6 +248,7 @@ import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
@@ -1496,6 +1497,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         try {
             loadTxn2PCImpl(request);
+        } catch (TransactionCommitFailedException e) {
+            LOG.warn("failed to {} txn {}: {}", request.getOperation(), request.getTxnId(), e.getMessage());
+            if (InternalErrorCode.TXN_ALREADY_COMMITTED == e.getErrorCode()
+                    || InternalErrorCode.TXN_ALREADY_VISIBLE == e.getErrorCode()) {
+                status.setStatusCode(TStatusCode.ALREADY_EXIST);
+            } else {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            }
+            status.addToErrorMsgs(e.getMessage());
         } catch (UserException e) {
             LOG.warn("failed to {} txn {}: {}", request.getOperation(), request.getTxnId(), e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
