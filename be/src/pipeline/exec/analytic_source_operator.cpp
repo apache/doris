@@ -559,11 +559,6 @@ Status AnalyticLocalState::close(RuntimeState* state) {
 
     std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
     _result_window_columns.swap(tmp_result_window_columns);
-    // Some kinds of source operators has a 1-1 relationship with a sink operator (such as AnalyticOperator).
-    // We must ensure AnalyticSinkOperator will not be blocked if AnalyticSourceOperator already closed.
-    if (_shared_state && _shared_state->sink_deps.size() == 1) {
-        _shared_state->sink_deps.front()->set_always_ready();
-    }
     return PipelineXLocalState<AnalyticSharedState>::close(state);
 }
 
