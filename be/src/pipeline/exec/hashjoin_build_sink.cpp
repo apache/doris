@@ -599,6 +599,11 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
         CHECK(_shared_hash_table_context->signaled);
+        // the instance which is not build hash table, it's should wait the signal of hash table build finished.
+        // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit,
+        if (!_shared_hash_table_context->signaled) {
+            return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
+        }
 
         if (!_shared_hash_table_context->status.ok()) {
             return _shared_hash_table_context->status;
