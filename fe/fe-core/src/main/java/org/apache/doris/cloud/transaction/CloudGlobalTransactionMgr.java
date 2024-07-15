@@ -794,10 +794,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             totalRetryTime += retryTime;
         }
         stopWatch.stop();
-        LOG.info(
-                "get delete bitmap lock successfully. txns: {}. totalRetryTime: {}. "
-                        + "partitionSize: {}. time cost: {} ms.",
-                transactionId, totalRetryTime, tableToParttions.size(), stopWatch.getTime());
+        if (totalRetryTime > 0 || stopWatch.getTime() > 20) {
+            LOG.info(
+                    "get delete bitmap lock successfully. txns: {}. totalRetryTime: {}. "
+                            + "partitionSize: {}. time cost: {} ms.",
+                    transactionId, totalRetryTime, tableToParttions.size(), stopWatch.getTime());
+        }
     }
 
     private void sendCalcDeleteBitmaptask(long dbId, long transactionId,
