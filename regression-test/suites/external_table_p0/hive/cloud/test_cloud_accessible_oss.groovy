@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_cloud_accessible_oss", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_cloud_accessible_oss", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableObjStorageTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
@@ -38,12 +38,68 @@ suite("test_cloud_accessible_oss", "p2,external,hive,external_remote,external_re
         logger.info("catalog " + hms_catalog_name + " created")
         sql """switch ${hms_catalog_name};"""
         logger.info("switched to catalog " + hms_catalog_name)
+        sql """ CREATE DATABASE IF NOT EXISTS cloud_accessible """
         sql """ use cloud_accessible """
+
+//        sql """
+//            CREATE TABLE `types_oss`(
+//              `hms_int` int,
+//              `hms_smallint` smallint,
+//              `hms_bigint` bigint,
+//              `hms_double` double,
+//              `hms_string` string,
+//              `hms_decimal` decimal(12,4),
+//              `hms_char` char(50),
+//              `hms_varchar` varchar(50),
+//              `hms_bool` boolean,
+//              `hms_timstamp` timestamp,
+//              `hms_date` date)
+//            ROW FORMAT SERDE
+//              'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+//            WITH SERDEPROPERTIES (
+//              'serialization.format' = '1')
+//            STORED AS INPUTFORMAT
+//              'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+//            OUTPUTFORMAT
+//              'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+//            LOCATION
+//              'oss://benchmark-oss/user/types'
+//        """
         qt_hms_q1 """ select * from types_oss order by hms_int """
+
+//        sql """
+//            CREATE TABLE `types_one_part_oss`(
+//              `hms_int` int,
+//              `hms_smallint` smallint,
+//              `hms_bigint` bigint,
+//              `hms_double` double,
+//              `hms_string` string,
+//              `hms_decimal` decimal(12,4),
+//              `hms_char` char(50),
+//              `hms_varchar` varchar(50),
+//              `hms_bool` boolean,
+//              `hms_timstamp` timestamp,
+//              `hms_date` date)
+//            PARTITIONED BY (
+//             `dt` string)
+//            ROW FORMAT SERDE
+//              'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+//            WITH SERDEPROPERTIES (
+//              'serialization.format' = '1')
+//            STORED AS INPUTFORMAT
+//              'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+//            OUTPUTFORMAT
+//              'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+//            LOCATION
+//              'oss://benchmark-oss/user/types_one_part'
+//        """
         qt_hms_q2 """ select * from types_one_part_oss order by hms_int """
-        
+
+//        sql """drop table types_oss;"""
+//        sql """drop table types_one_part_oss;"""
+        sql """drop database cloud_accessible;"""
         sql """drop catalog ${hms_catalog_name};"""
-                
+
         // dlf case
         String dlf_catalog_name = "test_cloud_accessible_dlf"
         String dlf_uid = context.config.otherConfigs.get("dlfUid")
