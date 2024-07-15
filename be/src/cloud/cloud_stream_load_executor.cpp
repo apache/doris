@@ -60,6 +60,10 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     Status st = Status::InternalError<false>("impossible branch reached, " + op_info);
 
     if (ctx->txn_operation.compare("commit") == 0) {
+        if (!config::enable_stream_load_commit_txn_on_be) {
+            VLOG_DEBUG << "2pc commit stream load txn with FE support: " << op_info;
+            st = StreamLoadExecutor::operate_txn_2pc(ctx);
+        }
         if (topt == TxnOpParamType::WITH_TXN_ID) {
             VLOG_DEBUG << "2pc commit stream load txn directly: " << op_info;
             st = _exec_env->storage_engine().to_cloud().meta_mgr().commit_txn(*ctx, true);
@@ -93,6 +97,10 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
 }
 
 Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
+    if (!config::enable_stream_load_commit_txn_on_be) {
+        VLOG_DEBUG << "commit stream load txn with FE support";
+        return StreamLoadExecutor::commit_txn(ctx);
+    }
     if (ctx->load_type == TLoadType::ROUTINE_LOAD) {
         return StreamLoadExecutor::commit_txn(ctx);
     }
