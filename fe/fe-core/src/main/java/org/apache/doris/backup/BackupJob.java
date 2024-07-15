@@ -725,7 +725,8 @@ public class BackupJob extends AbstractJob {
     }
 
     private void saveMetaInfo() {
-        String createTimeStr = TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+        String createTimeStr = TimeUtils.longToTimeString(createTime,
+                TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         // local job dir: backup/repo__repo_id/label__createtime/
         // Add repo_id to isolate jobs from different repos.
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
