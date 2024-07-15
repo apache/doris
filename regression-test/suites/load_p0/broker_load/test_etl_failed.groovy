@@ -61,6 +61,7 @@ suite("test_etl_failed", "load_p0") {
     def max_try_milli_secs = 600000
     while (max_try_milli_secs > 0) {
         String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
+        logger.info("Load result: " + result[0])
         if (result[0][2].equals("FINISHED")) {
             logger.info("Load FINISHED " + label)
             assertTrue(1 == 2, "etl should be failed")
