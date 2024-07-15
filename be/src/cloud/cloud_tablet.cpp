@@ -110,7 +110,6 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
 Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) {
-    RETURN_IF_ERROR(sync_if_not_running());
 
     if (query_version > 0) {
         std::shared_lock rlock(_meta_lock);
@@ -593,7 +592,7 @@ std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compact
         std::shared_lock rlock(_meta_lock);
         for (const auto& [version, rs] : _rs_version_map) {
             if (version.first != 0 && version.first < _cumulative_point &&
-                (_alter_version == -1 || version.first < _alter_version)) {
+                (_alter_version == -1 || version.second <= _alter_version)) {
                 candidate_rowsets.push_back(rs);
             }
         }

@@ -56,7 +56,7 @@ bool check_compaction_input_verions(const TabletCompactionJobPB& compaction,
             << proto_to_json(compaction);
     int64_t alter_version = job_pb.schema_change().alter_version();
     return (compaction.type() == TabletCompactionJobPB_CompactionType_BASE &&
-            compaction.input_versions(1) < alter_version) ||
+            compaction.input_versions(1) <= alter_version) ||
            (compaction.type() == TabletCompactionJobPB_CompactionType_CUMULATIVE &&
             compaction.input_versions(0) > alter_version);
 }

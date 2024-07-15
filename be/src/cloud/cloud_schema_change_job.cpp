@@ -63,8 +63,6 @@ CloudSchemaChangeJob::~CloudSchemaChangeJob() = default;
 
 Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
 
-    DBUG_EXECUTE_IF("SchemaChangeJob.process_alter_tablet.sleep",
-                    { std::this_thread::sleep_for(std::chrono::seconds(600)); });
     // new tablet has to exist
     _new_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.new_tablet_id));
     if (_new_tablet->tablet_state() == TABLET_RUNNING) {
@@ -100,7 +98,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     sc_job->set_id(_job_id);
     sc_job->set_initiator(BackendOptions::get_localhost() + ':' +
                           std::to_string(config::heartbeat_service_port));
-    sc_job->set_alter_version(request.alter_version);
+    sc_job->set_alter_version(base_max_version);
     auto* new_tablet_idx = sc_job->mutable_new_tablet_idx();
     new_tablet_idx->set_tablet_id(_new_tablet->tablet_id());
     new_tablet_idx->set_table_id(_new_tablet->table_id());
@@ -135,6 +133,9 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
               << ", new_tablet_id=" << request.new_tablet_id
               << ", alter_version=" << start_resp.alter_version() << ", job_id=" << _job_id;
     sc_job->set_alter_version(start_resp.alter_version());
+
+    DBUG_EXECUTE_IF("SchemaChangeJob.process_alter_tablet.sleep",
+                    { std::this_thread::sleep_for(std::chrono::seconds(120)); });
     // FIXME(cyx): Should trigger compaction on base_tablet if there are too many rowsets to convert.
 
     // Create a new tablet schema, should merge with dropped columns in light weight schema change
@@ -152,7 +153,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
             delete_predicates.push_back(rs_meta);
         }
     }
-    RETURN_IF_ERROR(delete_handler.init(_base_tablet_schema, delete_predicates, base_max_version));
+    RETURN_IF_ERROR(delete_handler.init(_base_tablet_schema, delete_predicates, start_resp.alter_version()));
 
     std::vector<ColumnId> return_columns;
     return_columns.resize(_base_tablet_schema->num_columns());
@@ -169,7 +170,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
     reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
     reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
-    reader_context.version = Version(0, base_max_version);
+    reader_context.version = Version(0, start_resp.alter_version());
 
     for (auto& split : rs_splits) {
         RETURN_IF_ERROR(split.rs_reader->init(&reader_context));

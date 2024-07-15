@@ -206,8 +206,6 @@ private:
 
     static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
-    Status sync_if_not_running();
-
     CloudStorageEngine& _engine;
 
     // this mutex MUST ONLY be used when sync meta

@@ -173,8 +173,7 @@ PREPARE_TRY_AGAIN:
             .tag("tablet_max_version", cloud_tablet()->max_version_unlocked())
             .tag("cumulative_point", cloud_tablet()->cumulative_layer_point())
             .tag("num_rowsets", cloud_tablet()->fetch_add_approximate_num_rowsets(0))
-            .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0))
-            .tag("lightman 0711 alter_version", cloud_tablet()->alter_version());
+            .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0));
     return st;
 }
 
