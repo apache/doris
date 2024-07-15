@@ -117,11 +117,14 @@ public:
     Slice min_encoded_key();
     Slice max_encoded_key();
 
+    TabletSchemaSPtr flush_schema() const { return _flush_schema; };
+
     void clear();
 
 private:
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
-    Status _create_column_writer(uint32_t cid, const TabletColumn& column);
+    Status _create_column_writer(uint32_t cid, const TabletColumn& column,
+                                 const TabletSchemaSPtr& schema);
     size_t _calculate_inverted_index_file_size();
     uint64_t _estimated_remaining_size();
     Status _write_ordinal_index();
@@ -146,7 +149,8 @@ private:
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
     void _serialize_block_to_row_column(vectorized::Block& block);
-    Status _append_block_with_partial_content(RowsInBlock& data);
+    Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
+    Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
                                  const std::vector<bool>& use_default_or_null_flag,
                                  bool has_default_or_nullable, const size_t& segment_start_pos,
@@ -204,6 +208,9 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
+
+    // contains auto generated columns, should be nullptr if no variants's subcolumns
+    TabletSchemaSPtr _flush_schema = nullptr;
 };
 
 } // namespace segment_v2

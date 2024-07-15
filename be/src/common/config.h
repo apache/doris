@@ -155,12 +155,15 @@ DECLARE_mInt32(max_fill_rate);
 
 DECLARE_mInt32(double_resize_threshold);
 
-// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
-// actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
-// with large memory larger than 16G.
-// Turn up max. On machines with more than 16G memory, more memory buffers will be reserved for Full GC.
+// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 6.4G,
+// actual low water mark=min(6.4G, MemTotal * 5%), avoid wasting too much memory on machines
+// with large memory larger than 128G.
+// Turn up max. On machines with more than 128G memory, more memory buffers will be reserved for Full GC.
 // Turn down max. will use as much memory as possible.
 DECLARE_Int64(max_sys_mem_available_low_water_mark_bytes);
+
+// reserve a small amount of memory so we do not trigger MinorGC
+DECLARE_Int64(memtable_limiter_reserved_memory_bytes);
 
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 DECLARE_mString(process_minor_gc_size);
@@ -171,10 +174,13 @@ DECLARE_mString(process_full_gc_size);
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
-//waibibabu
+
 // gc will release cache, cancel task, and task will wait for gc to release memory,
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
+
+// Allocator check failed log stacktrace if not catch exception
+DECLARE_mBool(enable_stacktrace_in_allocator_check_failed);
 
 // malloc or new large memory larger than large_memory_check_bytes, default 2G,
 // will print a warning containing the stacktrace, but not prevent memory alloc.
@@ -606,6 +612,8 @@ DECLARE_String(pprof_profile_dir);
 DECLARE_mString(jeprofile_dir);
 // Purge all unused dirty pages for all arenas.
 DECLARE_mBool(enable_je_purge_dirty_pages);
+// Purge all unused Jemalloc dirty pages for all arenas when exceed je_dirty_pages_mem_limit and process exceed soft limit.
+DECLARE_mString(je_dirty_pages_mem_limit_percent);
 
 // to forward compatibility, will be removed later
 DECLARE_mBool(enable_token_check);
@@ -1228,10 +1236,6 @@ DECLARE_Bool(enable_flush_file_cache_async);
 // Remove predicate that is always true for a segment.
 DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
-// Dir of default timezone files
-DECLARE_String(default_tzfiles_path);
-DECLARE_Bool(use_doris_tzfile);
-
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
 
@@ -1334,6 +1338,10 @@ DECLARE_mInt64(fetch_remote_schema_rpc_timeout_ms);
 DECLARE_Int64(min_row_group_size);
 
 DECLARE_mBool(enable_parquet_page_index);
+
+// Wheather to ignore not found file in external teble(eg, hive)
+// Default is true, if set to false, the not found file will result in query failure.
+DECLARE_mBool(ignore_not_found_file_in_external_table);
 
 #ifdef BE_TEST
 // test s3

@@ -244,6 +244,11 @@ Status TabletStream::close() {
     if (!_failed_st->ok()) {
         return *_failed_st;
     }
+    if (_next_segid.load() != _num_segments) {
+        return Status::Corruption(
+                "segment num mismatch in tablet {}, expected: {}, actual: {}, load_id: {}", _id,
+                _num_segments, _next_segid.load(), print_id(_load_id));
+    }
 
     Status st = Status::OK();
     auto close_func = [this, &mu, &cv, &st]() {
@@ -307,11 +312,17 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
     SCOPED_TIMER(_close_wait_timer);
     // open all need commit tablets
     for (const auto& tablet : tablets_to_commit) {
+        if (_id != tablet.index_id()) {
+            continue;
+        }
         TabletStreamSharedPtr tablet_stream;
         auto it = _tablet_streams_map.find(tablet.tablet_id());
-        if (it == _tablet_streams_map.end() && _id == tablet.index_id()) {
+        if (it == _tablet_streams_map.end()) {
             RETURN_IF_ERROR(
                     _init_tablet_stream(tablet_stream, tablet.tablet_id(), tablet.partition_id()));
+            tablet_stream->add_num_segments(tablet.num_segments());
+        } else {
+            it->second->add_num_segments(tablet.num_segments());
         }
     }
 

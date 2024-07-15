@@ -600,13 +600,12 @@ Status BaseBetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     }
 
     // update rowset meta tablet schema if tablet schema updated
-    if (_context.tablet_schema->num_variant_columns() > 0) {
-        _rowset_meta->set_tablet_schema(_context.tablet_schema);
-    }
+    auto rowset_schema = _context.merged_tablet_schema != nullptr ? _context.merged_tablet_schema
+                                                                  : _context.tablet_schema;
+    _rowset_meta->set_tablet_schema(rowset_schema);
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, _rowset_meta,
-                                         &rowset),
+            RowsetFactory::create_rowset(rowset_schema, _context.rowset_dir, _rowset_meta, &rowset),
             "rowset init failed when build new rowset");
     _already_built = true;
     return Status::OK();
@@ -627,14 +626,17 @@ int64_t BetaRowsetWriter::_num_seg() const {
 void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
     std::lock_guard<std::mutex> lock(*(_context.schema_lock));
     TabletSchemaSPtr update_schema;
+    if (_context.merged_tablet_schema == nullptr) {
+        _context.merged_tablet_schema = _context.tablet_schema;
+    }
     static_cast<void>(vectorized::schema_util::get_least_common_schema(
-            {_context.tablet_schema, flush_schema}, nullptr, update_schema));
+            {_context.merged_tablet_schema, flush_schema}, nullptr, update_schema));
     CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
             << "Rowset merge schema columns count is " << update_schema->num_columns()
             << ", but flush_schema is larger " << flush_schema->num_columns()
             << " update_schema: " << update_schema->dump_structure()
             << " flush_schema: " << flush_schema->dump_structure();
-    _context.tablet_schema.swap(update_schema);
+    _context.merged_tablet_schema.swap(update_schema);
     VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
 }
 

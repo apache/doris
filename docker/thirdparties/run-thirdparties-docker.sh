@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,kerberos
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2"
+    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,kerberos"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive2,hive3,iceberg,hudi,trino,kafka,mariadb,db2,kerberos,lakesoul"
         fi
     fi
 fi
@@ -135,6 +135,7 @@ RUN_KAFKA=0
 RUN_SPARK=0
 RUN_MARIADB=0
 RUN_DB2=0
+RUN_KERBEROS=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -167,6 +168,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_MARIADB=1
     elif [[ "${element}"x == "db2"x ]];then
         RUN_DB2=1
+    elif [[ "${element}"x == "kerberos"x ]]; then
+        RUN_KERBEROS=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -385,17 +388,26 @@ fi
 
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     # iceberg
+    ICEBERG_DIR=${ROOT}/docker-compose/iceberg
     cp "${ROOT}"/docker-compose/iceberg/iceberg.yaml.tpl "${ROOT}"/docker-compose/iceberg/iceberg.yaml
     cp "${ROOT}"/docker-compose/iceberg/entrypoint.sh.tpl "${ROOT}"/docker-compose/iceberg/entrypoint.sh
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/iceberg.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/entrypoint.sh
     sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env down
-    sudo rm -rf "${ROOT}"/docker-compose/iceberg/data
     if [[ "${STOP}" -ne 1 ]]; then
-        wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data.zip
-        sudo unzip -d "${ROOT}"/docker-compose/iceberg -q ${ROOT}/docker-compose/iceberg/iceberg_data.zip
-        sudo mv "${ROOT}"/docker-compose/iceberg/iceberg_data "${ROOT}"/docker-compose/iceberg/data
-        sudo rm -rf ${ROOT}/docker-compose/iceberg/iceberg_data.zip
+        if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
+            echo "${ICEBERG_DIR}/data does not exist"
+            cd "${ICEBERG_DIR}" \
+            && rm -f iceberg_data.zip \
+            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data.zip \
+            && sudo unzip iceberg_data.zip \
+            && sudo mv iceberg_data data \
+            && sudo rm -rf iceberg_data.zip
+            cd -
+        else
+            echo "${ICEBERG_DIR}/data exist, continue !"
+        fi
+
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
     fi
 fi
@@ -508,5 +520,29 @@ if [[ "${RUN_MARIADB}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/mariadb/data/
         sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
         sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d
+    fi
+fi
+
+if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+    echo "RUN_KERBEROS"
+    cp "${ROOT}"/docker-compose/kerberos/kerberos.yaml.tpl "${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kerberos/kerberos.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml down
+    sudo rm -rf "${ROOT}"/docker-compose/kerberos/data
+    if [[ "${STOP}" -ne 1 ]]; then
+        echo "PREPARE KERBEROS DATA"
+        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.keytab
+        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.jks
+        rm -rf "${ROOT}"/docker-compose/kerberos/two-kerberos-hives/*.conf
+        sudo docker compose -f "${ROOT}"/docker-compose/kerberos/kerberos.yaml up -d
+        sudo rm -f /keytabs
+        sudo ln -s "${ROOT}"/docker-compose/kerberos/two-kerberos-hives /keytabs
+        sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /keytabs/krb5.conf
+        sudo cp "${ROOT}"/docker-compose/kerberos/common/conf/doris-krb5.conf /etc/krb5.conf
+
+        sudo chmod a+w /etc/hosts
+        echo '172.31.71.25 hadoop-master' >> /etc/hosts
+        echo '172.31.71.26 hadoop-master-2' >> /etc/hosts
+        sleep 2
     fi
 fi

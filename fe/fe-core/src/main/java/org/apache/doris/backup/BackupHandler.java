@@ -503,7 +503,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
             try {
                 BackupMeta backupMeta = BackupMeta.read(dataInputStream);
                 String backupTimestamp =
-                        TimeUtils.longToTimeString(jobInfo.getBackupTime(), TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+                        TimeUtils.longToTimeString(jobInfo.getBackupTime(),
+                                TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
                 restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
                         db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                         stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(),

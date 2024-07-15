@@ -21,6 +21,7 @@
 #include "vec/columns/column_object.h"
 
 #include <assert.h>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
@@ -34,6 +35,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -685,8 +687,6 @@ void ColumnObject::check_consistency() const {
     }
     for (const auto& leaf : subcolumns) {
         if (num_rows != leaf->data.size()) {
-            // LOG(FATAL) << "unmatched column:" << leaf->path.get_path()
-            //            << ", expeted rows:" << num_rows << ", but meet:" << leaf->data.size();
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "unmatched column: {}, expeted rows: {}, but meet: {}",
                                    leaf->path.get_path(), num_rows, leaf->data.size());
@@ -749,8 +749,15 @@ void ColumnObject::insert_from(const IColumn& src, size_t n) {
 void ColumnObject::try_insert(const Field& field) {
     if (field.get_type() != Field::Types::VariantMap) {
         auto* root = get_subcolumn({});
-        if (!root) {
-            doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Failed to find root column_path");
+        // Insert to an emtpy ColumnObject may result root null,
+        // so create a root column of Variant is expected.
+        if (root == nullptr) {
+            bool succ = add_sub_column({}, num_rows);
+            if (!succ) {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Failed to add root sub column {}");
+            }
+            root = get_subcolumn({});
         }
         root->insert(field);
         ++num_rows;
@@ -1290,9 +1297,11 @@ Status ColumnObject::merge_sparse_to_root_column() {
                                        parser.getWriter().getOutput()->getSize());
         result_column_nullable->get_null_map_data().push_back(0);
     }
-
-    // assign merged column
-    subcolumns.get_mutable_root()->data.get_finalized_column_ptr() = mresult->get_ptr();
+    subcolumns.get_mutable_root()->data.get_finalized_column().clear();
+    // assign merged column, do insert_range_from to make a copy, instead of replace the ptr itselft
+    // to make sure the root column ptr is not changed
+    subcolumns.get_mutable_root()->data.get_finalized_column().insert_range_from(
+            *mresult->get_ptr(), 0, num_rows);
     return Status::OK();
 }
 
@@ -1544,18 +1553,55 @@ void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indic
     }
 }
 
-void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
-    if (!is_finalized()) {
-        // finalize has no side effect and can be safely used in const functions
-        const_cast<ColumnObject*>(this)->finalize();
+// finalize has no side effect and can be safely used in const functions
+#define ENSURE_FINALIZED()                           \
+    if (!is_finalized()) {                           \
+        const_cast<ColumnObject*>(this)->finalize(); \
     }
+
+void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
+    ENSURE_FINALIZED();
     for_each_imutable_subcolumn([&](const auto& subcolumn) {
         if (n >= subcolumn.size()) {
-            LOG(FATAL) << n << " greater than column size " << subcolumn.size()
-                       << " sub_column_info:" << subcolumn.dump_structure()
-                       << " total lines of this column " << num_rows;
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "greater than column size {}, sub_column_info:{}, total lines "
+                                   "of this column:{}",
+                                   subcolumn.size(), subcolumn.dump_structure(), num_rows);
         }
         return subcolumn.update_hash_with_value(n, hash);
+    });
+}
+
+void ColumnObject::update_hashes_with_value(uint64_t* __restrict hashes,
+                                            const uint8_t* __restrict null_data) const {
+    ENSURE_FINALIZED();
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_hashes_with_value(hashes, nullptr);
+    });
+}
+
+void ColumnObject::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                            const uint8_t* __restrict null_data) const {
+    ENSURE_FINALIZED();
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_xxHash_with_value(start, end, hash, nullptr);
+    });
+}
+
+void ColumnObject::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
+                                          const uint8_t* __restrict null_data) const {
+    ENSURE_FINALIZED();
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_crcs_with_value(hash, type, rows, offset, nullptr);
+    });
+}
+
+void ColumnObject::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                                         const uint8_t* __restrict null_data) const {
+    ENSURE_FINALIZED();
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_crc_with_value(start, end, hash, nullptr);
     });
 }
 
@@ -1597,14 +1643,6 @@ Status ColumnObject::sanitize() const {
 
     VLOG_DEBUG << "sanitized " << debug_string();
     return Status::OK();
-}
-
-void ColumnObject::replace_column_data(const IColumn& col, size_t row, size_t self_row) {
-    LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
-}
-
-void ColumnObject::replace_column_data_default(size_t self_row) {
-    LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
 }
 
 } // namespace doris::vectorized

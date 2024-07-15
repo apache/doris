@@ -494,20 +494,19 @@ public:
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
 
-    class AggCachePolicy : public LRUCachePolicy {
+    class AggCachePolicy : public LRUCachePolicyTrackingManual {
     public:
         AggCachePolicy(size_t capacity)
-                : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
-                                 LRUCacheType::SIZE,
-                                 config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
+                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE,
+                                               capacity, LRUCacheType::SIZE,
+                                               config::delete_bitmap_agg_cache_stale_sweep_time_sec,
+                                               256) {}
     };
 
     class AggCache {
     public:
         class Value : public LRUCacheValueBase {
         public:
-            Value() : LRUCacheValueBase(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE) {}
-
             roaring::Roaring bitmap;
         };
 

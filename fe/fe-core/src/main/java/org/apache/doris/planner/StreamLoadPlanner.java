@@ -332,7 +332,7 @@ public class StreamLoadPlanner {
         queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
+        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         queryGlobals.setTimestampMs(System.currentTimeMillis());
         queryGlobals.setTimeZone(taskInfo.getTimezone());
         queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
@@ -567,7 +567,7 @@ public class StreamLoadPlanner {
 
         pipParams.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
+        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         queryGlobals.setTimestampMs(System.currentTimeMillis());
         queryGlobals.setTimeZone(taskInfo.getTimezone());
         queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);

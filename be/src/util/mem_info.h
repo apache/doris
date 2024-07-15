@@ -73,19 +73,6 @@ public:
 
     static void refresh_proc_meminfo();
 
-    static inline int64_t sys_mem_available() {
-        return _s_sys_mem_available.load(std::memory_order_relaxed) -
-               refresh_interval_memory_growth;
-    }
-    static inline std::string sys_mem_available_str() {
-#ifdef ADDRESS_SANITIZER
-        return "[ASAN]" + PrettyPrinter::print(_s_sys_mem_available.load(std::memory_order_relaxed),
-                                               TUnit::BYTES);
-#else
-        return PrettyPrinter::print(_s_sys_mem_available.load(std::memory_order_relaxed),
-                                    TUnit::BYTES);
-#endif
-    }
     static inline int64_t sys_mem_available_low_water_mark() {
         return _s_sys_mem_available_low_water_mark;
     }
@@ -157,7 +144,12 @@ public:
     static inline size_t allocator_cache_mem() {
         return _s_allocator_cache_mem.load(std::memory_order_relaxed);
     }
-    static inline std::string allocator_cache_mem_str() { return _s_allocator_cache_mem_str; }
+    static inline int64_t je_dirty_pages_mem() {
+        return _s_je_dirty_pages_mem.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_dirty_pages_mem_limit() {
+        return _s_je_dirty_pages_mem_limit.load(std::memory_order_relaxed);
+    }
 
     // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
     // obtained by the process malloc, not the physical memory actually used by the process in the OS.
@@ -183,25 +175,17 @@ public:
 
     static std::string debug_string();
 
-    static bool process_minor_gc();
-    static bool process_full_gc();
-
-    static int64_t tg_disable_overcommit_group_gc();
-    static int64_t tg_enable_overcommit_group_gc(int64_t request_free_memory,
-                                                 RuntimeProfile* profile, bool is_minor_gc);
-
-    // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
-    // avoid multiple threads starting at the same time and causing OOM.
-    static std::atomic<int64_t> refresh_interval_memory_growth;
-
 private:
+    friend class GlobalMemoryArbitrator;
+
     static bool _s_initialized;
     static std::atomic<int64_t> _s_physical_mem;
     static std::atomic<int64_t> _s_mem_limit;
     static std::atomic<int64_t> _s_soft_mem_limit;
 
     static std::atomic<int64_t> _s_allocator_cache_mem;
-    static std::string _s_allocator_cache_mem_str;
+    static std::atomic<int64_t> _s_je_dirty_pages_mem;
+    static std::atomic<int64_t> _s_je_dirty_pages_mem_limit;
     static std::atomic<int64_t> _s_virtual_memory_used;
 
     static int64_t _s_cgroup_mem_limit;

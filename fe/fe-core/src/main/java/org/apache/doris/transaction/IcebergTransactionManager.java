@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
@@ -58,12 +59,12 @@ public class IcebergTransactionManager implements TransactionManager {
     }
 
     @Override
-    public Transaction getTransaction(long id) {
+    public IcebergTransaction getTransaction(long id) {
         return getTransactionWithException(id);
     }
 
-    public Transaction getTransactionWithException(long id) {
-        Transaction icebergTransaction = transactions.get(id);
+    public IcebergTransaction getTransactionWithException(long id) {
+        IcebergTransaction icebergTransaction = transactions.get(id);
         if (icebergTransaction == null) {
             throw new RuntimeException("Can't find transaction for " + id);
         }

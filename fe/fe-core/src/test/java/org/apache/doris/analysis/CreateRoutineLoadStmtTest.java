@@ -189,6 +189,9 @@ public class CreateRoutineLoadStmtTest {
                 result = sessionVariable;
                 sessionVariable.getSendBatchParallelism();
                 result = 1;
+
+                sessionVariable.getTimeZone();
+                result = "Asia/Hong_Kong";
             }
         };
 
@@ -254,6 +257,9 @@ public class CreateRoutineLoadStmtTest {
                 result = sessionVariable;
                 sessionVariable.getSendBatchParallelism();
                 result = 1;
+
+                sessionVariable.getTimeZone();
+                result = "Asia/Hong_Kong";
             }
         };
 

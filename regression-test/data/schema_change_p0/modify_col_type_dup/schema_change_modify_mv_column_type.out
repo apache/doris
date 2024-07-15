@@ -34,7 +34,7 @@ mv_tbl_scalar_types_dup_1	DUP_KEYS	mv_c_tinyint	TINYINT	TINYINT	Yes	true	\N		tru
 		mv_c_datetime	DATETIME	DATETIMEV2(0)	Yes	false	\N	NONE	true	`c_datetime`	
 		mv_c_datev2	DATE	DATEV2	Yes	false	\N	NONE	true	`c_datev2`	
 		mv_c_datetimev2	DATETIME	DATETIMEV2(0)	Yes	false	\N	NONE	true	`c_datetimev2`	
-		mv_c_char	CHARACTER	CHARACTER	Yes	false	\N	NONE	true	`c_char`	
+		mv_c_char	CHARACTER(255)	CHARACTER(255)	Yes	false	\N	NONE	true	`c_char`	
 		mv_c_varchar	VARCHAR(65533)	VARCHAR(65533)	Yes	false	\N	NONE	true	`c_varchar`	
 		mv_c_string	TEXT	TEXT	Yes	false	\N	NONE	true	`c_string`	
 
@@ -97,7 +97,7 @@ mv_tbl_scalar_types_dup_1	DUP_KEYS	mv_c_tinyint	TINYINT	TINYINT	Yes	true	\N		tru
 		mv_c_datetime	DATETIME	DATETIMEV2(0)	Yes	false	\N	NONE	true	`c_datetime`	
 		mv_c_datev2	DATE	DATEV2	Yes	false	\N	NONE	true	`c_datev2`	
 		mv_c_datetimev2	DATETIME	DATETIMEV2(0)	Yes	false	\N	NONE	true	`c_datetimev2`	
-		mv_c_char	CHARACTER	CHARACTER	Yes	false	\N	NONE	true	`c_char`	
+		mv_c_char	CHARACTER(255)	CHARACTER(255)	Yes	false	\N	NONE	true	`c_char`	
 		mv_c_varchar	VARCHAR(65533)	VARCHAR(65533)	Yes	false	\N	NONE	true	`c_varchar`	
 		mv_c_string	TEXT	TEXT	Yes	false	\N	NONE	true	`c_string`	
 

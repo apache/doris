@@ -400,9 +400,9 @@ public class DynamicPartitionUtil {
 
     private static DateTimeFormatter getDateTimeFormatter(String timeUnit) {
         if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
-            return TimeUtils.DATETIME_FORMAT;
+            return TimeUtils.getDatetimeFormatWithTimeZone();
         } else {
-            return TimeUtils.DATE_FORMAT;
+            return TimeUtils.getDateFormatWithTimeZone();
         }
     }
 
@@ -816,9 +816,9 @@ public class DynamicPartitionUtil {
 
     private static LocalDateTime getDateTimeByTimeUnit(String time, String timeUnit) {
         if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
-            return LocalDateTime.parse(time, TimeUtils.DATETIME_FORMAT);
+            return LocalDateTime.parse(time, TimeUtils.getDatetimeFormatWithTimeZone());
         } else {
-            return LocalDate.from(TimeUtils.DATE_FORMAT.parse(time)).atStartOfDay();
+            return LocalDate.from(TimeUtils.getDateFormatWithTimeZone().parse(time)).atStartOfDay();
         }
     }
 

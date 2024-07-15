@@ -17,7 +17,8 @@
 // under the License.
 
 suite("test_s3_load_with_load_parallelism", "load_p0") {
-
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     def tableName = "test_load_parallelism"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -74,8 +75,8 @@ suite("test_s3_load_with_load_parallelism", "load_p0") {
             WITH S3 (
                "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}"
            )
             ${prop}
             """

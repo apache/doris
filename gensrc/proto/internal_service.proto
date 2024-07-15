@@ -66,6 +66,7 @@ message PTabletID {
     optional int64 partition_id = 1;
     optional int64 index_id = 2;
     optional int64 tablet_id = 3;
+    optional int64 num_segments = 4;
 }
 
 message PTabletInfo {

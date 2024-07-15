@@ -22,6 +22,8 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -49,6 +51,7 @@ import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.test.TestExternalDatabase;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -65,7 +68,6 @@ import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -146,7 +148,7 @@ public abstract class ExternalCatalog
     }
 
     public Configuration getConfiguration() {
-        Configuration conf = new HdfsConfiguration();
+        Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
@@ -177,6 +179,11 @@ public abstract class ExternalCatalog
         }
         useMetaCache = Optional.of(
                 Boolean.valueOf(catalogProperty.getOrDefault(USE_META_CACHE, String.valueOf(DEFAULT_USE_META_CACHE))));
+    }
+
+    // we need check auth fallback for kerberos or simple
+    public boolean ifNotSetFallbackToSimpleAuth() {
+        return catalogProperty.getOrDefault(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty();
     }
 
     // Will be called when creating catalog(not replaying).
@@ -591,6 +598,11 @@ public abstract class ExternalCatalog
             // Should not return null.
             // Because replyInitCatalog can only be called when `use_meta_cache` is false.
             // And if `use_meta_cache` is false, getDbForReplay() will not return null
+            if (!db.isPresent()) {
+                LOG.warn("met invalid db id {} in replayInitCatalog, catalog: {}, ignore it to skip bug.",
+                        log.getRefreshDbIds().get(i), name);
+                continue;
+            }
             Preconditions.checkNotNull(db.get());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
@@ -820,5 +832,26 @@ public abstract class ExternalCatalog
             ret = true;
         }
         return ret;
+    }
+
+    @Override
+    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+        }
+        try {
+            TableRef tableRef = stmt.getTblRef();
+            TableName tableName = tableRef.getName();
+            // delete all table data if null
+            List<String> partitions = null;
+            if (tableRef.getPartitionNames() != null) {
+                partitions = tableRef.getPartitionNames().getPartitionNames();
+            }
+            metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop a table", e);
+            throw e;
+        }
     }
 }
