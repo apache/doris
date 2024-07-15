@@ -623,7 +623,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                         && filter.getPredicate().toSql().contains("id = 2")),
                                 any()
                         ).when(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
-                );
+                ));
     }
 
     @Test
@@ -640,7 +640,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                             logicalOlapScan()
                                          ).when(filter -> filter.getConjuncts().size() == 1
                                          && ExpressionUtils.isInferred(filter.getPredicate())
-                                         && filter.getPredicate().toSql().contains("sid=1"))
+                                         && filter.getPredicate().toSql().contains("sid = 1"))
                                  )
                          ))
                 );
