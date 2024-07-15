@@ -1050,9 +1050,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         //  generate physical aggregate plan.
         //  There is one exception, we use some precondition in optimizer, input to buffer always require any for input,
         //  so when agg mode is INPUT_TO_BUFFER, we do not forbid parallel scan
-        if (leftMostNode instanceof OlapScanNode
-                && inputPlanFragment.getDataPartition().getType() != TPartitionType.RANDOM
-                && aggregate.getAggregateParam().aggMode != AggMode.INPUT_TO_BUFFER) {
+        if (aggregate.getAggregateParam().aggMode != AggMode.INPUT_TO_BUFFER) {
             inputPlanFragment.setHasColocatePlanNode(true);
             // Set colocate info in agg node. This is a hint for local shuffling to decide which type of
             // local exchanger will be used.
