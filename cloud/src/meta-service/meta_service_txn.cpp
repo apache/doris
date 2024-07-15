@@ -2628,7 +2628,8 @@ void MetaServiceImpl::abort_txn_by_coordinate_be(::google::protobuf::RpcControll
                 return;
             }
             const auto& coordinate = info_pb.coordinator();
-            if (coordinate.sourcetype() == TXN_SOURCE_TYPE_BE && coordinate.id() == request->id() &&
+            if (info_pb.status() == TxnStatusPB::TXN_STATUS_PREPARED &&
+                coordinate.sourcetype() == TXN_SOURCE_TYPE_BE && coordinate.id() == request->id() &&
                 coordinate.ip() == request->ip() &&
                 coordinate.start_time() < request->start_time()) {
                 need_commit = true;
