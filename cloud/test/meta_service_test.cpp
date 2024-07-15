@@ -2097,6 +2097,8 @@ TEST(MetaServiceTest, CheckTxnConflictTest) {
 
     ASSERT_EQ(check_txn_conflict_res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(check_txn_conflict_res.finished(), false);
+    ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 1);
+    check_txn_conflict_res.clear_conflict_txns();
 
     // mock rowset and tablet
     int64_t tablet_id_base = 123456;
@@ -2125,6 +2127,7 @@ TEST(MetaServiceTest, CheckTxnConflictTest) {
 
     ASSERT_EQ(check_txn_conflict_res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(check_txn_conflict_res.finished(), true);
+    ASSERT_EQ(check_txn_conflict_res.conflict_txns_size(), 0);
 
     {
         std::string running_key = txn_running_key({mock_instance, db_id, txn_id});
