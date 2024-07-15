@@ -829,17 +829,20 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 Statistics isNullStats = computeGeneratedIsNullStats((LogicalJoin) plan, filter);
                 if (isNullStats != null) {
                     // overwrite the stats corrected as above before passing to filter estimation
-                    stats = isNullStats;
                     Set<Expression> newConjuncts = filter.getConjuncts().stream()
                             .filter(e -> !(e instanceof IsNull))
                             .collect(Collectors.toSet());
                     if (newConjuncts.isEmpty()) {
-                        return stats;
+                        return isNullStats;
                     } else {
                         // overwrite the filter by removing is null and remain the others
                         filter = ((LogicalFilter<?>) filter).withConjunctsAndProps(newConjuncts,
                                 ((LogicalFilter<?>) filter).getGroupExpression(),
                                 Optional.of(((LogicalFilter<?>) filter).getLogicalProperties()), plan);
+                        // add update is-null related column stats for other predicate derive
+                        for (Expression expr : isNullStats.columnStatistics().keySet()) {
+                            stats.addColumnStats(expr, isNullStats.findColumnStatistics(expr));
+                        }
                     }
                 }
             }
