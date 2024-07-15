@@ -310,6 +310,7 @@ struct TCloneReq {
     10: optional i32 timeout_s;
     11: optional Types.TReplicaId replica_id = 0
     12: optional i64 partition_id
+    13: optional i64 table_id = -1
 }
 
 struct TCompactionReq {
@@ -433,6 +434,9 @@ struct TCalcDeleteBitmapPartitionInfo {
     1: required Types.TPartitionId partition_id
     2: required Types.TVersion version
     3: required list<Types.TTabletId> tablet_ids
+    4: optional list<i64> base_compaction_cnts
+    5: optional list<i64> cumulative_compaction_cnts
+    6: optional list<i64> cumulative_points
 }
 
 struct TCalcDeleteBitmapRequest {

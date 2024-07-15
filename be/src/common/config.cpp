@@ -322,7 +322,7 @@ DEFINE_mInt32(garbage_sweep_batch_size, "100");
 DEFINE_mInt32(snapshot_expire_time_sec, "172800");
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
-DEFINE_mInt32(trash_file_expire_time_sec, "86400");
+DEFINE_mInt32(trash_file_expire_time_sec, "0");
 // minimum file descriptor number
 // modify them upon necessity
 DEFINE_Int32(min_file_descriptor_number, "60000");
@@ -1016,6 +1016,9 @@ DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "false");
 DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not checking
+// If true, evict the ttl cache using LRU when full.
+// Otherwise, only expiration can evict ttl and new data won't add to cache when full.
+DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");

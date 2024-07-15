@@ -61,12 +61,19 @@ AggregateFunctionPtr create_function_single_value(const String& name,
 }
 
 template <bool is_nullable>
+AggregateFunctionPtr create_aggregate_function_covariance_samp_old(const std::string& name,
+                                                                   const DataTypes& argument_types,
+                                                                   const bool result_is_nullable) {
+    return create_function_single_value<AggregateFunctionSamp_OLDER, CovarSampName, SampData_OLDER,
+                                        is_nullable>(name, argument_types, result_is_nullable,
+                                                     NULLABLE);
+}
+
 AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string& name,
                                                                const DataTypes& argument_types,
                                                                const bool result_is_nullable) {
-    return create_function_single_value<AggregateFunctionSamp, CovarSampName, SampData,
-                                        is_nullable>(name, argument_types, result_is_nullable,
-                                                     NULLABLE);
+    return create_function_single_value<AggregateFunctionSamp, CovarSampName, SampData>(
+            name, argument_types, result_is_nullable, NOTNULLABLE);
 }
 
 AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string& name,
@@ -81,9 +88,15 @@ void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& facto
     factory.register_alias("covar", "covar_pop");
 }
 
+void register_aggregate_function_covar_samp_old(AggregateFunctionSimpleFactory& factory) {
+    factory.register_alternative_function(
+            "covar_samp", create_aggregate_function_covariance_samp_old<NOTNULLABLE>);
+    factory.register_alternative_function(
+            "covar_samp", create_aggregate_function_covariance_samp_old<NULLABLE>, NULLABLE);
+}
+
 void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("covar_samp", create_aggregate_function_covariance_samp<NOTNULLABLE>);
-    factory.register_function("covar_samp", create_aggregate_function_covariance_samp<NULLABLE>,
-                              NULLABLE);
+    factory.register_function_both("covar_samp", create_aggregate_function_covariance_samp);
+    register_aggregate_function_covar_samp_old(factory);
 }
 } // namespace doris::vectorized
