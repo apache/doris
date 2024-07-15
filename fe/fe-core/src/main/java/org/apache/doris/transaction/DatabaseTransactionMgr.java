@@ -2308,13 +2308,13 @@ public class DatabaseTransactionMgr {
         try {
             for (Map.Entry<Long, TransactionState> entry : idToRunningTransactionState.entrySet()) {
                 if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
-                    tableIdList) || entry.getValue().getTransactionStatus().isFinalStatus()) {
+                        tableIdList) || entry.getValue().getTransactionStatus().isFinalStatus()) {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
-                            entry.getKey(), dbId, endTransactionId);
+                                entry.getKey(), dbId, endTransactionId);
                     }
                     unFishedTxns.add(entry.getValue());
                 }

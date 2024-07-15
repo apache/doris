@@ -2714,6 +2714,16 @@ public class Config extends ConfigBase {
     @ConfField
     public static long spilled_profile_storage_limit_bytes = 1 * 1024 * 1024 * 1024; // 1GB
 
+    @ConfField(mutable = true, description = {
+            "是否通过检测协调者BE心跳来 abort 事务",
+            "SHould abort txn by checking coorinator be heartbeat"})
+    public static boolean enable_abort_txn_by_checking_coordinator_be = true;
+
+    @ConfField(mutable = true, description = {
+            "是否在 schema change 过程中, 检测冲突事物并 abort 它",
+            "SHould abort txn by checking conflick txn in schema change"})
+    public static boolean enable_abort_txn_by_checking_conflict_txn = true;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
