@@ -122,7 +122,9 @@ public class HadoopUGI {
         UserGroupInformation ugi = HadoopUGI.loginWithUGI(authConf);
         try {
             if (ugi != null) {
-                ugi.checkTGTAndReloginFromKeytab();
+                if (authConf instanceof KerberosAuthenticationConfig) {
+                    ugi.checkTGTAndReloginFromKeytab();
+                }
                 return ugi.doAs(action);
             } else {
                 return action.run();

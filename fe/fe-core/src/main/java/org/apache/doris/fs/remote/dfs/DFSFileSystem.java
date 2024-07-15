@@ -56,6 +56,7 @@ import java.util.Map;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
+    public static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
     private static final Logger LOG = LogManager.getLogger(DFSFileSystem.class);
 
     private HDFSFileOperations operations = null;
@@ -75,7 +76,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         if (dfsFileSystem == null) {
             synchronized (this) {
                 if (dfsFileSystem == null) {
-                    Configuration conf = new HdfsConfiguration();
+                    Configuration conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
                     for (Map.Entry<String, String> propEntry : properties.entrySet()) {
                         conf.set(propEntry.getKey(), propEntry.getValue());
                     }
@@ -87,11 +88,20 @@ public class DFSFileSystem extends RemoteFileSystem {
                             throw new RuntimeException(e);
                         }
                     });
-                    operations = new HDFSFileOperations(dfsFileSystem);
                 }
             }
         }
+        operations = new HDFSFileOperations(dfsFileSystem);
         return dfsFileSystem;
+    }
+
+    public static Configuration getHdfsConf(boolean fallbackToSimpleAuth) {
+        Configuration hdfsConf = new HdfsConfiguration();
+        if (fallbackToSimpleAuth) {
+            // need support fallback to simple if the cluster is a mixture of  kerberos and simple auth.
+            hdfsConf.set(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
+        }
+        return hdfsConf;
     }
 
     @Override

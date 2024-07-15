@@ -215,3 +215,7 @@ max_failure_num=0
 s3ExportBucketName = ""
 
 externalEnvIp="127.0.0.1"
+
+enableKerberosTest=false
+kerberosHmsPort=9883
+kerberosHdfsPort=8820
