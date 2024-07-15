@@ -34,7 +34,8 @@ suite("test_delete_from_timeout","nonConcurrent") {
     GetDebugPoint().clearDebugPointsForAllBEs()
 
     try {
-        sql "insert into ${tableName} values(1, 99.9, 234);"
+        sql "insert into ${tableName} values(1, 99.9, 234), (false, -9999782574499444.2, -25);"
+        qt_sql "select * from ${tableName} order by col1, col2, col3;"
         GetDebugPoint().enableDebugPointForAllBEs("DeleteHandler::generate_delete_predicate.inject_failure",
             [error_code: -1900 /* DELETE_INVALID_CONDITION */, error_msg: "data type is float or double."])
         test {
@@ -50,10 +51,24 @@ suite("test_delete_from_timeout","nonConcurrent") {
             sql """delete from ${tableName} where col1 = "false" and col2 = "-9999782574499444.2" and col3 = "-25"; """
             exception "invalid parameters for store_cond. condition_size=1"
         }
+
+        GetDebugPoint().clearDebugPointsForAllBEs()
+
+        GetDebugPoint().enableDebugPointForAllBEs("PushHandler::_do_streaming_ingestion.try_lock_fail")
+
+        t1 = Thread.start {
+            sleep(15000)
+            GetDebugPoint().disableDebugPointForAllBEs("PushHandler::_do_streaming_ingestion.try_lock_fail")
+        }
+
+        sql """delete from ${tableName} where col1 = "false" and col2 = "-9999782574499444.2" and col3 = "-25"; """
+        t1.join()
+        qt_sql "select * from ${tableName} order by col1, col2, col3;"
+
     } catch (Exception e) {
         logger.info(e.getMessage())
-        AssertTrue(false) 
+        assertTrue(false) 
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("DeleteHandler::generate_delete_predicate.inject_failure")
+        GetDebugPoint().clearDebugPointsForAllBEs()
     }
 }
