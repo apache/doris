@@ -19,6 +19,8 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.Instant;
 import java.time.ZoneId;
+import org.awaitility.Awaitility;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 suite("test_base_insert_job") {
     def tableName = "t_test_BASE_inSert_job"
@@ -70,7 +72,14 @@ suite("test_base_insert_job") {
     sql """
        CREATE JOB ${jobName}  ON SCHEDULE every 1 second   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
     """
-    Thread.sleep(2500)
+    Awaitility.await().atMost(30, SECONDS).until(
+            {
+                def onceJob = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='RECURRING' """
+                println(onceJob)
+                onceJob .size() == 1 && '1' <= onceJob.get(0).get(0)
+                
+            }
+            )
     sql """
         PAUSE JOB where jobname =  '${jobName}'
     """
@@ -116,8 +125,13 @@ suite("test_base_insert_job") {
     sql """
           CREATE JOB ${jobName}  ON SCHEDULE at current_timestamp   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', 2, 1001);
      """
-    
-    Thread.sleep(2000)
+
+    Awaitility.await("create-one-time-job-test").atMost(30,SECONDS).until(
+        {
+            def onceJob = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='ONE_TIME' """
+            onceJob.size() == 1 && '1' == onceJob.get(0).get(0)
+        }
+    )
     def onceJob = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='ONE_TIME' """
     assert onceJob.size() == 1
     //check succeed task count
@@ -142,9 +156,12 @@ suite("test_base_insert_job") {
     sql """
           CREATE JOB press  ON SCHEDULE every 10 hour starts CURRENT_TIMESTAMP  comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', 99, 99);
      """
-    Thread.sleep(5000)
-    def pressJob = sql """ select * from jobs("type"="insert") where name='press' """
-    println pressJob
+    Awaitility.await("create-immediately-job-test").atMost(60, SECONDS).until({
+        def pressJob = sql """ select SucceedTaskCount from jobs("type"="insert") where name='press'"""
+        println pressJob
+        pressJob.size() == 1 && '1' == onceJob.get(0).get(0)
+    })
+
     sql """
         DROP JOB IF EXISTS where jobname =  'past_start_time'
     """
@@ -167,7 +184,11 @@ suite("test_base_insert_job") {
           CREATE JOB ${jobName}  ON SCHEDULE every 1 second starts current_timestamp  comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19',5, 1001);
      """
 
-    Thread.sleep(2000)
+    Awaitility.await("create-job-test").atMost(60, SECONDS).until({
+        def job = sql """ select SucceedTaskCount from jobs("type"="insert") where name='${jobName}'"""
+        println job
+        job.size() == 1 && '1' == job.get(0).get(0)
+    })
 
     sql """
         PAUSE JOB where jobname =  '${jobName}'
@@ -176,10 +197,13 @@ suite("test_base_insert_job") {
     sql """
         RESUME JOB where jobname =  '${jobName}'
     """
-    Thread.sleep(2500)
-    def afterResumeTasks = sql """ select status from tasks("type"="insert") where JobName= '${jobName}'   """
-    println afterResumeTasks
-    assert afterResumeTasks.size() >tasks.size
+    println(tasks.size())
+    Awaitility.await("resume-job-test").atMost(60, SECONDS).until({
+        def afterResumeTasks = sql """ select status from tasks("type"="insert") where JobName= '${jobName}'   """
+        println "resume tasks :"+afterResumeTasks
+        afterResumeTasks.size() >tasks.size()
+    })
+   
     // assert same job name
     try {
         sql """
