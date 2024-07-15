@@ -199,7 +199,7 @@ static void generate_data(vectorized::Block* block, int8_t k1, int16_t k2, int32
     columns[4]->insert_data((const char*)&c5, sizeof(c2));
 }
 
-class SegmentCacheTest: public ::testing::Test {
+class SegmentCacheTest : public ::testing::Test {
 public:
     SegmentCacheTest() {}
     ~SegmentCacheTest() {}
