@@ -564,8 +564,7 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
 
     if (integer_len == 1 && value_str[is_negative ? 1 : 0] == '0' && fractional_len <= frac) {
         return true;
-    }
-    else if (integer_len <= (precision - frac) && fractional_len <= frac) {
+    } else if (integer_len <= (precision - frac) && fractional_len <= frac) {
         return true;
     } else {
         return false;
