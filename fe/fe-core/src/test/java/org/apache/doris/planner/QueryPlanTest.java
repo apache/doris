@@ -61,6 +61,7 @@ public class QueryPlanTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
         // disable bucket shuffle join
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
         connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
