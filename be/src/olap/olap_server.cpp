@@ -1109,19 +1109,21 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
             copied_base_map = _tablet_submitted_base_compaction;
         }
         auto stores = get_stores();
-        bool is_busy = std::none_of(
-                stores.begin(), stores.end(),
-                [&copied_cumu_map, &copied_base_map, compaction_type, this](auto* data_dir) {
-                    int count = _get_executing_compaction_num(copied_base_map[data_dir]) +
-                                _get_executing_compaction_num(copied_cumu_map[data_dir]);
-                    int thread_per_disk = data_dir->is_ssd_disk()
-                                                  ? config::compaction_task_num_per_fast_disk
-                                                  : config::compaction_task_num_per_disk;
-                    return need_generate_compaction_tasks(count, thread_per_disk, compaction_type,
-                                                          copied_cumu_map[data_dir].empty());
-                });
+
+        auto busy_pred = [&copied_cumu_map, &copied_base_map, compaction_type,
+                          this](auto* data_dir) {
+            int count = _get_executing_compaction_num(copied_base_map[data_dir]) +
+                        _get_executing_compaction_num(copied_cumu_map[data_dir]);
+            int paral = data_dir->is_ssd_disk() ? config::compaction_task_num_per_fast_disk
+                                                : config::compaction_task_num_per_disk;
+            bool all_base = copied_cumu_map[data_dir].empty();
+            return need_generate_compaction_tasks(count, paral, compaction_type, all_base);
+        };
+
+        bool is_busy = std::none_of(stores.begin(), stores.end(), busy_pred);
         if (is_busy) {
-            VLOG_DEBUG << "Too busy to submit a compaction task, tablet=" << tablet->get_table_id();
+            LOG_EVERY_N(WARNING, 100)
+                    << "Too busy to submit a compaction task, tablet=" << tablet->get_table_id();
             return Status::OK();
         }
     }
