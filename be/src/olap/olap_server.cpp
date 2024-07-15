@@ -847,12 +847,12 @@ void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* 
     response->mutable_status()->set_status_code(0);
 }
 
-bool need_generate_compaction_tasks(int count, int thread_per_disk, CompactionType compaction_type,
-                                    bool all_base) {
-    if (count >= thread_per_disk) {
+bool need_generate_compaction_tasks(int task_cnt_per_disk, int thread_per_disk,
+                                    CompactionType compaction_type, bool all_base) {
+    if (task_cnt_per_disk >= thread_per_disk) {
         // Return if no available slot
         return false;
-    } else if (count >= thread_per_disk - 1) {
+    } else if (task_cnt_per_disk >= thread_per_disk - 1) {
         // Only one slot left, check if it can be assigned to base compaction task.
         if (compaction_type == CompactionType::BASE_COMPACTION) {
             if (all_base) {
@@ -916,7 +916,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         copied_cumu_map = _tablet_submitted_cumu_compaction;
         copied_base_map = _tablet_submitted_base_compaction;
     }
-    for (auto data_dir : data_dirs) {
+    for (auto* data_dir : data_dirs) {
         bool need_pick_tablet = true;
         // We need to reserve at least one Slot for cumulative compaction.
         // So when there is only one Slot, we have to judge whether there is a cumulative compaction
@@ -1097,7 +1097,34 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
 }
 
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                             bool force) {
+                                             bool force, bool eager) {
+    if (!eager) {
+        DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
+               compaction_type == CompactionType::CUMULATIVE_COMPACTION);
+        std::map<DataDir*, std::unordered_set<TabletSharedPtr>> copied_cumu_map;
+        std::map<DataDir*, std::unordered_set<TabletSharedPtr>> copied_base_map;
+        {
+            std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
+            copied_cumu_map = _tablet_submitted_cumu_compaction;
+            copied_base_map = _tablet_submitted_base_compaction;
+        }
+        auto stores = get_stores();
+        bool is_busy = std::none_of(
+                stores.begin(), stores.end(),
+                [&copied_cumu_map, &copied_base_map, compaction_type, this](auto* data_dir) {
+                    int count = _get_executing_compaction_num(copied_base_map[data_dir]) +
+                                _get_executing_compaction_num(copied_cumu_map[data_dir]);
+                    int thread_per_disk = data_dir->is_ssd_disk()
+                                                  ? config::compaction_task_num_per_fast_disk
+                                                  : config::compaction_task_num_per_disk;
+                    return need_generate_compaction_tasks(count, thread_per_disk, compaction_type,
+                                                          copied_cumu_map[data_dir].empty());
+                });
+        if (is_busy) {
+            VLOG_DEBUG << "Too busy to submit a compaction task, tablet=" << tablet->get_table_id();
+            return Status::OK();
+        }
+    }
     _update_cumulative_compaction_policy();
     // alter table tableName set ("compaction_policy"="time_series")
     // if atler table's compaction  policy, we need to modify tablet compaction policy shared ptr
