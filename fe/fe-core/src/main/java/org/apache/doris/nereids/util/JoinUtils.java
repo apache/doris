@@ -267,12 +267,9 @@ public class JoinUtils {
 
             SlotReference leftSlot = (SlotReference) leftChild;
             SlotReference rightSlot = (SlotReference) rightChild;
-            Integer leftIndex = null;
-            Integer rightIndex = null;
-            if (leftSlot.getTable().isPresent() && leftSlot.getTable().get().getId() == leftHashSpec.getTableId()) {
-                leftIndex = leftHashSpec.getExprIdToEquivalenceSet().get(leftSlot.getExprId());
-                rightIndex = rightHashSpec.getExprIdToEquivalenceSet().get(rightSlot.getExprId());
-            } else {
+            Integer leftIndex = leftHashSpec.getExprIdToEquivalenceSet().get(leftSlot.getExprId());
+            Integer rightIndex = rightHashSpec.getExprIdToEquivalenceSet().get(rightSlot.getExprId());
+            if (leftIndex == null) {
                 leftIndex = rightHashSpec.getExprIdToEquivalenceSet().get(leftSlot.getExprId());
                 rightIndex = leftHashSpec.getExprIdToEquivalenceSet().get(rightSlot.getExprId());
             }
