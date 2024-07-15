@@ -57,7 +57,6 @@ suite("test_index_rqg_bug3", "test_index_rqg_bug3"){
     DISTRIBUTED BY HASH(`col_bigint_undef_signed_not_null`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
-    "group_commit_data_bytes" = "134217728"
     );
     """
 
