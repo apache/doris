@@ -23,6 +23,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
 #include "http/ev_http_server.h"
