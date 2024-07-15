@@ -2895,6 +2895,10 @@ bool SegmentIterator::_can_opt_topn_reads() const {
         return false;
     }
 
+    if (!_common_expr_ctxs_push_down.empty() || !_remaining_conjunct_roots.empty()) {
+        return false;
+    }
+
     if (!_col_predicates.empty() || !_col_preds_except_leafnode_of_andnode.empty()) {
         return false;
     }
