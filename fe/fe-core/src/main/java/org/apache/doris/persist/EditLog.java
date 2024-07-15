@@ -1594,10 +1594,6 @@ public class EditLog {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
     }
 
-    public void logUpdateCloudReplica(UpdateCloudReplicaInfo info) {
-        logEdit(OperationType.OP_UPDATE_CLOUD_REPLICA, info);
-    }
-
     public void logUpdateCloudReplicas(List<UpdateCloudReplicaInfo> infos) throws IOException {
         logEdit(OperationType.OP_UPDATE_CLOUD_REPLICA, infos);
     }
