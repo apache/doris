@@ -31,7 +31,7 @@ build_version_prefix="doris"
 build_version_major=3
 build_version_minor=0
 build_version_patch=0
-build_version_rc_version="rc10"
+build_version_rc_version="rc11"
 
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}-${build_version_rc_version}"
 
@@ -203,11 +203,11 @@ EOF
 #                      doris cloud version info
 ################################################################################
 
-build_version_prefix="doris_cloud"
-build_version_major=0
-build_version_minor=0
-build_version_patch=0
-build_version_rc_version=""
+# build_version_prefix="doris_cloud"
+# build_version_major=0
+# build_version_minor=0
+# build_version_patch=0
+# build_version_rc_version=""
 
 if [[ -f /etc/os-release ]]; then
     build_os_version=$(head -n2 </etc/os-release | tr '\n' ' ')
