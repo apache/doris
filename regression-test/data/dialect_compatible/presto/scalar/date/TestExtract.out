@@ -57,77 +57,137 @@
 10
 
 -- !TestExtract_20 --
-2
+10
 
 -- !TestExtract_21 --
-2
+10
 
 -- !TestExtract_22 --
-2
+7
 
 -- !TestExtract_23 --
 2
 
 -- !TestExtract_24 --
-0
+7
 
 -- !TestExtract_25 --
-2020
+2
 
 -- !TestExtract_26 --
-1960
+131
 
 -- !TestExtract_27 --
-2020
+131
 
 -- !TestExtract_28 --
-1960
+131
 
 -- !TestExtract_29 --
-5
+131
 
 -- !TestExtract_30 --
-5
+2
 
 -- !TestExtract_31 --
-5
+2
 
 -- !TestExtract_32 --
-5
+2
 
 -- !TestExtract_33 --
-19
+2
 
 -- !TestExtract_34 --
-19
+0
 
 -- !TestExtract_35 --
-19
+2020
 
 -- !TestExtract_36 --
-19
+1960
 
 -- !TestExtract_37 --
-10
+2020
 
 -- !TestExtract_38 --
-10
+1960
 
 -- !TestExtract_39 --
-10
+5
 
 -- !TestExtract_40 --
-10
+5
 
 -- !TestExtract_41 --
-2
+5
 
 -- !TestExtract_42 --
-2
+5
 
 -- !TestExtract_43 --
-2
+19
 
 -- !TestExtract_44 --
+19
+
+-- !TestExtract_45 --
+19
+
+-- !TestExtract_46 --
+19
+
+-- !TestExtract_47 --
+10
+
+-- !TestExtract_48 --
+10
+
+-- !TestExtract_49 --
+10
+
+-- !TestExtract_50 --
+10
+
+-- !TestExtract_51 --
+10
+
+-- !TestExtract_52 --
+10
+
+-- !TestExtract_53 --
+7
+
+-- !TestExtract_54 --
+2
+
+-- !TestExtract_55 --
+7
+
+-- !TestExtract_56 --
+2
+
+-- !TestExtract_57 --
+131
+
+-- !TestExtract_58 --
+131
+
+-- !TestExtract_59 --
+131
+
+-- !TestExtract_60 --
+131
+
+-- !TestExtract_61 --
+2
+
+-- !TestExtract_62 --
+2
+
+-- !TestExtract_63 --
+2
+
+-- !TestExtract_64 --
 2
 
