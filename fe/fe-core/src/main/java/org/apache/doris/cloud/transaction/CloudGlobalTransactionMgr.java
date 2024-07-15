@@ -714,6 +714,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        int totalRetryTime = 0;
         for (Map.Entry<Long, Set<Long>> entry : tableToParttions.entrySet()) {
             GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
             builder.setTableId(entry.getKey())
@@ -790,10 +791,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     cumulativePoints.put(tabletId, respCumulativePoints.get(i));
                 }
             }
+            totalRetryTime += retryTime;
         }
         stopWatch.stop();
-        LOG.info("get delete bitmap lock successfully. txns: {}. time cost: {} ms.",
-                 transactionId, stopWatch.getTime());
+        LOG.info(
+                "get delete bitmap lock successfully. txns: {}. totalRetryTime: {}. "
+                        + "partitionSize: {}. time cost: {} ms.",
+                transactionId, totalRetryTime, tableToParttions.size(), stopWatch.getTime());
     }
 
     private void sendCalcDeleteBitmaptask(long dbId, long transactionId,
