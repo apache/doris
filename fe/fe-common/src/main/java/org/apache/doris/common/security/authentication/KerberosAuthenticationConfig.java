@@ -28,6 +28,7 @@ public class KerberosAuthenticationConfig extends AuthenticationConfig {
     private String kerberosPrincipal;
     private String kerberosKeytab;
     private Configuration conf;
+    private boolean printDebugLog;
 
     @Override
     public boolean isValid() {

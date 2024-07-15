@@ -23,6 +23,8 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -66,6 +68,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
+    private HadoopAuthenticator authenticator;
 
     public HMSExternalCatalog() {
         catalogProperty = new CatalogProperty(null, null);
@@ -79,6 +82,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
         super(catalogId, name, InitCatalogLog.Type.HMS, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
+    }
+
+    public synchronized HadoopAuthenticator getAuthenticator() {
+        if (authenticator == null) {
+            AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
+            authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+        }
+        return authenticator;
     }
 
     @Override

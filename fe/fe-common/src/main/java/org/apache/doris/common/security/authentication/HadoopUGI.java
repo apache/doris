@@ -25,23 +25,15 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 
+@Deprecated
 public class HadoopUGI {
     private static final Logger LOG = LogManager.getLogger(HadoopUGI.class);
-
-    public static HadoopAuthenticator getHadoopAuthenticator(AuthenticationConfig config) {
-        if (config instanceof KerberosAuthenticationConfig) {
-            return new HadoopKerberosAuthenticator((KerberosAuthenticationConfig) config);
-        } else {
-            return new HadoopSimpleAuthenticator((SimpleAuthenticationConfig) config);
-        }
-    }
 
     /**
      * login and return hadoop ugi
      * @param config auth config
      * @return ugi
      */
-    @Deprecated
     private static UserGroupInformation loginWithUGI(AuthenticationConfig config) {
         if (config == null || !config.isValid()) {
             return null;
@@ -73,7 +65,6 @@ public class HadoopUGI {
         }
     }
 
-    @Deprecated
     public static <T> T ugiDoAs(AuthenticationConfig authConf, PrivilegedExceptionAction<T> action) {
         UserGroupInformation ugi = HadoopUGI.loginWithUGI(authConf);
         try {

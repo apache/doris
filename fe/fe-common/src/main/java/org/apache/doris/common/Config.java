@@ -2672,9 +2672,8 @@ public class Config extends ConfigBase {
             "Should the request content be logged before each request starts, specifically the query statements"})
     public static boolean enable_print_request_before_execution = false;
 
-    @ConfField(description = {"Kerberos TGT ticket缓存更新周期",
-        "Kerberos TGT ticket cache update period"})
-    public static long kerberos_tgt_cache_renew_time = 3600 * 1000L;
+    @ConfField(mutable = true)
+    public static boolean enable_cooldown_replica_affinity = true;
 
     //==========================================================================
     //                    begin of cloud config
@@ -2914,8 +2913,6 @@ public class Config extends ConfigBase {
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
-    @ConfField(mutable = true)
-    public static boolean enable_cooldown_replica_affinity = true;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

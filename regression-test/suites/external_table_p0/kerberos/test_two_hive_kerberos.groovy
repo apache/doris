@@ -92,7 +92,7 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
                 Assert.fail();
             }
         })
-
+        sleep(5000L)
         thread1.start()
         thread2.start()
 
@@ -100,5 +100,6 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
         thread2.join()
         sql """drop catalog ${hms_catalog_name};"""
         sql """drop catalog other_${hms_catalog_name};"""
+        // TODO: add tvf case
     }
 }

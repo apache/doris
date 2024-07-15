@@ -67,8 +67,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         this(catalog, createCachedClient(hiveConf,
                 Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
                 jdbcClientConfig));
-        hadoopAuthenticator = Env.getCurrentEnv().getExtMetaCacheMgr().getMetaStoreCache(catalog)
-                .getCachingKerberosAuthenticator();
+        hadoopAuthenticator = catalog.getAuthenticator();
         client.setHadoopAuthenticator(hadoopAuthenticator);
     }
 

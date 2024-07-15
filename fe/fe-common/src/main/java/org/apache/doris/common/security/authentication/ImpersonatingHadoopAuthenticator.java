@@ -20,7 +20,6 @@ package org.apache.doris.common.security.authentication;
 import org.apache.hadoop.security.UserGroupInformation;
 
 import java.io.IOException;
-import java.security.PrivilegedExceptionAction;
 import java.util.Objects;
 
 public class ImpersonatingHadoopAuthenticator implements HadoopAuthenticator {
@@ -35,15 +34,10 @@ public class ImpersonatingHadoopAuthenticator implements HadoopAuthenticator {
     }
 
     @Override
-    public UserGroupInformation getUGI() throws IOException {
-        synchronized (ImpersonatingHadoopAuthenticator.class) {
+    public synchronized UserGroupInformation getUGI() throws IOException {
+        if (ugi == null) {
             ugi = UserGroupInformation.createProxyUser(username, delegate.getUGI());
         }
         return ugi;
-    }
-
-    @Override
-    public <T> T doAs(PrivilegedExceptionAction<T> action) throws Exception {
-        return ugi.doAs(action);
     }
 }

@@ -26,5 +26,19 @@ public interface HadoopAuthenticator {
 
     UserGroupInformation getUGI() throws IOException;
 
-    <T> T doAs(PrivilegedExceptionAction<T> action) throws Exception;
+    default <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException {
+        try {
+            return getUGI().doAs(action);
+        } catch (InterruptedException e) {
+            throw new IOException(e);
+        }
+    }
+
+    static HadoopAuthenticator getHadoopAuthenticator(AuthenticationConfig config) {
+        if (config instanceof KerberosAuthenticationConfig) {
+            return new HadoopKerberosAuthenticator((KerberosAuthenticationConfig) config);
+        } else {
+            return new HadoopSimpleAuthenticator((SimpleAuthenticationConfig) config);
+        }
+    }
 }
