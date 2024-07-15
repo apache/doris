@@ -56,23 +56,8 @@ suite("test_index_rqg_bug3", "test_index_rqg_bug3"){
     UNIQUE KEY(`col_int_undef_signed_not_null`, `col_date_undef_signed_not_null`, `col_bigint_undef_signed_not_null_index_inverted`, `col_bigint_undef_signed_not_null`)
     DISTRIBUTED BY HASH(`col_bigint_undef_signed_not_null`) BUCKETS 1
     PROPERTIES (
-    "replication_allocation" = "tag.location.default: 1",
-    "min_load_replica_num" = "-1",
-    "is_being_synced" = "false",
-    "storage_medium" = "hdd",
-    "storage_format" = "V2",
-    "inverted_index_storage_format" = "V2",
-    "enable_unique_key_merge_on_write" = "true",
-    "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "binlog.enable" = "false",
-    "binlog.ttl_seconds" = "86400",
-    "binlog.max_bytes" = "9223372036854775807",
-    "binlog.max_history_nums" = "9223372036854775807",
-    "enable_single_replica_compaction" = "false",
-    "group_commit_interval_ms" = "10000",
-    "group_commit_data_bytes" = "134217728",
-    "enable_mow_delete_on_delete_predicate" = "false"
+    "replication_allocation" = "tag.location.default: 1"
+    "group_commit_data_bytes" = "134217728"
     );
     """
 
