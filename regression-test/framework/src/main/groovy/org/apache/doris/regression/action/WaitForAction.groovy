@@ -18,6 +18,7 @@
 package org.apache.doris.regression.action
 
 import groovy.util.logging.Slf4j
+import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
 import org.junit.Assert
@@ -53,6 +54,9 @@ class WaitForAction implements SuiteAction {
 
     @Override
     void run() {
+        if (ObjectUtils.isEmpty(time){
+            time = 600
+        }
         Awaitility.await().atMost(time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and().pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
             def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
             String res = result.get(0).get(9)
