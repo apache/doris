@@ -38,7 +38,7 @@ suite("test_view_row_policy") {
     }
 
     sql "DROP ROW POLICY IF EXISTS ${tablePolcyName} ON ${dbName}.${tableName} FOR ${user}"
-    sql "DROP ROW POLICY IF EXISTS ${viewPolcyName} ON ${dbName}.${tableName} FOR ${user}"
+    sql "DROP ROW POLICY IF EXISTS ${viewPolcyName} ON ${dbName}.${viewName} FOR ${user}"
 
     // create table
     sql "DROP TABLE IF EXISTS ${tableName}"
