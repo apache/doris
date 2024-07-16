@@ -45,6 +45,8 @@ public class FileFormatConstants {
     public static final String PROP_NUM_AS_STRING = "num_as_string";
     public static final String PROP_FUZZY_PARSE = "fuzzy_parse";
     public static final String PROP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+    public static final String PROP_ENCLOSE = "enclose";
+    public static final String PROP_ESCAPE  = "escape";
     public static final String PROP_SKIP_LINES = "skip_lines";
     public static final String PROP_CSV_SCHEMA = "csv_schema";
     public static final String PROP_COMPRESS = "compress";

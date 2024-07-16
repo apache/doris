@@ -112,6 +112,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(FileFormatConstants.PROP_CSV_SCHEMA)
             .add(FileFormatConstants.PROP_COMPRESS_TYPE)
             .add(FileFormatConstants.PROP_PATH_PARTITION_KEYS)
+            .add(FileFormatConstants.PROP_ENCLOSE)
+            .add(FileFormatConstants.PROP_ESCAPE)
             .build();
 
     // Columns got from file and path(if has)
@@ -143,6 +145,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private boolean numAsString;
     private boolean fuzzyParse;
     private boolean trimDoubleQuotes;
+    private byte enclose;
+    private byte escape;
     private int skipLines;
     private long tableId;
 
@@ -259,6 +263,24 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FUZZY_PARSE, "")).booleanValue();
         trimDoubleQuotes = Boolean.valueOf(
                 getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_TRIM_DOUBLE_QUOTES, "")).booleanValue();
+
+        if (copiedProps.containsKey(FileFormatConstants.PROP_ENCLOSE) && !copiedProps.get(
+                FileFormatConstants.PROP_ENCLOSE).isEmpty()) {
+            String str =  copiedProps.get(FileFormatConstants.PROP_ENCLOSE);
+            if (str.length() > 1) {
+                throw new AnalysisException("enclose must be single-char, actually is " + str);
+            }
+            enclose = str.getBytes()[0];
+        }
+        if (copiedProps.containsKey(FileFormatConstants.PROP_ESCAPE) && !copiedProps.get(
+                FileFormatConstants.PROP_ESCAPE).isEmpty()) {
+            String str =  copiedProps.get(FileFormatConstants.PROP_ESCAPE);
+            if (str.length() > 1) {
+                throw new AnalysisException("escape must be single-char, actually is " + str);
+            }
+            escape = str.getBytes()[0];
+        }
+
         skipLines = Integer.valueOf(
                 getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_SKIP_LINES, "0")).intValue();
 
@@ -301,11 +323,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
         fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
         fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
-        fileAttributes.setTextParams(fileTextScanRangeParams);
         if (this.fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN) {
             fileAttributes.setHeaderType(this.headerType);
             fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
             fileAttributes.setSkipLines(skipLines);
+            fileTextScanRangeParams.setEnclose(enclose);
+            fileTextScanRangeParams.setEscape(escape);
         } else if (this.fileFormatType == TFileFormatType.FORMAT_JSON) {
             fileAttributes.setJsonRoot(jsonRoot);
             fileAttributes.setJsonpaths(jsonPaths);
@@ -314,6 +337,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileAttributes.setNumAsString(numAsString);
             fileAttributes.setFuzzyParse(fuzzyParse);
         }
+        fileAttributes.setTextParams(fileTextScanRangeParams);
         return fileAttributes;
     }
 
