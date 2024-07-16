@@ -2570,12 +2570,12 @@ void MetaServiceImpl::abort_sub_txn(::google::protobuf::RpcController* controlle
 
 void MetaServiceImpl::abort_txn_by_coordinate_be(::google::protobuf::RpcController* controller,
                                                  const AbortTxnByCoordinateBeRequest* request,
-                                                 AbortTxnBycoordinateBeResponse* response,
+                                                 AbortTxnByCoordinateBeResponse* response,
                                                  ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(abort_txn_by_coordinate_be);
-    if (!request->has_id() || !request->has_ip() || request->has_start_time()) {
+    if (!request->has_id() || !request->has_ip() || !request->has_start_time()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "invalid coordinate id, end coordinate ip or coordinate start time.";
+        msg = "invalid coordinate id, coordinate ip or coordinate start time.";
         return;
     }
     // TODO: For auth

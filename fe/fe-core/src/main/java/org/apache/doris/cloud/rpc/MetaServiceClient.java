@@ -362,4 +362,15 @@ public class MetaServiceClient {
         }
         return blockingStub.getObjStoreInfo(request);
     }
+
+    public Cloud.AbortTxnByCoordinateBeResponse
+            abortTxnByCoordinateBe(Cloud.AbortTxnByCoordinateBeRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.AbortTxnByCoordinateBeRequest.Builder builder =
+                    Cloud.AbortTxnByCoordinateBeRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.abortTxnByCoordinateBe(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.abortTxnByCoordinateBe(request);
+    }
 }

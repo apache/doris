@@ -779,7 +779,7 @@ message AbortTxnByCoordinateBeRequest {
     optional int64 start_time = 4;
 }
 
-message AbortTxnBycoordinateBeResponse {
+message AbortTxnByCoordinateBeResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
@@ -1469,7 +1469,7 @@ service MetaService {
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
     rpc begin_sub_txn(BeginSubTxnRequest) returns (BeginSubTxnResponse);
     rpc abort_sub_txn(AbortSubTxnRequest) returns (AbortSubTxnResponse);
-    rpc abort_txn_by_coordinate_be(AbortTxnByCoordinateBeRequest) returns (AbortTxnBycoordinateBeResponse);
+    rpc abort_txn_by_coordinate_be(AbortTxnByCoordinateBeRequest) returns (AbortTxnByCoordinateBeResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);

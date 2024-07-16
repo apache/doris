@@ -30,6 +30,8 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.proto.Cloud.AbortSubTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortSubTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.AbortTxnByCoordinateBeRequest;
+import org.apache.doris.cloud.proto.Cloud.AbortTxnByCoordinateBeResponse;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginSubTxnRequest;
@@ -1294,7 +1296,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime) {
-        // do nothing in cloud mode
+        AbortTxnByCoordinateBeRequest.Builder builder = AbortTxnByCoordinateBeRequest.newBuilder();
+        builder.setIp(coordinateHost);
+        builder.setId(coordinateBeId);
+        builder.setStartTime(beStartTime);
+        final AbortTxnByCoordinateBeRequest request = builder.build();
+        AbortTxnByCoordinateBeResponse response = null;
+        try {
+            response = MetaServiceProxy
+                .getInstance().abortTxnByCoordinateBe(request);
+            LOG.info("AbortTxnByCoordinateBeResponse: {}", response);
+        } catch (RpcException e) {
+            LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+        }
     }
 
     @Override

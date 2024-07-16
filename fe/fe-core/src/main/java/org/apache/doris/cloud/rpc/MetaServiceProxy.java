@@ -507,4 +507,14 @@ public class MetaServiceProxy {
             throw new RpcException("", e.getMessage(), e);
         }
     }
+
+    public Cloud.AbortTxnByCoordinateBeResponse
+            abortTxnByCoordinateBe(Cloud.AbortTxnByCoordinateBeRequest request) throws RpcException {
+        try {
+            final MetaServiceClient client = getProxy();
+            return client.abortTxnByCoordinateBe(request);
+        } catch (Exception e) {
+            throw new RpcException("", e.getMessage(), e);
+        }
+    }
 }

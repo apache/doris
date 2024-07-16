@@ -91,7 +91,7 @@ public:
 
     void abort_txn_by_coordinate_be(::google::protobuf::RpcController* controller,
                                     const AbortTxnByCoordinateBeRequest* request,
-                                    AbortTxnBycoordinateBeResponse* response,
+                                    AbortTxnByCoordinateBeResponse* response,
                                     ::google::protobuf::Closure* done) override;
 
     void clean_txn_label(::google::protobuf::RpcController* controller,
@@ -354,6 +354,14 @@ public:
                             CheckTxnConflictResponse* response,
                             ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::check_txn_conflict, controller, request, response, done);
+    }
+
+    void abort_txn_by_coordinate_be(::google::protobuf::RpcController* controller,
+                                    const AbortTxnByCoordinateBeRequest* request,
+                                    AbortTxnByCoordinateBeResponse* response,
+                                    ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::abort_txn_by_coordinate_be, controller, request, response,
+                  done);
     }
 
     void clean_txn_label(::google::protobuf::RpcController* controller,
