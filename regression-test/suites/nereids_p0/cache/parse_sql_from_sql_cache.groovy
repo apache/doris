@@ -551,6 +551,26 @@ suite("parse_sql_from_sql_cache") {
                 assertHasCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
                 def result1 = sql "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
                 assertTrue(result1.size() == 1 && result1[0][0].toString().toInteger() == 10)
+
+
+                sql "set @custom_variable2=1"
+                assertNoCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                def res = sql "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                assertTrue(res[0][0] == 1)
+                assertHasCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+
+                sql "set @custom_variable2=2"
+                assertNoCache "select* from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                // should not invalidate cache with @custom_variable2=1
+                res = sql "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                assertTrue(res[0][0] == 2)
+                assertHasCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+
+                sql "set @custom_variable2=1"
+                // should reuse cache
+                assertHasCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                res = sql "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
+                assertTrue(res[0][0] == 1)
             }
         }),
         extraThread("test_udf", {
