@@ -22,6 +22,7 @@
 
 #include "vec/columns/column_const.h"
 #include "vec/columns/columns_number.h"
+#include "vec/exec/format/format_common.h"
 #include "vec/functions/function.h"
 #if defined(__SSE4_1__) || defined(__aarch64__)
 #include "util/sse_util.hpp"
@@ -29,6 +30,7 @@
 #include <fenv.h>
 #endif
 #include <algorithm>
+#include <type_traits>
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
@@ -64,7 +66,7 @@ enum class TieBreakingMode {
 };
 
 template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode,
-          TieBreakingMode tie_breaking_mode>
+          TieBreakingMode tie_breaking_mode, typename U>
 struct IntegerRoundingComputation {
     static const size_t data_count = 1;
 
@@ -116,7 +118,7 @@ struct IntegerRoundingComputation {
         __builtin_unreachable();
     }
 
-    static ALWAYS_INLINE T compute(T x, T scale, size_t target_scale) {
+    static ALWAYS_INLINE T compute(T x, T scale, T target_scale) {
         switch (scale_mode) {
         case ScaleMode::Zero:
         case ScaleMode::Positive:
@@ -128,10 +130,10 @@ struct IntegerRoundingComputation {
         __builtin_unreachable();
     }
 
-    static ALWAYS_INLINE void compute(const T* __restrict in, size_t scale, T* __restrict out,
-                                      size_t target_scale) {
+    static ALWAYS_INLINE void compute(const T* __restrict in, U scale, T* __restrict out,
+                                      U target_scale) {
         if constexpr (sizeof(T) <= sizeof(scale) && scale_mode == ScaleMode::Negative) {
-            if (scale > size_t(std::numeric_limits<T>::max())) {
+            if (scale >= std::numeric_limits<T>::max()) {
                 *out = 0;
                 return;
             }
@@ -145,7 +147,7 @@ class DecimalRoundingImpl {
 private:
     using NativeType = typename T::NativeType;
     using Op = IntegerRoundingComputation<NativeType, rounding_mode, ScaleMode::Negative,
-                                          tie_breaking_mode>;
+                                          tie_breaking_mode, NativeType>;
     using Container = typename ColumnDecimal<T>::Container;
 
 public:
@@ -153,15 +155,16 @@ public:
                                 Int16 out_scale) {
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
-            size_t scale = int_exp10(scale_arg);
+            auto scale = DecimalScaleParams::get_scale_factor<NativeType>(scale_arg);
 
             const NativeType* __restrict p_in = reinterpret_cast<const NativeType*>(in.data());
             const NativeType* end_in = reinterpret_cast<const NativeType*>(in.data()) + in.size();
             NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
             if (out_scale < 0) {
+                auto negative_scale = DecimalScaleParams::get_scale_factor<NativeType>(-out_scale);
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, int_exp10(-out_scale));
+                    Op::compute(p_in, scale, p_out, negative_scale);
                     ++p_in;
                     ++p_out;
                 }
@@ -320,7 +323,7 @@ template <typename T, RoundingMode rounding_mode, ScaleMode scale_mode,
           TieBreakingMode tie_breaking_mode>
 struct IntegerRoundingImpl {
 private:
-    using Op = IntegerRoundingComputation<T, rounding_mode, scale_mode, tie_breaking_mode>;
+    using Op = IntegerRoundingComputation<T, rounding_mode, scale_mode, tie_breaking_mode, size_t>;
     using Container = typename ColumnVector<T>::Container;
 
 public:
