@@ -24,7 +24,7 @@ suite("test_group_commit_and_wal_back_pressure") {
         Awaitility.await().atMost(20, SECONDS).until(
             {
                 def result = sql "select count(*) from ${table}"
-                logger.info("rowCount: ${result}")
+                logger.info("table: ${table}, rowCount: ${result}")
                 return result[0][0] == expectedRowCount
             }
         )
