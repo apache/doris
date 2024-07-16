@@ -113,7 +113,6 @@ public class SessionVariablesTest extends TestWithFeService {
         Assert.assertNotEquals(sessionVar.isEnableBucketShuffleJoin(), bucketShuffle);
 
         // 4. set experimental for none experimental var
-        sql = "set experimental_repeat_max_num=5";
         setStmt = (SetStmt) parseAndAnalyzeStmt(sql, connectContext);
         SetExecutor setExecutor2 = new SetExecutor(connectContext, setStmt);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown system variable",
