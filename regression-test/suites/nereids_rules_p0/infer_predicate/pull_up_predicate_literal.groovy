@@ -18,6 +18,7 @@
 suite("test_pull_up_predicate_literal") {
     sql """ DROP TABLE IF EXISTS test_pull_up_predicate_literal; """
     sql "set enable_fallback_to_original_planner=false"
+    sql """SET ignore_shape_nodes='PhysicalDistribute'"""
 
     sql """
      CREATE TABLE `test_pull_up_predicate_literal` (
