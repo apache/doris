@@ -167,8 +167,10 @@ public class MaterializedViewUtils {
 
     /**
      * Extract struct info from plan, support to get struct info from logical plan or plan in group.
+     * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
+     * @param originalPlan original plan, the output is right
      */
-    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext,
+    public static List<StructInfo> extractStructInfo(Plan plan, Plan originalPlan, CascadesContext cascadesContext,
             BitSet materializedViewTableSet) {
         // If plan belong to some group, construct it with group struct info
         if (plan.getGroupExpression().isPresent()) {
@@ -188,7 +190,7 @@ public class MaterializedViewUtils {
                         continue;
                     }
                     StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext,
-                            queryTableSet, ownerGroup, plan);
+                            queryTableSet, ownerGroup, originalPlan);
                     if (structInfo != null) {
                         structInfosBuilder.add(structInfo);
                     }
@@ -197,7 +199,7 @@ public class MaterializedViewUtils {
             }
         }
         // if plan doesn't belong to any group, construct it directly
-        return ImmutableList.of(StructInfo.of(plan, cascadesContext));
+        return ImmutableList.of(StructInfo.of(plan, originalPlan, cascadesContext));
     }
 
     /**
