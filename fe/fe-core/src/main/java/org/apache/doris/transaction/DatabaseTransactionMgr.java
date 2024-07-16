@@ -1767,11 +1767,11 @@ public class DatabaseTransactionMgr {
             throws UserException {
         TransactionState transactionState = unprotectedGetTransactionState(transactionId);
         if (transactionState == null) {
-            throw new TransactionNotFoundException("transaction [" + transactionId + "] not found.");
+            throw new UserException(InternalErrorCode.TXN_NOT_EXIST, "transaction [" + transactionId + "] not found.");
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            throw new TransactionNotFoundException("transaction [" + transactionId + "] is already aborted, "
-                    + "abort reason: " + transactionState.getReason());
+            throw new UserException(InternalErrorCode.TXN_ALREADY_ABORT, "transaction [" + transactionId
+                    + "] is already aborted, " + "abort reason: " + transactionState.getReason());
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {

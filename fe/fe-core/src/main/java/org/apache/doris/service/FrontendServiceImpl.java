@@ -1499,7 +1499,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             loadTxn2PCImpl(request);
         } catch (TransactionCommitFailedException e) {
             LOG.warn("failed to {} txn {}: {}", request.getOperation(), request.getTxnId(), e.getMessage());
-            if (InternalErrorCode.TXN_ALREADY_COMMITTED == e.getErrorCode()
+            if (InternalErrorCode.TXN_NOT_EXIST == e.getErrorCode()) {
+                status.setStatusCode(TStatusCode.NOT_FOUND);
+            } else if (InternalErrorCode.TXN_ALREADY_COMMITTED == e.getErrorCode()
                     || InternalErrorCode.TXN_ALREADY_VISIBLE == e.getErrorCode()) {
                 status.setStatusCode(TStatusCode.ALREADY_EXIST);
             } else {
@@ -1508,7 +1510,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
         } catch (UserException e) {
             LOG.warn("failed to {} txn {}: {}", request.getOperation(), request.getTxnId(), e.getMessage());
-            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            if (InternalErrorCode.TXN_NOT_EXIST == e.getErrorCode()) {
+                status.setStatusCode(TStatusCode.NOT_FOUND);
+            } else if (InternalErrorCode.TXN_ALREADY_ABORT == e.getErrorCode()) {
+                status.setStatusCode(TStatusCode.ABORTED);
+            } else {
+                status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            }
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
@@ -1547,7 +1555,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
                 .getTransactionState(database.getId(), request.getTxnId());
         if (transactionState == null) {
-            throw new UserException("transaction [" + request.getTxnId() + "] not found");
+            throw new UserException(InternalErrorCode.TXN_NOT_EXIST,
+                    "transaction [" + request.getTxnId() + "] not found");
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("txn {} has multi table {}", request.getTxnId(), transactionState.getTableIdList());
