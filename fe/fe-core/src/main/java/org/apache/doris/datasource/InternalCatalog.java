@@ -1259,14 +1259,22 @@ public class InternalCatalog implements CatalogIf<Database> {
             } finally {
                 table.readUnlock();
             }
-            CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(
-                    createTableStmt.get(0), ConnectContext.get());
-            parsedCreateTableStmt.setTableName(stmt.getTableName());
-            parsedCreateTableStmt.setIfNotExists(stmt.isIfNotExists());
-            createTable(parsedCreateTableStmt);
+            try {
+                // analyze CreateTableStmt will check create_priv of existedTable, create table like only need
+                // create_priv of newTable, and select_priv of existedTable, and priv check has done in
+                // CreateTableStmt/CreateTableCommand, so we skip it
+                ConnectContext.get().setSkipAuth(true);
+                CreateTableStmt parsedCreateTableStmt = (CreateTableStmt) SqlParserUtils.parseAndAnalyzeStmt(
+                        createTableStmt.get(0), ConnectContext.get());
+                parsedCreateTableStmt.setTableName(stmt.getTableName());
+                parsedCreateTableStmt.setIfNotExists(stmt.isIfNotExists());
+                createTable(parsedCreateTableStmt);
+            } finally {
+                ConnectContext.get().setSkipAuth(false);
+            }
         } catch (UserException e) {
             throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: "
-                    + e.getMessage());
+                    + e.getMessage(), e);
         }
     }
 
