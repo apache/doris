@@ -93,7 +93,7 @@ void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys,
     const bool has_null = simd::contain_byte(null_map, num_rows, 1);
     if (has_null) {
         for (size_t i = 0; i < num_rows; ++i) {
-            char* __restrict dest = const_cast<char*>(keys[i].data + + keys[i].size);
+            char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
             // serialize null first
             memcpy(dest, null_map + i, sizeof(UInt8));
             if (null_map[i] == 0) {
@@ -106,7 +106,7 @@ void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys,
     } else {
         for (size_t i = 0; i < num_rows; ++i) {
             if (null_map[i] == 0) {
-                char* __restrict dest = const_cast<char*>(keys[i].data + + keys[i].size);
+                char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
                 memset(dest, 0, 1);
                 memcpy_fixed<T>(dest + 1, (char*)&data[i]);
                 keys[i].size += sizeof(T) + sizeof(UInt8);
