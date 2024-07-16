@@ -201,6 +201,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                  */
                                 new CorrelateApplyToUnCorrelateApply(),
                                 new ApplyToJoin(),
+                                // UnCorrelatedApplyAggregateFilter rule will create new aggregate outputs,
+                                // The later rule CheckPrivileges which inherent from ColumnPruning only works
+                                // if the aggregation node is normalized, so we need call NormalizeAggregate here
                                 new NormalizeAggregate()
                         )
                 ),
