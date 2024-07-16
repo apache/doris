@@ -18,6 +18,8 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include <cstddef>
+#include <cstdlib>
 #include <type_traits>
 
 #include "vec/columns/column.h"
@@ -26,7 +28,14 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 
 using namespace doris;
 using namespace doris::vectorized;
@@ -72,17 +81,17 @@ static MutableColumnPtr create_nested_column(size_t input_rows_count) {
         column = ColumnVector<T>::create();
     } else if constexpr (std::is_same_v<T, String>) {
         column = ColumnString::create();
+    } else if constexpr (std::is_same_v<T, Decimal64>) {
+        column = ColumnDecimal64::create(0, 6);
     }
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if constexpr (std::is_integral_v<T>) {
             column->insert(rand() % std::numeric_limits<T>::max());
         } else if constexpr (std::is_same_v<T, String>) {
-            column->insert(generate_random_string(1));
-        } else if constexpr (std::is_same_v<T, Decimal32>) {
+            column->insert(generate_random_string(rand() % 1024));
         } else if constexpr (std::is_same_v<T, Decimal64>) {
-        } else if constexpr (std::is_same_v<T, Decimal128V3>) {
-            throw std::runtime_error("Decimal not supported");
+            column->insert(Int64(rand() % std::numeric_limits<Int64>::max()));
         } else {
             throw std::runtime_error("Unsupported type");
         }
@@ -100,8 +109,8 @@ static ColumnNullable::MutablePtr create_column_nullable(size_t input_rows_count
     return ColumnNullable::create(std::move(nested_column), std::move(null_map));
 }
 
-TEST(ColumnSerializationTest, column_nullalble_column_vector) {
-    const size_t input_rows_count = 4096;
+TEST(ColumnNullableSerializationTest, column_nullable_column_vector) {
+    const size_t input_rows_count = 4096 * 1000;
     ColumnNullable::Ptr column_nullable = create_column_nullable<Int64>(input_rows_count);
     Arena arena(4096);
 
@@ -125,8 +134,8 @@ TEST(ColumnSerializationTest, column_nullalble_column_vector) {
     }
 }
 
-TEST(ColumnSerializationTest, column_nullalble_column_string) {
-    const size_t input_rows_count = 1;
+TEST(ColumnNullableSerializationTest, column_nullable_column_string) {
+    const size_t input_rows_count = 4096 * 1000;
     ColumnNullable::Ptr column_nullable = create_column_nullable<String>(input_rows_count);
     Arena arena(4096);
 
@@ -147,5 +156,78 @@ TEST(ColumnSerializationTest, column_nullalble_column_string) {
         ASSERT_EQ(column_nullable->get_data_at(i), result_column->get_data_at(i))
                 << fmt::format("source {}\nresult {}\n", column_nullable->get_data_at(i),
                                result_column->get_data_at(i));
+    }
+}
+
+TEST(ColumnNullableSerializationTest, column_nullable_column_decimal) {
+    const size_t input_rows_count = 4096 * 1000;
+    ColumnNullable::Ptr column_nullable = create_column_nullable<Decimal64>(input_rows_count);
+    Arena arena(4096);
+
+    const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
+    auto data = arena.alloc(input_rows_count * column_nullable->get_max_row_byte_size());
+    std::vector<StringRef> data_strs(input_rows_count);
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        data_strs[i] = StringRef(data + i * column_nullable->get_max_row_byte_size(), 0);
+    }
+
+    column_nullable->serialize_vec(data_strs, input_rows_count, max_row_byte_size);
+
+    ColumnNullable::MutablePtr result_column =
+            ColumnNullable::create(ColumnDecimal64::create(0, 6), ColumnUInt8::create());
+    result_column->deserialize_vec(data_strs, input_rows_count);
+
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        ASSERT_EQ(column_nullable->get_data_at(i), result_column->get_data_at(i))
+                << fmt::format("source {}\nresult {}\n", column_nullable->get_data_at(i),
+                               result_column->get_data_at(i));
+    }
+}
+
+TEST(ColumnNullableSerializationTest, multiple_columns) {
+    const size_t input_rows_count = 4096 * 1000;
+    auto column_nullable_decimal64 = create_column_nullable<Decimal64>(input_rows_count);
+    auto column_nullable_int64 = create_column_nullable<Int64>(input_rows_count);
+    auto column_nullable_string = create_column_nullable<String>(input_rows_count);
+
+    size_t max_row_byte_size = 0;
+    max_row_byte_size += column_nullable_decimal64->get_max_row_byte_size();
+    max_row_byte_size += column_nullable_int64->get_max_row_byte_size();
+    max_row_byte_size += column_nullable_string->get_max_row_byte_size();
+
+    Arena arena(4096);
+    auto data = arena.alloc(input_rows_count * max_row_byte_size);
+
+    std::vector<StringRef> data_strs(input_rows_count);
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        data_strs[i] = StringRef(data + i * max_row_byte_size, 0);
+    }
+
+    column_nullable_decimal64->serialize_vec(data_strs, input_rows_count, max_row_byte_size);
+    column_nullable_int64->serialize_vec(data_strs, input_rows_count, max_row_byte_size);
+    column_nullable_string->serialize_vec(data_strs, input_rows_count, max_row_byte_size);
+
+    ColumnNullable::MutablePtr result_column_decimal64 =
+            ColumnNullable::create(ColumnDecimal64::create(0, 6), ColumnUInt8::create());
+    ColumnNullable::MutablePtr result_column_int64 =
+            ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
+    ColumnNullable::MutablePtr result_column_string =
+            ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+
+    result_column_decimal64->deserialize_vec(data_strs, input_rows_count);
+    result_column_int64->deserialize_vec(data_strs, input_rows_count);
+    result_column_string->deserialize_vec(data_strs, input_rows_count);
+
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        ASSERT_EQ(column_nullable_decimal64->get_data_at(i),
+                  result_column_decimal64->get_data_at(i))
+                << fmt::format("source {}\nresult {}\n", column_nullable_decimal64->get_data_at(i),
+                               result_column_decimal64->get_data_at(i));
+        ASSERT_EQ(column_nullable_int64->get_data_at(i), result_column_int64->get_data_at(i))
+                << fmt::format("source {}\nresult {}\n", column_nullable_int64->get_data_at(i),
+                               result_column_int64->get_data_at(i));
+        ASSERT_EQ(column_nullable_string->get_data_at(i), result_column_string->get_data_at(i))
+                << fmt::format("source {}\nresult {}\n", column_nullable_string->get_data_at(i),
+                               result_column_string->get_data_at(i));
     }
 }
