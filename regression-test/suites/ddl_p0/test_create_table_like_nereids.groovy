@@ -16,28 +16,9 @@
 // under the License.
 
 suite("test_create_table_like_nereids") {
-    def getMVJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1 """
-        return jobStateResult[0][8]
-    }
-    def waitForMVJob =  (tbName, timeout) -> {
-        while (timeout--){
-            String result = getMVJobState(tbName)
-            if (result == "FINISHED") {
-                sleep(3000)
-                break
-            } else {
-                sleep(100)
-                if (timeout < 1){
-                    assertEquals(1,2)
-                }
-            }
-        }
-    }
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
-
 
     sql "drop table if exists mal_test_create_table_like"
     sql """create table mal_test_create_table_like(pk int, a int, b int) distributed by hash(pk) buckets 10
@@ -45,9 +26,15 @@ suite("test_create_table_like_nereids") {
     sql """insert into mal_test_create_table_like values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6),(2,1,4),(2,3,5),(1,1,4)
     ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
     sql "alter table mal_test_create_table_like add rollup ru1(a,pk);"
-    waitForMVJob("mal_test_create_table_like", 3000)
-    sql "alter table mal_test_create_table_like add rollup ru2(b,pk);"
-    waitForMVJob("mal_test_create_table_like", 3000)
+    waitForSchemaChangeDone {
+        sql """show alter table rollup where tablename='mal_test_create_table_like' order by createtime desc limit 1"""
+        time 600
+    }
+    sql "alter table mal_test_create_table_like add rollup ru2(b,pk)"
+    waitForSchemaChangeDone {
+        sql """show alter table rollup where tablename='mal_test_create_table_like' order by createtime desc limit 1"""
+        time 600
+    }
 
     // no rollup
     sql "drop table if exists table_like"

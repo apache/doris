@@ -58,14 +58,20 @@ class WaitForAction implements SuiteAction {
             time = 600
         }
         Awaitility.await().atMost(time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and().pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
+        def forRollUp = sql.toUpperCase().contains("ALTER TABLE ROLLUP")
+        def num = 9
+        if (forRollUp) {
+            num = 8
+        }
+        while (time--) {
+            log.info("sql is :\n${sql}")
             def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
-            String res = result.get(0).get(9)
+            String res = result.get(0).get(num)
             if (res == "FINISHED" || res == "CANCELLED") {
                 Assert.assertEquals("FINISHED", res)
                 return true;
             }
             return false;
         });
-
     }
 }
