@@ -229,7 +229,7 @@ Status PipelineTask::execute(bool* eos) {
     }};
     // The status must be runnable
     *eos = false;
-    if (!_opened) {
+    if (!_opened && !_fragment_context->is_canceled()) {
         {
             SCOPED_RAW_TIMER(&time_spent);
             // if _open_status is not ok, could know have execute open function,
