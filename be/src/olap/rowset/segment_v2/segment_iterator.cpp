@@ -754,6 +754,7 @@ bool SegmentIterator::_is_literal_node(const TExprNodeType::type& node_type) {
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::STRING_LITERAL:
     case TExprNodeType::DATE_LITERAL:
+    case TExprNodeType::NULL_LITERAL:
         return true;
     default:
         return false;
@@ -2740,7 +2741,8 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr.get());
         _column_predicate_info->query_values.insert(v_literal_expr->value());
-    } else {
+    } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED ||
+               node_type == TExprNodeType::IN_PRED) {
         if (node_type == TExprNodeType::MATCH_PRED) {
             _column_predicate_info->query_op = "match";
         } else if (node_type == TExprNodeType::IN_PRED) {
@@ -2749,7 +2751,7 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
             } else {
                 _column_predicate_info->query_op = "not_in";
             }
-        } else if (node_type != TExprNodeType::COMPOUND_PRED) {
+        } else {
             _column_predicate_info->query_op = expr->fn().name.function_name;
         }
 
