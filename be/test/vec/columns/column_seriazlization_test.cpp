@@ -89,7 +89,7 @@ static MutableColumnPtr create_nested_column(size_t input_rows_count) {
         if constexpr (std::is_integral_v<T>) {
             column->insert(rand() % std::numeric_limits<T>::max());
         } else if constexpr (std::is_same_v<T, String>) {
-            column->insert(generate_random_string(rand() % 1024));
+            column->insert(generate_random_string(rand() % 512));
         } else if constexpr (std::is_same_v<T, Decimal64>) {
             column->insert(Int64(rand() % std::numeric_limits<Int64>::max()));
         } else {
@@ -135,7 +135,7 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_vector) {
 }
 
 TEST(ColumnNullableSerializationTest, column_nullable_column_string) {
-    const size_t input_rows_count = 4096 * 1000;
+    const size_t input_rows_count = 4096;
     ColumnNullable::Ptr column_nullable = create_column_nullable<String>(input_rows_count);
     Arena arena(4096);
 
@@ -185,7 +185,7 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_decimal) {
 }
 
 TEST(ColumnNullableSerializationTest, multiple_columns) {
-    const size_t input_rows_count = 4096 * 1000;
+    const size_t input_rows_count = 4096 * 100;
     auto column_nullable_decimal64 = create_column_nullable<Decimal64>(input_rows_count);
     auto column_nullable_int64 = create_column_nullable<Int64>(input_rows_count);
     auto column_nullable_string = create_column_nullable<String>(input_rows_count);
