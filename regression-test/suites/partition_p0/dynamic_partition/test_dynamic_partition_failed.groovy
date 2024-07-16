@@ -26,6 +26,7 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
               PROPERTIES
               (
                 "replication_num" = "1",
+                "dynamic_partition.replication_num" = "1",
                 "dynamic_partition.enable" = "true",
                 "dynamic_partition.end" = "3",
                 "dynamic_partition.time_unit" = "day",
@@ -46,6 +47,26 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
 
         setFeConfig('max_dynamic_partition_num', Integer.MAX_VALUE)
 
+        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_ok2 FORCE'
+        sql '''CREATE TABLE test_dynamic_partition_failed_ok2
+              ( `k1` date NULL )
+              PARTITION BY RANGE(k1) (
+                 PARTITION `phistory` VALUES less than ('2020-01-01')
+              )
+              DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+              PROPERTIES
+              (
+                "replication_num" = "1",
+                "dynamic_partition.replication_num" = "1",
+                "dynamic_partition.enable" = "true",
+                "dynamic_partition.end" = "3",
+                "dynamic_partition.time_unit" = "YEAR",
+                "dynamic_partition.prefix" = "p",
+                "dynamic_partition.buckets" = "1",
+                "dynamic_partition.start" = "-20",
+                "dynamic_partition.create_history_partition" = "true"
+              )'''
+
         sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_2'
         test {
             sql '''CREATE TABLE test_dynamic_partition_failed_2
@@ -55,6 +76,7 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
                   PROPERTIES
                   (
                     "replication_num" = "1",
+                    "dynamic_partition.replication_num" = "1",
                     "dynamic_partition.enable" = "true",
                     "dynamic_partition.end" = "3",
                     "dynamic_partition.time_unit" = "day",
@@ -74,6 +96,7 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
     } finally {
         setFeConfig('max_dynamic_partition_num', old_max_dynamic_partition_num)
         sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_ok1 FORCE'
+        sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_ok2 FORCE'
         sql 'DROP TABLE IF EXISTS test_dynamic_partition_failed_2'
     }
 }
