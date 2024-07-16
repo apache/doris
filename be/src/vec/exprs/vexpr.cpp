@@ -604,6 +604,8 @@ bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t re
                          size_t input_rows_count, const std::string& function_name) {
     std::string result_column_name = gen_predicate_result_sign(block, arguments, function_name);
     if (!block.has(result_column_name)) {
+        DBUG_EXECUTE_IF("segment_iterator.fast_execute",
+                        { return Status::Error<ErrorCode::INTERNAL_ERROR>("fast_execute failed"); })
         return false;
     }
 
