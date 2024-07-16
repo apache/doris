@@ -50,7 +50,7 @@ suite("test_view_row_policy") {
             PROPERTIES ('replication_num' = '1')
     """
     sql """
-        insert into ${tableName} values (1,1), (2,2), (3,3);
+        insert into ${tableName} values (1,1), (1,2), (2,2);
     """
 
     // create view
