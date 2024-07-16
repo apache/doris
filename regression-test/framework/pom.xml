@@ -401,5 +401,11 @@ under the License.
             <artifactId>netty-all</artifactId>
             <version>4.1.104.Final</version>
         </dependency>
+        <!-- https://mvnrepository.com/artifact/org.awaitility/awaitility -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>4.2.0</version>
+        </dependency>
     </dependencies>
 </project>
