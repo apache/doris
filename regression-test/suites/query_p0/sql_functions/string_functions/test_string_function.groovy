@@ -231,6 +231,7 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select substring('中文测试',5);"
     qt_sql "select substring('中文测试',4);"
     qt_sql "select substring('中文测试',2,2);"
+    qt_sql "select substring('中文测试',-1,2);"
 
     sql """ drop table if exists test_string_function; """
     sql """ create table test_string_function (
