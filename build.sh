@@ -381,9 +381,6 @@ fi
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
 fi
-if [[ -z "${ENABLE_STACKTRACE}" ]]; then
-    ENABLE_STACKTRACE='ON'
-fi
 
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
@@ -484,7 +481,6 @@ echo "Get params:
     USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
     USE_JEMALLOC                -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
-    ENABLE_STACKTRACE           -- ${ENABLE_STACKTRACE}
     ENABLE_INJECTION_POINT      -- ${ENABLE_INJECTION_POINT}
     DENABLE_CLANG_COVERAGE      -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME          -- ${DISPLAY_BUILD_TIME}
@@ -586,7 +582,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
-        -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
