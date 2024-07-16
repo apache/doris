@@ -143,8 +143,10 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     }
     if (!result) {
         VLOG_DEBUG << "failed to parse " << std::string_view(src, length) << ", length= " << length;
-        // throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
-        //                        std::string_view(src, length));
+        if (config::variant_throw_exeception_on_invalid_json) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
+                                   std::string_view(src, length));
+        }
         // Treat as string
         PathInData root_path;
         Field field(src, length);
