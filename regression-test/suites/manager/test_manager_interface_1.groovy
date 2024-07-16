@@ -322,7 +322,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         );"""
     
         List<List<Object>> result = sql """ show  create table  test_manager_tb_2 """ 
-        println result 
+        logger.info("result = ${result}" ) 
         assertTrue(result.size() == 1)
         assertTrue(result[0][0] == "test_manager_tb_2")
         def ddl_str =  result[0][1] 
@@ -368,9 +368,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
 
 
         List<List<Object>>  result = sql  """ show table status from test_manager_tb_case_3 like 'test_manager_tb%' """ 
-        println result
-        
-        println result[0][4] 
+        logger.info("result = ${result}" ) 
         assertTrue(result[0][4] == 0 )// Rows
 
         def create_time = result[0][11] //Create_time
@@ -414,7 +412,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             sleep(10000)
         }
         if (j == retryTime) {
-            println result
+            logger.info("result = ${result}" )
             logger.info("  TEST show table status from $db_name like '$table_name';ROWS UPDATE FAIL.");
             assertTrue(false);
         }
@@ -448,7 +446,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         
 
         List<List<Object>>   result = sql """ insert into test_manager_tb values (5,"hell0",50); """ 
-        println result
+        logger.info("result = ${result}" )
         assertTrue(result[0][0] == 1)
         result = sql """ insert into test_manager_tb values (5,"hell0",50); """ 
         assertTrue(result[0][0] == 1)
@@ -471,7 +469,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             }
             sleep(1000);
         }        
-        println result
+        logger.info("result = ${result}" )
 
         if (j == retryTime) {
             logger.info("  TEST show index from '$table_name' FAIL.");
@@ -482,7 +480,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         
         assertTrue(result[0][2] == "bitmap_index_name" )//Key_name
         assertTrue(result[0][4] == "k1" )//Column_name
-        assertTrue(result[0][10] == "INVERTED" ) // branch 2.1 is INVERTED, master is BITMAP
+        assertTrue(result[0][10] == "BITMAP" || result[0][10] == "INVERTED" ) //BITMAP
         assertTrue(result[0][11] == "bitmap_k1" ) //bitmap_siteid
 
         sql """ drop INDEX bitmap_index_name on test_manager_tb;""" 
@@ -521,7 +519,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         futures.add( thread {
             sleep(1000);
             List<List<Object>> result = sql """ show proc '/current_query_stmts' """ 
-            println result
+            logger.info("result = ${result}" )
             def x = 0
             def queryid = ""
             logger.info("result = ${result}")
@@ -546,7 +544,6 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             
             x = 0 
             result = sql """  show proc '/current_queries' """
-            println result
             logger.info("result = ${result}")
             for( int i = 0;i<result.size();i++) {
                 if (result[i][0] == queryid )//QueryId
@@ -559,7 +556,6 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             assertTrue(x == 1)
 
             result = sql """  show processlist  """
-            println result
             logger.info("result = ${result}")
             for( int i =0 ;i < result.size();i++ ){
                 assertTrue( result[i][2].toLowerCase() != "null"  )//User
@@ -579,7 +575,6 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             sleep(5000)
 
             result = sql """  show proc '/current_queries' """
-            println result
             logger.info("result = ${result}")
             for( int i = 0;i<result.size();i++) {
                 if (result[i][0] == queryid )//QueryId
@@ -597,7 +592,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         def total_tablet_num  = 0;
         def total_healthy_num = 0;
         result = sql """  SHOW PROC '/cluster_health/tablet_health' """ 
-        println result
+        logger.info("result = ${result}" )
 
         for( int i =0 ;i < result.size();i++ ){
             assertTrue(result[i][0].toLowerCase() != null ) // DbId
@@ -680,7 +675,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
     
         sql """ set global enable_audit_plugin = true; """ 
         List<List<Object>> result =sql  """ show create table __internal_schema.audit_log; """ 
-        println result
+        logger.info("result = ${result}" )
         
         assertTrue(result[0][0] == "audit_log")
 
@@ -733,7 +728,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         List<List<Object>> result = sql """ 
             admin show frontend config 
         """
-        println result
+        logger.info("result = ${result}" )
 
         def x = 0;
 
@@ -755,7 +750,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         result = sql """ 
             admin show frontend config 
         """
-        println result
+        logger.info("result = ${result}" )
 
         x = 0 
         for(int i = 0 ;i<result.size();i++) {
@@ -771,24 +766,24 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
     
         val -= 2 
         sql """ admin set frontend config("query_metadata_name_ids_timeout"= "${val}")"""
-        println result
+        logger.info("result = ${result}" )
 
         
         x = 0
         result = sql """ show global variables like "create_table_partition_max_num" """
-        println result
+        logger.info("result = ${result}" )
 
         assert(result[0][0] == "create_table_partition_max_num")
         val = result[0][1].toBigInteger() + 1 ; 
         assert(result[0][2] == "10000")
         sql """ set global create_table_partition_max_num = ${val} """ 
         result = sql """ show global variables like "create_table_partition_max_num" """
-        println result
+        logger.info("result = ${result}" )
 
         assert(result[0][1].toBigInteger() == val)        
         val -= 1
         sql """ set global create_table_partition_max_num = ${val} """ 
-        println result
+        logger.info("result = ${result}" )
 
         result = sql """  show frontend config """
         x  = 0  
