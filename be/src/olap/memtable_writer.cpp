@@ -213,7 +213,7 @@ void MemTableWriter::_reset_mem_table() {
     }
     {
         std::lock_guard<SpinLock> l(_mem_table_ptr_lock);
-        _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema.get(), _req.slots,
+        _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema, _req.slots,
                                       _req.tuple_desc, _unique_key_mow, _partial_update_info.get(),
                                       mem_table_insert_tracker, mem_table_flush_tracker));
     }
