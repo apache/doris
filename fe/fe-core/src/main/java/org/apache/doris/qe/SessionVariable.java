@@ -3533,8 +3533,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
         tResult.setPartitionedHashAggRowsThreshold(partitionedHashAggRowsThreshold);
 
-        tResult.setRepeatMaxNum(repeatMaxNum);
-
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         tResult.setExternalAggBytesThreshold(0); // disable for now
