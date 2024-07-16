@@ -209,7 +209,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                             tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             tbl.getTimeSeriesCompactionLevelThreshold(),
                             tbl.disableAutoCompaction(),
-                            tbl.getRowStoreColumnsUniqueIds(rowStoreColumns), null);
+                            tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                            null, tbl.rowStorePageSize());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
