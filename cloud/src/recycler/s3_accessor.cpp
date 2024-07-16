@@ -38,6 +38,7 @@
 #include "common/util.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/s3_rate_limiter.h"
+#include "recycler/azure_obj_client.h"
 #include "recycler/obj_storage_client.h"
 #include "recycler/s3_obj_client.h"
 #include "recycler/storage_vault_accessor.h"
