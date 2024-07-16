@@ -28,6 +28,7 @@
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_bitmap.h"
 #include "vec/exprs/table_function/vexplode_json_array.h"
+#include "vec/exprs/table_function/vexplode_json_object.h"
 #include "vec/exprs/table_function/vexplode_map.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
@@ -57,6 +58,7 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode_json_array_json", VExplodeJsonArrayCreator<ParsedDataJSON>()},
                 {"explode_bitmap", TableFunctionCreator<VExplodeBitmapTableFunction>()},
                 {"explode_map", TableFunctionCreator<VExplodeMapTableFunction> {}},
+                {"explode_json_object", TableFunctionCreator<VExplodeJsonObjectTableFunction> {}},
                 {"explode", TableFunctionCreator<VExplodeTableFunction> {}}};
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, ObjectPool* pool,
