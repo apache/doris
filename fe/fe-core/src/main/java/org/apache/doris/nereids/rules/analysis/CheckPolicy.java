@@ -21,6 +21,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -29,6 +30,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -57,7 +60,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                 upperFilter = (LogicalFilter) child;
                                 child = child.child(0);
                             }
-                            if (!(child instanceof LogicalRelation)
+                            if (!(child instanceof LogicalRelation || isView(child))
                                     || ctx.connectContext.getSessionVariable().isPlayNereidsDump()) {
                                 return ctx.root.child();
                             }
@@ -75,7 +78,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
 
                             RelatedPolicy relatedPolicy = checkPolicy.findPolicy(relation, ctx.cascadesContext);
                             relatedPolicy.rowPolicyFilter.ifPresent(expression -> combineFilter.addAll(
-                                            ExpressionUtils.extractConjunctionToSet(expression)));
+                                    ExpressionUtils.extractConjunctionToSet(expression)));
                             Plan result = relation;
                             if (upperFilter != null) {
                                 combineFilter.addAll(upperFilter.getConjuncts());
@@ -90,5 +93,16 @@ public class CheckPolicy implements AnalysisRuleFactory {
                         })
                 )
         );
+    }
+
+    public boolean isView(Plan plan) {
+        if (plan instanceof LogicalSubQueryAlias) {
+            LogicalSubQueryAlias alis = (LogicalSubQueryAlias) plan;
+            TreeNode child = alis.child(0);
+            if (child instanceof LogicalView) {
+                return true;
+            }
+        }
+        return false;
     }
 }
