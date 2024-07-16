@@ -95,7 +95,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
         );
     }
 
-    public boolean isView(Plan plan) {
+    private boolean isView(Plan plan) {
         if (plan instanceof LogicalSubQueryAlias) {
             LogicalSubQueryAlias alis = (LogicalSubQueryAlias) plan;
             TreeNode child = alis.child(0);
