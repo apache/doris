@@ -17,8 +17,10 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.InsertStmt;
+import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.Queriable;
+import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -27,6 +29,12 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.audit.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -36,6 +44,8 @@ import com.google.common.base.Strings;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 public class AuditLogHelper {
 
@@ -47,15 +57,52 @@ public class AuditLogHelper {
     public static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
         try {
+            origStmt = handleStmt(origStmt, parsedStmt);
             logAuditLogImpl(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
         } catch (Throwable t) {
             LOG.warn("Failed to write audit log.", t);
         }
     }
 
+    private static String handleStmt(String origStmt, StatementBase parsedStmt) {
+        int length = Math.min(GlobalVariable.auditPluginMaxSqlLength, origStmt.length());
+        origStmt = origStmt.replace("\n", " ").substring(0, length);
+        // old planner
+        if (parsedStmt instanceof NativeInsertStmt) {
+            QueryStmt queryStmt = ((NativeInsertStmt) parsedStmt).getQueryStmt();
+            if (queryStmt instanceof SelectStmt) {
+                int rowCnt = ((SelectStmt) queryStmt).getValueList().getRows().size();
+                origStmt += " /* total " + rowCnt + " rows */";
+            }
+        }
+        // nereids planner
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+            if (plan instanceof InsertIntoTableCommand) {
+                LogicalPlan query = ((InsertIntoTableCommand) plan).getLogicalQuery();
+                if (query instanceof UnboundTableSink) {
+                    int rowCnt = countValues(query.children());
+                    origStmt = origStmt + " /* total " + rowCnt + " rows */";
+                }
+            }
+        }
+        return origStmt;
+    }
+
+    private static int countValues(List<Plan> children) {
+        int cnt = 0;
+        for (Plan child : children) {
+            if (child instanceof UnboundOneRowRelation) {
+                cnt++;
+            } else {
+                cnt += countValues(child.children());
+            }
+        }
+        return cnt;
+    }
+
     private static void logAuditLogImpl(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
-        origStmt = origStmt.replace("\n", " ");
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
@@ -127,14 +174,7 @@ public class AuditLogHelper {
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
             auditEventBuilder.setStmt(parsedStmt.toSql());
         } else {
-            if (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager()
-                    && ((InsertStmt) parsedStmt).isValuesOrConstantSelect()) {
-                // INSERT INTO VALUES may be very long, so we only log at most 1K bytes.
-                int length = Math.min(1024, origStmt.length());
-                auditEventBuilder.setStmt(origStmt.substring(0, length));
-            } else {
-                auditEventBuilder.setStmt(origStmt);
-            }
+            auditEventBuilder.setStmt(origStmt);
         }
         if (!Env.getCurrentEnv().isMaster()) {
             if (ctx.executor.isForwardToMaster()) {

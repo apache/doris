@@ -88,6 +88,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         this.cte = cte;
     }
 
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
+    }
+
     public Optional<String> getLabelName() {
         return labelName;
     }
