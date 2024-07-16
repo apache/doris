@@ -242,9 +242,11 @@ private:
             const char* str_data = (char*)chars.data() + offsets[i - 1];
             int start_value = is_const ? start[0] : start[i];
             int len_value = is_const ? len[0] : len[i];
-
+            // Unsigned numbers cannot be used here because start_value can be negative.
+            int char_len = simd::VStringFunctions::get_char_len(str_data, str_size);
             // return empty string if start > src.length
-            if (start_value > str_size || str_size == 0 || start_value == 0 || len_value <= 0) {
+            // Here, start_value is compared against the length of the character.
+            if (start_value > char_len || str_size == 0 || start_value == 0 || len_value <= 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
             }
@@ -3375,8 +3377,6 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
@@ -3387,57 +3387,113 @@ struct SubReplaceImpl {
     static Status replace_execute(Block& block, const ColumnNumbers& arguments, size_t result,
                                   size_t input_rows_count) {
         auto res_column = ColumnString::create();
-        auto result_column = assert_cast<ColumnString*>(res_column.get());
+        auto* result_column = assert_cast<ColumnString*>(res_column.get());
         auto args_null_map = ColumnUInt8::create(input_rows_count, 0);
         ColumnPtr argument_columns[4];
+        bool col_const[4];
         for (int i = 0; i < 4; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(args_null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
+            std::tie(argument_columns[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
         }
+        const auto* data_column = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* mask_column = assert_cast<const ColumnString*>(argument_columns[1].get());
+        const auto* start_column =
+                assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
+        const auto* length_column =
+                assert_cast<const ColumnVector<Int32>*>(argument_columns[3].get());
 
-        auto data_column = assert_cast<const ColumnString*>(argument_columns[0].get());
-        auto mask_column = assert_cast<const ColumnString*>(argument_columns[1].get());
-        auto start_column = assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
-        auto length_column = assert_cast<const ColumnVector<Int32>*>(argument_columns[3].get());
-
-        vector(data_column, mask_column, start_column->get_data(), length_column->get_data(),
-               args_null_map->get_data(), result_column, input_rows_count);
-
+        std::visit(
+                [&](auto origin_str_const, auto new_str_const, auto start_const, auto len_const) {
+                    if (simd::VStringFunctions::is_ascii(
+                                StringRef {data_column->get_chars().data(), data_column->size()})) {
+                        vector_ascii<origin_str_const, new_str_const, start_const, len_const>(
+                                data_column, mask_column, start_column->get_data(),
+                                length_column->get_data(), args_null_map->get_data(), result_column,
+                                input_rows_count);
+                    } else {
+                        vector_utf8<origin_str_const, new_str_const, start_const, len_const>(
+                                data_column, mask_column, start_column->get_data(),
+                                length_column->get_data(), args_null_map->get_data(), result_column,
+                                input_rows_count);
+                    }
+                },
+                vectorized::make_bool_variant(col_const[0]),
+                vectorized::make_bool_variant(col_const[1]),
+                vectorized::make_bool_variant(col_const[2]),
+                vectorized::make_bool_variant(col_const[3]));
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res_column), std::move(args_null_map));
         return Status::OK();
     }
 
 private:
-    static void vector(const ColumnString* data_column, const ColumnString* mask_column,
-                       const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& length,
-                       NullMap& args_null_map, ColumnString* result_column,
-                       size_t input_rows_count) {
+    template <bool origin_str_const, bool new_str_const, bool start_const, bool len_const>
+    static void vector_ascii(const ColumnString* data_column, const ColumnString* mask_column,
+                             const PaddedPODArray<Int32>& args_start,
+                             const PaddedPODArray<Int32>& args_length, NullMap& args_null_map,
+                             ColumnString* result_column, size_t input_rows_count) {
         ColumnString::Chars& res_chars = result_column->get_chars();
         ColumnString::Offsets& res_offsets = result_column->get_offsets();
         for (size_t row = 0; row < input_rows_count; ++row) {
-            StringRef origin_str = data_column->get_data_at(row);
-            StringRef new_str = mask_column->get_data_at(row);
-            size_t origin_str_len = origin_str.size;
+            StringRef origin_str =
+                    data_column->get_data_at(index_check_const<origin_str_const>(row));
+            StringRef new_str = mask_column->get_data_at(index_check_const<new_str_const>(row));
+            const auto start = args_start[index_check_const<start_const>(row)];
+            const auto length = args_length[index_check_const<len_const>(row)];
+            const size_t origin_str_len = origin_str.size;
             //input is null, start < 0, len < 0, str_size <= start. return NULL
-            if (args_null_map[row] || start[row] < 0 || length[row] < 0 ||
-                origin_str_len <= start[row]) {
+            if (args_null_map[row] || start < 0 || length < 0 || origin_str_len <= start) {
                 res_offsets.push_back(res_chars.size());
                 args_null_map[row] = 1;
             } else {
                 std::string_view replace_str = new_str.to_string_view();
                 std::string result = origin_str.to_string();
-                result.replace(start[row], length[row], replace_str);
+                result.replace(start, length, replace_str);
                 result_column->insert_data(result.data(), result.length());
             }
+        }
+    }
+
+    template <bool origin_str_const, bool new_str_const, bool start_const, bool len_const>
+    static void vector_utf8(const ColumnString* data_column, const ColumnString* mask_column,
+                            const PaddedPODArray<Int32>& args_start,
+                            const PaddedPODArray<Int32>& args_length, NullMap& args_null_map,
+                            ColumnString* result_column, size_t input_rows_count) {
+        ColumnString::Chars& res_chars = result_column->get_chars();
+        ColumnString::Offsets& res_offsets = result_column->get_offsets();
+        PaddedPODArray<size_t> index;
+
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            StringRef origin_str =
+                    data_column->get_data_at(index_check_const<origin_str_const>(row));
+            StringRef new_str = mask_column->get_data_at(index_check_const<new_str_const>(row));
+            const auto start = args_start[index_check_const<start_const>(row)];
+            const auto length = args_length[index_check_const<len_const>(row)];
+            index.clear();
+            size_t j = 0, char_size = 0;
+            // index[i] represents the number of bytes occupied by the UTF-8 characters from position 0 to i - 1.
+            while (j < origin_str.size) {
+                char_size = get_utf8_byte_length(origin_str.data[j]);
+                index.push_back(j);
+                j += char_size;
+            }
+            const auto utf8_total_len = index.size();
+            //input is null, start < 0, len < 0, str_size <= start. return NULL
+            if (args_null_map[row] || start < 0 || length < 0 || utf8_total_len <= start) {
+                res_offsets.push_back(res_chars.size());
+                args_null_map[row] = 1;
+                continue;
+            }
+            index.push_back(j);
+
+            const auto utf8_start = index[start];
+            const auto utf8_length =
+                    index[std::min((int)index.size() - 1, start + length)] - utf8_start;
+
+            std::string_view replace_str = new_str.to_string_view();
+            std::string result = origin_str.to_string();
+            result.replace(utf8_start, utf8_length, replace_str);
+            result_column->insert_data(result.data(), result.length());
         }
     }
 };
@@ -3456,13 +3512,14 @@ struct SubReplaceThreeImpl {
 
         auto str_col =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
+        if (const auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
             str_col = nullable->get_nested_column_ptr();
         }
-        auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
-
+        const auto* str_column = assert_cast<const ColumnString*>(str_col.get());
+        // use utf8 len
         for (int i = 0; i < input_rows_count; ++i) {
-            strlen_data[i] = str_offset[i] - str_offset[i - 1];
+            StringRef str_ref = str_column->get_data_at(i);
+            strlen_data[i] = simd::VStringFunctions::get_char_len(str_ref.data, str_ref.size);
         }
 
         block.insert({std::move(params), std::make_shared<DataTypeInt32>(), "strlen"});
