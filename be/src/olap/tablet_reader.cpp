@@ -37,6 +37,7 @@
 #include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "io/io_common.h"
 #include "olap/column_predicate.h"
 #include "olap/itoken_extractor.h"
 #include "olap/like_column_predicate.h"
@@ -643,11 +644,11 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // Only BASE_COMPACTION and COLD_DATA_COMPACTION and CUMULATIVE_COMPACTION need set filter_delete = true
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
+    _cumu_delete = read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                   config::enable_delete_when_cumu_compaction;
     _filter_delete = (read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
                       read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
-                      ((read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
-                        config::enable_delete_when_cumu_compaction)) ||
-                      read_params.reader_type == ReaderType::READER_CHECKSUM);
+                      _cumu_delete || read_params.reader_type == ReaderType::READER_CHECKSUM);
     auto* runtime_state = read_params.runtime_state;
     bool enable_sub_pred_v2 =
             runtime_state == nullptr ? true : runtime_state->enable_delete_sub_pred_v2();
