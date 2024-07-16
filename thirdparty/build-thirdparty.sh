@@ -656,12 +656,12 @@ build_curl() {
         libs='-lcrypto -lssl -lcrypto -ldl'
     fi
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -DNGHTTP2_STATICLIB" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR} " \
         LDFLAGS="-L${TP_LIB_DIR}" LIBS="${libs}" \
         PKG_CONFIG="pkg-config --static" \
         ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
         --without-librtmp --with-ssl="${TP_INSTALL_DIR}" --without-libidn2 --disable-ldap --enable-ipv6 \
-        --without-libssh2 --without-brotli
+        --without-libssh2 --without-brotli --without-nghttp2
 
     make curl_LDFLAGS=-all-static -j "${PARALLEL}"
     make curl_LDFLAGS=-all-static install
