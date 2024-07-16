@@ -1401,10 +1401,15 @@ message GetDeleteBitmapUpdateLockRequest {
     optional int64 lock_id = 4;
     optional int64 initiator = 5;
     optional int64 expiration = 6;
+    optional bool require_compaction_stats = 7 [default = false];
+    repeated TabletIndexPB tablet_indexes = 8;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
     optional MetaServiceResponseStatus status = 1;
+    repeated int64 base_compaction_cnts = 2;
+    repeated int64 cumulative_compaction_cnts = 3;
+    repeated int64 cumulative_points = 4;
 }
 
 message GetRLTaskCommitAttachRequest {
@@ -1416,6 +1421,28 @@ message GetRLTaskCommitAttachRequest {
 message GetRLTaskCommitAttachResponse {
     optional MetaServiceResponseStatus status = 1;
     optional RLTaskTxnCommitAttachmentPB commit_attach = 2;
+}
+
+message CheckKeyInfos {
+    repeated int64 db_ids = 1;
+    repeated int64 table_ids = 2;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+}
+
+message CheckKVRequest {
+    enum Operation {
+        CREATE_INDEX_AFTER_FE_COMMIT        = 1;
+        CREATE_PARTITION_AFTER_FE_COMMIT    = 2;
+    }
+    optional string cloud_unique_id = 1; // For auth
+    optional CheckKeyInfos check_keys = 2;
+    optional Operation op = 3; 
+}
+
+message CheckKVResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional CheckKeyInfos bad_keys = 2;
 }
 
 service MetaService {
@@ -1486,6 +1513,9 @@ service MetaService {
 
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
+
+    // check KV
+    rpc check_kv(CheckKVRequest) returns (CheckKVResponse);
 };
 
 service RecyclerService {

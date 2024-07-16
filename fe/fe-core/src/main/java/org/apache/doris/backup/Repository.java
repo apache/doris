@@ -155,7 +155,7 @@ public class Repository implements Writable, GsonPostProcessable {
             return PREFIX_JOB_INFO;
         } else {
             return PREFIX_JOB_INFO
-                    + TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+                    + TimeUtils.longToTimeString(createTime, TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         }
     }
 

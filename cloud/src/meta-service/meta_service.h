@@ -28,7 +28,7 @@
 #include <type_traits>
 
 #include "common/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
@@ -140,6 +140,9 @@ public:
 
     void drop_index(::google::protobuf::RpcController* controller, const IndexRequest* request,
                     IndexResponse* response, ::google::protobuf::Closure* done) override;
+
+    void check_kv(::google::protobuf::RpcController* controller, const CheckKVRequest* request,
+                  CheckKVResponse* response, ::google::protobuf::Closure* done) override;
 
     void prepare_partition(::google::protobuf::RpcController* controller,
                            const PartitionRequest* request, PartitionResponse* response,
@@ -420,6 +423,11 @@ public:
     void drop_index(::google::protobuf::RpcController* controller, const IndexRequest* request,
                     IndexResponse* response, ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::drop_index, controller, request, response, done);
+    }
+
+    void check_kv(::google::protobuf::RpcController* controller, const CheckKVRequest* request,
+                  CheckKVResponse* response, ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::check_kv, controller, request, response, done);
     }
 
     void prepare_partition(::google::protobuf::RpcController* controller,

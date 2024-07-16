@@ -360,7 +360,7 @@ public abstract class ConnectProcessor {
                 }
 
                 StatementBase parsedStmt = stmts.get(i);
-                parsedStmt.setOrigStmt(new OriginStatement(convertedStmt, i));
+                parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
                 executor = new StmtExecutor(ctx, parsedStmt);
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
@@ -758,8 +758,7 @@ public abstract class ConnectProcessor {
                 UUID uuid = UUID.randomUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             }
-
-            executor.execute(queryId);
+            executor.queryRetry(queryId);
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
