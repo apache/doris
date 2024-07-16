@@ -475,7 +475,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     + ", maybe it's too small, can use alter table sql to increase it. ";
             LOG.warn("Error in gen reservePartitionKeyRange. db: {}, table: {}. {}",
                     db.getFullName(), olapTable.getName(), hint, e);
-            recordDropPartitionFailedMsg(db.getFullName(), olapTable.getName(), hint + e.getMessage(),
+            recordDropPartitionFailedMsg(db.getFullName(), olapTable.getName(), hint + ", error: " + e.getMessage(),
                     olapTable.getId());
             return dropPartitionClauses;
         }
