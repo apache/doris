@@ -1812,4 +1812,8 @@ public class OlapScanNode extends ScanNode {
     public int numScanBackends() {
         return scanBackendIds.size();
     }
+
+    public long getRowCountForNereids() {
+        return Math.max(getOlapTable().getRowCountForIndex(selectedIndexId), 1);
+    }
 }

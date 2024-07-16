@@ -575,4 +575,9 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         }
         return replaceMap;
     }
+
+    @Override
+    public long getRowCountForNereids() {
+        return Math.max(getTable().getRowCountForIndex(selectedIndexId), 1);
+    }
 }

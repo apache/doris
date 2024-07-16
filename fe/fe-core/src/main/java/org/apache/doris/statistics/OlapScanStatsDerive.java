@@ -59,7 +59,7 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
 
         Map<Id, ColumnStatistic> columnStatisticMap = new HashMap<>();
         Table table = scanNode.getOlapTable();
-        double rowCount = table.getRowCountForNereids();
+        double rowCount = scanNode.getRowCountForNereids();
         for (Map.Entry<Id, String> entry : slotIdToTableIdAndColumnName.entrySet()) {
             String colName = entry.getValue();
             // TODO. Get index id for materialized view.
