@@ -63,7 +63,7 @@ suite('test_dynamic_partition_failed', 'nonConcurrent') {
                 "dynamic_partition.time_unit" = "YEAR",
                 "dynamic_partition.prefix" = "p",
                 "dynamic_partition.buckets" = "1",
-                "dynamic_partition.start" = "-20",
+                "dynamic_partition.start" = "-10",
                 "dynamic_partition.create_history_partition" = "true"
               )'''
 
