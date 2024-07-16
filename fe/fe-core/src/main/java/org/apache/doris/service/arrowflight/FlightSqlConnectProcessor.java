@@ -102,7 +102,13 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
 
     public Schema fetchArrowFlightSchema(int timeoutMs) {
         TNetworkAddress address = ctx.getResultInternalServiceAddr();
-        TUniqueId tid = ctx.queryId();
+        TUniqueId tid;
+        if (ctx.getSessionVariable().enableParallelResultSink()) {
+            tid = ctx.queryId();
+        } else {
+            // only one instance
+            tid = ctx.getFinstId();
+        }
         ArrayList<Expr> resultOutputExprs = ctx.getResultOutputExprs();
         Types.PUniqueId queryId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         try {

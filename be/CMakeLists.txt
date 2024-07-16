@@ -358,10 +358,6 @@ if (USE_UNWIND)
     endif()
 endif()
 
-if (ENABLE_STACKTRACE)
-    add_definitions(-DENABLE_STACKTRACE)
-endif()
-
 if (USE_DWARF)
     add_compile_options(-gdwarf-5)
 endif()
