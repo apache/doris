@@ -1433,6 +1433,10 @@ DECLARE_mBool(ignore_not_found_file_in_external_table);
 
 DECLARE_mBool(enable_hdfs_mem_limiter);
 
+// Define how many percent data in hashtable bigger than limit
+// we should do agg limit opt
+DECLARE_mInt16(topn_agg_limit_multiplier);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
