@@ -86,7 +86,7 @@ public class SqlCacheContext {
     private volatile PUniqueId cacheKeyMd5;
     private volatile ResultSet resultSetInFe;
 
-    public volatile CacheKeyType cacheKeyType = CacheKeyType.SQL;
+    private volatile CacheKeyType cacheKeyType = CacheKeyType.SQL;
 
     public SqlCacheContext(UserIdentity userIdentity, TUniqueId queryId) {
         this.userIdentity = Objects.requireNonNull(userIdentity, "userIdentity cannot be null");
@@ -392,6 +392,14 @@ public class SqlCacheContext {
 
     public void setResultSetInFe(ResultSet resultSetInFe) {
         this.resultSetInFe = resultSetInFe;
+    }
+
+    public CacheKeyType getCacheKeyType() {
+        return cacheKeyType;
+    }
+
+    public void setCacheKeyType(CacheKeyType cacheKeyType) {
+        this.cacheKeyType = cacheKeyType;
     }
 
     /** FullTableName */
