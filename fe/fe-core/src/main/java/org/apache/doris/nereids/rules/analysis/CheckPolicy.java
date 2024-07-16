@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy.RelatedPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -60,11 +61,11 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                 upperFilter = (LogicalFilter) child;
                                 child = child.child(0);
                             }
-                            if (!(child instanceof LogicalRelation)
+                            if (!(child instanceof LogicalRelation || isView(child))
                                     || ctx.connectContext.getSessionVariable().isPlayNereidsDump()) {
                                 return ctx.root.child();
                             }
-                            LogicalRelation relation = (LogicalRelation) child;
+                            LogicalPlan relation = (LogicalPlan) child;
                             Set<Expression> combineFilter = new LinkedHashSet<>();
 
                             // replace incremental params as AND expression

@@ -123,13 +123,13 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     }
 
     /**
-     * find related policy for logicalRelation.
+     * find related policy for logicalPlan.
      *
-     * @param logicalRelation include tableName and dbName
+     * @param logicalPlan include tableName and dbName
      * @param cascadesContext include information about user and policy
      */
-    public RelatedPolicy findPolicy(LogicalRelation logicalRelation, CascadesContext cascadesContext) {
-        if (!(logicalRelation instanceof CatalogRelation)) {
+    public RelatedPolicy findPolicy(LogicalPlan logicalPlan, CascadesContext cascadesContext) {
+        if (!(logicalPlan instanceof CatalogRelation)) {
             return RelatedPolicy.NO_POLICY;
         }
 
@@ -140,19 +140,19 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             return RelatedPolicy.NO_POLICY;
         }
 
-        CatalogRelation catalogRelation = (CatalogRelation) logicalRelation;
+        CatalogRelation catalogRelation = (CatalogRelation) logicalPlan;
         String ctlName = catalogRelation.getDatabase().getCatalog().getName();
         String dbName = catalogRelation.getDatabase().getFullName();
         String tableName = catalogRelation.getTable().getName();
 
         NereidsParser nereidsParser = new NereidsParser();
         ImmutableList.Builder<NamedExpression> dataMasks
-                = ImmutableList.builderWithExpectedSize(logicalRelation.getOutput().size());
+                = ImmutableList.builderWithExpectedSize(logicalPlan.getOutput().size());
 
         StatementContext statementContext = cascadesContext.getStatementContext();
         Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
         boolean hasDataMask = false;
-        for (Slot slot : logicalRelation.getOutput()) {
+        for (Slot slot : logicalPlan.getOutput()) {
             Optional<DataMaskPolicy> dataMaskPolicy = accessManager.evalDataMaskPolicy(
                     currentUserIdentity, ctlName, dbName, tableName, slot.getName());
             if (dataMaskPolicy.isPresent()) {
