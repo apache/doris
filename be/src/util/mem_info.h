@@ -105,9 +105,29 @@ public:
         return 0;
     }
 
+    static inline unsigned get_je_unsigned_metrics(const std::string& name) {
+#ifdef USE_JEMALLOC
+        unsigned value = 0;
+        size_t sz = sizeof(value);
+        if (jemallctl(name.c_str(), &value, &sz, nullptr, 0) == 0) {
+            return value;
+        }
+#endif
+        return 0;
+    }
+
     static inline int64_t get_je_all_arena_metrics(const std::string& name) {
 #ifdef USE_JEMALLOC
         return get_je_metrics(fmt::format("stats.arenas.{}.{}", MALLCTL_ARENAS_ALL, name));
+#endif
+        return 0;
+    }
+
+    static inline int64_t get_je_all_arena_extents_metrics(int64_t page_size_index,
+                                                           const std::string& extent_type) {
+#ifdef USE_JEMALLOC
+        return get_je_metrics(fmt::format("stats.arenas.{}.extents.{}.{}", MALLCTL_ARENAS_ALL,
+                                          page_size_index, extent_type));
 #endif
         return 0;
     }
@@ -143,6 +163,9 @@ public:
     }
     static inline size_t allocator_cache_mem() {
         return _s_allocator_cache_mem.load(std::memory_order_relaxed);
+    }
+    static inline size_t allocator_metadata_mem() {
+        return _s_allocator_metadata_mem.load(std::memory_order_relaxed);
     }
     static inline int64_t je_dirty_pages_mem() {
         return _s_je_dirty_pages_mem.load(std::memory_order_relaxed);
@@ -184,6 +207,7 @@ private:
     static std::atomic<int64_t> _s_soft_mem_limit;
 
     static std::atomic<int64_t> _s_allocator_cache_mem;
+    static std::atomic<int64_t> _s_allocator_metadata_mem;
     static std::atomic<int64_t> _s_je_dirty_pages_mem;
     static std::atomic<int64_t> _s_je_dirty_pages_mem_limit;
     static std::atomic<int64_t> _s_virtual_memory_used;
