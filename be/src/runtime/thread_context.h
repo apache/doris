@@ -230,6 +230,13 @@ public:
 
     std::weak_ptr<WorkloadGroup> workload_group() { return _wg_wptr; }
 
+    std::shared_ptr<IOThrottle> io_throttle(const std::string& data_dir) {
+        if (std::shared_ptr<WorkloadGroup> wg_ptr = _wg_wptr.lock()) {
+            return wg_ptr->get_scan_io_throttle(data_dir);
+        }
+        return nullptr;
+    }
+
     int thread_local_handle_count = 0;
     int skip_memory_check = 0;
     int skip_large_memory_check = 0;
@@ -295,7 +302,7 @@ public:
 };
 
 // must call create_thread_local_if_not_exits() before use thread_context().
-static ThreadContext* thread_context() {
+static ThreadContext* thread_context(bool allow_return_null = false) {
     if (pthread_context_ptr_init) {
         // in pthread
         DCHECK(bthread_self() == 0);
@@ -308,6 +315,9 @@ static ThreadContext* thread_context() {
         auto* bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
         DCHECK(bthread_context != nullptr);
         return bthread_context;
+    }
+    if (allow_return_null) {
+        return nullptr;
     }
     // It means that use thread_context() but this thread not attached a query/load using SCOPED_ATTACH_TASK macro.
     LOG(FATAL) << "__builtin_unreachable, " << doris::memory_orphan_check_msg;
