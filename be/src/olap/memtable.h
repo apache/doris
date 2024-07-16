@@ -129,7 +129,8 @@ private:
 
 class RowInBlockComparator {
 public:
-    RowInBlockComparator(std::shared_ptr<TabletSchema> tablet_schema) : _tablet_schema(tablet_schema) {}
+    RowInBlockComparator(std::shared_ptr<TabletSchema> tablet_schema)
+            : _tablet_schema(tablet_schema) {}
     // call set_block before operator().
     // only first time insert block to create _input_mutable_block,
     // so can not Comparator of construct to set pblock
