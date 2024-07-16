@@ -33,11 +33,7 @@ void Status::to_thrift(TStatus* s) const {
     // DCHECK(_code > 0)
     //        << "The error code has to > 0 because TStatusCode need it > 0, it's actual value is "
     //        << _code;
-    s->status_code = (int16_t)_code > 0 ? (TStatusCode::type)_code
-                                        : ((_code == ErrorCode::DELETE_INVALID_CONDITION ||
-                                            _code == ErrorCode::DELETE_INVALID_PARAMETERS)
-                                                   ? TStatusCode::INVALID_ARGUMENT
-                                                   : TStatusCode::INTERNAL_ERROR);
+    s->status_code = (int16_t)_code > 0 ? (TStatusCode::type)_code : TStatusCode::INTERNAL_ERROR;
     s->error_msgs.push_back(fmt::format("({})[{}]{}", BackendOptions::get_localhost(),
                                         code_as_string(), _err_msg ? _err_msg->_msg : ""));
     s->__isset.error_msgs = true;
