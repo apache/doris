@@ -238,9 +238,9 @@ private:
             const char* str_data = (char*)chars.data() + offsets[i - 1];
             int start_value = is_const ? start[0] : start[i];
             int len_value = is_const ? len[0] : len[i];
-
+            auto char_len = simd::VStringFunctions::get_char_len(str_data, str_size);
             // return empty string if start > src.length
-            if (start_value > str_size || str_size == 0 || start_value == 0 || len_value <= 0) {
+            if (start_value > char_len || str_size == 0 || start_value == 0 || len_value <= 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
             }
