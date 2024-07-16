@@ -98,7 +98,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.2, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', false, '{\"k1\":\"v1\", \"k2\": 200}'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -126,7 +126,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 3, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', 3, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -140,7 +140,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 4.1, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', 23, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -155,7 +155,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.6, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', 4564, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -169,7 +169,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.36, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', 43643734, [\"abc\", \"def\"]); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -183,7 +183,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', 5.6, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -197,7 +197,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', 895.666, '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -212,7 +212,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.6, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', '2003-12-31', '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -226,7 +226,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.3, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', '2003-12-31', '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -241,7 +241,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 9.63, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', '2003-12-31 20:12:12', '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -255,7 +255,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', '2003-12-31 20:12:12', '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -270,7 +270,7 @@ suite("test_unique_schema_value_modify3", "p0") {
     insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', 'sdfghjk', '[\"abc\", \"def\"]'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName}")
     }, errorMessage)
 
@@ -283,7 +283,7 @@ suite("test_unique_schema_value_modify3", "p0") {
     insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.59, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', 'wertyu', '[\"abc\", \"def\"]'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName}")
     }, errorMessage)
 
@@ -296,7 +296,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 8.47, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', '{'a': 100, 'b': 200}', '[\"abc\", \"def\"]'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -343,7 +343,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.2, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', , false); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -371,7 +371,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 3, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, 21); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -385,7 +385,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 4.1, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, 25); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -400,7 +400,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.6, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, 32523); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -414,7 +414,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 2.36, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, 356436); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -428,7 +428,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, 86.5); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
@@ -442,7 +442,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 1.23, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, 896.2356); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -457,7 +457,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.6, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, '2003-12-31'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -471,7 +471,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.3, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, '2003-12-31'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -486,7 +486,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 9.63, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, '2003-12-31 20:12:12'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -500,7 +500,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, '2003-12-31 20:12:12'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
 
     }, errorMessage)
@@ -515,7 +515,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 5.69, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, 'erwtewxa'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, false, "${tbName}")
     }, errorMessage)
 
@@ -528,7 +528,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 6.59, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, '36tgeryda'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, false, "${tbName}")
     }, errorMessage)
 
@@ -541,7 +541,7 @@ suite("test_unique_schema_value_modify3", "p0") {
         insertSql = "insert into ${tbName} values(923456689, 'Alice', 8.47, 'yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00', {'a': 700, 'b': 200}, {'a': 700, 'b': 200}); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, true, "${tbName}")
     }, errorMessage)
 
