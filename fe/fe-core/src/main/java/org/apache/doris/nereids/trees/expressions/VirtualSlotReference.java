@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.GroupingSetShapes;
@@ -153,5 +154,10 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
     public VirtualSlotReference withExprId(ExprId exprId) {
         return new VirtualSlotReference(exprId, name.get(), dataType, nullable, qualifier,
                 originExpression, computeLongValueMethod);
+    }
+
+    @Override
+    public Slot withIndexInSql(Pair<Integer, Integer> index) {
+        return this;
     }
 }
