@@ -279,7 +279,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 LOG.warn("Error in gen addPartitionKeyRange. db: {}, table: {}, partition idx: {}",
                         db.getFullName(), olapTable.getName(), idx, e);
                 if (executeFirstTime) {
-                    throw new DdlException(e.getMessage());
+                    throw new DdlException("maybe dynamic_partition.start is too small, error: "
+                            + e.getMessage());
                 }
                 continue;
             }
