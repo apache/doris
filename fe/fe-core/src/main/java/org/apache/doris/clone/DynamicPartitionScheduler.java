@@ -233,7 +233,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private ArrayList<AddPartitionClause> getAddPartitionClause(Database db, OlapTable olapTable,
-            Column partitionColumn, String partitionFormat, boolean executeFirstTime) {
+            Column partitionColumn, String partitionFormat, boolean executeFirstTime) throws DdlException {
         ArrayList<AddPartitionClause> addPartitionClauses = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
@@ -278,6 +278,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 // IllegalArgumentException: lb is greater than ub
                 LOG.warn("Error in gen addPartitionKeyRange. db: {}, table: {}, partition idx: {}",
                         db.getFullName(), olapTable.getName(), idx, e);
+                if (executeFirstTime) {
+                    throw new DdlException(e.getMessage());
+                }
                 continue;
             }
             for (PartitionItem partitionItem : rangePartitionInfo.getIdToItem(false).values()) {
