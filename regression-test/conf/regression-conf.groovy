@@ -104,8 +104,14 @@ brokerName = "broker_name"
 
 // broker load test config
 enableBrokerLoad=true
-ak=""
-sk=""
+
+// for s3 releated cases, "aliyun" or "aliyun-internal" or "tencent" or "huawei" or "azure"
+s3Source="aliyun"
+// s3Endpoint = ""
+// s3BucketName = ""
+// s3Region = ""
+ak="***********"
+sk="***********"
 
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
@@ -193,10 +199,6 @@ dlfUid="***********"
 aliYunSk="***********"
 hwYunAk="***********"
 hwYunSk="***********"
-
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
 
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"

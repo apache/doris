@@ -144,9 +144,12 @@ class Config {
     public String kafkaBrokerList
     public String cloudVersion
 
+    public String s3Source
+
     Config() {}
 
     Config(
+            String s3Source,
             String caseNamePrefix,
             String defaultDb, 
             String jdbcUrl, 
@@ -199,6 +202,7 @@ class Config {
             String clusterDir, 
             String kafkaBrokerList, 
             String cloudVersion) {
+        this.s3Source = s3Source
         this.caseNamePrefix = caseNamePrefix
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
@@ -436,7 +440,6 @@ class Config {
         }
         log.info("recycleAddr : $config.recycleServiceHttpAddress, socketAddr : $config.recycleServiceHttpInetSocketAddress")
 
-
         config.defaultDb = cmd.getOptionValue(defaultDbOpt, config.defaultDb)
         config.jdbcUrl = cmd.getOptionValue(jdbcOpt, config.jdbcUrl)
         config.jdbcUser = cmd.getOptionValue(userOpt, config.jdbcUser)
@@ -465,6 +468,16 @@ class Config {
         log.info("withOutLoadData is ${config.withOutLoadData}".toString())
         log.info("caseNamePrefix is ${config.caseNamePrefix}".toString())
         log.info("dryRun is ${config.dryRun}".toString())
+        def s3SourceList = ["aliyun", "aliyun-internal", "tencent", "huawei", "azure"]
+        if (s3SourceList.contains(config.s3Source)) {
+            log.info("s3Source is ${config.s3Source}".toString())
+            log.info("s3Provider is ${config.otherConfigs.get("s3Provider")}".toString())
+            log.info("s3BucketName is ${config.otherConfigs.get("s3BucketName")}".toString())
+            log.info("s3Region is ${config.otherConfigs.get("s3Region")}".toString())
+            log.info("s3Endpoint is ${config.otherConfigs.get("s3Endpoint")}".toString())
+        } else {
+            throw new Exception("The s3Source '${config.s3Source}' is invalid, optional values ${s3SourceList}")
+        }
 
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
@@ -477,6 +490,7 @@ class Config {
 
     static Config fromConfigObject(ConfigObject obj) {
         def config = new Config(
+            configToString(obj.s3Source),
             configToString(obj.caseNamePrefix),
             configToString(obj.defaultDb),
             configToString(obj.jdbcUrl),
@@ -589,6 +603,62 @@ class Config {
     }
 
     static void fillDefaultConfig(Config config) {
+        if (config.s3Source == null) {
+            config.s3Source = "aliyun"
+            log.info("Set s3Source to 'aliyun' because not specify.".toString())
+        }
+
+        if (config.otherConfigs.get("s3Provider") == null) {
+            if (config.s3Source == "aliyun" || config.s3Source == "aliyun-internal") {
+                config.otherConfigs.put("s3Provider", "OSS")
+            } else if (config.s3Source == "tencent") {
+                config.otherConfigs.put("s3Provider", "COS")
+            } else if (config.s3Source == "huawei") {
+                config.otherConfigs.put("s3Provider", "OBS")
+            } else if (config.s3Source == "azure") {
+                config.otherConfigs.put("s3Provider", "AZURE")
+            }
+        }
+        if (config.otherConfigs.get("s3BucketName") == null) {
+            if (config.s3Source == "aliyun") {
+                config.otherConfigs.put("s3BucketName", "doris-regression-hk")
+            } else if (config.s3Source == "aliyun-internal") {
+                config.otherConfigs.put("s3BucketName", "doris-regression")
+            } else if (config.s3Source == "tencent") {
+                config.otherConfigs.put("s3BucketName", "doris-build-1308700295")
+            } else if (config.s3Source == "huawei") {
+                config.otherConfigs.put("s3BucketName", "doris-build")
+            } else if (config.s3Source == "azure") {
+                config.otherConfigs.put("s3BucketName", "doris-regression")
+            }
+        }
+        if (config.otherConfigs.get("s3Region") == null) {
+            if (config.s3Source == "aliyun") {
+                config.otherConfigs.put("s3Region", "oss-cn-hongkong")
+            } else if (config.s3Source == "aliyun-internal") {
+                config.otherConfigs.put("s3Region", "oss-cn-beijing")
+            } else if (config.s3Source == "tencent") {
+                config.otherConfigs.put("s3Region", "ap-beijing")
+            } else if (config.s3Source == "huawei") {
+                config.otherConfigs.put("s3Region", "cn-north-4")
+            } else if (config.s3Source == "azure") {
+                config.otherConfigs.put("s3Region", "azure-region")
+            }
+        }
+        if (config.otherConfigs.get("s3Endpoint") == null) {
+            if (config.s3Source == "aliyun") {
+                config.otherConfigs.put("s3Endpoint", "oss-cn-hongkong.aliyuncs.com")
+            } else if (config.s3Source == "aliyun-internal") {
+                config.otherConfigs.put("s3Endpoint", "oss-cn-beijing-internal.aliyuncs.com")
+            } else if (config.s3Source == "tencent") {
+                config.otherConfigs.put("s3Endpoint", "cos.ap-beijing.myqcloud.com")
+            } else if (config.s3Source == "huawei") {
+                config.otherConfigs.put("s3Endpoint", "obs.cn-north-4.myhuaweicloud.com")
+            } else if (config.s3Source == "azure") {
+                config.otherConfigs.put("s3Endpoint", "azure-endpoint")
+            }
+        }
+
         if (config.caseNamePrefix == null) {
             config.caseNamePrefix = ""
             log.info("set caseNamePrefix to '' because not specify.".toString())
