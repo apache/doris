@@ -54,7 +54,7 @@ class WaitForAction implements SuiteAction {
 
     @Override
     void run() {
-        if (ObjectUtils.isEmpty(time)|| time == 0){
+        if (ObjectUtils.isEmpty(time) || time == 0) {
             time = 600
         }
         Awaitility.await().atMost(time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).and().pollInterval(100, TimeUnit.MILLISECONDS).await().until(() -> {
