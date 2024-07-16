@@ -22,69 +22,70 @@ suite("variant_mv") {
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_agg_state = true"
-//
-//    sql """
-//    drop table if exists github_events1
-//    """
-//
-//    sql """
-//    CREATE TABLE IF NOT EXISTS github_events1 (
-//        id BIGINT NOT NULL,
-//        type VARCHAR(30) NULL,
-//        actor VARIANT NULL,
-//        repo VARIANT NULL,
-//        payload VARIANT NULL,
-//        public BOOLEAN NULL,
-//        created_at DATETIME NULL,
-//        INDEX idx_payload (`payload`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for payload'
-//    )
-//    DUPLICATE KEY(`id`)
-//    DISTRIBUTED BY HASH(id) BUCKETS 10
-//    properties("replication_num" = "1");
-//    """
-//
-//    sql """
-//    drop table if exists github_events2
-//    """
-//
-//    sql """
-//    CREATE TABLE IF NOT EXISTS github_events2 (
-//        id BIGINT NOT NULL,
-//        type VARCHAR(30) NULL,
-//        actor VARIANT NULL,
-//        repo VARIANT NULL,
-//        payload VARIANT NULL,
-//        public BOOLEAN NULL,
-//        created_at DATETIME NULL,
-//        INDEX idx_payload (`payload`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for payload'
-//    )
-//    DUPLICATE KEY(`id`)
-//    DISTRIBUTED BY HASH(id) BUCKETS 10
-//    properties("replication_num" = "1");
-//    """
-//
-//    streamLoad {
-//        table "github_events1"
-//        set 'columns', 'id, type, actor, repo, payload, public, created_at'
-//        set 'format', 'json'
-//        set 'read_json_by_line', 'true'
-//        set 'strip_outer_array', 'false'
-//        file context.config.dataPath + "/nereids_rules_p0/mv/variant/variant_data.json"
-//        time 10000
-//    }
-//
-//    streamLoad {
-//        table "github_events2"
-//        set 'read_json_by_line', 'true'
-//        set 'format', 'json'
-//        set 'columns', 'id, type, actor, repo, payload, public, created_at'
-//        set 'strip_outer_array', 'false'
-//        file context.config.dataPath + "/nereids_rules_p0/mv/variant/variant_data.json"
-//        time 10000 // limit inflight 10s
-//    }
-//
-//    sql "sync"
 
+    sql """
+    drop table if exists github_events1
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS github_events1 (
+        id BIGINT NOT NULL,
+        type VARCHAR(30) NULL,
+        actor VARIANT NULL,
+        repo VARIANT NULL,
+        payload VARIANT NULL,
+        public BOOLEAN NULL,
+        created_at DATETIME NULL,
+        INDEX idx_payload (`payload`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for payload'
+    )
+    DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(id) BUCKETS 10
+    properties("replication_num" = "1");
+    """
+
+    sql """
+    drop table if exists github_events2
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS github_events2 (
+        id BIGINT NOT NULL,
+        type VARCHAR(30) NULL,
+        actor VARIANT NULL,
+        repo VARIANT NULL,
+        payload VARIANT NULL,
+        public BOOLEAN NULL,
+        created_at DATETIME NULL,
+        INDEX idx_payload (`payload`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for payload'
+    )
+    DUPLICATE KEY(`id`)
+    DISTRIBUTED BY HASH(id) BUCKETS 10
+    properties("replication_num" = "1");
+    """
+
+    streamLoad {
+        table "github_events1"
+        set 'columns', 'id, type, actor, repo, payload, public, created_at'
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strip_outer_array', 'false'
+        file context.config.dataPath + "/nereids_rules_p0/mv/variant/variant_data.json"
+        time 10000
+    }
+
+    streamLoad {
+        table "github_events2"
+        set 'read_json_by_line', 'true'
+        set 'format', 'json'
+        set 'columns', 'id, type, actor, repo, payload, public, created_at'
+        set 'strip_outer_array', 'false'
+        file context.config.dataPath + "/nereids_rules_p0/mv/variant/variant_data.json"
+        time 10000 // limit inflight 10s
+    }
+
+    sql "sync"
+    sql """analyze table github_events1 with sync;"""
+    sql """analyze table github_events2 with sync;"""
 
     // variant appear in where both slot and in expression
     def mv1_0 = """
