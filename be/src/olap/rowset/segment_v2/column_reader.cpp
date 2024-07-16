@@ -1512,6 +1512,9 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
     if (obj.is_null_root()) {
         obj.create_root();
     }
+    if (!obj.is_finalized()) {
+        obj.finalize();
+    }
     auto root_column = obj.get_root();
     RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
     obj.incr_num_rows(*n);
@@ -1544,6 +1547,9 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
                     : assert_cast<vectorized::ColumnObject&>(*dst);
     if (obj.is_null_root()) {
         obj.create_root();
+    }
+    if (!obj.is_finalized()) {
+        obj.finalize();
     }
     auto root_column = obj.get_root();
     RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));

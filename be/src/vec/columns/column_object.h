@@ -123,6 +123,8 @@ public:
 
         size_t get_dimensions() const { return least_common_type.get_dimensions(); }
 
+        void get(size_t n, Field& res) const;
+
         /// Checks the consistency of column's parts stored in @data.
         void checkTypes() const;
 
@@ -422,8 +424,6 @@ public:
     Status try_insert_indices_from(const IColumn& src, const int* indices_begin,
                                    const int* indices_end);
 
-    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
-
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
     ColumnPtr filter(const Filter&, ssize_t) const override;
@@ -451,6 +451,8 @@ public:
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
+
+    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
 
     // Extract path from root column and replace root with new extracted column,
     // root must be jsonb type

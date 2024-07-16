@@ -86,6 +86,7 @@ struct ParseContext {
     // record an extract json column, used for encoding row store
     bool record_raw_json_column = false;
 };
+
 // three steps to parse and encode variant columns into flatterned columns
 // 1. parse variant from raw json string
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
