@@ -109,10 +109,10 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
                 num_rows_written = 0;
                 num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
             } else {
-                RETURN_IF_ERROR(
-                        _segment_writers[_cur_writer_idx]->append_block(block, start_offset, limit));
+                RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, start_offset,
+                                                                                limit));
                 CHECK(_segment_writers[_cur_writer_idx]->num_rows_written() <=
-                       _segment_writers[_cur_writer_idx]->row_count());
+                      _segment_writers[_cur_writer_idx]->row_count());
             }
         }
     }
