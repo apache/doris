@@ -37,21 +37,11 @@ suite("insert_group_commit_into") {
     }
 
     def getAlterTableState = {
-        def retry = 0
-        sql "use ${dbName};"
-        while (true) {
-            sleep(2000)
-            def state = sql " show alter table column where tablename = '${tableName}' order by CreateTime desc limit 1"
-            logger.info("alter table state: ${state}")
-            if (state.size() > 0 && state[0][9] == "FINISHED") {
-                return true
-            }
-            retry++
-            if (retry >= 20) {
-                return false
-            }
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        return false
+        return true
     }
 
     def group_commit_insert = { sql, expected_row_count ->
