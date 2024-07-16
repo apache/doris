@@ -48,7 +48,7 @@ bvar::Adder<int64_t> g_memtable_input_block_allocated_size("memtable_input_block
 
 using namespace ErrorCode;
 
-MemTable::MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
+MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
                    const std::shared_ptr<MemTracker>& insert_mem_tracker,
