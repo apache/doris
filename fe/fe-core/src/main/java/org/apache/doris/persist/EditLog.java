@@ -1595,7 +1595,11 @@ public class EditLog {
     }
 
     public void logUpdateCloudReplicas(List<UpdateCloudReplicaInfo> infos) throws IOException {
+        long start = System.currentTimeMillis();
         logEdit(OperationType.OP_UPDATE_CLOUD_REPLICA, infos);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("log update {} cloud replicas. cost: {} ms", infos.size(), (System.currentTimeMillis() - start));
+        }
     }
 
     public void logExportUpdateState(long jobId, ExportJobState newState) {
