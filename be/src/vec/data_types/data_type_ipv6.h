@@ -60,7 +60,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const IPv6& num) const;
+    void push_number(ColumnString::Chars& chars, const IPv6& num) const;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(const IPv6& value) const;
