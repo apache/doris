@@ -2899,6 +2899,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_cloud_running_txn_check = true;
 
+    //* audit_event_log_queue_size = qps * query_audit_log_timeout_ms
+    @ConfField(mutable = true)
+    public static int audit_event_log_queue_size = 250000;
+
     @ConfField(description = {"存算分离模式下streamload导入使用的转发策略, 可选值为public-private或者空",
             "streamload route policy in cloud mode, availale options are public-private and empty string"})
     public static String streamload_redirect_policy = "";
