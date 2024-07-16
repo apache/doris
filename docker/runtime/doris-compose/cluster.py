@@ -623,7 +623,9 @@ class Cluster(object):
             recycle_config, be_disks, be_cluster, reg_be, coverage_dir,
             cloud_store_config):
         os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
-        with filelock.FileLock(os.path.join(LOCAL_DORIS_PATH, "lock")):
+        lock_file = os.path.join(LOCAL_DORIS_PATH, "lock")
+        with filelock.FileLock(lock_file):
+            os.chmod(lock_file, 0o666)
             subnet = gen_subnet_prefix16()
             cluster = Cluster(name, subnet, image, is_cloud, fe_config,
                               be_config, ms_config, recycle_config, be_disks,
