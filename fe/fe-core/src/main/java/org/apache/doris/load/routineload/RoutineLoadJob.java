@@ -1430,7 +1430,11 @@ public abstract class RoutineLoadJob
         }
 
         if (!isReplay && jobState != JobState.RUNNING) {
-            Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
+            if (jobState == JobState.PAUSED) {
+                Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState, reason));
+            } else {
+                Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
+            }
         }
     }
 
