@@ -21,7 +21,6 @@
 #include "vec/columns/column_decimal.h"
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
 #include <limits>
 #include <ostream>
@@ -38,7 +37,6 @@
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
 template <typename T>
