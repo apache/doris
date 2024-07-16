@@ -1271,7 +1271,7 @@ public class EditLog {
         JournalBatch batch = new JournalBatch(35);
         for (T entry : entries) {
             // the number of batch entities to less than 32 and the batch data size to less than 640KB
-            if (batch.getJournalEntities().size() > 32 || batch.getSize() > 640 * 1024) {
+            if (batch.getJournalEntities().size() >= 32 || batch.getSize() >= 640 * 1024) {
                 batches.add(batch);
                 batch = new JournalBatch(35);
             }

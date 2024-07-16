@@ -991,6 +991,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private List<UpdateCloudReplicaInfo> batchUpdateCloudReplicaInfoEditlogs(List<UpdateCloudReplicaInfo> infos) {
+        long start = System.currentTimeMillis();
         List<UpdateCloudReplicaInfo> rets = new ArrayList<>();
         // clusterId, infos
         Map<String, List<UpdateCloudReplicaInfo>> clusterIdToInfos = infos.stream()
@@ -1039,6 +1040,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 newInfo.setTabletId(-1);
                 rets.add(newInfo);
             });
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("batchUpdateCloudReplicaInfoEditlogs old size {}, cur size {} cost {} ms",
+                    infos.size(), rets.size(), System.currentTimeMillis() - start);
         }
         return rets;
     }
