@@ -1,5 +1,6 @@
 import groovy.json.JsonOutput
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import java.time.Duration;
 
 import com.amazonaws.auth.AWSStaticCredentialsProvider
 import com.amazonaws.auth.BasicAWSCredentials
@@ -9,6 +10,17 @@ import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import com.amazonaws.services.s3.model.ListObjectsRequest
 import com.amazonaws.services.s3.model.ObjectListing
 import com.amazonaws.services.s3.model.DeleteObjectRequest
+import com.azure.core.http.rest.PagedIterable;
+import com.azure.core.http.rest.PagedResponse;
+import com.azure.core.http.rest.Response;
+import com.azure.core.util.Context;
+import com.azure.storage.blob.BlobClient;
+import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.BlobContainerClientBuilder;
+import com.azure.storage.blob.models.BlobItem;
+import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.models.ListBlobsOptions;
+import com.azure.storage.common.StorageSharedKeyCredential;
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.fs.LocatedFileStatus
@@ -57,18 +69,38 @@ suite("test_checker") {
         String region = getObjStoreInfoApiResult.result.obj_info[0].region
         String prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
         String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
-        def credentials = new BasicAWSCredentials(ak, sk)
-        def endpointConfiguration = new EndpointConfiguration(s3Endpoint, region)
-        def s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
-                .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
-        def objectListing = s3Client.listObjects(
-                new ListObjectsRequest().withBucketName(bucket).withPrefix("${prefix}/data/${tabletId}/"))
-        def objectSummaries = objectListing.getObjectSummaries()
-        assertTrue(!objectSummaries.isEmpty())
-        Random random = new Random(caseStartTime);
-        def objectKey = objectSummaries[random.nextInt(objectSummaries.size())].getKey()
-        logger.info("delete objectKey: ${objectKey}")
-        s3Client.deleteObject(new DeleteObjectRequest(bucket, objectKey))
+        String provider = getObjStoreInfoApiResult.result.obj_info[0].provider
+        if (provider.equalsIgnoreCase("azure")) {
+            String uri = String.format("https://%s.blob.core.windows.net/%s", ak, bucket);
+            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(ak, sk);
+            BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
+            builder.credential(cred);
+            builder.endpoint(uri);
+            BlobContainerClient containerClient = builder.buildClient();
+            PagedIterable<BlobItem> blobs = containerClient.listBlobs(
+                new ListBlobsOptions()
+                    .setPrefix("${prefix}/data/${tabletId}/"), Duration.ofMinutes(1));
+
+            def objectSummaries = blobs.stream().map(BlobItem::getName).toList()
+            assertTrue(!objectSummaries.isEmpty())
+            Random random = new Random(caseStartTime);
+            def objectKey = objectSummaries.get(random.nextInt(objectSummaries.size()))
+            BlobClient client = containerClient.getBlobClient(objectKey)
+            client.delete()
+        } else {
+            def credentials = new BasicAWSCredentials(ak, sk)
+            def endpointConfiguration = new EndpointConfiguration(s3Endpoint, region)
+            def s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
+                    .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+            def objectListing = s3Client.listObjects(
+                    new ListObjectsRequest().withBucketName(bucket).withPrefix("${prefix}/data/${tabletId}/"))
+            def objectSummaries = objectListing.getObjectSummaries()
+            assertTrue(!objectSummaries.isEmpty())
+            Random random = new Random(caseStartTime);
+            def objectKey = objectSummaries[random.nextInt(objectSummaries.size())].getKey()
+            logger.info("delete objectKey: ${objectKey}")
+            s3Client.deleteObject(new DeleteObjectRequest(bucket, objectKey))
+        }
     } else if (getObjStoreInfoApiResult.result.containsKey("storage_vault")) {
         String fsUri = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.fs_name
         String prefix = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.prefix
