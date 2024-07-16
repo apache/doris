@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #include "vec/columns/column_string.h"
+#include <google/protobuf/extension_set.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
@@ -32,6 +33,7 @@
 #include "vec/common/memcmp_small.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 
@@ -397,16 +399,41 @@ void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
 
 template <typename T>
 void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                               const uint8_t* null_map) const {
-    for (size_t i = 0; i < num_rows; ++i) {
-        if (null_map[i] == 0) {
-            uint32_t offset(offset_at(i));
-            uint32_t string_size(size_at(i));
+                                               const UInt8* null_map) const {
+    DCHECK(null_map != nullptr);
+    
+    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
 
-            auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
-            memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
-            memcpy(ptr + sizeof(string_size), &chars[offset], string_size);
-            keys[i].size += sizeof(string_size) + string_size;
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
+            // serialize null first
+            memcpy(dest, null_map + i, sizeof(uint8_t));
+
+            if (null_map[i] == 0) {
+                UInt32 offset(offset_at(i));
+                UInt32 string_size(size_at(i));
+                
+                memcpy_fixed<UInt32>(dest + 1, (char*)&string_size);
+                memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
+                keys[i].size += sizeof(string_size) + string_size + sizeof(UInt8);
+            } else {
+                keys[i].size += sizeof(UInt8);
+            }
+        }
+    } else {
+        // All rows are not null, serialize null & value
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + keys[i].size);
+            // serialize null first
+            memcpy(dest, null_map + i, sizeof(uint8_t));
+
+            UInt32 offset(offset_at(i));
+            UInt32 string_size(size_at(i));
+            
+            memcpy_fixed<UInt32>(dest + 1, (char*)&string_size);
+            memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
+            keys[i].size += sizeof(string_size) + string_size + sizeof(UInt8);
         }
     }
 }
