@@ -373,8 +373,8 @@ class SuiteCluster {
             } else {
                 assert false : 'Unknown node type with name: ' + name
             }
-            return new Tuple4(frontends, backends, metaservices, recyclers)
         }
+        return new Tuple4(frontends, backends, metaservices, recyclers)
     }
 
     List<Integer> addFrontend(int num) throws Exception {
