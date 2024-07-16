@@ -130,7 +130,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
      * @param cascadesContext include information about user and policy
      */
     public RelatedPolicy findPolicy(LogicalPlan logicalPlan, CascadesContext cascadesContext) {
-        if (!(logicalPlan instanceof CatalogRelation || logicalPlan.child(0) instanceof LogicalView)) {
+        if (!(logicalPlan instanceof CatalogRelation || logicalPlan instanceof LogicalView)) {
             return RelatedPolicy.NO_POLICY;
         }
         ConnectContext connectContext = cascadesContext.getConnectContext();
@@ -140,7 +140,8 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             return RelatedPolicy.NO_POLICY;
         }
 
-        TableIf table = getTable(logicalPlan);
+        TableIf table = logicalPlan instanceof CatalogRelation ? ((CatalogRelation) logicalPlan).getTable()
+                : ((LogicalView<?>) logicalPlan).getView();
         String ctlName = table.getDatabase().getCatalog().getName();
         String dbName = table.getDatabase().getFullName();
         String tableName = table.getName();
@@ -186,15 +187,6 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         );
     }
 
-    private TableIf getTable(LogicalPlan logicalPlan) {
-        if (logicalPlan instanceof CatalogRelation) {
-            return ((CatalogRelation) logicalPlan).getTable();
-        } else {
-            LogicalView logicalView = (LogicalView) logicalPlan.child(0);
-            return logicalView.getView();
-        }
-    }
-
     private Expression mergeRowPolicy(List<? extends RowFilterPolicy> policies) {
         List<Expression> orList = new ArrayList<>();
         List<Expression> andList = new ArrayList<>();
@@ -227,7 +219,9 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         }
     }
 
-    /** RelatedPolicy */
+    /**
+     * RelatedPolicy
+     */
     public static class RelatedPolicy {
         public static final RelatedPolicy NO_POLICY = new RelatedPolicy(Optional.empty(), Optional.empty());
 

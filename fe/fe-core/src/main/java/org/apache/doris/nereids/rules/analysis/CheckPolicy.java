@@ -21,7 +21,6 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -65,7 +64,8 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                     || ctx.connectContext.getSessionVariable().isPlayNereidsDump()) {
                                 return ctx.root.child();
                             }
-                            LogicalPlan relation = (LogicalPlan) child;
+                            LogicalPlan relation = child instanceof LogicalSubQueryAlias ? (LogicalPlan) child.child(0)
+                                    : (LogicalPlan) child;
                             Set<Expression> combineFilter = new LinkedHashSet<>();
 
                             // replace incremental params as AND expression
@@ -96,13 +96,14 @@ public class CheckPolicy implements AnalysisRuleFactory {
         );
     }
 
+    // logicalView() or logicalSubQueryAlias(logicalView())
     private boolean isView(Plan plan) {
-        if (plan instanceof LogicalSubQueryAlias) {
-            LogicalSubQueryAlias alis = (LogicalSubQueryAlias) plan;
-            TreeNode child = alis.child(0);
-            if (child instanceof LogicalView) {
-                return true;
-            }
+        if (plan instanceof LogicalView) {
+            return true;
+        }
+        if (plan instanceof LogicalSubQueryAlias && plan.children().size() > 0 && plan.child(
+                0) instanceof LogicalView) {
+            return true;
         }
         return false;
     }
