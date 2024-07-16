@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
@@ -129,10 +130,9 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
      * @param cascadesContext include information about user and policy
      */
     public RelatedPolicy findPolicy(LogicalPlan logicalPlan, CascadesContext cascadesContext) {
-        if (!(logicalPlan instanceof CatalogRelation)) {
+        if (!(logicalPlan instanceof CatalogRelation || logicalPlan.child(0) instanceof LogicalView)) {
             return RelatedPolicy.NO_POLICY;
         }
-
         ConnectContext connectContext = cascadesContext.getConnectContext();
         AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
@@ -140,10 +140,10 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             return RelatedPolicy.NO_POLICY;
         }
 
-        CatalogRelation catalogRelation = (CatalogRelation) logicalPlan;
-        String ctlName = catalogRelation.getDatabase().getCatalog().getName();
-        String dbName = catalogRelation.getDatabase().getFullName();
-        String tableName = catalogRelation.getTable().getName();
+        TableIf table = getTable(logicalPlan);
+        String ctlName = table.getDatabase().getCatalog().getName();
+        String dbName = table.getDatabase().getFullName();
+        String tableName = table.getName();
 
         NereidsParser nereidsParser = new NereidsParser();
         ImmutableList.Builder<NamedExpression> dataMasks
@@ -184,6 +184,15 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
                 Optional.ofNullable(CollectionUtils.isEmpty(rowPolicies) ? null : mergeRowPolicy(rowPolicies)),
                 hasDataMask ? Optional.of(dataMasks.build()) : Optional.empty()
         );
+    }
+
+    private TableIf getTable(LogicalPlan logicalPlan) {
+        if (logicalPlan instanceof CatalogRelation) {
+            return ((CatalogRelation) logicalPlan).getTable();
+        } else {
+            LogicalView logicalView = (LogicalView) logicalPlan.child(0);
+            return logicalView.getView();
+        }
     }
 
     private Expression mergeRowPolicy(List<? extends RowFilterPolicy> policies) {
