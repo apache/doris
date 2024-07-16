@@ -25,12 +25,14 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.SqlCacheContext.FullColumnName;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.SqlCacheContext.ScanTable;
@@ -124,7 +126,9 @@ public class NereidsSqlCacheManager {
 
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        String key = currentUserIdentity.toString() + ":" + sql.trim();
+        String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
+                ? currentUserIdentity.toString() + ":" + sql.trim()
+                : currentUserIdentity.toString() + ":" + DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5());
         if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null
                 && sqlCacheContext.getResultSetInFe().isPresent()) {
             sqlCaches.put(key, sqlCacheContext);
@@ -142,7 +146,9 @@ public class NereidsSqlCacheManager {
         }
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        String key = currentUserIdentity.toString() + ":" + sql.trim();
+        String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
+                ? currentUserIdentity.toString() + ":" + sql.trim()
+                : currentUserIdentity.toString() + ":" + DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5());
         if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null) {
             SqlCache cache = (SqlCache) analyzer.getCache();
             sqlCacheContext.setSumOfPartitionNum(cache.getSumOfPartitionNum());
@@ -162,14 +168,43 @@ public class NereidsSqlCacheManager {
     /** tryParseSql */
     public Optional<LogicalSqlCache> tryParseSql(ConnectContext connectContext, String sql) {
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        Env env = connectContext.getEnv();
-        String key = currentUserIdentity.toString() + ":" + sql.trim();
+        String key = currentUserIdentity + ":" + sql.trim();
         SqlCacheContext sqlCacheContext = sqlCaches.getIfPresent(key);
         if (sqlCacheContext == null) {
             return Optional.empty();
         }
 
         // LOG.info("Total size: " + GraphLayout.parseInstance(sqlCacheContext).totalSize());
+
+        List<Variable> currentVariables = resolveUserVariables(sqlCacheContext);
+        if (usedVariablesChanged(currentVariables, sqlCacheContext)) {
+            String md5 = DebugUtil.printId(
+                    sqlCacheContext.doComputeCacheKeyMd5(Utils.fastToImmutableSet(currentVariables)));
+
+            String md5CacheKey = currentUserIdentity + ":" + md5;
+            SqlCacheContext sqlCacheContextWithVariable = sqlCaches.getIfPresent(md5CacheKey);
+
+            // already exist cache in the fe, but the variable is different to this query,
+            // we should create another cache context in fe, use another cache key
+            connectContext.getStatementContext()
+                    .getSqlCacheContext().ifPresent(ctx -> ctx.setCacheKeyType(CacheKeyType.MD5));
+
+            if (sqlCacheContextWithVariable != null) {
+                return tryParseSqlWithoutCheckVariable(
+                        connectContext, md5CacheKey, sqlCacheContextWithVariable, currentUserIdentity
+                );
+            } else {
+                return Optional.empty();
+            }
+        } else {
+            return tryParseSqlWithoutCheckVariable(connectContext, key, sqlCacheContext, currentUserIdentity);
+        }
+    }
+
+    private Optional<LogicalSqlCache> tryParseSqlWithoutCheckVariable(
+            ConnectContext connectContext, String key,
+            SqlCacheContext sqlCacheContext, UserIdentity currentUserIdentity) {
+        Env env = connectContext.getEnv();
 
         // check table and view and their columns authority
         if (privilegeChanged(connectContext, env, sqlCacheContext)) {
