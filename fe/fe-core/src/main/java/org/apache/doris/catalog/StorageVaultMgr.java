@@ -35,6 +35,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -47,7 +48,7 @@ public class StorageVaultMgr {
     // <VaultName, VaultId>
     private Pair<String, String> defaultVaultInfo;
 
-    private Map<String, String> vaultNameToVaultId;
+    private Map<String, String> vaultNameToVaultId = new HashMap<>();
 
     private ReadWriteLock rwLock = new ReentrantReadWriteLock();
 
