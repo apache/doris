@@ -399,7 +399,7 @@ template <typename T>
 void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                                const UInt8* null_map) const {
     DCHECK(null_map != nullptr);
-    
+
     const bool has_null = simd::contain_byte(null_map, num_rows, 1);
 
     if (has_null) {
@@ -411,7 +411,7 @@ void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
             if (null_map[i] == 0) {
                 UInt32 offset(offset_at(i));
                 UInt32 string_size(size_at(i));
-                
+
                 memcpy_fixed<UInt32>(dest + 1, (char*)&string_size);
                 memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
                 keys[i].size += sizeof(string_size) + string_size + sizeof(UInt8);
@@ -428,7 +428,7 @@ void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
 
             UInt32 offset(offset_at(i));
             UInt32 string_size(size_at(i));
-            
+
             memcpy_fixed<UInt32>(dest + 1, (char*)&string_size);
             memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
             keys[i].size += sizeof(string_size) + string_size + sizeof(UInt8);
