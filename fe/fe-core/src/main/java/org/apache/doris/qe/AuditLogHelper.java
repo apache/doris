@@ -34,6 +34,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.audit.AuditEvent.EventType;
@@ -64,9 +65,11 @@ public class AuditLogHelper {
         }
     }
 
-    private static String handleStmt(String origStmt, StatementBase parsedStmt) {
+    public static String handleStmt(String origStmt, StatementBase parsedStmt) {
         int length = Math.min(GlobalVariable.auditPluginMaxSqlLength, origStmt.length());
-        origStmt = origStmt.replace("\n", " ").substring(0, length);
+        origStmt = origStmt.substring(0, length)
+            .replace("\n", " ")
+            .replace("\r", "");
         // old planner
         if (parsedStmt instanceof NativeInsertStmt) {
             QueryStmt queryStmt = ((NativeInsertStmt) parsedStmt).getQueryStmt();
@@ -94,6 +97,8 @@ public class AuditLogHelper {
         for (Plan child : children) {
             if (child instanceof UnboundOneRowRelation) {
                 cnt++;
+            } else if (child instanceof LogicalInlineTable) {
+                cnt += ((LogicalInlineTable) child).getConstantExprsList().size();
             } else {
                 cnt += countValues(child.children());
             }
