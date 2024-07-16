@@ -1086,12 +1086,13 @@ public class AnalysisManager implements Writable {
     }
 
     // Invoke this when load transaction finished.
-    public void updateUpdatedRows(Map<Long, Map<Long, Long>> tabletRecords, long dbId) {
+    public void updateUpdatedRows(Map<Long, Map<Long, Long>> tabletRecords, long dbId, long txnId) {
         try {
             if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
                 return;
             }
             UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(tabletRecords, dbId);
+            LOG.info("Update rows transactionId is {}", txnId);
             replayUpdateRowsRecord(updateRowsEvent);
             logUpdateRowsRecord(updateRowsEvent);
         } catch (Throwable t) {
@@ -1100,7 +1101,7 @@ public class AnalysisManager implements Writable {
     }
 
     // Invoke this when load truncate table finished.
-    public void updateUpdatedRows(Map<Long, Long> partitionToUpdateRows, long dbId, long tableId) {
+    public void updateUpdatedRows(Map<Long, Long> partitionToUpdateRows, long dbId, long tableId, long txnId) {
         try {
             if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
                 return;
@@ -1205,8 +1206,11 @@ public class AnalysisManager implements Writable {
                     }
                     long tableUpdateRows = 0;
                     for (Entry<Long, Long> entry : tabletRows.entrySet()) {
-                        tableUpdateRows += entry.getValue() / replicaNum;
+                        tableUpdateRows += entry.getValue();
                     }
+                    tableUpdateRows = tableUpdateRows / replicaNum;
+                    LOG.info("Update rows for table {} is {}, replicaNum is {}",
+                            olapTable.getName(), tableUpdateRows, replicaNum);
                     statsStatus.updatedRows.addAndGet(tableUpdateRows);
                     if (StatisticsUtil.enablePartitionAnalyze()) {
                         updatePartitionRows(olapTable, tabletRows, statsStatus, replicaNum);
