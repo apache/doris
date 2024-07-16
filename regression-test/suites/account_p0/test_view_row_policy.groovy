@@ -37,8 +37,8 @@ suite("test_view_row_policy") {
         sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
     }
 
-    DROP ROW POLICY IF EXISTS ${tablePolcyName} ON ${dbName}.${tableName} FOR ${user}
-    DROP ROW POLICY IF EXISTS ${viewPolcyName} ON ${dbName}.${tableName} FOR ${user}
+    sql "DROP ROW POLICY IF EXISTS ${tablePolcyName} ON ${dbName}.${tableName} FOR ${user}"
+    sql "DROP ROW POLICY IF EXISTS ${viewPolcyName} ON ${dbName}.${tableName} FOR ${user}"
 
     // create table
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -97,6 +97,6 @@ suite("test_view_row_policy") {
         order_qt_view_policy "SELECT * FROM ${viewName}"
     }
 
-    DROP ROW POLICY IF EXISTS ${tablePolcyName} ON ${dbName}.${tableName} FOR ${user}
-    DROP ROW POLICY IF EXISTS ${viewPolcyName} ON ${dbName}.${tableName} FOR ${user}
+    sql "DROP ROW POLICY IF EXISTS ${tablePolcyName} ON ${dbName}.${tableName} FOR ${user}"
+    sql "DROP ROW POLICY IF EXISTS ${viewPolcyName} ON ${dbName}.${tableName} FOR ${user}"
 }
