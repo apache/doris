@@ -286,7 +286,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
 
         for (Table table : tables) {
-            if (table.getType() != TableType.OLAP) {
+            if (!table.isManagedTable()) {
                 continue;
             }
 
@@ -307,7 +307,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         try {
             long usedReplicaCount = 0;
             for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
 
@@ -545,7 +545,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         readLock();
         try {
             for (Table table : idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
@@ -866,7 +866,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
                 // check all tables binlog enable is true
                 for (Table table : idToTable.values()) {
-                    if (table.getType() != TableType.OLAP) {
+                    if (!table.isManagedTable()) {
                         continue;
                     }
 

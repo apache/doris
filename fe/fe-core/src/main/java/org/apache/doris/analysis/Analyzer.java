@@ -841,7 +841,7 @@ public class Analyzer {
                 .getDbOrAnalysisException(tableName.getDb());
         TableIf table = database.getTableOrAnalysisException(tableName.getTbl());
 
-        if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
+        if (table.isManagedTable() && (((OlapTable) table).getState() == OlapTableState.RESTORE
                 || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
             Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream()
                     .filter(partition -> partition.getState() == PartitionState.RESTORE).collect(Collectors.toList())

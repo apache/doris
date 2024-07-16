@@ -3532,7 +3532,7 @@ public class Env {
             }
             // There MUST BE 2 space in front of each column description line
             // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 sb.append("  ").append(
                         column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
             } else {
@@ -3994,7 +3994,7 @@ public class Env {
             }
             List<Table> tableList = db.getTables();
             for (Table table : tableList) {
-                if (table.getType() != TableType.OLAP) {
+                if (!table.isManagedTable()) {
                     continue;
                 }
 
@@ -4492,7 +4492,7 @@ public class Env {
                     throw new DdlException("Table name[" + newTableName + "] is already used");
                 }
 
-                if (table.getType() == TableType.OLAP) {
+                if (table.isManagedTable()) {
                     // olap table should also check if any rollup has same name as "newTableName"
                     ((OlapTable) table).checkAndSetName(newTableName, false);
                 } else {
@@ -5568,7 +5568,7 @@ public class Env {
         List<ReplicaPersistInfo> replicaPersistInfos = backendTabletsInfo.getReplicaPersistInfos();
         for (ReplicaPersistInfo info : replicaPersistInfos) {
             OlapTable olapTable = (OlapTable) getInternalCatalog().getDb(info.getDbId())
-                    .flatMap(db -> db.getTable(info.getTableId())).filter(t -> t.getType() == TableType.OLAP)
+                    .flatMap(db -> db.getTable(info.getTableId())).filter(t -> t.isManagedTable())
                     .orElse(null);
             if (olapTable == null) {
                 continue;
@@ -6111,7 +6111,7 @@ public class Env {
         }
 
         for (Table table : tables) {
-            if (table.getType() != TableType.OLAP) {
+            if (!table.isManagedTable()) {
                 continue;
             }
 
