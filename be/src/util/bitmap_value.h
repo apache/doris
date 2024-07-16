@@ -1251,8 +1251,7 @@ public:
         std::vector<const detail::Roaring64Map*> bitmaps;
         std::vector<uint64_t> single_values;
         std::vector<const SetContainer<uint64_t>*> sets;
-        for (int i = 0; i < values.size(); ++i) {
-            auto* value = values[i];
+        for (const auto* value : values) {
             switch (value->_type) {
             case EMPTY:
                 break;
@@ -1279,7 +1278,9 @@ public:
                 _bitmap->add(_sv);
                 break;
             case BITMAP:
-                *_bitmap |= detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
+                for (const auto* bitmap : bitmaps) {
+                    *_bitmap |= *bitmap;
+                }
                 break;
             case SET: {
                 *_bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
@@ -1314,6 +1315,7 @@ public:
                     _bitmap->add(v);
                 }
                 _type = BITMAP;
+                _set.clear();
                 break;
             case SET: {
                 break;
