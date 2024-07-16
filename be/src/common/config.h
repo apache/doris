@@ -1318,6 +1318,13 @@ DECLARE_Int32(spill_io_thread_pool_queue_size);
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 DECLARE_mBool(enable_s3_rate_limiter);
+DECLARE_mInt64(s3_get_bucket_tokens);
+DECLARE_mInt64(s3_get_token_per_second);
+DECLARE_mInt64(s3_get_token_limit);
+
+DECLARE_mInt64(s3_put_bucket_tokens);
+DECLARE_mInt64(s3_put_token_per_second);
+DECLARE_mInt64(s3_put_token_limit);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will
