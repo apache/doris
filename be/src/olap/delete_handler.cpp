@@ -97,7 +97,8 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
     })
     if (conditions.empty()) {
         return Status::Error<DELETE_INVALID_PARAMETERS>(
-                "invalid parameters for store_cond. condition_size={}", conditions.size());
+                "DELETE_INVALID_PARAMETERS: invalid parameters for store_cond. condition_size={}",
+                conditions.size());
     }
 
     // Check whether the delete condition meets the requirements
@@ -128,7 +129,8 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
                 LOG(WARNING) << "failed to parse condition_str, condtion="
                              << ThriftDebugString(condition);
                 return Status::Error<DELETE_INVALID_CONDITION>(
-                        "failed to parse condition_str, condtion={}", ThriftDebugString(condition));
+                        "DELETE_INVALID_CONDITION: failed to parse condition_str, condtion={}",
+                        ThriftDebugString(condition));
             }
             VLOG_NOTICE << __PRETTY_FUNCTION__ << " condition_str: " << condition_str;
             del_pred->add_sub_predicates(condition_str);
@@ -235,8 +237,8 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     // Check whether the column exists
     int32_t field_index = schema.field_index(cond.column_name);
     if (field_index < 0) {
-        return Status::Error<DELETE_INVALID_CONDITION>("field is not existent. [field_index={}]",
-                                                       field_index);
+        return Status::Error<DELETE_INVALID_CONDITION>(
+                "DELETE_INVALID_CONDITION: field is not existent. [field_index={}]", field_index);
     }
 
     // Delete condition should only applied on key columns or duplicate key table, and
@@ -245,21 +247,24 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
 
     if (column.type() == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
         column.type() == FieldType::OLAP_FIELD_TYPE_FLOAT) {
-        return Status::Error<DELETE_INVALID_CONDITION>("data type is float or double.");
+        return Status::Error<DELETE_INVALID_CONDITION>(
+                "DELETE_INVALID_CONDITION: data type is float or double.");
     }
 
     // Check operator and operands size are matched.
     if ("*=" != cond.condition_op && "!*=" != cond.condition_op &&
         cond.condition_values.size() != 1) {
-        return Status::Error<DELETE_INVALID_CONDITION>("invalid condition value size. [size={}]",
-                                                       cond.condition_values.size());
+        return Status::Error<DELETE_INVALID_CONDITION>(
+                "DELETE_INVALID_CONDITION: invalid condition value size. [size={}]",
+                cond.condition_values.size());
     }
 
     // Check each operand is valid
     for (const auto& condition_value : cond.condition_values) {
         if (!is_condition_value_valid(column, cond.condition_op, condition_value)) {
-            return Status::Error<DELETE_INVALID_CONDITION>("invalid condition value. [value={}]",
-                                                           condition_value);
+            return Status::Error<DELETE_INVALID_CONDITION>(
+                    "DELETE_INVALID_CONDITION: invalid condition value. [value={}]",
+                    condition_value);
         }
     }
 
@@ -270,14 +275,16 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
         return Status::OK();
     }
     if (schema.field_index(cond.column_unique_id) == -1) {
-        const auto& err_msg =
-                fmt::format("column id does not exists in table={}, schema version={},",
-                            schema.table_id(), schema.schema_version());
+        const auto& err_msg = fmt::format(
+                "DELETE_INVALID_CONDITION: column id does not exists in table={}, schema "
+                "version={},",
+                schema.table_id(), schema.schema_version());
         return Status::Error<DELETE_INVALID_CONDITION>(err_msg);
     }
     if (!iequal(schema.column_by_uid(cond.column_unique_id).name(), cond.column_name)) {
         const auto& err_msg = fmt::format(
-                "colum name={} does not belongs to column uid={}, which column name={}, "
+                "DELETE_INVALID_CONDITION: colum name={} does not belongs to column uid={}, which "
+                "column name={}, "
                 "delete_cond.column_name ={}",
                 cond.column_name, cond.column_unique_id,
                 schema.column_by_uid(cond.column_unique_id).name(), cond.column_name);
@@ -290,8 +297,8 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
 Status DeleteHandler::parse_condition(const DeleteSubPredicatePB& sub_cond, TCondition* condition) {
     if (!sub_cond.has_column_name() || !sub_cond.has_op() || !sub_cond.has_cond_value()) {
         return Status::Error<DELETE_INVALID_PARAMETERS>(
-                "fail to parse condition. condition={} {} {}", sub_cond.column_name(),
-                sub_cond.op(), sub_cond.cond_value());
+                "DELETE_INVALID_PARAMETERS: fail to parse condition. condition={} {} {}",
+                sub_cond.column_name(), sub_cond.op(), sub_cond.cond_value());
     }
     if (sub_cond.has_column_unique_id()) {
         condition->column_unique_id = sub_cond.column_unique_id();

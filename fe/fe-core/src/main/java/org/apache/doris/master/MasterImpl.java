@@ -311,15 +311,17 @@ public class MasterImpl {
 
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             if (pushTask.getPushType() == TPushType.DELETE) {
-                // DeleteHandler may return status code DELETE_INVALID_CONDITION and DELETE_INVALID_PARAMETERS,
-                // we don't need to retry if meet them.
+                // we don't need to retry if the returned status code is DELETE_INVALID_CONDITION
+                // or DELETE_INVALID_PARAMETERS
                 // note that they will be converted to TStatusCode.INTERNAL_ERROR when being sent from be to fe
-                if (request.getTaskStatus().getStatusCode() == TStatusCode.INTERNAL_ERROR
-                        && !request.getTaskStatus().getErrorMsgs().toString().contains("get lock failed")) {
-                    pushTask.countDownToZero(request.getTaskStatus().getStatusCode(),
-                            task.getBackendId() + ": " + request.getTaskStatus().getErrorMsgs().toString());
-                    AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
-                    LOG.warn("finish push replica error: {}", request.getTaskStatus().getErrorMsgs().toString());
+                if (request.getTaskStatus().getStatusCode() == TStatusCode.INTERNAL_ERROR) {
+                    String errMsg = request.getTaskStatus().getErrorMsgs().toString();
+                    if (errMsg.contains("DELETE_INVALID_CONDITION") || errMsg.contains("DELETE_INVALID_CONDITION")) {
+                        pushTask.countDownToZero(request.getTaskStatus().getStatusCode(),
+                                task.getBackendId() + ": " + request.getTaskStatus().getErrorMsgs().toString());
+                        AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
+                        LOG.warn("finish push replica error: {}", request.getTaskStatus().getErrorMsgs().toString());
+                    }
                 }
             }
             return;

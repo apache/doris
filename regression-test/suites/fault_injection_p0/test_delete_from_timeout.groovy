@@ -37,7 +37,7 @@ suite("test_delete_from_timeout","nonConcurrent") {
         sql "insert into ${tableName} values(1, 99.9, 234), (false, -9999782574499444.2, -25);"
         qt_sql "select * from ${tableName} order by col1, col2, col3;"
         GetDebugPoint().enableDebugPointForAllBEs("DeleteHandler::generate_delete_predicate.inject_failure",
-            [error_code: -1900 /* DELETE_INVALID_CONDITION */, error_msg: "data type is float or double."])
+            [error_code: -1900 /* DELETE_INVALID_CONDITION */, error_msg: "DELETE_INVALID_CONDITION: data type is float or double."])
         test {
             sql """delete from ${tableName} where col1 = "false" and col2 = "-9999782574499444.2" and col3 = "-25"; """
             exception "data type is float or double."
@@ -46,7 +46,7 @@ suite("test_delete_from_timeout","nonConcurrent") {
         GetDebugPoint().clearDebugPointsForAllBEs()
 
         GetDebugPoint().enableDebugPointForAllBEs("DeleteHandler::generate_delete_predicate.inject_failure",
-            [error_code: -1903 /* DELETE_INVALID_PARAMETERS */, error_msg: "invalid parameters for store_cond. condition_size=1"])
+            [error_code: -1903 /* DELETE_INVALID_PARAMETERS */, error_msg: "DELETE_INVALID_PARAMETERS: invalid parameters for store_cond. condition_size=1"])
         test {
             sql """delete from ${tableName} where col1 = "false" and col2 = "-9999782574499444.2" and col3 = "-25"; """
             exception "invalid parameters for store_cond. condition_size=1"
