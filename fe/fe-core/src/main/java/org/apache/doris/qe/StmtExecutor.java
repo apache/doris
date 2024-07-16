@@ -530,8 +530,8 @@ public class StmtExecutor {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         if (Config.enable_print_request_before_execution) {
-            LOG.info("begin to execute query {} {}", DebugUtil.printId(queryId), originStmt == null ? "null" :
-                AuditLogHelper.handleStmt(originStmt.originStmt, getParsedStmt()));
+            LOG.info("begin to execute query {} {}",
+                    DebugUtil.printId(queryId), originStmt == null ? "null" : originStmt.originStmt);
         }
         queryRetry(queryId);
     }

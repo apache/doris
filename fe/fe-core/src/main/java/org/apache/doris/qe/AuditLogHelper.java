@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.ValueList;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.audit.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -46,6 +48,11 @@ import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.util.List;
 
 public class AuditLogHelper {
@@ -66,16 +73,28 @@ public class AuditLogHelper {
     }
 
     public static String handleStmt(String origStmt, StatementBase parsedStmt) {
-        int length = Math.min(GlobalVariable.auditPluginMaxSqlLength, origStmt.length());
-        origStmt = origStmt.substring(0, length)
+        if (origStmt == null) {
+            return null;
+        }
+        int maxLen = GlobalVariable.auditPluginMaxSqlLength;
+        if (origStmt.length() <= maxLen) {
+            return origStmt.replace("\n", " ")
+                .replace("\t", " ")
+                .replace("\r", " ");
+        }
+        origStmt = truncateByBytes(origStmt)
             .replace("\n", " ")
-            .replace("\r", "");
+            .replace("\t", " ")
+            .replace("\r", " ") + " ...";
+        int rowCnt = 0;
         // old planner
         if (parsedStmt instanceof NativeInsertStmt) {
             QueryStmt queryStmt = ((NativeInsertStmt) parsedStmt).getQueryStmt();
             if (queryStmt instanceof SelectStmt) {
-                int rowCnt = ((SelectStmt) queryStmt).getValueList().getRows().size();
-                origStmt += " /* total " + rowCnt + " rows */";
+                ValueList list = ((SelectStmt) queryStmt).getValueList();
+                if (list != null && list.getRows() != null) {
+                    rowCnt = list.getRows().size();
+                }
             }
         }
         // nereids planner
@@ -84,22 +103,51 @@ public class AuditLogHelper {
             if (plan instanceof InsertIntoTableCommand) {
                 LogicalPlan query = ((InsertIntoTableCommand) plan).getLogicalQuery();
                 if (query instanceof UnboundTableSink) {
-                    int rowCnt = countValues(query.children());
-                    origStmt = origStmt + " /* total " + rowCnt + " rows */";
+                    rowCnt = countValues(query.children());
                 }
             }
         }
-        return origStmt;
+        if (rowCnt > 0) {
+            return origStmt + " /* total " + rowCnt + " rows */";
+        } else {
+            return origStmt;
+        }
     }
 
+    private static String truncateByBytes(String str) {
+        int maxLen = Math.min(GlobalVariable.auditPluginMaxSqlLength, str.getBytes().length);
+        // use `getBytes().length` to get real byte length
+        if (maxLen >= str.getBytes().length) {
+            return str;
+        }
+        Charset utf8Charset = Charset.forName("UTF-8");
+        CharsetDecoder decoder = utf8Charset.newDecoder();
+        byte[] sb = str.getBytes();
+        ByteBuffer buffer = ByteBuffer.wrap(sb, 0, maxLen);
+        CharBuffer charBuffer = CharBuffer.allocate(maxLen);
+        decoder.onMalformedInput(CodingErrorAction.IGNORE);
+        decoder.decode(buffer, charBuffer, true);
+        decoder.flush(charBuffer);
+        return new String(charBuffer.array(), 0, charBuffer.position());
+    }
+
+    /**
+     * When SQL is in the following situations, count the number of rows:
+     * <ul>
+     * <li>{@code insert into tbl values (1), (2), (3)}</li>
+     * </ul>
+     */
     private static int countValues(List<Plan> children) {
+        if (children == null) {
+            return 0;
+        }
         int cnt = 0;
         for (Plan child : children) {
             if (child instanceof UnboundOneRowRelation) {
                 cnt++;
             } else if (child instanceof LogicalInlineTable) {
                 cnt += ((LogicalInlineTable) child).getConstantExprsList().size();
-            } else {
+            } else if (child instanceof LogicalUnion) {
                 cnt += countValues(child.children());
             }
         }
