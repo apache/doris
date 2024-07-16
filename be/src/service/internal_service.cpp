@@ -851,9 +851,9 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
                 ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
                         UniqueId(request->finst_id()).to_thrift());
         if (schema == nullptr) {
-            LOG(INFO) << "not found arrow flight schema, maybe query has been canceled";
+            LOG(INFO) << "FE not found arrow flight schema, maybe query has been canceled";
             auto st = Status::NotFound(
-                    "not found arrow flight schema, maybe query has been canceled");
+                    "FE not found arrow flight schema, maybe query has been canceled");
             st.to_protobuf(result->mutable_status());
             return;
         }
