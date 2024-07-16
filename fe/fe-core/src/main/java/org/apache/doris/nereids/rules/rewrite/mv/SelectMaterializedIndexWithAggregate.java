@@ -71,6 +71,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -1495,7 +1500,14 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 return result;
             }
             if (!sum.isDistinct()) {
-                Expression expr = castIfNeed(sum.child(), BigIntType.INSTANCE);
+                Expression expr = sum.child();
+                if (expr.getDataType().equals(TinyIntType.INSTANCE)
+                        || expr.getDataType().equals(SmallIntType.INSTANCE)
+                        || expr.getDataType().equals(IntegerType.INSTANCE)) {
+                    expr = castIfNeed(expr, BigIntType.INSTANCE);
+                } else if (expr.getDataType().equals(FloatType.INSTANCE)) {
+                    expr = castIfNeed(expr, DoubleType.INSTANCE);
+                }
                 String sumColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM,
                         CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql())));
                 Column mvColumn = context.checkContext.getColumn(sumColumn);
