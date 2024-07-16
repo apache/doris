@@ -35,6 +35,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -45,6 +46,8 @@ public class StorageVaultMgr {
 
     // <VaultName, VaultId>
     private Pair<String, String> defaultVaultInfo;
+
+    private Map<String, String> vaultNameToVaultId;
 
     private ReadWriteLock rwLock = new ReentrantReadWriteLock();
 
@@ -73,6 +76,12 @@ public class StorageVaultMgr {
         }
         // Make BE eagerly fetch the storage vault info from Meta Service
         ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
+    }
+
+    public void refreshVaultMap(Map<String, String> vaultMap) {
+        rwLock.writeLock().lock();
+        vaultNameToVaultId = vaultMap;
+        rwLock.writeLock().unlock();
     }
 
     @VisibleForTesting
@@ -166,6 +175,9 @@ public class StorageVaultMgr {
                         hdfsStorageVault.getName(), response);
                 throw new DdlException(response.getStatus().getMsg());
             }
+            rwLock.writeLock().lock();
+            vaultNameToVaultId.put(hdfsStorageVault.getName(), response.getStorageVaultId());
+            rwLock.writeLock().unlock();
             LOG.info("Succeed to create hdfs vault {}, id {}, origin default vault replaced {}",
                     hdfsStorageVault.getName(), response.getStorageVaultId(),
                             response.getDefaultStorageVaultReplaced());
@@ -209,6 +221,9 @@ public class StorageVaultMgr {
                 LOG.warn("failed to alter storage vault response: {} ", response);
                 throw new DdlException(response.getStatus().getMsg());
             }
+            rwLock.writeLock().lock();
+            vaultNameToVaultId.put(s3StorageVault.getName(), response.getStorageVaultId());
+            rwLock.writeLock().unlock();
             LOG.info("Succeed to create s3 vault {}, id {}, origin default vault replaced {}",
                     s3StorageVault.getName(), response.getStorageVaultId(), response.getDefaultStorageVaultReplaced());
         } catch (RpcException e) {
