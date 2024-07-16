@@ -113,6 +113,7 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
                                                                                 limit));
                 CHECK(_segment_writers[_cur_writer_idx]->num_rows_written() <=
                       _segment_writers[_cur_writer_idx]->row_count());
+                break;
             }
         }
     }
