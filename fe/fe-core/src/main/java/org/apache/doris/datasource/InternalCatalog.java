@@ -2549,7 +2549,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             olapTable.setStorageVaultName(storageVaultName);
-            if (storageVaultId != null) {
+            storageVaultId = env.getStorageVaultMgr().getVaultIdByName(storageVaultName);
+            if (storageVaultId != null && !storageVaultId.isEmpty()) {
                 olapTable.setStorageVaultId(storageVaultId);
             }
         }
