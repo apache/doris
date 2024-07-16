@@ -569,9 +569,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * id#0 -> id#8
      * type#1 -> type#9
      * payload#4 -> payload#10
-     *
      * query variants is payload['issue']['number']#20
-     * then we can add payload['issue']['number']#20 -> element_at(element_at(payload#10, 'issue'), 'number') to targetToTargetReplacementMappingQueryBased
+     * then we can add payload['issue']['number']#20 -> element_at(element_at(payload#10, 'issue'), 'number')
+     * to targetToTargetReplacementMappingQueryBased
      * */
     private void extendMappingByVariant(Set<SlotReference> queryVariants,
             Map<Expression, Expression> targetToTargetReplacementMappingQueryBased) {
@@ -579,13 +579,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return;
         }
         Map<List<String>, Expression> viewNameToExprMap = new HashMap<>();
-        for (Map.Entry<Expression, Expression> targetExpressionEntry:
+        for (Map.Entry<Expression, Expression> targetExpressionEntry :
                 targetToTargetReplacementMappingQueryBased.entrySet()) {
             if (targetExpressionEntry.getKey() instanceof SlotReference
                     && ((SlotReference) targetExpressionEntry.getKey()).getDataType() instanceof VariantType) {
                 List<String> nameIdentifier = new ArrayList<>();
                 nameIdentifier.add(((SlotReference) targetExpressionEntry.getKey()).getName());
-                nameIdentifier.addAll(((SlotReference)targetExpressionEntry.getKey()).getSubPath());
+                nameIdentifier.addAll(((SlotReference) targetExpressionEntry.getKey()).getSubPath());
                 viewNameToExprMap.put(nameIdentifier, targetExpressionEntry.getValue());
             }
         }
@@ -624,14 +624,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
     }
 
-    private Expression constructElementAt(Expression target, List<String> atList) {
+    private static Expression constructElementAt(Expression target, List<String> atList) {
         Expression elementAt = target;
         for (String at : atList) {
             elementAt = new ElementAt(elementAt, new VarcharLiteral(at));
         }
         return elementAt;
     }
-
 
     // source names is contain all target with order or not
     private static boolean containsAllWithOrder(List<String> sourceNames, List<String> targetNames) {

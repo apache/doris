@@ -48,6 +48,9 @@ public abstract class Mapping {
         // Generate eagerly, will be used to generate slot mapping
         private final Map<List<String>, Slot> slotNameToSlotMap = new HashMap<>();
 
+        /**
+         * Construct relation and slot map
+         */
         public MappedRelation(RelationId relationId, CatalogRelation belongedRelation) {
             this.relationId = relationId;
             this.belongedRelation = belongedRelation;

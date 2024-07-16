@@ -83,12 +83,7 @@ public class ExpressionMapping extends Mapping {
         for (Map.Entry<? extends Expression, ? extends Collection<? extends Expression>> entry :
                 expressionMap.entrySet()) {
             Expression replacedExpr = ExpressionUtils.replace(entry.getKey(), slotMapping.toSlotReferenceMap());
-            if (replacedExpr != entry.getKey()) {
-                // only add if replaced successfully, because expression may contain variant
-                // such as query expression is payload['issue']['number'] but mv is payload, with not
-                // payload['issue']['number'], this should not map successfully
-                permutedExpressionMapping.putAll(replacedExpr, entry.getValue());
-            }
+            permutedExpressionMapping.putAll(replacedExpr, entry.getValue());
         }
         return new ExpressionMapping(permutedExpressionMapping);
     }
