@@ -60,7 +60,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                 upperFilter = (LogicalFilter) child;
                                 child = child.child(0);
                             }
-                            if (!(child instanceof LogicalRelation || isView(child))
+                            if (!(child instanceof LogicalRelation)
                                     || ctx.connectContext.getSessionVariable().isPlayNereidsDump()) {
                                 return ctx.root.child();
                             }
