@@ -2902,7 +2902,7 @@ Status Tablet::sort_block(vectorized::Block& in_block, vectorized::Block& output
             vectorized::MutableBlock::build_mutable_block(&output_block);
 
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
-            std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema().get());
+            std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema());
     vec_row_comparator->set_block(&mutable_input_block);
 
     std::vector<std::unique_ptr<RowInBlock>> row_in_blocks;
