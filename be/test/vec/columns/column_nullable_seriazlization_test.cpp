@@ -158,7 +158,8 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_vector_all_null) {
 
 TEST(ColumnNullableSerializationTest, column_nullable_column_vector_all_not_null) {
     const size_t input_rows_count = 4096 * 1000;
-    ColumnNullable::Ptr column_nullable = create_column_nullable<Int64>(input_rows_count, false, true);
+    ColumnNullable::Ptr column_nullable =
+            create_column_nullable<Int64>(input_rows_count, false, true);
     Arena arena(4096);
 
     const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
@@ -233,7 +234,8 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_string_all_null) {
 
 TEST(ColumnNullableSerializationTest, column_nullable_column_string_all_not_null) {
     const size_t input_rows_count = 4096;
-    ColumnNullable::Ptr column_nullable = create_column_nullable<String>(input_rows_count, false, true);
+    ColumnNullable::Ptr column_nullable =
+            create_column_nullable<String>(input_rows_count, false, true);
     Arena arena(4096);
 
     const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
@@ -308,7 +310,8 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_decimal_all_null) {
 
 TEST(ColumnNullableSerializationTest, column_nullable_column_decimal_all_not_null) {
     const size_t input_rows_count = 4096 * 1000;
-    ColumnNullable::Ptr column_nullable = create_column_nullable<Decimal64>(input_rows_count, false, true);
+    ColumnNullable::Ptr column_nullable =
+            create_column_nullable<Decimal64>(input_rows_count, false, true);
     Arena arena(4096);
 
     const size_t max_row_byte_size = column_nullable->get_max_row_byte_size();
@@ -429,7 +432,8 @@ TEST(ColumnNullableSerializationTest, multiple_columns_all_null) {
 
 TEST(ColumnNullableSerializationTest, multiple_columns_all_not_null) {
     const size_t input_rows_count = 4096 * 100;
-    auto column_nullable_decimal64 = create_column_nullable<Decimal64>(input_rows_count, false, true);
+    auto column_nullable_decimal64 =
+            create_column_nullable<Decimal64>(input_rows_count, false, true);
     auto column_nullable_int64 = create_column_nullable<Int64>(input_rows_count, false, true);
     auto column_nullable_string = create_column_nullable<String>(input_rows_count, false, true);
 
