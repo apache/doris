@@ -239,7 +239,7 @@ public abstract class ConnectProcessor {
                 Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
                         .getStatementContext().getSqlCacheContext();
                 if (sqlCacheContext.isPresent()) {
-                    cacheKeyType = sqlCacheContext.get().cacheKeyType;
+                    cacheKeyType = sqlCacheContext.get().getCacheKeyType();
                 }
                 if (cachedStmts != null) {
                     stmts = cachedStmts;
@@ -321,7 +321,7 @@ public abstract class ConnectProcessor {
                 if (cacheKeyType != null) {
                     SqlCacheContext sqlCacheContext =
                             executor.getContext().getStatementContext().getSqlCacheContext().get();
-                    sqlCacheContext.cacheKeyType = cacheKeyType;
+                    sqlCacheContext.setCacheKeyType(cacheKeyType);
                 }
 
                 try {

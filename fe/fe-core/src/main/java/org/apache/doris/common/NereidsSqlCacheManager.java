@@ -126,7 +126,7 @@ public class NereidsSqlCacheManager {
 
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        String key = sqlCacheContext.cacheKeyType == CacheKeyType.SQL
+        String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
                 ? currentUserIdentity.toString() + ":" + sql.trim()
                 : currentUserIdentity.toString() + ":" + DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5());
         if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null
@@ -146,7 +146,7 @@ public class NereidsSqlCacheManager {
         }
         SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        String key = sqlCacheContext.cacheKeyType == CacheKeyType.SQL
+        String key = sqlCacheContext.getCacheKeyType() == CacheKeyType.SQL
                 ? currentUserIdentity.toString() + ":" + sql.trim()
                 : currentUserIdentity.toString() + ":" + DebugUtil.printId(sqlCacheContext.getOrComputeCacheKeyMd5());
         if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5() != null) {
@@ -187,7 +187,7 @@ public class NereidsSqlCacheManager {
             // already exist cache in the fe, but the variable is different to this query,
             // we should create another cache context in fe, use another cache key
             connectContext.getStatementContext()
-                    .getSqlCacheContext().ifPresent(ctx -> ctx.cacheKeyType = CacheKeyType.MD5);
+                    .getSqlCacheContext().ifPresent(ctx -> ctx.setCacheKeyType(CacheKeyType.MD5));
 
             if (sqlCacheContextWithVariable != null) {
                 return tryParseSqlWithoutCheckVariable(
