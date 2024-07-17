@@ -41,7 +41,7 @@ class ProfileAction implements SuiteAction {
     }
 
     void check(
-        @ClosureParams(value = FromString, options = ["String"]) Closure<String> check) {
+        @ClosureParams(value = FromString, options = ["String, Throwable"]) Closure<String> check) {
         this.check = check
     }
 
