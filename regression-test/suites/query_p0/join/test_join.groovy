@@ -1271,7 +1271,7 @@ suite("test_join", "query,p0") {
             LEFT JOIN T_DORIS_C C ON A.apply_crcl = C.id JOIN T_DORIS_D D ON C.ID = D.CORE_ID order by 
             B.FACTOR_FIN_VALUE, D.limit_id desc;"""
     logger.info(ret.toString())
-    assertTrue(ret.toString().contains("  |  join op: INNER JOIN(BUCKET_SHUFFLE)"))
+    assertTrue(ret.toString().contains("  |  join op: INNER JOIN(BROADCAST)"))
     sql "SET disable_join_reorder=false"
 
     sql "drop table if exists `t0`"
