@@ -92,23 +92,23 @@ suite('test_delete_sign_with_cumu_compaction') {
     (1..10).each { i ->
         sql """INSERT into ${table} (col1,col2,col3) values (${i}, 2, 3)"""
     }
-    be_run_cumulative_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]));
+    be_run_cumulative_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]);
     waitForCompaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id])
 
     (11..12).each { i ->
         sql """INSERT into ${table} (col1,col2,col3) values (${i}, 2, 3)"""
     }
-    be_run_cumulative_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]));
+    be_run_cumulative_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]);
     waitForCompaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id])
 
-    be_run_base_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]));
+    be_run_base_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]);
     waitForCompaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id])
 
     (1..10).each { i ->
         sql """ INSERT into ${table} (col1,col2,col3,__DORIS_DELETE_SIGN__) values (${i}, 2, 3, 1) """
     }
 
-    be_run_cumulative_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]));
+    be_run_cumulative_compaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id], tablet[0]);
     waitForCompaction(backendId_to_backendIP[backend_id], backendId_to_backendHttpPort[backend_id])
 
     qt_select_default """ SELECT * FROM ${table} ORDER BY col1 """
