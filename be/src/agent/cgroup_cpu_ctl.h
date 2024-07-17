@@ -35,7 +35,7 @@ class CgroupCpuCtl {
 public:
     virtual ~CgroupCpuCtl() = default;
     CgroupCpuCtl() = default;
-    CgroupCpuCtl(uint64_t tg_id) { _tg_id = tg_id; }
+    CgroupCpuCtl(uint64_t wg_id) { _wg_id = wg_id; }
 
     virtual Status init();
 
@@ -63,7 +63,7 @@ protected:
     int _cpu_hard_limit = 0;
     std::shared_mutex _lock_mutex;
     bool _init_succ = false;
-    uint64_t _tg_id = -1; // workload group id
+    uint64_t _wg_id = -1; // workload group id
     uint64_t _cpu_shares = 0;
 };
 

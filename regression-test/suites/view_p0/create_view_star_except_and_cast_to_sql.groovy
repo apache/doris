@@ -16,7 +16,7 @@
 // under the License.
 
 suite("create_view_star_except_and_cast_to_sql") {
-
+    sql "SET enable_nereids_planner=false;"
     sql """
          DROP TABLE IF EXISTS mal_old_create_view
         """
@@ -34,6 +34,7 @@ suite("create_view_star_except_and_cast_to_sql") {
     sql "create view v_mal_old_create_view as select * except(a) from mal_old_create_view"
 
     qt_test_select_star_except "select * from v_mal_old_create_view order by pk,b"
+    qt_test_select_star_except_sql "show create view v_mal_old_create_view"
 
     sql "drop view if EXISTS v_mal_old_create_view2"
 

@@ -72,14 +72,15 @@ CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycle_task_threshold_seconds, "10800");    // 3h
 
-CONF_String(test_s3_ak, "ak");
-CONF_String(test_s3_sk, "sk");
-CONF_String(test_s3_endpoint, "endpoint");
-CONF_String(test_s3_region, "region");
-CONF_String(test_s3_bucket, "bucket");
+CONF_String(test_s3_ak, "");
+CONF_String(test_s3_sk, "");
+CONF_String(test_s3_endpoint, "");
+CONF_String(test_s3_region, "");
+CONF_String(test_s3_bucket, "");
+CONF_String(test_s3_prefix, "");
 
-CONF_String(test_hdfs_prefix, "prefix");
-CONF_String(test_hdfs_fs_name, "fs_name");
+CONF_String(test_hdfs_prefix, "");
+CONF_String(test_hdfs_fs_name, "");
 // CONF_Int64(a, "1073741824");
 // CONF_Bool(b, "true");
 
@@ -188,5 +189,14 @@ CONF_mBool(enable_distinguish_hdfs_path, "true");
 CONF_String(priority_networks, "");
 
 CONF_Bool(enable_cluster_name_check, "false");
+
+// http scheme in S3Client to use. E.g. http or https
+CONF_String(s3_client_http_scheme, "http");
+CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
+    return config == "http" || config == "https";
+});
+
+// Max retry times for object storage request
+CONF_mInt64(max_s3_client_retry, "10");
 
 } // namespace doris::cloud::config

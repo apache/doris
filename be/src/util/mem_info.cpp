@@ -52,6 +52,9 @@ std::atomic<int64_t> MemInfo::_s_mem_limit = std::numeric_limits<int64_t>::max()
 std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::max();
 
 std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
+std::atomic<int64_t> MemInfo::_s_allocator_metadata_mem = 0;
+std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem = std::numeric_limits<int64_t>::min();
+std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
 
 int64_t MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
@@ -73,6 +76,10 @@ std::atomic<bool> MemInfo::je_purge_dirty_pages_notify {false};
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
 #elif defined(USE_JEMALLOC)
+    // jemalloc mallctl refer to : https://jemalloc.net/jemalloc.3.html
+    // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md
+    //  Check the Doris BE web page `http://ip:webserver_port/memz` to get the Jemalloc Profile.
+
     // 'epoch' is a special mallctl -- it updates the statistics. Without it, all
     // the following calls will return stale values. It increments and returns
     // the current epoch number, which might be useful to log as a sanity check.
@@ -80,12 +87,22 @@ void MemInfo::refresh_allocator_mem() {
     size_t sz = sizeof(epoch);
     jemallctl("epoch", &epoch, &sz, &epoch, sz);
 
-    // https://jemalloc.net/jemalloc.3.html
-    // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md
-    _s_allocator_cache_mem.store(get_je_all_arena_metrics("tcache_bytes") +
-                                         get_je_metrics("stats.metadata") +
-                                         get_je_all_arena_metrics("pdirty") * get_page_size(),
+    // Number of extents of the given type in this arena in the bucket corresponding to page size index.
+    // Large size class starts at 16384, the extents have three sizes before 16384: 4096, 8192, and 12288, so + 3
+    int64_t dirty_pages_bytes = 0;
+    for (unsigned i = 0; i < get_je_unsigned_metrics("arenas.nlextents") + 3; i++) {
+        dirty_pages_bytes += get_je_all_arena_extents_metrics(i, "dirty_bytes");
+    }
+    _s_je_dirty_pages_mem.store(dirty_pages_bytes, std::memory_order_relaxed);
+
+    // Doris uses Jemalloc as default Allocator, Jemalloc Cache consists of two parts:
+    // - Thread Cache, cache a specified number of Pages in Thread Cache.
+    // - Dirty Page, memory Page that can be reused in all Arenas.
+    _s_allocator_cache_mem.store(get_je_all_arena_metrics("tcache_bytes") + dirty_pages_bytes,
                                  std::memory_order_relaxed);
+    // Total number of bytes dedicated to metadata, which comprise base allocations used
+    // for bootstrap-sensitive allocator metadata structures.
+    _s_allocator_metadata_mem.store(get_je_metrics("stats.metadata"), std::memory_order_relaxed);
     _s_virtual_memory_used.store(get_je_metrics("stats.mapped"), std::memory_order_relaxed);
 #else
     _s_allocator_cache_mem.store(get_tc_metrics("tcmalloc.pageheap_free_bytes") +
@@ -154,7 +171,7 @@ void MemInfo::refresh_proc_meminfo() {
                 if (fields.size() < 2) {
                     continue;
                 }
-                std::string key = fields[0].substr(0, fields[0].size() - 1);
+                std::string key = fields[0].substr(0, fields[0].size());
 
                 StringParser::ParseResult result;
                 auto mem_value = StringParser::string_to_int<int64_t>(fields[1].data(),
@@ -180,19 +197,19 @@ void MemInfo::refresh_proc_meminfo() {
             // https://serverfault.com/questions/902009/the-memory-usage-reported-in-cgroup-differs-from-the-free-command
             // memory.usage_in_bytes ~= free.used + free.(buff/cache) - (buff)
             // so, memory.usage_in_bytes - memory.meminfo["Cached"]
-            _s_cgroup_mem_usage = cgroup_mem_usage - _s_cgroup_mem_info_bytes["Cached"];
+            _s_cgroup_mem_usage = cgroup_mem_usage - _s_cgroup_mem_info_bytes["cache"];
             // wait 10s, 100 * 100ms, avoid too frequently.
             _s_cgroup_mem_refresh_wait_times = -100;
             LOG(INFO) << "Refresh cgroup memory win, refresh again after 10s, cgroup mem limit: "
                       << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage
-                      << ", cgroup mem info cached: " << _s_cgroup_mem_info_bytes["Cached"];
+                      << ", cgroup mem info cached: " << _s_cgroup_mem_info_bytes["cache"];
         } else {
             // find cgroup failed, wait 300s, 1000 * 100ms.
             _s_cgroup_mem_refresh_wait_times = -3000;
             LOG(INFO)
                     << "Refresh cgroup memory failed, refresh again after 300s, cgroup mem limit: "
                     << _s_cgroup_mem_limit << ", cgroup mem usage: " << _s_cgroup_mem_usage
-                    << ", cgroup mem info cached: " << _s_cgroup_mem_info_bytes["Cached"];
+                    << ", cgroup mem info cached: " << _s_cgroup_mem_info_bytes["cache"];
         }
     } else {
         if (config::enable_use_cgroup_memory_info) {
@@ -244,6 +261,8 @@ void MemInfo::refresh_proc_meminfo() {
                                                                  _s_mem_limit, &is_percent));
         _s_process_full_gc_size.store(ParseUtil::parse_mem_spec(config::process_full_gc_size, -1,
                                                                 _s_mem_limit, &is_percent));
+        _s_je_dirty_pages_mem_limit.store(ParseUtil::parse_mem_spec(
+                config::je_dirty_pages_mem_limit_percent, -1, _s_mem_limit, &is_percent));
     }
 
     // 3. refresh process available memory
@@ -298,7 +317,7 @@ void MemInfo::init() {
         // upper sys_mem_available_low_water_mark, avoid wasting too much memory.
         _s_sys_mem_available_low_water_mark = std::max<int64_t>(
                 std::min<int64_t>(std::min<int64_t>(_s_physical_mem - _s_mem_limit,
-                                                    int64_t(_s_physical_mem * 0.1)),
+                                                    int64_t(_s_physical_mem * 0.05)),
                                   config::max_sys_mem_available_low_water_mark_bytes),
                 0);
         _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark * 2;

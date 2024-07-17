@@ -150,9 +150,10 @@ std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
 }
 
 Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStreamSPtr& spill_stream,
-                                                 std::string query_id, std::string operator_name,
-                                                 int32_t node_id, int32_t batch_rows,
-                                                 size_t batch_bytes, RuntimeProfile* profile) {
+                                                 const std::string& query_id,
+                                                 const std::string& operator_name, int32_t node_id,
+                                                 int32_t batch_rows, size_t batch_bytes,
+                                                 RuntimeProfile* profile) {
     auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
     if (data_dirs.empty()) {
         data_dirs = _get_stores_for_spill(TStorageMedium::type::HDD);
@@ -162,7 +163,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
                 "no available disk can be used for spill.");
     }
 
-    int64_t id = id_++;
+    uint64_t id = id_++;
     std::string spill_dir;
     SpillDataDir* data_dir = nullptr;
     for (auto& dir : data_dirs) {
@@ -289,7 +290,7 @@ SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,
           _disk_capacity_bytes(capacity_bytes),
           _storage_medium(storage_medium) {
     spill_data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
-            std::string("spill_data_dir.") + path, {{"path", path}});
+            std::string("spill_data_dir.") + _path, {{"path", _path + "/" + SPILL_DIR_PREFIX}});
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_capacity);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_limit);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_avail_capacity);
@@ -299,9 +300,15 @@ SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,
 }
 
 bool is_directory_empty(const std::filesystem::path& dir) {
-    return std::filesystem::is_directory(dir) &&
-           std::filesystem::directory_iterator(dir) ==
-                   std::filesystem::end(std::filesystem::directory_iterator {});
+    try {
+        return std::filesystem::is_directory(dir) &&
+               std::filesystem::directory_iterator(dir) ==
+                       std::filesystem::end(std::filesystem::directory_iterator {});
+        // this method is not thread safe, the file referenced by directory_iterator
+        // maybe moved to spill_gc dir during this function call, so need to catch expection
+    } catch (const std::filesystem::filesystem_error&) {
+        return true;
+    }
 }
 
 Status SpillDataDir::init() {

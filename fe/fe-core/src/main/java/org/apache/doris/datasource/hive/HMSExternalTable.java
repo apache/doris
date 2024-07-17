@@ -573,10 +573,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             case HIVE:
                 return getHiveColumnStats(colName);
             case ICEBERG:
-                return StatisticsUtil.getIcebergColumnStats(colName,
+                if (GlobalVariable.enableFetchIcebergStats) {
+                    return StatisticsUtil.getIcebergColumnStats(colName,
                         Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
-                                catalog, dbName, name
+                            catalog, dbName, name
                         ));
+                } else {
+                    break;
+                }
             default:
                 LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
         }
@@ -871,7 +875,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
 
         int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
-        if (samplePartitionSize < totalPartitionSize) {
+        if (samplePartitionSize != 0 && samplePartitionSize < totalPartitionSize) {
             totalSize = totalSize * totalPartitionSize / samplePartitionSize;
         }
         return totalSize / estimatedRowSize;

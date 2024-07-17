@@ -970,13 +970,13 @@ public class ShowExecutor {
             }
             if (showTableStmt.isVerbose()) {
                 String storageFormat = "NONE";
-                String invertedIndexStorageFormat = "NONE";
+                String invertedIndexFileStorageFormat = "NONE";
                 if (tbl instanceof OlapTable) {
                     storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
-                    invertedIndexStorageFormat = ((OlapTable) tbl).getInvertedIndexStorageFormat().toString();
+                    invertedIndexFileStorageFormat = ((OlapTable) tbl).getInvertedIndexFileStorageFormat().toString();
                 }
                 rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
-                        invertedIndexStorageFormat));
+                        invertedIndexFileStorageFormat));
             } else {
                 rows.add(Lists.newArrayList(tbl.getName()));
             }
@@ -2914,7 +2914,7 @@ public class ShowExecutor {
 
     private void handleShowAnalyze() {
         ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().showAnalysisJob(showStmt);
+        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().findAnalysisJobs(showStmt);
         List<List<String>> resultRows = Lists.newArrayList();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (AnalysisInfo analysisInfo : results) {
@@ -2936,7 +2936,7 @@ public class ShowExecutor {
                 row.add(analysisInfo.jobType.toString());
                 row.add(analysisInfo.analysisType.toString());
                 row.add(analysisInfo.message);
-                row.add(TimeUtils.DATETIME_FORMAT.format(
+                row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
                         LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                                 ZoneId.systemDefault())));
                 row.add(analysisInfo.state.toString());
@@ -2951,6 +2951,7 @@ public class ShowExecutor {
                 row.add(startTime.format(formatter));
                 row.add(endTime.format(formatter));
                 row.add(analysisInfo.priority.name());
+                row.add(String.valueOf(analysisInfo.enablePartition));
                 resultRows.add(row);
             } catch (Exception e) {
                 LOG.warn("Failed to get analyze info for table {}.{}.{}, reason: {}",
@@ -3204,7 +3205,7 @@ public class ShowExecutor {
                 row.add(table.getName());
             }
             row.add(analysisInfo.message);
-            row.add(TimeUtils.DATETIME_FORMAT.format(
+            row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
             row.add(String.valueOf(analysisInfo.timeCostInMs));

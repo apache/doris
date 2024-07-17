@@ -69,9 +69,18 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
 
     for (const auto& partition : _cal_delete_bitmap_req.partitions) {
         int64_t version = partition.version;
-        for (auto tablet_id : partition.tablet_ids) {
+        bool has_compaction_stats = partition.__isset.base_compaction_cnts &&
+                                    partition.__isset.cumulative_compaction_cnts &&
+                                    partition.__isset.cumulative_points;
+        for (size_t i = 0; i < partition.tablet_ids.size(); i++) {
+            auto tablet_id = partition.tablet_ids[i];
             auto tablet_calc_delete_bitmap_ptr = std::make_shared<CloudTabletCalcDeleteBitmapTask>(
                     _engine, this, tablet_id, transaction_id, version);
+            if (has_compaction_stats) {
+                tablet_calc_delete_bitmap_ptr->set_compaction_stats(
+                        partition.base_compaction_cnts[i], partition.cumulative_compaction_cnts[i],
+                        partition.cumulative_points[i]);
+            }
             auto submit_st = token->submit_func([=]() {
                 auto st = tablet_calc_delete_bitmap_ptr->handle();
                 if (!st.ok()) {
@@ -107,6 +116,14 @@ CloudTabletCalcDeleteBitmapTask::CloudTabletCalcDeleteBitmapTask(
             fmt::format("CloudTabletCalcDeleteBitmapTask#_transaction_id={}", _transaction_id));
 }
 
+void CloudTabletCalcDeleteBitmapTask::set_compaction_stats(int64_t ms_base_compaction_cnt,
+                                                           int64_t ms_cumulative_compaction_cnt,
+                                                           int64_t ms_cumulative_point) {
+    _ms_base_compaction_cnt = ms_base_compaction_cnt;
+    _ms_cumulative_compaction_cnt = ms_base_compaction_cnt;
+    _ms_cumulative_point = ms_cumulative_point;
+}
+
 Status CloudTabletCalcDeleteBitmapTask::handle() const {
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t t1 = MonotonicMicros();
@@ -122,7 +139,20 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     }
     int64_t max_version = tablet->max_version_unlocked();
     int64_t t2 = MonotonicMicros();
-    if (_version != max_version + 1) {
+
+    auto should_sync_rowsets_produced_by_compaction = [&]() {
+        if (_ms_base_compaction_cnt == -1) {
+            return true;
+        }
+
+        // some compaction jobs finished on other BEs during this load job
+        // we should sync rowsets and their delete bitmaps produced by compaction jobs
+        std::shared_lock rlock(tablet->get_header_lock());
+        return _ms_base_compaction_cnt > tablet->base_compaction_cnt() ||
+               _ms_cumulative_compaction_cnt > tablet->cumulative_compaction_cnt() ||
+               _ms_cumulative_point > tablet->cumulative_layer_point();
+    };
+    if (_version != max_version + 1 || should_sync_rowsets_produced_by_compaction()) {
         auto sync_st = tablet->sync_rowsets();
         if (sync_st.is<ErrorCode::INVALID_TABLET_STATE>()) [[unlikely]] {
             _engine_calc_delete_bitmap_task->add_succ_tablet_id(_tablet_id);

@@ -32,7 +32,6 @@ suite("test_point_query", "nonConcurrent") {
         // nereids do not support point query now
         sql "set global enable_fallback_to_original_planner = false"
         sql """set global enable_nereids_planner=true"""
-        sql "set global enable_server_side_prepared_statement = true"
         def user = context.config.jdbcUser
         def password = context.config.jdbcPassword
         def realDb = "regression_test_serving_p0"
@@ -275,10 +274,33 @@ suite("test_point_query", "nonConcurrent") {
         """                
         sql "insert into test_ODS_EBA_LLREPORT(RPTNO) values('567890')"
         sql "select  /*+ SET_VAR(enable_nereids_planner=true) */  substr(RPTNO,2,5) from test_ODS_EBA_LLREPORT where  RPTNO = '567890'"
+
+        sql "DROP TABLE IF EXISTS test_cc_aaaid2";
+        sql """
+        CREATE TABLE `test_cc_aaaid2` (
+          `aaaid` VARCHAR(13) NULL COMMENT '3aid'
+        ) ENGINE=OLAP
+        UNIQUE KEY(`aaaid`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`aaaid`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "enable_unique_key_merge_on_write" = "true",
+        "store_row_column" = "true"
+        );
+        """                
+        sql """insert into `test_cc_aaaid2` values('1111111')"""
+        qt_sql """SELECT
+             `__DORIS_DELETE_SIGN__`,
+             aaaid
+
+            FROM
+             `test_cc_aaaid2` 
+            WHERE
+             aaaid = '1111111'"""
     } finally {
         set_be_config.call("disable_storage_row_cache", "true")
         sql """set global enable_nereids_planner=true"""
         sql "set global enable_fallback_to_original_planner = true"
-        sql "set global enable_server_side_prepared_statement = false"
     }
 } 

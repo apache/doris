@@ -81,6 +81,11 @@ struct TResourceLimit {
     1: optional i32 cpu_limit
 }
 
+enum TSerdeDialect {
+  DORIS,
+  PRESTO
+}
+
 // Query options that correspond to PaloService.PaloQueryOptions,
 // with their respective defaults
 struct TQueryOptions {
@@ -308,6 +313,9 @@ struct TQueryOptions {
 
   116: optional bool enable_no_need_read_data_opt = true;
   
+  117: optional bool read_csv_empty_line_as_null = false;
+
+  118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

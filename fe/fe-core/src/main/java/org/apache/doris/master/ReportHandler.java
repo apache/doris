@@ -886,11 +886,12 @@ public class ReportHandler extends Daemon {
                                             olapTable.storeRowColumn(),
                                             binlogConfig,
                                             olapTable.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                            objectPool);
+                                            objectPool,
+                                            olapTable.rowStorePageSize());
 
                                     createReplicaTask.setIsRecoverTask(true);
-                                    createReplicaTask.setInvertedIndexStorageFormat(olapTable
-                                                                .getInvertedIndexStorageFormat());
+                                    createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
+                                                                .getInvertedIndexFileStorageFormat());
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
                                     // just set this replica as bad

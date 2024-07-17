@@ -42,15 +42,16 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
@@ -79,6 +80,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -841,10 +843,51 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
-        Configuration conf = new HdfsConfiguration();
+        Configuration conf = DFSFileSystem.getHdfsConf(table.getCatalog().ifNotSetFallbackToSimpleAuth());
         for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }
         return conf;
+    }
+
+    public static Optional<String> getSerdeProperty(Table table, String key) {
+        String valueFromSd = table.getSd().getSerdeInfo().getParameters().get(key);
+        String valueFromTbl = table.getParameters().get(key);
+        return firstNonNullable(valueFromTbl, valueFromSd);
+    }
+
+    private static Optional<String> firstNonNullable(String... values) {
+        for (String value : values) {
+            if (!Strings.isNullOrEmpty(value)) {
+                return Optional.of(value);
+            }
+        }
+        return Optional.empty();
+    }
+
+    public static String firstPresentOrDefault(String defaultValue, Optional<String>... values) {
+        for (Optional<String> value : values) {
+            if (value.isPresent()) {
+                return value.get();
+            }
+        }
+        return defaultValue;
+    }
+
+    /**
+     * Return the byte value of the number string.
+     *
+     * @param altValue
+     *                 The string containing a number.
+     */
+    public static String getByte(String altValue) {
+        if (altValue != null && altValue.length() > 0) {
+            try {
+                return Character.toString((char) (Byte.parseByte(altValue) + 256) % 256);
+            } catch (NumberFormatException e) {
+                return altValue.substring(0, 1);
+            }
+        }
+        return null;
     }
 }

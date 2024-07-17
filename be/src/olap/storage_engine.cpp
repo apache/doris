@@ -233,8 +233,9 @@ Status StorageEngine::_open() {
     auto dirs = get_stores();
     RETURN_IF_ERROR(load_data_dirs(dirs));
 
+    _disk_num = dirs.size();
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
-    _memtable_flush_executor->init(dirs.size());
+    _memtable_flush_executor->init(_disk_num);
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
@@ -1403,9 +1404,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
@@ -1427,9 +1428,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj2.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
@@ -1451,9 +1452,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj3.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
@@ -1528,26 +1529,6 @@ Status StorageEngine::_persist_broken_paths() {
     }
 
     return Status::OK();
-}
-
-bool StorageEngine::_increase_low_priority_task_nums(DataDir* dir) {
-    if (!config::enable_compaction_priority_scheduling) {
-        return true;
-    }
-    std::lock_guard l(_low_priority_task_nums_mutex);
-    if (_low_priority_task_nums[dir] < config::low_priority_compaction_task_num_per_disk) {
-        _low_priority_task_nums[dir]++;
-        return true;
-    }
-    return false;
-}
-
-void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
-    if (config::enable_compaction_priority_scheduling) {
-        std::lock_guard l(_low_priority_task_nums_mutex);
-        _low_priority_task_nums[dir]--;
-        DCHECK(_low_priority_task_nums[dir] >= 0);
-    }
 }
 
 int CreateTabletIdxCache::get_index(const std::string& key) {

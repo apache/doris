@@ -40,6 +40,9 @@ suite ("incRewriteCD") {
 
     sql """insert into incRewriteCD values("2020-01-01",1,"a",2);"""
 
+    sql "analyze table incRewriteCD with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from incRewriteCD order by time_col;")
         contains "(incRewriteCD)"
@@ -51,4 +54,15 @@ suite ("incRewriteCD") {
         contains "(incRewriteCD)"
     }
     order_qt_select_mv "select user_name, count(distinct tag_id) from incRewriteCD group by user_name order by user_name;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from incRewriteCD order by time_col;")
+        contains "(incRewriteCD)"
+    }
+
+    explain {
+        sql("select user_name, count(distinct tag_id) from incRewriteCD group by user_name;")
+        contains "(incRewriteCD)"
+    }
 }

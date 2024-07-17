@@ -80,7 +80,7 @@ public class MultiDistinctSum extends NullableAggregateFunction implements Unary
     @Override
     public MultiDistinctSum withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MultiDistinctSum(distinct, children.get(0));
+        return new MultiDistinctSum(distinct, alwaysNullable, children.get(0));
     }
 
     @Override

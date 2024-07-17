@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -192,7 +193,7 @@ public class MTMV extends OlapTable {
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
-                if (!Env.isCheckpointThread()) {
+                if (!Env.isCheckpointThread() && !Config.enable_check_compatibility_mode) {
                     try {
                         this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
                     } catch (Throwable e) {
@@ -287,6 +288,10 @@ public class MTMV extends OlapTable {
                 writeMvUnlock();
             }
         }
+        return cache;
+    }
+
+    public MTMVCache getCache() {
         return cache;
     }
 

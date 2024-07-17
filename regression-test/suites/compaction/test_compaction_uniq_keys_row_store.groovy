@@ -36,8 +36,6 @@ suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
         stmt.setInt(8, sex)
     }
 
-    sql "set global enable_server_side_prepared_statement = true"
-
     try {
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -239,5 +237,4 @@ suite("test_compaction_uniq_keys_row_store", "nonConcurrent") {
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
-    sql "set global enable_server_side_prepared_statement = false"
 }

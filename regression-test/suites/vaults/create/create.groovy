@@ -27,7 +27,8 @@ suite("create_vault", "nonConcurrent") {
             PROPERTIES (
             "type"="S3",
             "fs.defaultFS"="${getHmsHdfsFs()}",
-            "path_prefix" = "ssb_sf1_p2"
+            "path_prefix" = "ssb_sf1_p2",
+            "hadoop.username" = "hadoop"
             );
         """
     }, "Missing")
@@ -38,7 +39,8 @@ suite("create_vault", "nonConcurrent") {
             PROPERTIES (
             "type"="hdfs",
             "s3.bucket"="${getHmsHdfsFs()}",
-            "path_prefix" = "ssb_sf1_p2"
+            "path_prefix" = "ssb_sf1_p2",
+            "hadoop.username" = "hadoop"
             );
         """
     }, "invalid fs_name")
@@ -57,7 +59,8 @@ suite("create_vault", "nonConcurrent") {
         PROPERTIES (
         "type"="hdfs",
         "fs.defaultFS"="${getHmsHdfsFs()}",
-        "path_prefix" = "default_vault_ssb_hdfs_vault"
+        "path_prefix" = "default_vault_ssb_hdfs_vault",
+        "hadoop.username" = "hadoop"
         );
     """
 

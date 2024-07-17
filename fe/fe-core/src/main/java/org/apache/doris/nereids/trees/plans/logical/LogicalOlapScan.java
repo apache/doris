@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -47,6 +49,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.json.JSONObject;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -148,12 +151,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     }
 
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> tabletIds,
-                           long selectedIndexId, PreAggStatus preAggStatus, List<String> hints,
-                           Optional<TableSample> tableSample) {
+                           List<Long> selectedPartitionIds, long selectedIndexId, PreAggStatus preAggStatus,
+                           List<Long> specifiedPartitions, List<String> hints, Optional<TableSample> tableSample) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                table.getPartitionIds(), false, tabletIds,
+                selectedPartitionIds, false, tabletIds,
                 selectedIndexId, true, preAggStatus,
-                ImmutableList.of(), hints, Maps.newHashMap(), tableSample, true, ImmutableMap.of());
+                specifiedPartitions, hints, Maps.newHashMap(), tableSample, true, ImmutableMap.of());
     }
 
     /**
@@ -495,7 +498,16 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             return;
         }
         Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
-        if (getTable().getKeysType().isAggregationFamily()) {
+        if (getTable() instanceof MTMV) {
+            MTMV mtmv = (MTMV) getTable();
+            MTMVCache cache = mtmv.getCache();
+            if (cache == null) {
+                return;
+            }
+            Plan originalPlan = cache.getOriginalPlan();
+            builder.addUniqueSlot(originalPlan.getLogicalProperties().getTrait());
+            builder.replaceUniqueBy(constructReplaceMap(mtmv));
+        } else if (getTable().getKeysType().isAggregationFamily()) {
             ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
             for (Slot slot : outputSet) {
                 if (!(slot instanceof SlotReference)) {
@@ -508,5 +520,59 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             }
             builder.addUniqueSlot(uniqSlots.build());
         }
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        if (getTable() instanceof MTMV) {
+            MTMV mtmv = (MTMV) getTable();
+            MTMVCache cache = mtmv.getCache();
+            if (cache == null) {
+                return;
+            }
+            Plan originalPlan = cache.getOriginalPlan();
+            builder.addUniformSlot(originalPlan.getLogicalProperties().getTrait());
+            builder.replaceUniformBy(constructReplaceMap(mtmv));
+        }
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        if (getTable() instanceof MTMV && getTable().getName().equals("mv1")) {
+            System.out.println();
+        }
+        if (getTable() instanceof MTMV) {
+            MTMV mtmv = (MTMV) getTable();
+            MTMVCache cache = mtmv.getCache();
+            if (cache == null) {
+                return;
+            }
+            Plan originalPlan = cache.getOriginalPlan();
+            builder.addEqualSet(originalPlan.getLogicalProperties().getTrait());
+            builder.replaceEqualSetBy(constructReplaceMap(mtmv));
+        }
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        if (getTable() instanceof MTMV) {
+            MTMV mtmv = (MTMV) getTable();
+            MTMVCache cache = mtmv.getCache();
+            if (cache == null) {
+                return;
+            }
+            Plan originalPlan = cache.getOriginalPlan();
+            builder.addFuncDepsDG(originalPlan.getLogicalProperties().getTrait());
+            builder.replaceFuncDepsBy(constructReplaceMap(mtmv));
+        }
+    }
+
+    Map<Slot, Slot> constructReplaceMap(MTMV mtmv) {
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> originOutputs = mtmv.getCache().getOriginalPlan().getOutput();
+        for (int i = 0; i < getOutput().size(); i++) {
+            replaceMap.put(originOutputs.get(i), getOutput().get(i));
+        }
+        return replaceMap;
     }
 }

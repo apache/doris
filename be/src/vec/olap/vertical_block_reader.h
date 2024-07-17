@@ -56,6 +56,7 @@ public:
 
     // Initialize VerticalBlockReader with tablet, data version and fetch range.
     Status init(const ReaderParams& read_params) override;
+    Status init(const ReaderParams& read_params, CompactionSampleInfo* sample_info);
 
     Status next_block_with_aggregation(Block* block, bool* eof) override;
 
@@ -79,7 +80,7 @@ private:
     // to minimize the comparison time in merge heap.
     Status _unique_key_next_block(Block* block, bool* eof);
 
-    Status _init_collect_iter(const ReaderParams& read_params);
+    Status _init_collect_iter(const ReaderParams& read_params, CompactionSampleInfo* sample_info);
 
     Status _get_segment_iterators(const ReaderParams& read_params,
                                   std::vector<RowwiseIteratorUPtr>* segment_iters,
@@ -107,9 +108,7 @@ private:
     // for agg mode
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
-
-    // Use pointer to avoid memory allocation during construction
-    std::unique_ptr<Arena> _arena;
+    Arena _arena;
 
     std::vector<int> _normal_columns_idx;
     std::vector<int> _agg_columns_idx;

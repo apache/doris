@@ -98,7 +98,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
-import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTaskType;
@@ -563,7 +562,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             if (!modColumn.isKey()) {
                 if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                    modColumn.setAggregationType(AggregateType.NONE, false);
+                    modColumn.setAggregationType(AggregateType.NONE, true);
                 } else {
                     modColumn.setAggregationType(AggregateType.REPLACE, true);
                 }
@@ -666,6 +665,11 @@ public class SchemaChangeHandler extends AlterHandler {
         modColumn.setName(oriColumn.getName());
         modColumn.setUniqueId(oriColumn.getUniqueId());
 
+        if (!modColumn.equals(oriColumn) && oriColumn.isAutoInc() != modColumn.isAutoInc()) {
+            throw new DdlException("Can't modify the column["
+                    + oriColumn.getName() + "]'s auto-increment attribute.");
+        }
+
         // handle the move operation in 'indexForFindingColumn' if has
         if (hasColPos) {
             // move col
@@ -743,6 +747,12 @@ public class SchemaChangeHandler extends AlterHandler {
         } // end for handling other indices
 
         if (typeChanged && !lightSchemaChange) {
+            Optional<Column> autoIncCol = olapTable.getBaseSchema(true).stream()
+                    .filter(col -> col.isAutoInc()).findFirst();
+            if (autoIncCol.isPresent()) {
+                throw new DdlException("Can not modify column " + modColumn.getName() + " becasue table "
+                        + olapTable.getName() + " has auto-increment column " + autoIncCol.get().getName());
+            }
             /*
              * In new alter table process (AlterJobV2), any modified columns are treated as new columns.
              * But the modified columns' name does not changed. So in order to distinguish this, we will add
@@ -862,6 +872,10 @@ public class SchemaChangeHandler extends AlterHandler {
         int posIndex = -1;
         boolean hasPos = (columnPos != null && !columnPos.isFirst());
 
+        if (newColumn.isAutoInc()) {
+            throw new DdlException("Can not add auto-increment column " + newColumn.getName());
+        }
+
         for (int i = 0; i < modIndexSchema.size(); i++) {
             Column col = modIndexSchema.get(i);
             if (col.getName().equalsIgnoreCase(newColName)) {
@@ -930,6 +944,10 @@ public class SchemaChangeHandler extends AlterHandler {
         //only new table generate ColUniqueId, exist table do not.
         boolean lightSchemaChange = olapTable.getEnableLightSchemaChange();
         String newColName = newColumn.getName();
+
+        if (newColumn.isAutoInc()) {
+            throw new DdlException("Can not add auto-increment column " + newColumn.getName());
+        }
 
         // check the validation of aggregation method on column.
         // also fill the default aggregation method if not specified.
@@ -1344,9 +1362,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
         TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
 
-        TInvertedIndexStorageFormat invertedIndexStorageFormat =
-                PropertyAnalyzer.analyzeInvertedIndexStorageFormat(propertyMap);
-
         // property store_row_column && row_store_columns
         // eg. "store_row_column" = "true"
         // eg. "row_store_columns" = "k1, k2"
@@ -1391,6 +1406,14 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (!alterColumn.equals(originSchema.get(i))) {
                         needAlterColumns.add(alterColumn);
                         hasColumnChange = true;
+                    } else {
+                        Column oriColumn = originSchema.get(i);
+                        if ((oriColumn.getGeneratedColumnInfo() != null
+                                || alterColumn.getGeneratedColumnInfo() != null)
+                                        && !oriColumn.getGeneratedColumnInfo().getExprSql()
+                                                .equals(alterColumn.getGeneratedColumnInfo().getExprSql())) {
+                            throw new DdlException("Not supporting alter table modify generated columns.");
+                        }
                     }
                 }
             }
@@ -1434,10 +1457,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 needAlter = true;
             } else if (storageFormat == TStorageFormat.V2) {
                 if (olapTable.getStorageFormat() != TStorageFormat.V2) {
-                    needAlter = true;
-                }
-            } else if (invertedIndexStorageFormat == TInvertedIndexStorageFormat.V2) {
-                if (olapTable.getInvertedIndexStorageFormat() != TInvertedIndexStorageFormat.V2) {
                     needAlter = true;
                 }
             }
@@ -2266,6 +2285,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
@@ -2346,6 +2366,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
@@ -2364,6 +2385,13 @@ public class SchemaChangeHandler extends AlterHandler {
         if (enableUniqueKeyMergeOnWrite && Boolean.parseBoolean(singleCompaction)) {
             throw new UserException(
                     "enable_single_replica_compaction property is not supported for merge-on-write table");
+        }
+
+        String enableMowLightDelete = properties.get(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+        if (enableMowLightDelete != null && !enableUniqueKeyMergeOnWrite) {
+            throw new UserException(
+                    "enable_mow_light_delete property is only supported for unique merge-on-write table");
         }
 
         String disableAutoCompactionBoolean = properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
@@ -2828,6 +2856,7 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException(e.getMessage());
         }
 
+        schemaChangeJob.stateWait("FE.LIGHT_SCHEMA_CHANGE");
         // set Job state then add job
         schemaChangeJob.setJobState(AlterJobV2.JobState.FINISHED);
         schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());
@@ -3044,6 +3073,8 @@ public class SchemaChangeHandler extends AlterHandler {
         // for now table's state can only be NORMAL
         Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
 
+        // remove the index which is not the base index, only base index can be built inverted index
+        indexSchemaMap.entrySet().removeIf(entry -> !entry.getKey().equals(olapTable.getBaseIndexId()));
         // begin checking each table
         Map<Long, List<Column>> changedIndexIdToSchema = Maps.newHashMap();
         try {

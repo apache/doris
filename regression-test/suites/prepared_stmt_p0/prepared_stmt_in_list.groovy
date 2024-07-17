@@ -22,7 +22,6 @@ suite("test_prepared_stmt_in_list", "nonConcurrent") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def url = context.config.jdbcUrl + "&useServerPrepStmts=true"
-    sql "set global enable_server_side_prepared_statement = true"
     def result1 = connect(user=user, password=password, url=url) {
         sql """DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -190,5 +189,4 @@ suite("test_prepared_stmt_in_list", "nonConcurrent") {
         stmt_read10.setString(5, '6022-01-01 11:30:38')
         qe_stmt_read10_2 stmt_read10
    }
-   sql "set global enable_server_side_prepared_statement = false"
 }

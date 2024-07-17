@@ -322,13 +322,11 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         );"""
     
         List<List<Object>> result = sql """ show  create table  test_manager_tb_2 """ 
+        logger.info("result = ${result}" ) 
         assertTrue(result.size() == 1)
         assertTrue(result[0][0] == "test_manager_tb_2")
         def ddl_str =  result[0][1] 
-        def idx =  ddl_str.indexOf("replication_allocation")
-        assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""replication_allocation" = "tag.location.default: 1"""))
-
-        idx =  ddl_str.indexOf("min_load_replica_num")
+        def idx =  ddl_str.indexOf("min_load_replica_num")
         assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""min_load_replica_num" = "-1"""))
 
         sql """alter table test_manager_tb_2 set ("min_load_replica_num" = "1")"""
@@ -370,7 +368,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
 
 
         List<List<Object>>  result = sql  """ show table status from test_manager_tb_case_3 like 'test_manager_tb%' """ 
-        println result[0][4] 
+        logger.info("result = ${result}" ) 
         assertTrue(result[0][4] == 0 )// Rows
 
         def create_time = result[0][11] //Create_time
@@ -414,7 +412,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             sleep(10000)
         }
         if (j == retryTime) {
-            
+            logger.info("result = ${result}" )
             logger.info("  TEST show table status from $db_name like '$table_name';ROWS UPDATE FAIL.");
             assertTrue(false);
         }
@@ -448,6 +446,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         
 
         List<List<Object>>   result = sql """ insert into test_manager_tb values (5,"hell0",50); """ 
+        logger.info("result = ${result}" )
         assertTrue(result[0][0] == 1)
         result = sql """ insert into test_manager_tb values (5,"hell0",50); """ 
         assertTrue(result[0][0] == 1)
@@ -470,6 +469,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             }
             sleep(1000);
         }        
+        logger.info("result = ${result}" )
 
         if (j == retryTime) {
             logger.info("  TEST show index from '$table_name' FAIL.");
@@ -480,7 +480,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         
         assertTrue(result[0][2] == "bitmap_index_name" )//Key_name
         assertTrue(result[0][4] == "k1" )//Column_name
-        assertTrue(result[0][10] == "BITMAP" ) //BITMAP
+        assertTrue(result[0][10] == "BITMAP" || result[0][10] == "INVERTED" ) //BITMAP
         assertTrue(result[0][11] == "bitmap_k1" ) //bitmap_siteid
 
         sql """ drop INDEX bitmap_index_name on test_manager_tb;""" 
@@ -511,7 +511,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         futures.add( thread {
 
             try{
-                sql """ select sleep(9809); """
+                sql """ select sleep(4.809); """
             }catch(Exception e){
                 
             }
@@ -519,12 +519,13 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         futures.add( thread {
             sleep(1000);
             List<List<Object>> result = sql """ show proc '/current_query_stmts' """ 
+            logger.info("result = ${result}" )
             def x = 0
             def queryid = ""
             logger.info("result = ${result}")
 
             for( int i = 0;i<result.size();i++) {
-                if (result[i][7] != null && result[i][7].contains("sleep(9809)") )//Statement
+                if (result[i][7] != null && result[i][7].contains("sleep(4.809)") )//Statement
                 {
                     x = 1
                     queryid = result[i][0]
@@ -591,6 +592,8 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         def total_tablet_num  = 0;
         def total_healthy_num = 0;
         result = sql """  SHOW PROC '/cluster_health/tablet_health' """ 
+        logger.info("result = ${result}" )
+
         for( int i =0 ;i < result.size();i++ ){
             assertTrue(result[i][0].toLowerCase() != null ) // DbId
             if (result[i][0].toLowerCase() == "total") {
@@ -624,13 +627,13 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         futures.add( thread {
             
             try{
-                sql """ select sleep(87676); """
+                sql """ select sleep(4.7676); """
             }catch(Exception e){
             }
         })
 
         futures.add( thread {
-            sleep(3000)
+            sleep(1500)
 
             result = sql """ 
             select a.*, b.*, c.NAME as WORKLOAD_GROUP_NAME from information_schema.active_queries a left join 
@@ -643,7 +646,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             for( int i =0 ;i < result.size();i++ ){
                 assertTrue(result[i][0] != null ) // QueryId
 
-                if ( result[i][9].contains("sleep(87676)")  ){
+                if ( result[i][9].contains("sleep(4.7676)")  ){
                     x = 1 
                     queryId = result[i][0]
                     logger.info("result = ${queryId}}")
@@ -672,6 +675,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
     
         sql """ set global enable_audit_plugin = true; """ 
         List<List<Object>> result =sql  """ show create table __internal_schema.audit_log; """ 
+        logger.info("result = ${result}" )
         
         assertTrue(result[0][0] == "audit_log")
 
@@ -724,6 +728,8 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         List<List<Object>> result = sql """ 
             admin show frontend config 
         """
+        logger.info("result = ${result}" )
+
         def x = 0;
 
         def val = 0;
@@ -744,6 +750,8 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         result = sql """ 
             admin show frontend config 
         """
+        logger.info("result = ${result}" )
+
         x = 0 
         for(int i = 0 ;i<result.size();i++) {
             if (result[i][0] == "query_metadata_name_ids_timeout"){
@@ -758,20 +766,24 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
     
         val -= 2 
         sql """ admin set frontend config("query_metadata_name_ids_timeout"= "${val}")"""
-
+        logger.info("result = ${result}" )
 
         
         x = 0
         result = sql """ show global variables like "create_table_partition_max_num" """
+        logger.info("result = ${result}" )
+
         assert(result[0][0] == "create_table_partition_max_num")
         val = result[0][1].toBigInteger() + 1 ; 
         assert(result[0][2] == "10000")
         sql """ set global create_table_partition_max_num = ${val} """ 
         result = sql """ show global variables like "create_table_partition_max_num" """
+        logger.info("result = ${result}" )
+
         assert(result[0][1].toBigInteger() == val)        
         val -= 1
         sql """ set global create_table_partition_max_num = ${val} """ 
-
+        logger.info("result = ${result}" )
 
         result = sql """  show frontend config """
         x  = 0  

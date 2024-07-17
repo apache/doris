@@ -26,6 +26,7 @@ suite("regression_test_variant", "nonConcurrent"){
             set 'read_json_by_line', 'true' 
             set 'format', 'json' 
             set 'max_filter_ratio', '0.1'
+            set 'memtable_on_sink_node', 'true'
             file file_name // import json file
             time 10000 // limit inflight 10s
 
@@ -93,7 +94,7 @@ suite("regression_test_variant", "nonConcurrent"){
             sql """insert into ${table_name} values (8,  '8.11111'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
             sql """insert into ${table_name} values (9,  '"9999"'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
             sql """insert into ${table_name} values (10,  '1000000'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-            sql """insert into ${table_name} values (11,  '[123.0]'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
+            sql """insert into ${table_name} values (11,  '[123.1]'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
             sql """insert into ${table_name} values (12,  '[123.2]'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
             qt_sql1 "select k, cast(v['a'] as array<int>) from  ${table_name} where  size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
             qt_sql2 "select k, cast(v as int), cast(v['b'] as string) from  ${table_name} where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
@@ -110,11 +111,11 @@ suite("regression_test_variant", "nonConcurrent"){
         create_table table_name
         sql """insert into ${table_name} values (1, '{"c" : "123"}');"""
         sql """insert into ${table_name} values (2, '{"c" : 123}');"""
-        sql """insert into ${table_name} values (3, '{"cc" : [123.0]}');"""
+        sql """insert into ${table_name} values (3, '{"cc" : [123.2]}');"""
         sql """insert into ${table_name} values (4, '{"cc" : [123.1]}');"""
         sql """insert into ${table_name} values (5, '{"ccc" : 123}');"""
         sql """insert into ${table_name} values (6, '{"ccc" : 123321}');"""
-        sql """insert into ${table_name} values (7, '{"cccc" : 123.0}');"""
+        sql """insert into ${table_name} values (7, '{"cccc" : 123.22}');"""
         sql """insert into ${table_name} values (8, '{"cccc" : 123.11}');"""
         sql """insert into ${table_name} values (9, '{"ccccc" : [123]}');"""
         sql """insert into ${table_name} values (10, '{"ccccc" : [123456789]}');"""
@@ -139,7 +140,7 @@ suite("regression_test_variant", "nonConcurrent"){
         qt_sql_4 "select cast(v['A'] as string), v['AA'], v from ${table_name} order by k"
         qt_sql_5 "select v['A'], v['AA'], v, v from ${table_name} where cast(v['A'] as bigint) > 123 order by k"
 
-        sql """insert into ${table_name} values (16,  '{"a" : 123.0, "A" : 191191, "c": 123}');"""
+        sql """insert into ${table_name} values (16,  '{"a" : 123.22, "A" : 191191, "c": 123}');"""
         sql """insert into ${table_name} values (18,  '{"a" : "123", "c" : 123456}');"""
         sql """insert into ${table_name} values (20,  '{"a" : 1.10111, "A" : 1800, "c" : [12345]}');"""
         // sql """insert into ${table_name} values (12,  '{"a" : [123]}, "c": "123456"');"""

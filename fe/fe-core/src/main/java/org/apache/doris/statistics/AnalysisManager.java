@@ -63,7 +63,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
@@ -135,6 +134,7 @@ public class AnalysisManager implements Writable {
     private StatisticsCache statisticsCache;
 
     private AnalysisTaskExecutor taskExecutor;
+    private ThreadPoolExecutor dropStatsExecutors;
 
     // Store task information in metadata.
     protected final NavigableMap<Long, AnalysisInfo> analysisTaskInfoMap =
@@ -158,6 +158,11 @@ public class AnalysisManager implements Writable {
             this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num,
                     Integer.MAX_VALUE);
             this.statisticsCache = new StatisticsCache();
+            this.dropStatsExecutors = ThreadPoolManager.newDaemonThreadPool(
+                1, 1, 0,
+                TimeUnit.DAYS, new LinkedBlockingQueue<>(10),
+                new ThreadPoolExecutor.AbortPolicy(),
+                "Drop stats executor", true);
         }
     }
 
@@ -330,12 +335,12 @@ public class AnalysisManager implements Writable {
         int samplePercent = stmt.getSamplePercent();
         int sampleRows = stmt.getSampleRows();
         AnalysisType analysisType = stmt.getAnalysisType();
-        AnalysisMode analysisMode = stmt.getAnalysisMode();
         AnalysisMethod analysisMethod = stmt.getAnalysisMethod();
         ScheduleType scheduleType = stmt.getScheduleType();
         CronExpression cronExpression = stmt.getCron();
 
         infoBuilder.setJobId(jobId);
+        infoBuilder.setTaskId(-1);
         infoBuilder.setCatalogId(stmt.getCatalogId());
         infoBuilder.setDBId(stmt.getDbId());
         infoBuilder.setTblId(stmt.getTable().getId());
@@ -348,7 +353,6 @@ public class AnalysisManager implements Writable {
         infoBuilder.setState(AnalysisState.PENDING);
         infoBuilder.setLastExecTimeInMs(System.currentTimeMillis());
         infoBuilder.setAnalysisType(analysisType);
-        infoBuilder.setAnalysisMode(analysisMode);
         infoBuilder.setAnalysisMethod(analysisMethod);
         infoBuilder.setScheduleType(scheduleType);
         infoBuilder.setCronExpression(cronExpression);
@@ -385,6 +389,7 @@ public class AnalysisManager implements Writable {
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
         infoBuilder.setPriority(JobPriority.MANUAL);
         infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
+        infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
         return infoBuilder.build();
     }
 
@@ -393,10 +398,7 @@ public class AnalysisManager implements Writable {
         if (jobInfo.scheduleType == ScheduleType.PERIOD && jobInfo.lastExecTimeInMs > 0) {
             return;
         }
-        // TODO: why create a new info object?
-        AnalysisInfoBuilder jobInfoBuilder = new AnalysisInfoBuilder(jobInfo);
-        AnalysisInfo analysisInfo = jobInfoBuilder.setTaskId(-1).build();
-        replayCreateAnalysisJob(analysisInfo);
+        replayCreateAnalysisJob(jobInfo);
     }
 
     public void createTaskForEachColumns(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> analysisTasks,
@@ -568,11 +570,7 @@ public class AnalysisManager implements Writable {
         return result;
     }
 
-    public List<AnalysisInfo> showAnalysisJob(ShowAnalyzeStmt stmt) {
-        return findShowAnalyzeResult(stmt);
-    }
-
-    private List<AnalysisInfo> findShowAnalyzeResult(ShowAnalyzeStmt stmt) {
+    public List<AnalysisInfo> findAnalysisJobs(ShowAnalyzeStmt stmt) {
         String state = stmt.getStateValue();
         TableName tblName = stmt.getDbTableName();
         TableIf tbl = null;
@@ -664,7 +662,7 @@ public class AnalysisManager implements Writable {
         if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
             partitions = new HashSet<>(partitionNames.getPartitionNames());
         }
-        invalidateRemoteStats(catalogId, dbId, tblId, cols, partitions);
+        invalidateRemoteStats(catalogId, dbId, tblId, cols, partitions, false);
         StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, partitions);
     }
 
@@ -676,15 +674,49 @@ public class AnalysisManager implements Writable {
         long catalogId = table.getDatabase().getCatalog().getId();
         long dbId = table.getDatabase().getId();
         long tableId = table.getId();
-        invalidateLocalStats(catalogId, dbId, tableId, null, tableStats, partitionNames);
+        submitAsyncDropStatsTask(catalogId, dbId, tableId, tableStats, partitionNames);
         // Drop stats ddl is master only operation.
         Set<String> partitions = null;
         if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
             partitions = new HashSet<>(partitionNames.getPartitionNames());
         }
         // Drop stats ddl is master only operation.
-        invalidateRemoteStats(catalogId, dbId, tableId, null, partitions);
+        invalidateRemoteStats(catalogId, dbId, tableId, null, partitions, true);
         StatisticsRepository.dropStatistics(catalogId, dbId, table.getId(), null, partitions);
+    }
+
+    class DropStatsTask implements Runnable {
+        private final long catalogId;
+        private final long dbId;
+        private final long tableId;
+        private final Set<String> columns;
+        private final TableStatsMeta tableStats;
+        private final PartitionNames partitionNames;
+
+        public DropStatsTask(long catalogId, long dbId, long tableId, Set<String> columns,
+                             TableStatsMeta tableStats, PartitionNames partitionNames) {
+            this.catalogId = catalogId;
+            this.dbId = dbId;
+            this.tableId = tableId;
+            this.columns = columns;
+            this.tableStats = tableStats;
+            this.partitionNames = partitionNames;
+        }
+
+        @Override
+        public void run() {
+            invalidateLocalStats(catalogId, dbId, tableId, columns, tableStats, partitionNames);
+        }
+    }
+
+    public void submitAsyncDropStatsTask(long catalogId, long dbId, long tableId,
+                                         TableStatsMeta tableStats, PartitionNames partitionNames) {
+        try {
+            dropStatsExecutors.submit(new DropStatsTask(catalogId, dbId, tableId, null, tableStats, partitionNames));
+        } catch (Throwable t) {
+            LOG.info("Failed to drop stats for truncate table {}.{}.{}. Reason:{}",
+                    catalogId, dbId, tableId, t.getMessage());
+        }
     }
 
     public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
@@ -751,8 +783,9 @@ public class AnalysisManager implements Writable {
     }
 
     public void invalidateRemoteStats(long catalogId, long dbId, long tableId,
-                                      Set<String> columns, Set<String> partitions) {
-        InvalidateStatsTarget target = new InvalidateStatsTarget(catalogId, dbId, tableId, columns, partitions);
+                                      Set<String> columns, Set<String> partitions, boolean isTruncate) {
+        InvalidateStatsTarget target = new InvalidateStatsTarget(
+                catalogId, dbId, tableId, columns, partitions, isTruncate);
         TInvalidateFollowerStatsCacheRequest request = new TInvalidateFollowerStatsCacheRequest();
         request.key = GsonUtils.GSON.toJson(target);
         StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
@@ -788,7 +821,7 @@ public class AnalysisManager implements Writable {
         StringBuilder partNamePredicate = new StringBuilder();
         while (iterator.hasNext()) {
             partNamePredicate.append("'");
-            partNamePredicate.append(iterator.next());
+            partNamePredicate.append(StatisticsUtil.escapeSQL(iterator.next()));
             partNamePredicate.append("'");
             partNamePredicate.append(",");
         }

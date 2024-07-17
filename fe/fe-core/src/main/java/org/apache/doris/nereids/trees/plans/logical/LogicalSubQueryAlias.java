@@ -171,7 +171,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         for (int i = 0; i < outputs.size(); i++) {
             replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
         }
-        builder.replace(replaceMap);
+        builder.replaceUniqueBy(replaceMap);
     }
 
     @Override
@@ -182,7 +182,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         for (int i = 0; i < outputs.size(); i++) {
             replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
         }
-        builder.replace(replaceMap);
+        builder.replaceUniformBy(replaceMap);
     }
 
     @Override
@@ -199,12 +199,18 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         for (int i = 0; i < outputs.size(); i++) {
             replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
         }
-        builder.replace(replaceMap);
+        builder.replaceEqualSetBy(replaceMap);
     }
 
     @Override
     public void computeFd(DataTrait.Builder builder) {
         builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        List<Slot> outputs = getOutput();
+        for (int i = 0; i < outputs.size(); i++) {
+            replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
+        }
+        builder.replaceFuncDepsBy(replaceMap);
     }
 
     public void setRelationId(RelationId relationId) {

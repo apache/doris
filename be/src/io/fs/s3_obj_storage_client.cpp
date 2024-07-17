@@ -66,7 +66,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/s3_common.h"
 #include "util/bvar_helper.h"
@@ -133,7 +133,7 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
                                       static_cast<int>(response.GetError().GetResponseCode()),
                                       response.GetError().GetRequestId()};
     }
-    return {};
+    return ObjectStorageResponse::OK();
 }
 
 ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStoragePathOptions& opts,
@@ -211,7 +211,7 @@ ObjectStorageResponse S3ObjStorageClient::complete_multipart_upload(
                 static_cast<int>(complete_outcome.GetError().GetResponseCode()),
                 complete_outcome.GetError().GetRequestId()};
     }
-    return {};
+    return ObjectStorageResponse::OK();
 }
 
 ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePathOptions& opts) {
@@ -233,7 +233,9 @@ ObjectStorageHeadResponse S3ObjStorageClient::head_object(const ObjectStoragePat
                          static_cast<int>(outcome.GetError().GetResponseCode()),
                          outcome.GetError().GetRequestId()}};
     }
-    return {};
+    return ObjectStorageHeadResponse {
+            .resp = ObjectStorageResponse::OK(),
+    };
 }
 
 ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOptions& opts,
@@ -259,7 +261,7 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
                 Status::InternalError("failed to read from {}(bytes read: {}, bytes req: {})",
                                       opts.path.native(), *size_return, bytes_read))};
     }
-    return {};
+    return ObjectStorageResponse::OK();
 }
 
 ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOptions& opts,
@@ -292,7 +294,7 @@ ObjectStorageResponse S3ObjStorageClient::list_objects(const ObjectStoragePathOp
         is_trucated = outcome.GetResult().GetIsTruncated();
         request.SetContinuationToken(outcome.GetResult().GetNextContinuationToken());
     } while (is_trucated);
-    return {};
+    return ObjectStorageResponse::OK();
 }
 
 ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePathOptions& opts,
@@ -322,7 +324,7 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects(const ObjectStoragePath
         return {convert_to_obj_response(Status::InternalError("failed to delete object {}: {}",
                                                               e.GetKey(), e.GetMessage()))};
     }
-    return {};
+    return ObjectStorageResponse::OK();
 }
 
 ObjectStorageResponse S3ObjStorageClient::delete_object(const ObjectStoragePathOptions& opts) {
@@ -333,7 +335,7 @@ ObjectStorageResponse S3ObjStorageClient::delete_object(const ObjectStoragePathO
     auto outcome = _client->DeleteObject(request);
     if (outcome.IsSuccess() ||
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        return {};
+        return ObjectStorageResponse::OK();
     }
     return {convert_to_obj_response(s3fs_error(outcome.GetError(),
                                                fmt::format("failed to delete file {}", opts.key))),
@@ -389,11 +391,12 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
         is_trucated = result.GetIsTruncated();
         request.SetContinuationToken(result.GetNextContinuationToken());
     } while (is_trucated);
-    return {};
+    return ObjectStorageResponse::OK();
 }
 
 std::string S3ObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
-                                                       int64_t expiration_secs) {
+                                                       int64_t expiration_secs,
+                                                       const S3ClientConf&) {
     return _client->GeneratePresignedUrl(opts.bucket, opts.key, Aws::Http::HttpMethod::HTTP_GET,
                                          expiration_secs);
 }

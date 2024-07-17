@@ -229,7 +229,7 @@ public:
     // push filter to remote node or push down it to scan_node
     Status publish(bool publish_local = false);
 
-    Status send_filter_size(uint64_t local_filter_size);
+    Status send_filter_size(RuntimeState* state, uint64_t local_filter_size);
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 

@@ -266,6 +266,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CleanTrashTask;
+import org.apache.doris.task.CleanUDFCacheTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
@@ -290,6 +291,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -1588,8 +1590,15 @@ public class Env {
                                 SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
                     }
                 }
-                if (journalVersion <= FeMetaVersion.VERSION_133) {
-                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                if (journalVersion <= FeMetaVersion.VERSION_129) {
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0", SessionVariable.ENABLE_NEREIDS_PLANNER,
+                            "true");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0", SessionVariable.ENABLE_NEREIDS_DML,
+                            "true");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0",
+                            SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
+                            "false");
+                    VariableMgr.refreshDefaultSessionVariables("2.1 to 3.0",
                             SessionVariable.ENABLE_MATERIALIZED_VIEW_REWRITE,
                             "true");
                 }
@@ -3238,8 +3247,23 @@ public class Env {
         getInternalCatalog().createTableAsSelect(stmt);
     }
 
-    public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
-        getInternalCatalog().addPartition(db, tableName, addPartitionClause);
+    /**
+     * Adds a partition to a table
+     *
+     * @param db
+     * @param tableName
+     * @param addPartitionClause clause in the CreateTableStmt
+     * @param isCreateTable this call is for creating table
+     * @param generatedPartitionId the preset partition id for the partition to add
+     * @param writeEditLog whether to write an edit log for this addition
+     * @return PartitionPersistInfo to be written to editlog. It may be null if no partitions added.
+     * @throws DdlException
+     */
+    public PartitionPersistInfo addPartition(Database db, String tableName, AddPartitionClause addPartitionClause,
+                                             boolean isCreateTable, long generatedPartitionId,
+                                             boolean writeEditLog) throws DdlException {
+        return getInternalCatalog().addPartition(db, tableName, addPartitionClause,
+            isCreateTable, generatedPartitionId, writeEditLog);
     }
 
     public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
@@ -3446,7 +3470,7 @@ public class Env {
 
         // inverted index storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT).append("\" = \"");
-        sb.append(olapTable.getInvertedIndexStorageFormat()).append("\"");
+        sb.append(olapTable.getInvertedIndexFileStorageFormat()).append("\"");
 
         // compression type
         if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
@@ -3501,6 +3525,10 @@ public class Env {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
                 sb.append(olapTable.storeRowColumn()).append("\"");
             }
+
+            // row store page size
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE).append("\" = \"");
+            sb.append(olapTable.rowStorePageSize()).append("\"");
         }
 
         // skip inverted index on load
@@ -3584,6 +3612,13 @@ public class Env {
         // group commit data bytes
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
         sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
+
+        // enable delete on delete predicate
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
+                    .append("\" = \"");
+            sb.append(olapTable.getEnableMowLightDelete()).append("\"");
+        }
 
         // enable duplicate without keys by default
         if (olapTable.isDuplicateWithoutKey()) {
@@ -4621,7 +4656,8 @@ public class Env {
                 db.unregisterTable(oldTableName);
                 db.registerTable(table);
 
-                TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
+                TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), oldTableName,
+                        newTableName);
                 editLog.logTableRename(tableInfo);
                 LOG.info("rename table[{}] to {}", oldTableName, newTableName);
             } finally {
@@ -4808,7 +4844,8 @@ public class Env {
             indexNameToIdMap.put(newRollupName, indexId);
 
             // log
-            TableInfo tableInfo = TableInfo.createForRollupRename(db.getId(), table.getId(), indexId, newRollupName);
+            TableInfo tableInfo = TableInfo.createForRollupRename(db.getId(), table.getId(), indexId,
+                    rollupName, newRollupName);
             editLog.logRollupRename(tableInfo);
             LOG.info("rename rollup[{}] to {}", rollupName, newRollupName);
         } finally {
@@ -4867,7 +4904,7 @@ public class Env {
 
             // log
             TableInfo tableInfo = TableInfo.createForPartitionRename(db.getId(), table.getId(), partition.getId(),
-                    newPartitionName);
+                    partitionName, newPartitionName);
             editLog.logPartitionRename(tableInfo);
             LOG.info("rename partition[{}] to {}", partitionName, newPartitionName);
         } finally {
@@ -5542,6 +5579,7 @@ public class Env {
                 saveImage(dumpFile, journalId);
             } catch (IOException e) {
                 LOG.error("failed to dump image to {}", dumpFilePath, e);
+                return null;
             }
         } finally {
             // unlock all
@@ -5568,8 +5606,10 @@ public class Env {
      * otherwise, it will only truncate those specified partitions.
      *
      */
-    public void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException {
-        getInternalCatalog().truncateTable(truncateTableStmt);
+    public void truncateTable(TruncateTableStmt stmt) throws DdlException {
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getTblRef().getName().getCtl(),
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.truncateTable(stmt);
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
@@ -5612,6 +5652,7 @@ public class Env {
             Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
             db.dropFunction(stmt.getFunction(), stmt.isIfExists());
         }
+        cleanUDFCacheTask(stmt); // BE will cache classload, when drop function, BE need clear cache
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
@@ -5795,6 +5836,7 @@ public class Env {
         List<String> tempPartitionNames = clause.getTempPartitionNames();
         boolean isStrictRange = clause.isStrictRange();
         boolean useTempPartitionName = clause.useTempPartitionName();
+        boolean isForceDropOld = clause.isForceDropOldPartition();
         // check partition exist
         for (String partName : partitionNames) {
             if (!olapTable.checkPartitionNameExist(partName, false)) {
@@ -5806,7 +5848,8 @@ public class Env {
                 throw new DdlException("Temp partition[" + partName + "] does not exist");
             }
         }
-        olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
+        olapTable.replaceTempPartitions(db.getId(), partitionNames, tempPartitionNames, isStrictRange,
+                useTempPartitionName, isForceDropOld);
         long version;
         long versionTime = System.currentTimeMillis();
         if (Config.isNotCloudMode()) {
@@ -5830,7 +5873,8 @@ public class Env {
         // write log
         ReplacePartitionOperationLog info =
                 new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
-                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName, version, versionTime);
+                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName, version, versionTime,
+                        isForceDropOld);
         editLog.logReplaceTempPartition(info);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
                 clause.getTempPartitionNames(), olapTable.getName());
@@ -5845,9 +5889,9 @@ public class Env {
                 .getTableOrMetaException(tableId, Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW));
         olapTable.writeLock();
         try {
-            olapTable.replaceTempPartitions(replaceTempPartitionLog.getPartitions(),
+            olapTable.replaceTempPartitions(dbId, replaceTempPartitionLog.getPartitions(),
                     replaceTempPartitionLog.getTempPartitions(), replaceTempPartitionLog.isStrictRange(),
-                    replaceTempPartitionLog.useTempPartitionName());
+                    replaceTempPartitionLog.useTempPartitionName(), replaceTempPartitionLog.isForce());
             olapTable.updateVisibleVersionAndTime(replaceTempPartitionLog.getVersion(),
                     replaceTempPartitionLog.getVersionTime());
         } catch (DdlException e) {
@@ -6106,6 +6150,18 @@ public class Env {
         AgentTaskExecutor.submit(batchTask);
     }
 
+    public void cleanUDFCacheTask(DropFunctionStmt stmt) {
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
+        String functionSignature = stmt.signatureString();
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (Backend backend : backendsInfo.values()) {
+            CleanUDFCacheTask cleanUDFCacheTask = new CleanUDFCacheTask(backend.getId(), functionSignature);
+            batchTask.addTask(cleanUDFCacheTask);
+            LOG.info("clean udf cache in be {}, beId {}", backend.getHost(), backend.getId());
+        }
+        AgentTaskExecutor.submit(batchTask);
+    }
+
     public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {
         String database = stmt.getDatabase();
         String table = stmt.getTable();
@@ -6246,6 +6302,11 @@ public class Env {
 
             OlapTable olapTable = (OlapTable) table;
             getTableMeta(olapTable, dbMeta);
+        }
+
+        if (Config.enable_feature_binlog) {
+            BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
+            dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
         }
 
         result.setDbMeta(dbMeta);

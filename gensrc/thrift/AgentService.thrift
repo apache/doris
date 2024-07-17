@@ -47,6 +47,7 @@ struct TTabletSchema {
     19: optional list<i32> cluster_key_idxes
     // col unique id for row store column
     20: optional list<i32> row_store_col_cids
+    21: optional i64 row_store_page_size = 16384;
 }
 
 // this enum stands for different storage format in src_backends
@@ -115,6 +116,10 @@ struct TPushStoragePolicyReq {
 
 struct TCleanTrashReq {}
 
+struct TCleanUDFCacheReq {
+    1: optional string function_signature //function_name(arg_type)
+}
+
 enum TCompressionType {
     UNKNOWN_COMPRESSION = 0,
     DEFAULT_COMPRESSION = 1,
@@ -176,7 +181,9 @@ struct TCreateTabletReq {
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
     26: optional i64 time_series_compaction_empty_rowsets_threshold = 5
     27: optional i64 time_series_compaction_level_threshold = 1
-    28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.V1
+    28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
+    29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
+
     // For cloud
     1000: optional bool is_in_memory = false
     1001: optional bool is_persistent = false
@@ -303,6 +310,7 @@ struct TCloneReq {
     10: optional i32 timeout_s;
     11: optional Types.TReplicaId replica_id = 0
     12: optional i64 partition_id
+    13: optional i64 table_id = -1
 }
 
 struct TCompactionReq {
@@ -426,6 +434,9 @@ struct TCalcDeleteBitmapPartitionInfo {
     1: required Types.TPartitionId partition_id
     2: required Types.TVersion version
     3: required list<Types.TTabletId> tablet_ids
+    4: optional list<i64> base_compaction_cnts
+    5: optional list<i64> cumulative_compaction_cnts
+    6: optional list<i64> cumulative_points
 }
 
 struct TCalcDeleteBitmapRequest {
@@ -535,6 +546,7 @@ struct TAgentTaskRequest {
     33: optional TGcBinlogReq gc_binlog_req
     34: optional TCleanTrashReq clean_trash_req
     35: optional TVisibleVersionReq visible_version_req
+    36: optional TCleanUDFCacheReq clean_udf_cache_req
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req

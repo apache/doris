@@ -517,4 +517,42 @@ suite("test_delete") {
         sql "delete from table_bitmap where user_id is null"
         exception "Can not apply delete condition to column type: BITMAP"
     }
+
+    // delete decimal
+    sql "drop table if exists table_decimal"
+    sql """
+        CREATE TABLE table_decimal (
+          `k1` BOOLEAN NOT NULL,
+          `k2` DECIMAL(17, 1) NOT NULL,
+          `k3` INT NOT NULL,
+          `k4` DECIMAL(7, 7)
+        ) ENGINE=OLAP 
+        DUPLICATE KEY(`k1`,`k2`,`k3`) 
+        DISTRIBUTED BY HASH(`k1`,`k2`,`k3`) BUCKETS 4 
+        PROPERTIES (
+        "replication_num" = "1",
+        "disable_auto_compaction" = "false"
+        ); 
+    """
+    sql """
+        insert into table_decimal values
+        (false, '-9999782574499444.2', -20, 0.1234567),
+        (true, '-1', 10, 0.7654321);
+    """
+
+    sql """
+        delete from table_decimal where k1 = false and k2 = '-9999782574499444.2' and k3 = '-20';
+    """
+
+    sql """
+        delete from table_decimal where k4 = '0.1234567';
+    """
+
+    sql """
+        delete from table_decimal where k4 = '-0.123';
+    """
+
+    qt_check_decimal """
+        select * from table_decimal;
+    """
 }

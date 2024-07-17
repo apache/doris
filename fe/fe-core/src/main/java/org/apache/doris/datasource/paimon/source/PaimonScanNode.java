@@ -263,7 +263,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             splitStats.add(splitStat);
         }
-        this.readPartitionNum = selectedPartitionValues.size();
+        this.selectedPartitionNum = selectedPartitionValues.size();
         // TODO: get total partition number
         return splits;
     }

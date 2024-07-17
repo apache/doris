@@ -24,7 +24,6 @@
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/cloud.pb.h>
-#include <stdint.h>
 
 #include <map>
 #include <memory>
@@ -33,8 +32,8 @@
 #include <unordered_map>
 
 #include "common/status.h"
+#include "cpp/s3_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
-#include "util/s3_rate_limiter.h"
 #include "vec/common/string_ref.h"
 
 namespace Aws::S3 {
@@ -107,6 +106,7 @@ struct S3ClientConf {
         hash_code ^= request_timeout_ms;
         hash_code ^= connect_timeout_ms;
         hash_code ^= use_virtual_addressing;
+        hash_code ^= static_cast<int>(provider);
         return hash_code;
     }
 

@@ -293,14 +293,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.storeRowColumn(),
                                     binlogConfig,
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                    objectPool);
+                                    objectPool,
+                                    tbl.rowStorePageSize());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
                             }
-                            createReplicaTask.setInvertedIndexStorageFormat(tbl.getInvertedIndexStorageFormat());
+                            createReplicaTask.setInvertedIndexFileStorageFormat(tbl
+                                                    .getInvertedIndexFileStorageFormat());
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas
                     } // end for rollupTablets
