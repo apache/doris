@@ -343,6 +343,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("minute", new Integer(SqlParserSymbols.KW_MINUTE));
         keywordMap.put("modify", new Integer(SqlParserSymbols.KW_MODIFY));
         keywordMap.put("month", new Integer(SqlParserSymbols.KW_MONTH));
+        keywordMap.put("mask", new Integer(SqlParserSymbols.KW_MASK));
         keywordMap.put("name", new Integer(SqlParserSymbols.KW_NAME));
         keywordMap.put("names", new Integer(SqlParserSymbols.KW_NAMES));
         keywordMap.put("natural", new Integer(SqlParserSymbols.KW_NATURAL));

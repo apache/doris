@@ -44,11 +44,11 @@ import java.util.Objects;
  */
 public class TableNameInfo implements Writable {
     @SerializedName(value = "c")
-    private String ctl;
+    protected String ctl;
     @SerializedName(value = "t")
-    private String tbl;
+    protected String tbl;
     @SerializedName(value = "d")
-    private String db;
+    protected String db;
 
     public TableNameInfo() {
 

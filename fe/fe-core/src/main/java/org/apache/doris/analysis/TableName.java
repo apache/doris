@@ -43,11 +43,11 @@ import java.util.stream.Stream;
 
 public class TableName implements Writable {
     @SerializedName(value = "ctl")
-    private String ctl;
+    protected String ctl;
     @SerializedName(value = "tbl")
-    private String tbl;
+    protected String tbl;
     @SerializedName(value = "db")
-    private String db;
+    protected String db;
 
     public TableName() {
 

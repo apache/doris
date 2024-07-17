@@ -34,9 +34,11 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.policy.DorisDataMaskPolicy;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -54,15 +56,16 @@ import java.util.Optional;
  */
 public class CreatePolicyCommand extends Command implements ForwardWithSync {
 
-    private final PolicyTypeEnum policyType;
-    private final String policyName;
-    private final boolean ifNotExists;
-    private final TableNameInfo tableNameInfo;
-    private final Optional<FilterType> filterType;
-    private final UserIdentity user;
-    private final String roleName;
-    private final Optional<Expression> wherePredicate;
-    private final Map<String, String> properties;
+    private PolicyTypeEnum policyType;
+    private String policyName;
+    private boolean ifNotExists;
+    private TableNameInfo tableNameInfo;
+    private Optional<FilterType> filterType;
+    private UserIdentity user;
+    private String roleName;
+    private Optional<Expression> wherePredicate;
+    private Map<String, String> properties;
+    private String dataMaskType;
 
     /**
      * ctor of this command.
@@ -80,6 +83,21 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         this.roleName = roleName;
         this.wherePredicate = wherePredicate;
         this.properties = properties;
+    }
+
+    /**
+     * ctor for create data mask policy command.
+     */
+    public CreatePolicyCommand(PolicyTypeEnum policyType, String policyName, boolean ifNotExists,
+                               TableNameInfo tableNameInfo, UserIdentity user, String roleName, String dataMaskType) {
+        super(PlanType.CREATE_POLICY_COMMAND);
+        this.policyType = policyType;
+        this.policyName = policyName;
+        this.ifNotExists = ifNotExists;
+        this.tableNameInfo = tableNameInfo;
+        this.user = user;
+        this.roleName = roleName;
+        this.dataMaskType = dataMaskType;
     }
 
     public Optional<Expression> getWherePredicate() {
@@ -128,8 +146,8 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 if (user != null) {
                     user.analyze();
                     if (user.isRootUser() || user.isAdminUser()) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
-                                user.getQualifiedUser(), user.getHost(), tableNameInfo.getTbl());
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
+                                "CreatePolicyCommand", user.getQualifiedUser(), user.getHost(), tableNameInfo.getTbl());
                     }
                 }
                 // check auth
@@ -153,6 +171,10 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                         tableNameInfo.getDb(), tableNameInfo.getTbl(), user, roleName,
                         executor.getOriginStmt().originStmt, executor.getOriginStmt().idx, filterType.get(),
                         translateToLegacyExpr(wherePredicate.get(), ctx));
+            case DATA_MASK:
+                ColumnNameInfo col = (ColumnNameInfo) tableNameInfo;
+                return new DorisDataMaskPolicy(policyId, policyName, user, roleName,
+                    col.getCtl(), col.getDb(), col.getTbl(), col.getCol(), dataMaskType);
             default:
                 throw new AnalysisException("Unknown policy type: " + policyType);
         }

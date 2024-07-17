@@ -217,6 +217,10 @@ supportedCreateStatement
             functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
             WITH PARAMETER LEFT_PAREN parameters=identifierSeq? RIGHT_PAREN
             AS expression                                                           #createAliasFunction
+    | CREATE DATA MASK POLICY (IF NOT EXISTS)? name=identifier
+        ON column=multipartIdentifier
+        TO (user=userIdentify | ROLE roleName=identifier)
+        USING dataMaskType=identifier                                     #createDataMaskPolicy
     ;
 
 supportedAlterStatement
@@ -267,6 +271,7 @@ supportedDropStatement
     | DROP statementScope? FUNCTION (IF EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
     | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
+    | DROP DATA MASK POLICY (IF EXISTS)? name=identifier                        #dropDataMaskPolicy
     ;
 
 supportedShowStatement
@@ -281,7 +286,7 @@ supportedShowStatement
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
-    | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob    
+    | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL? limitClause?                     #showLoadProfile
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
     | SHOW VIEW
@@ -331,6 +336,7 @@ supportedShowStatement
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
     | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                    #showQueryProfile
     | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
+    | SHOW DATA MASK POLICY (FOR (user=userIdentify | ROLE roleName=identifier))?   #showDataMaskPolicy
     ;
 
 supportedLoadStatement
@@ -972,7 +978,7 @@ dataDesc
 statementScope
     : (GLOBAL | SESSION | LOCAL)
     ;
-    
+
 buildMode
     : BUILD (IMMEDIATE | DEFERRED)
     ;
@@ -1950,6 +1956,7 @@ nonReserved
     | LOGICAL
     | MANUAL
     | MAP
+    | MASK
     | MATCH_ALL
     | MATCH_ANY
     | MATCH_PHRASE

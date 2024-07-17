@@ -156,7 +156,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             Optional<DataMaskPolicy> dataMaskPolicy = accessManager.evalDataMaskPolicy(
                     currentUserIdentity, ctlName, dbName, tableName, slot.getName());
             if (dataMaskPolicy.isPresent()) {
-                Expression unboundExpr = nereidsParser.parseExpression(dataMaskPolicy.get().getMaskTypeDef());
+                Expression unboundExpr = dataMaskPolicy.get().parseMaskTypeDef(nereidsParser, slot);
                 Expression childOfAlias
                         = unboundExpr instanceof UnboundAlias ? unboundExpr.child(0) : unboundExpr;
                 Alias alias = new Alias(

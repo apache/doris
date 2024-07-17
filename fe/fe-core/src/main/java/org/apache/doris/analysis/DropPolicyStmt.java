@@ -69,7 +69,9 @@ public class DropPolicyStmt extends DdlStmt implements NotFallbackInParser {
                 break;
             case ROW:
             default:
-                tableName.analyze(analyzer);
+                if (tableName != null) {
+                    tableName.analyze(analyzer);
+                }
                 if (user != null) {
                     user.analyze();
                 }
@@ -85,7 +87,11 @@ public class DropPolicyStmt extends DdlStmt implements NotFallbackInParser {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP ").append(type).append(" POLICY ");
+        String typeName = type.name();
+        if (type == PolicyTypeEnum.DATA_MASK) {
+            typeName = "DATA MASK";
+        }
+        sb.append("DROP ").append(typeName).append(" POLICY ");
         if (ifExists) {
             sb.append("IF EXISTS ");
         }

@@ -119,6 +119,7 @@ import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.CreateAliasFunctionContext;
 import org.apache.doris.nereids.DorisParser.CreateCatalogContext;
+import org.apache.doris.nereids.DorisParser.CreateDataMaskPolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.CreateFileContext;
 import org.apache.doris.nereids.DorisParser.CreateIndexContext;
@@ -558,6 +559,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
@@ -617,6 +619,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
@@ -670,6 +673,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
@@ -1808,6 +1812,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.user == null ? null : visitUserIdentify(ctx.user),
                 ctx.roleName == null ? null : ctx.roleName.getText(),
                 Optional.of(getExpression(ctx.booleanExpression())), ImmutableMap.of());
+    }
+
+    @Override
+    public Command visitCreateDataMaskPolicy(CreateDataMaskPolicyContext ctx) {
+        List<String> nameParts = RelationUtil.getQualifierColumnName(ConnectContext.get(),
+                visitMultipartIdentifier(ctx.column));
+        return new CreatePolicyCommand(PolicyTypeEnum.DATA_MASK, ctx.name.getText(),
+            ctx.EXISTS() != null, new ColumnNameInfo(nameParts),
+            ctx.user == null ? null : visitUserIdentify(ctx.user),
+            ctx.roleName == null ? null : ctx.roleName.getText(), ctx.dataMaskType.getText());
+    }
+
+    @Override
+    public Command visitDropDataMaskPolicy(DorisParser.DropDataMaskPolicyContext ctx) {
+        return new DropPolicyCommand(PolicyTypeEnum.DATA_MASK, ctx.name.getText(), ctx.EXISTS() != null);
+    }
+
+    @Override
+    public Command visitShowDataMaskPolicy(DorisParser.ShowDataMaskPolicyContext ctx) {
+        return new ShowPolicyCommand(PolicyTypeEnum.DATA_MASK, ctx.user == null ? null : visitUserIdentify(ctx.user),
+                ctx.roleName == null ? null : ctx.roleName.getText());
     }
 
     @Override
