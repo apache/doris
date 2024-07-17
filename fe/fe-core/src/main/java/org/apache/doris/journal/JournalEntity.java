@@ -291,8 +291,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RENAME_TABLE:
             case OperationType.OP_RENAME_ROLLUP:
             case OperationType.OP_RENAME_PARTITION: {
-                data = new TableInfo();
-                ((TableInfo) data).readFields(in);
+                data = TableInfo.read(in);
                 isRead = true;
                 break;
             }

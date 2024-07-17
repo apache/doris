@@ -4443,6 +4443,10 @@ public class Env {
                 db.unregisterTable(tableName);
                 table.setName(newTableName);
                 db.registerTable(table);
+
+                TableInfo newTableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), tableName,
+                    newTableName);
+                editLog.logTableRename(newTableInfo);
                 LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();

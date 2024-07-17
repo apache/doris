@@ -17,8 +17,12 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import java.io.DataInput;
@@ -27,16 +31,26 @@ import java.io.IOException;
 
 public class TableInfo implements Writable {
 
+    @SerializedName("db")
     private long dbId;
+    @SerializedName("tb")
     private long tableId;
+    @SerializedName("ind")
     private long indexId;
+    @SerializedName("p")
     private long partitionId;
+    @SerializedName("nT")
 
     private String newTableName;
+    @SerializedName("oT")
     private String oldTableName;
+    @SerializedName("nR")
     private String newRollupName;
+    @SerializedName("oR")
     private String oldRollupName;
+    @SerializedName("nP")
     private String newPartitionName;
+    @SerializedName("oP")
     private String oldPartitionName;
 
     public TableInfo() {
@@ -123,19 +137,20 @@ public class TableInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(indexId);
-        out.writeLong(partitionId);
-
-        Text.writeString(out, newTableName);
-        Text.writeString(out, oldTableName);
-        Text.writeString(out, newRollupName);
-        Text.writeString(out, oldRollupName);
-        Text.writeString(out, newPartitionName);
-        Text.writeString(out, oldPartitionName);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    public static TableInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_130) {
+            TableInfo tableInfo = new TableInfo();
+            tableInfo.readFields(in);
+            return tableInfo;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), TableInfo.class);
+        }
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
@@ -145,12 +160,6 @@ public class TableInfo implements Writable {
         newTableName = Text.readString(in);
         newRollupName = Text.readString(in);
         newPartitionName = Text.readString(in);
-    }
-
-    public static TableInfo read(DataInput in) throws IOException {
-        TableInfo info = new TableInfo();
-        info.readFields(in);
-        return info;
     }
 
     public String toJson() {
