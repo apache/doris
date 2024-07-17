@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS customer_demographics (
     cd_dep_college_count integer
 )
 DUPLICATE KEY(cd_demo_sk)
-DISTRIBUTED BY HASH(cd_gender) BUCKETS 12
+DISTRIBUTED BY HASH(cd_demo_sk) BUCKETS 12
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -351,7 +351,7 @@ CREATE TABLE IF NOT EXISTS item (
     i_product_name char(50)
 )
 DUPLICATE KEY(i_item_sk)
-DISTRIBUTED BY HASH(i_item_sk) BUCKETS 12
+DISTRIBUTED BY HASH(i_item_sk) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1"
 );

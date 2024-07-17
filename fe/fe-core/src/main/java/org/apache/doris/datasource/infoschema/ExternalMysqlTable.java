@@ -18,16 +18,16 @@
 package org.apache.doris.datasource.infoschema;
 
 import org.apache.doris.analysis.SchemaTableType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlDBTable;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.thrift.TSchemaTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import java.util.List;
+import java.util.Optional;
 
 public class ExternalMysqlTable extends ExternalTable {
     public ExternalMysqlTable(long id, String name, ExternalCatalog catalog) {
@@ -35,9 +35,9 @@ public class ExternalMysqlTable extends ExternalTable {
     }
 
     @Override
-    public List<Column> initSchema() {
+    public Optional<SchemaCacheValue> initSchema() {
         makeSureInitialized();
-        return MysqlDBTable.TABLE_MAP.get(name).getFullSchema();
+        return Optional.of(new SchemaCacheValue(MysqlDBTable.TABLE_MAP.get(name).getFullSchema()));
     }
 
     @Override

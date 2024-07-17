@@ -54,12 +54,17 @@ public class ReplacePartitionClause extends AlterTableClause {
     //      but if "use_temp_partition_name" is true, the partition names will be "tp1" and "tp2".
     private boolean useTempPartitionName;
 
+    // The replaced partitions will be moved to recycle bin when "forceDropNormalPartition" is false,
+    // and instead, these partitions will be deleted directly.
+    private boolean forceDropOldPartition;
+
     public ReplacePartitionClause(PartitionNames partitionNames, PartitionNames tempPartitionNames,
-            Map<String, String> properties) {
+            boolean isForce, Map<String, String> properties) {
         super(AlterOpType.REPLACE_PARTITION);
         this.partitionNames = partitionNames;
         this.tempPartitionNames = tempPartitionNames;
         this.needTableStable = false;
+        this.forceDropOldPartition = isForce;
         this.properties = properties;
     }
 
@@ -79,6 +84,11 @@ public class ReplacePartitionClause extends AlterTableClause {
         return useTempPartitionName;
     }
 
+    public boolean isForceDropOldPartition() {
+        return forceDropOldPartition;
+    }
+
+    @SuppressWarnings("checkstyle:LineLength")
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (partitionNames == null || tempPartitionNames == null) {
@@ -105,6 +115,16 @@ public class ReplacePartitionClause extends AlterTableClause {
     @Override
     public Map<String, String> getProperties() {
         return this.properties;
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return false;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
     }
 
     @Override

@@ -63,13 +63,9 @@ class VFileScanner : public VScanner {
 public:
     static constexpr const char* NAME = "VFileScanner";
 
-    VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                 const TFileScanRange& scan_range, RuntimeProfile* profile,
-                 ShardedKVCache* kv_cache);
-
     VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
-                 const TFileScanRange& scan_range, RuntimeProfile* profile,
-                 ShardedKVCache* kv_cache);
+                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
+                 RuntimeProfile* profile, ShardedKVCache* kv_cache);
 
     Status open(RuntimeState* state) override;
 
@@ -88,6 +84,8 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
+    Status _get_block_wrapped(RuntimeState* state, Block* block, bool* eof);
+
     Status _get_next_reader();
 
     // TODO: cast input block columns type to string.
@@ -97,8 +95,9 @@ protected:
 
 protected:
     const TFileScanRangeParams* _params = nullptr;
-    const std::vector<TFileRangeDesc>& _ranges;
-    int _next_range;
+    std::shared_ptr<vectorized::SplitSourceConnector> _split_source;
+    bool _first_scan_range = false;
+    TFileRangeDesc _current_range;
 
     std::unique_ptr<GenericReader> _cur_reader;
     bool _cur_reader_eof;
@@ -179,6 +178,7 @@ private:
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
+    RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
     RuntimeProfile::Counter* _has_fully_rf_file_counter = nullptr;
 
@@ -219,21 +219,9 @@ private:
         _counter.num_rows_filtered = 0;
     }
 
-    TPushAggOp::type _get_push_down_agg_type() {
-        if (get_parent() != nullptr) {
-            return _parent->get_push_down_agg_type();
-        } else {
-            return _local_state->get_push_down_agg_type();
-        }
-    }
+    TPushAggOp::type _get_push_down_agg_type() { return _local_state->get_push_down_agg_type(); }
 
-    int64_t _get_push_down_count() {
-        if (get_parent() != nullptr) {
-            return _parent->get_push_down_count();
-        } else {
-            return _local_state->get_push_down_count();
-        }
-    }
+    int64_t _get_push_down_count() { return _local_state->get_push_down_count(); }
 
     // enable the file meta cache only when
     // 1. max_external_file_meta_cache_num is > 0
@@ -241,7 +229,7 @@ private:
     // Otherwise, the cache miss rate will be high
     bool _shoudl_enable_file_meta_cache() {
         return config::max_external_file_meta_cache_num > 0 &&
-               _ranges.size() < config::max_external_file_meta_cache_num / 3;
+               _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }
 };
 } // namespace doris::vectorized

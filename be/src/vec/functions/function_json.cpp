@@ -619,6 +619,7 @@ struct ExecuteReducer {
 struct FunctionJsonArrayImpl {
     static constexpr auto name = "json_array";
 
+    static constexpr auto must_not_null = false;
     template <int flag>
     using Reducer = ExecuteReducer<flag, FunctionJsonArrayImpl>;
 
@@ -654,7 +655,7 @@ struct FunctionJsonArrayImpl {
 
 struct FunctionJsonObjectImpl {
     static constexpr auto name = "json_object";
-
+    static constexpr auto must_not_null = true;
     template <int flag>
     using Reducer = ExecuteReducer<flag, FunctionJsonObjectImpl>;
 
@@ -743,6 +744,9 @@ public:
                 data_columns.push_back(assert_cast<const ColumnString*>(column_ptrs.back().get()));
             }
         }
+        if (SpecificImpl::must_not_null) {
+            RETURN_IF_ERROR(check_keys_all_not_null(nullmaps, input_rows_count, arguments.size()));
+        }
         execute(data_columns, *assert_cast<ColumnString*>(result_column.get()), input_rows_count,
                 nullmaps);
         block.get_by_position(result).column = std::move(result_column);
@@ -774,6 +778,24 @@ public:
             result_column.insert_data(buf.GetString(), buf.GetSize());
         }
     }
+
+    static Status check_keys_all_not_null(const std::vector<const ColumnUInt8*>& nullmaps, int size,
+                                          size_t args) {
+        for (int i = 0; i < args; i += 2) {
+            const auto* null_map = nullmaps[i];
+            if (null_map) {
+                const bool not_null_num =
+                        simd::count_zero_num((int8_t*)null_map->get_data().data(), size);
+                if (not_null_num < size) {
+                    return Status::InternalError(
+                            "function {} can not input null value , JSON documents may not contain "
+                            "NULL member names.",
+                            name);
+                }
+            }
+        }
+        return Status::OK();
+    }
 };
 
 struct FunctionJsonQuoteImpl {
@@ -804,44 +826,61 @@ struct FunctionJsonExtractImpl {
     static constexpr auto name = "json_extract";
 
     static rapidjson::Value parse_json(const ColumnString* json_col, const ColumnString* path_col,
-                                       rapidjson::Document::AllocatorType& allocator,
-                                       const int row) {
+                                       rapidjson::Document::AllocatorType& allocator, const int row,
+                                       const int col, std::vector<bool>& column_is_consts) {
         rapidjson::Value value;
         rapidjson::Document document;
 
-        const auto obj = json_col->get_data_at(row);
+        const auto obj = json_col->get_data_at(index_check_const(row, column_is_consts[0]));
         std::string_view json_string(obj.data, obj.size);
-        const auto path = path_col->get_data_at(row);
+        const auto path = path_col->get_data_at(index_check_const(row, column_is_consts[col]));
         std::string_view path_string(path.data, path.size);
-
-        auto root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
+        auto* root = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);
         if (root != nullptr) {
             value.CopyFrom(*root, allocator);
         }
         return value;
     }
 
+    static rapidjson::Value* get_document(const ColumnString* path_col,
+                                          rapidjson::Document* document,
+                                          std::vector<JsonPath>& parsed_paths, const int row,
+                                          bool is_const_column) {
+        const auto path = path_col->get_data_at(index_check_const(row, is_const_column));
+        std::string_view path_string(path.data, path.size);
+        //Cannot use '\' as the last character, return NULL
+        if (path_string.back() == '\\') {
+            document->SetNull();
+            return nullptr;
+        }
+
+#ifdef USE_LIBCPP
+        std::string s(path_string);
+        auto tok = get_json_token(s);
+#else
+        auto tok = get_json_token(path_string);
+#endif
+        // TODO: here maybe could use std::vector<std::string_view> or std::span
+        std::vector<std::string> paths(tok.begin(), tok.end());
+        get_parsed_paths(paths, &parsed_paths);
+        if (parsed_paths.empty()) {
+            return nullptr;
+        }
+        if (!(parsed_paths)[0].is_valid) {
+            return nullptr;
+        }
+        return document;
+    }
+
     static void execute(const std::vector<const ColumnString*>& data_columns,
-                        ColumnString& result_column, NullMap& null_map, size_t input_rows_count) {
+                        ColumnString& result_column, NullMap& null_map, size_t input_rows_count,
+                        std::vector<bool>& column_is_consts) {
         rapidjson::Document document;
         rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
         rapidjson::StringBuffer buf;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-
-        const auto json_col = data_columns[0];
-        for (size_t row = 0; row < input_rows_count; row++) {
-            rapidjson::Value value;
-            if (data_columns.size() == 2) {
-                value = parse_json(json_col, data_columns[1], allocator, row);
-            } else {
-                value.SetArray();
-                value.Reserve(data_columns.size() - 1, allocator);
-                for (size_t col = 1; col < data_columns.size(); ++col) {
-                    value.PushBack(parse_json(json_col, data_columns[col], allocator, row),
-                                   allocator);
-                }
-            }
-
+        const auto* json_col = data_columns[0];
+        auto insert_result_lambda = [&](rapidjson::Value& value, int row) {
             if (value.IsNull()) {
                 null_map[row] = 1;
                 result_column.insert_default();
@@ -851,6 +890,57 @@ struct FunctionJsonExtractImpl {
                 writer.Reset(buf);
                 value.Accept(writer);
                 result_column.insert_data(buf.GetString(), buf.GetSize());
+            }
+        };
+        if (data_columns.size() == 2) {
+            rapidjson::Value value;
+            if (column_is_consts[1]) {
+                std::vector<JsonPath> parsed_paths;
+                auto* root = get_document(data_columns[1], &document, parsed_paths, 0,
+                                          column_is_consts[1]);
+                for (size_t row = 0; row < input_rows_count; row++) {
+                    if (root != nullptr) {
+                        const auto& obj = json_col->get_data_at(row);
+                        std::string_view json_string(obj.data, obj.size);
+                        if (UNLIKELY((parsed_paths).size() == 1)) {
+                            document.SetString(json_string.data(), json_string.size(), allocator);
+                        }
+                        document.Parse(json_string.data(), json_string.size());
+                        if (UNLIKELY(document.HasParseError())) {
+                            null_map[row] = 1;
+                            result_column.insert_default();
+                            continue;
+                        }
+                        auto* root_val = match_value(parsed_paths, &document, allocator);
+                        if (root_val != nullptr) {
+                            value.CopyFrom(*root_val, allocator);
+                        } else {
+                            rapidjson::Value tmp;
+                            value.Swap(tmp);
+                        }
+                    }
+                    insert_result_lambda(value, row);
+                }
+            } else {
+                for (size_t row = 0; row < input_rows_count; row++) {
+                    value = parse_json(json_col, data_columns[1], allocator, row, 1,
+                                       column_is_consts);
+                    insert_result_lambda(value, row);
+                }
+            }
+
+        } else {
+            rapidjson::Value value;
+            value.SetArray();
+            value.Reserve(data_columns.size() - 1, allocator);
+            for (size_t row = 0; row < input_rows_count; row++) {
+                value.Clear();
+                for (size_t col = 1; col < data_columns.size(); ++col) {
+                    value.PushBack(parse_json(json_col, data_columns[col], allocator, row, col,
+                                              column_is_consts),
+                                   allocator);
+                }
+                insert_result_lambda(value, row);
             }
         }
     }
@@ -907,15 +997,18 @@ public:
                         size_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
         std::vector<const ColumnString*> data_columns;
+        std::vector<bool> column_is_consts;
         for (int i = 0; i < arguments.size(); i++) {
-            column_ptrs.push_back(
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const());
-            data_columns.push_back(assert_cast<const ColumnString*>(column_ptrs.back().get()));
+            ColumnPtr arg_col;
+            bool arg_const;
+            std::tie(arg_col, arg_const) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+            column_is_consts.push_back(arg_const);
+            data_columns.push_back(assert_cast<const ColumnString*>(arg_col.get()));
         }
         Impl::execute(data_columns, *assert_cast<ColumnString*>(result_column.get()),
-                      null_map->get_data(), input_rows_count);
+                      null_map->get_data(), input_rows_count, column_is_consts);
         block.replace_by_position(
                 result, ColumnNullable::create(std::move(result_column), std::move(null_map)));
         return Status::OK();
@@ -1253,11 +1346,13 @@ private:
 
     Status get_parsed_path_columns(std::vector<std::vector<std::vector<JsonPath>>>& json_paths,
                                    const std::vector<const ColumnString*>& data_columns,
-                                   size_t input_rows_count) const {
+                                   size_t input_rows_count,
+                                   std::vector<bool>& column_is_consts) const {
         for (auto col = 1; col + 1 < data_columns.size() - 1; col += 2) {
             json_paths.emplace_back(std::vector<std::vector<JsonPath>>());
             for (auto row = 0; row < input_rows_count; row++) {
-                const auto path = data_columns[col]->get_data_at(row);
+                const auto path = data_columns[col]->get_data_at(
+                        index_check_const(row, column_is_consts[col]));
                 std::string_view path_string(path.data, path.size);
                 std::vector<JsonPath> parsed_paths;
 
@@ -1291,7 +1386,7 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         bool is_nullable = false;
         // arguments: (json_str, path, val[, path, val...], type_flag)
-        for (auto col = 2; col < arguments.size() - 1; col += 2) {
+        for (auto col = 0; col < arguments.size() - 1; col += 1) {
             if (arguments[col]->is_nullable()) {
                 is_nullable = true;
                 break;
@@ -1305,36 +1400,42 @@ public:
                         size_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         bool is_nullable = false;
-        auto ret_null_map = ColumnUInt8::create(0, 0);
+        ColumnUInt8::MutablePtr ret_null_map = nullptr;
+        ColumnUInt8::Container* ret_null_map_data = nullptr;
 
-        std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
         std::vector<const ColumnString*> data_columns;
         std::vector<const ColumnUInt8*> nullmaps;
+        std::vector<bool> column_is_consts;
         for (int i = 0; i < arguments.size(); i++) {
-            auto column = block.get_by_position(arguments[i]).column;
-            column_ptrs.push_back(column->convert_to_full_column_if_const());
-            const ColumnNullable* col_nullable =
-                    check_and_get_column<ColumnNullable>(column_ptrs.back().get());
+            ColumnPtr arg_col;
+            bool arg_const;
+            std::tie(arg_col, arg_const) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+            const auto* col_nullable = check_and_get_column<ColumnNullable>(arg_col.get());
+            column_is_consts.push_back(arg_const);
             if (col_nullable) {
                 if (!is_nullable) {
                     is_nullable = true;
-                    ret_null_map = ColumnUInt8::create(input_rows_count, 0);
                 }
-                const ColumnUInt8* col_nullmap = check_and_get_column<ColumnUInt8>(
+                const ColumnUInt8* col_nullmap = assert_cast<const ColumnUInt8*>(
                         col_nullable->get_null_map_column_ptr().get());
                 nullmaps.push_back(col_nullmap);
-                const ColumnString* col = check_and_get_column<ColumnString>(
+                const ColumnString* col = assert_cast<const ColumnString*>(
                         col_nullable->get_nested_column_ptr().get());
                 data_columns.push_back(col);
             } else {
                 nullmaps.push_back(nullptr);
-                data_columns.push_back(assert_cast<const ColumnString*>(column_ptrs.back().get()));
+                data_columns.push_back(assert_cast<const ColumnString*>(arg_col.get()));
             }
         }
-
+        //*assert_cast<ColumnUInt8*>(ret_null_map.get())
+        if (is_nullable) {
+            ret_null_map = ColumnUInt8::create(input_rows_count, 0);
+            ret_null_map_data = &(ret_null_map->get_data());
+        }
         RETURN_IF_ERROR(execute_process(
                 data_columns, *assert_cast<ColumnString*>(result_column.get()), input_rows_count,
-                nullmaps, is_nullable, *assert_cast<ColumnUInt8*>(ret_null_map.get())));
+                nullmaps, is_nullable, ret_null_map_data, column_is_consts));
 
         if (is_nullable) {
             block.replace_by_position(result, ColumnNullable::create(std::move(result_column),
@@ -1348,13 +1449,15 @@ public:
     Status execute_process(const std::vector<const ColumnString*>& data_columns,
                            ColumnString& result_column, size_t input_rows_count,
                            const std::vector<const ColumnUInt8*> nullmaps, bool is_nullable,
-                           ColumnUInt8& ret_null_map) const {
+                           ColumnUInt8::Container* ret_null_map_data,
+                           std::vector<bool>& column_is_consts) const {
         std::string type_flags = data_columns.back()->get_data_at(0).to_string();
 
         std::vector<rapidjson::Document> objects;
         for (auto row = 0; row < input_rows_count; row++) {
             objects.emplace_back(rapidjson::kNullType);
-            const auto json_doc = data_columns[0]->get_data_at(row);
+            const auto json_doc =
+                    data_columns[0]->get_data_at(index_check_const(row, column_is_consts[0]));
             std::string_view json_str(json_doc.data, json_doc.size);
             objects[row].Parse(json_str.data(), json_str.size());
             if (UNLIKELY(objects[row].HasParseError())) {
@@ -1364,9 +1467,10 @@ public:
         }
 
         std::vector<std::vector<std::vector<JsonPath>>> json_paths;
-        RETURN_IF_ERROR(get_parsed_path_columns(json_paths, data_columns, input_rows_count));
+        RETURN_IF_ERROR(get_parsed_path_columns(json_paths, data_columns, input_rows_count,
+                                                column_is_consts));
 
-        execute_parse(type_flags, data_columns, objects, json_paths, nullmaps);
+        execute_parse(type_flags, data_columns, objects, json_paths, nullmaps, column_is_consts);
 
         rapidjson::StringBuffer buf;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
@@ -1376,7 +1480,7 @@ public:
             writer.Reset(buf);
             objects[i].Accept(writer);
             if (is_nullable && objects[i].IsNull()) {
-                ret_null_map.get_data()[i] = 1;
+                (*ret_null_map_data)[i] = 1;
             }
             result_column.insert_data(buf.GetString(), buf.GetSize());
         }
@@ -1390,11 +1494,12 @@ public:
                               const std::vector<const ColumnString*>& data_columns,
                               std::vector<rapidjson::Document>& objects,
                               std::vector<std::vector<std::vector<JsonPath>>>& json_paths,
-                              const std::vector<const ColumnUInt8*>& nullmaps) {
+                              const std::vector<const ColumnUInt8*>& nullmaps,
+                              std::vector<bool>& column_is_consts) {
         for (auto col = 1; col + 1 < data_columns.size() - 1; col += 2) {
-            constexpr_int_match<'0', '6', Reducer>::run(type_flags[col + 1], objects,
-                                                        json_paths[col / 2], data_columns[col + 1],
-                                                        nullmaps[col + 1]);
+            constexpr_int_match<'0', '6', Reducer>::run(
+                    type_flags[col + 1], objects, json_paths[col / 2], data_columns[col + 1],
+                    nullmaps[col + 1], column_is_consts[col + 1]);
         }
     }
 
@@ -1476,18 +1581,23 @@ public:
     template <typename TypeImpl>
     static void execute_type(std::vector<rapidjson::Document>& objects,
                              std::vector<std::vector<JsonPath>>& paths_column,
-                             const ColumnString* value_column, const ColumnUInt8* nullmap) {
+                             const ColumnString* value_column, const ColumnUInt8* nullmap,
+                             bool column_is_const) {
         StringParser::ParseResult result;
         rapidjson::Value value;
         for (auto row = 0; row < objects.size(); row++) {
             std::vector<JsonPath>* parsed_paths = &paths_column[row];
 
             if (nullmap != nullptr && nullmap->get_data()[row]) {
-                JsonParser<'0'>::update_value(result, value, value_column->get_data_at(row),
-                                              objects[row].GetAllocator());
+                JsonParser<'0'>::update_value(
+                        result, value,
+                        value_column->get_data_at(index_check_const(row, column_is_const)),
+                        objects[row].GetAllocator());
             } else {
-                TypeImpl::update_value(result, value, value_column->get_data_at(row),
-                                       objects[row].GetAllocator());
+                TypeImpl::update_value(
+                        result, value,
+                        value_column->get_data_at(index_check_const(row, column_is_const)),
+                        objects[row].GetAllocator());
             }
 
             switch (Kind::modify_type) {

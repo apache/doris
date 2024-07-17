@@ -41,23 +41,10 @@ template <typename TAllocator>
 class PageBase : private TAllocator, public LRUCacheValueBase {
 public:
     PageBase() = default;
-
-    PageBase(size_t b, const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
-            : LRUCacheValueBase(), _size(b), _capacity(b), _mem_tracker_by_allocator(mem_tracker) {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
-        _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
-    }
-
+    PageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type);
     PageBase(const PageBase&) = delete;
     PageBase& operator=(const PageBase&) = delete;
-
-    ~PageBase() override {
-        if (_data != nullptr) {
-            DCHECK(_capacity != 0 && _size != 0);
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
-            TAllocator::free(_data, _capacity);
-        }
-    }
+    ~PageBase() override;
 
     char* data() { return _data; }
     size_t size() { return _size; }
@@ -105,34 +92,28 @@ public:
         }
     };
 
-    class DataPageCache : public LRUCachePolicy {
+    class DataPageCache : public LRUCachePolicyTrackingAllocator {
     public:
         DataPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy(CachePolicy::CacheType::DATA_PAGE_CACHE, capacity,
-                                 LRUCacheType::SIZE, config::data_page_cache_stale_sweep_time_sec,
-                                 num_shards) {
-            init_mem_tracker_by_allocator();
-        }
+                : LRUCachePolicyTrackingAllocator(
+                          CachePolicy::CacheType::DATA_PAGE_CACHE, capacity, LRUCacheType::SIZE,
+                          config::data_page_cache_stale_sweep_time_sec, num_shards) {}
     };
 
-    class IndexPageCache : public LRUCachePolicy {
+    class IndexPageCache : public LRUCachePolicyTrackingAllocator {
     public:
         IndexPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy(CachePolicy::CacheType::INDEXPAGE_CACHE, capacity,
-                                 LRUCacheType::SIZE, config::index_page_cache_stale_sweep_time_sec,
-                                 num_shards) {
-            init_mem_tracker_by_allocator();
-        }
+                : LRUCachePolicyTrackingAllocator(
+                          CachePolicy::CacheType::INDEXPAGE_CACHE, capacity, LRUCacheType::SIZE,
+                          config::index_page_cache_stale_sweep_time_sec, num_shards) {}
     };
 
-    class PKIndexPageCache : public LRUCachePolicy {
+    class PKIndexPageCache : public LRUCachePolicyTrackingAllocator {
     public:
         PKIndexPageCache(size_t capacity, uint32_t num_shards)
-                : LRUCachePolicy(CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity,
-                                 LRUCacheType::SIZE,
-                                 config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {
-            init_mem_tracker_by_allocator();
-        }
+                : LRUCachePolicyTrackingAllocator(
+                          CachePolicy::CacheType::PK_INDEX_PAGE_CACHE, capacity, LRUCacheType::SIZE,
+                          config::pk_index_page_cache_stale_sweep_time_sec, num_shards) {}
     };
 
     static constexpr uint32_t kDefaultNumShards = 16;
@@ -169,7 +150,7 @@ public:
                 segment_v2::PageTypePB page_type, bool in_memory = false);
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker(segment_v2::PageTypePB page_type) {
-        return _get_page_cache(page_type)->mem_tracker_by_allocator();
+        return _get_page_cache(page_type)->mem_tracker();
     }
 
 private:
@@ -183,7 +164,7 @@ private:
     // delete bitmap in unique key with mow
     std::unique_ptr<PKIndexPageCache> _pk_index_page_cache;
 
-    LRUCachePolicy* _get_page_cache(segment_v2::PageTypePB page_type) {
+    LRUCachePolicyTrackingAllocator* _get_page_cache(segment_v2::PageTypePB page_type) {
         switch (page_type) {
         case segment_v2::DATA_PAGE: {
             return _data_page_cache.get();

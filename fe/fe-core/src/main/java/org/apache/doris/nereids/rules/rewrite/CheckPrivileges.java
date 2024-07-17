@@ -26,9 +26,12 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.qe.ConnectContext;
 
@@ -62,6 +65,13 @@ public class CheckPrivileges extends ColumnPruning {
     }
 
     @Override
+    public Plan visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, PruneContext context) {
+        TableValuedFunction tvf = tvfRelation.getFunction();
+        tvf.checkAuth(jobContext.getCascadesContext().getConnectContext());
+        return super.visitLogicalTVFRelation(tvfRelation, context);
+    }
+
+    @Override
     public Plan visitLogicalRelation(LogicalRelation relation, PruneContext context) {
         if (relation instanceof LogicalCatalogRelation) {
             TableIf table = ((LogicalCatalogRelation) relation).getTable();
@@ -81,6 +91,11 @@ public class CheckPrivileges extends ColumnPruning {
         for (Slot requiredSlot : requiredSlots) {
             Slot slot = idToSlot.get(requiredSlot.getExprId().asInt());
             if (slot != null) {
+                // don't check privilege for hidden column, e.g. __DORIS_DELETE_SIGN__
+                if (slot instanceof SlotReference && ((SlotReference) slot).getColumn().isPresent()
+                        && !((SlotReference) slot).getColumn().get().isVisible()) {
+                    continue;
+                }
                 usedColumns.add(slot.getName());
             }
         }

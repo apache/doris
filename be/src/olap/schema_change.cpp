@@ -28,11 +28,11 @@
 
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
+#include "common/consts.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
-#include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_system.h"
@@ -153,13 +153,12 @@ public:
 
             for (int i = 0; i < rows; i++) {
                 auto row_ref = row_refs[i];
-
                 for (int j = key_number; j < columns; j++) {
                     const auto* column_ptr = row_ref.get_column(j).get();
                     agg_functions[j - key_number]->add(
                             agg_places[j - key_number],
                             const_cast<const vectorized::IColumn**>(&column_ptr), row_ref.position,
-                            nullptr);
+                            &_arena);
                 }
 
                 if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
@@ -245,6 +244,7 @@ private:
 
     BaseTabletSPtr _tablet;
     RowRefComparator _cmp;
+    vectorized::Arena _arena;
 };
 
 BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
@@ -731,11 +731,14 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
     if (_base_tablet && _new_tablet) {
         _base_tablet_schema = std::make_shared<TabletSchema>();
         _base_tablet_schema->update_tablet_columns(*_base_tablet->tablet_schema(), request.columns);
+        // The request only include column info, do not include bitmap or bloomfilter index info,
+        // So we also need to copy index info from the real base tablet
+        _base_tablet_schema->update_index_info_from(*_base_tablet->tablet_schema());
         // During a schema change, the extracted columns of a variant should not be included in the tablet schema.
         // This is because the schema change for a variant needs to ignore the extracted columns.
         // Otherwise, the schema types in different rowsets might be inconsistent. When performing a schema change,
         // the complete variant is constructed by reading all the sub-columns of the variant.
-        _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_extracted_columns();
+        _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_variant_extracted_columns();
     }
     _job_id = job_id;
 }
@@ -1094,7 +1097,9 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
     }
 
     // b. Generate historical data converter
-    auto sc_procedure = _get_sc_procedure(changer, sc_sorting, sc_directly);
+    auto sc_procedure = _get_sc_procedure(
+            changer, sc_sorting, sc_directly,
+            _local_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
 
     // c.Convert historical data
     bool have_failure_rowset = false;
@@ -1110,7 +1115,12 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = _new_tablet_schema;
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
-        context.fs = rs_reader->rowset()->rowset_meta()->fs();
+
+        if (!rs_reader->rowset()->is_local()) {
+            context.storage_resource =
+                    *DORIS_TRY(rs_reader->rowset()->rowset_meta()->remote_storage_resource());
+        }
+
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         auto result = _new_tablet->create_rowset_writer(context, false);
         if (!result.has_value()) {
@@ -1304,6 +1314,16 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
         // there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
         return Status::OK();
+    }
+
+    // if new tablet enable row store, or new tablet has different row store columns
+    if ((!base_tablet_schema->have_column(BeConsts::ROW_STORE_COL) &&
+         new_tablet_schema->have_column(BeConsts::ROW_STORE_COL)) ||
+        !std::equal(new_tablet_schema->row_columns_uids().begin(),
+                    new_tablet_schema->row_columns_uids().end(),
+                    base_tablet_schema->row_columns_uids().begin(),
+                    base_tablet_schema->row_columns_uids().end())) {
+        *sc_directly = true;
     }
 
     for (size_t i = 0; i < new_tablet_schema->num_columns(); ++i) {

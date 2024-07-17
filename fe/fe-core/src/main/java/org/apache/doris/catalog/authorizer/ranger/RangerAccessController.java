@@ -68,7 +68,6 @@ public abstract class RangerAccessController implements CatalogAccessController 
         }
     }
 
-
     public static void checkRequestResults(Collection<RangerAccessResult> results, String name)
             throws AuthorizationException {
         for (RangerAccessResult result : results) {
@@ -82,7 +81,8 @@ public abstract class RangerAccessController implements CatalogAccessController 
                 throw new AuthorizationException(String.format(
                         "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
                         result.getAccessRequest().getUser(), name,
-                        result.getAccessRequest().getResource().getAsString().replaceAll("/", ".")));
+                        Optional.ofNullable(result.getAccessRequest().getResource().getAsString())
+                                .orElse("unknown resource").replaceAll("/", ".")));
             }
         }
     }
@@ -135,12 +135,27 @@ public abstract class RangerAccessController implements CatalogAccessController 
         if (StringUtils.isEmpty(maskType)) {
             return Optional.empty();
         }
-        String transformer = policy.getMaskTypeDef().getTransformer();
-        if (StringUtils.isEmpty(transformer)) {
-            return Optional.empty();
+        switch (maskType) {
+            case "MASK_NULL":
+                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
+                        policy.getPolicyVersion(), maskType, "NULL"));
+            case "MASK_NONE":
+                return Optional.empty();
+            case "CUSTOM":
+                String maskedValue = policy.getMaskedValue();
+                if (StringUtils.isEmpty(maskedValue)) {
+                    return Optional.empty();
+                }
+                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
+                        policy.getPolicyVersion(), maskType, maskedValue.replace("{col}", col)));
+            default:
+                String transformer = policy.getMaskTypeDef().getTransformer();
+                if (StringUtils.isEmpty(transformer)) {
+                    return Optional.empty();
+                }
+                return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
+                        policy.getPolicyVersion(), maskType, transformer.replace("{col}", col)));
         }
-        return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
-                policy.getPolicyVersion(), maskType, transformer.replace("{col}", col)));
     }
 
     protected abstract RangerAccessRequestImpl createRequest(UserIdentity currentUser);

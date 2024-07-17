@@ -24,12 +24,16 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstddef>
+#include <string>
+#include <thread>
 
 #include "common/config.h"
 #include "common/stopwatch.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
+#include "meta-service/codec.h"
 #include "meta-service/doris_txn.h"
 #include "meta-service/keys.h"
 #include "meta-service/mem_txn_kv.h"
@@ -42,8 +46,6 @@ std::shared_ptr<TxnKv> txn_kv;
 
 void init_txn_kv() {
     config::fdb_cluster_file_path = "fdb.cluster";
-    // UT may be run without fdb, it will take unnecessary time with the default value
-    config::fdb_txn_timeout_ms = 500;
     txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<FdbTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     int ret = txn_kv->init();
@@ -281,9 +283,9 @@ TEST(TxnKvTest, CompatibleGetTest) {
 TEST(TxnKvTest, PutLargeValueTest) {
     auto txn_kv = std::make_shared<MemTxnKv>();
 
-    auto sp = SyncPoint::get_instance();
+    auto sp = doris::SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
     sp->enable_processing();
 
     doris::TabletSchemaCloudPB schema;
@@ -323,7 +325,10 @@ TEST(TxnKvTest, PutLargeValueTest) {
         EXPECT_EQ(saved_col.name(), col.name());
     }
     // Check multi range get
-    sp->set_call_back("memkv::Transaction::get", [](void* limit) { *((int*)limit) = 100; });
+    sp->set_call_back("memkv::Transaction::get", [](auto&& args) {
+        auto* limit = doris::try_any_cast<int*>(args[0]);
+        *limit = 100;
+    });
     err = doris::cloud::get(txn.get(), key, &val_buf);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     std::cout << "num iterators=" << val_buf.iters.size() << std::endl;
@@ -545,5 +550,268 @@ TEST(TxnKvTest, BatchGet) {
         for (const auto& r : res) {
             ASSERT_EQ(r.has_value(), false);
         }
+    }
+}
+
+TEST(TxnKvTest, FullRangeGetIterator) {
+    using namespace std::chrono_literals;
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    constexpr std::string_view prefix = "FullRangeGetIterator";
+    for (int i = 0; i < 100; ++i) {
+        std::string key {prefix};
+        encode_int64(i, &key);
+        txn->put(key, std::to_string(i));
+    }
+    err = txn->commit();
+    ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+    std::string begin {prefix};
+    std::string end {prefix};
+    encode_int64(INT64_MAX, &end);
+
+    auto* sp = doris::SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->enable_processing();
+
+    {
+        // Without txn
+        FullRangeGetIteratorOptions opts(txn_kv);
+        opts.limit = 11;
+
+        auto it = txn_kv->full_range_get(begin, end, opts);
+        ASSERT_TRUE(it->is_valid());
+
+        int cnt = 0;
+        for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+            auto [k, v] = *kvp;
+            EXPECT_EQ(v, std::to_string(cnt));
+            ++cnt;
+            // Total cost: 100ms * 100 = 10s > fdb txn timeout 5s, however we create a new transaction
+            // in each inner range get
+            std::this_thread::sleep_for(100ms);
+        }
+        ASSERT_TRUE(it->is_valid());
+        EXPECT_EQ(cnt, 100);
+    }
+
+    {
+        // With txn
+        err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        FullRangeGetIteratorOptions opts(txn_kv);
+        opts.limit = 11;
+        opts.txn = txn.get();
+
+        auto it = txn_kv->full_range_get(begin, end, opts);
+        ASSERT_TRUE(it->is_valid());
+
+        int cnt = 0;
+        for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+            auto [k, v] = *kvp;
+            EXPECT_EQ(v, std::to_string(cnt));
+            ++cnt;
+        }
+        ASSERT_TRUE(it->is_valid());
+        EXPECT_EQ(cnt, 100);
+    }
+
+    {
+        // With prefetch
+        err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        FullRangeGetIteratorOptions opts(txn_kv);
+        opts.limit = 11;
+        opts.txn = txn.get();
+        opts.prefetch = true;
+
+        int prefetch_cnt = 0;
+        doris::SyncPoint::CallbackGuard guard;
+        sp->set_call_back(
+                "fdb.FullRangeGetIterator.has_next_prefetch",
+                [&](auto&&) {
+                    ++prefetch_cnt;
+                    std::cout << "With prefetch prefetch_cnt=" << prefetch_cnt << std::endl;
+                },
+                &guard);
+
+        auto it = txn_kv->full_range_get(begin, end, opts);
+        ASSERT_TRUE(it->is_valid());
+
+        int cnt = 0;
+        for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+            auto [k, v] = *kvp;
+            EXPECT_EQ(v, std::to_string(cnt));
+            ++cnt;
+            // Sleep to wait for prefetch to be ready
+            std::this_thread::sleep_for(1ms);
+        }
+        ASSERT_TRUE(it->is_valid());
+        EXPECT_EQ(cnt, 100);
+    }
+
+    {
+        // With object pool
+        std::vector<std::unique_ptr<RangeGetIterator>> obj_pool;
+        FullRangeGetIteratorOptions opts(txn_kv);
+        opts.limit = 11;
+        opts.obj_pool = &obj_pool;
+
+        auto it = txn_kv->full_range_get(begin, end, opts);
+        ASSERT_TRUE(it->is_valid());
+
+        int cnt = 0;
+        std::vector<std::string_view> values;
+        for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+            auto [k, v] = *kvp;
+            EXPECT_EQ(v, std::to_string(cnt));
+            values.push_back(v);
+            if (cnt % 25 == 24) {
+                // values should be alive
+                int base = cnt / 25 * 25;
+                for (int i = 0; i < values.size(); ++i) {
+                    EXPECT_EQ(values[i], std::to_string(base + i));
+                }
+                values.clear();
+                obj_pool.clear();
+            }
+            ++cnt;
+        }
+        ASSERT_TRUE(it->is_valid());
+        EXPECT_EQ(cnt, 100);
+    }
+
+    {
+        // Abnormal
+        FullRangeGetIteratorOptions opts(txn_kv);
+        opts.limit = 11;
+        err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        opts.txn = txn.get();
+        auto it = txn_kv->full_range_get(begin, end, opts);
+        auto* fdb_it = static_cast<fdb::FullRangeGetIterator*>(it.get());
+        fdb_it->is_valid_ = false;
+        ASSERT_FALSE(it->is_valid());
+        ASSERT_FALSE(it->has_next());
+        ASSERT_FALSE(it->next().has_value());
+
+        fdb_it->is_valid_ = true;
+        ASSERT_TRUE(it->is_valid());
+        int cnt = 0;
+        for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+            auto [k, v] = *kvp;
+            EXPECT_EQ(v, std::to_string(cnt));
+            ++cnt;
+            // Total cost: 100ms * 100 = 10s > fdb txn timeout 5s
+            std::this_thread::sleep_for(100ms);
+        }
+        // Txn timeout
+        ASSERT_FALSE(it->is_valid());
+        ASSERT_FALSE(it->has_next());
+        ASSERT_FALSE(it->next().has_value());
+    }
+
+    {
+        // Abnormal dtor
+        int prefetch_cnt = 0;
+        doris::SyncPoint::CallbackGuard guard;
+        sp->set_call_back(
+                "fdb.FullRangeGetIterator.has_next_prefetch",
+                [&](auto&&) {
+                    ++prefetch_cnt;
+                    std::cout << "Abnormal dtor prefetch_cnt=" << prefetch_cnt << std::endl;
+                },
+                &guard);
+
+        FullRangeGetIteratorOptions opts(txn_kv);
+        opts.limit = 11;
+        opts.prefetch = true;
+        auto it = txn_kv->full_range_get(begin, end, opts);
+        auto kvp = it->next();
+        ASSERT_TRUE(kvp.has_value());
+        kvp = it->next(); // Trigger prefetch
+        ASSERT_TRUE(kvp.has_value());
+        auto* fdb_it = static_cast<fdb::FullRangeGetIterator*>(it.get());
+        ASSERT_TRUE(fdb_it->fut_ != nullptr); // There is an inflight range get
+        // Since there is an inflight range get, should not trigger another prefetch
+        ASSERT_FALSE(fdb_it->prefetch());
+
+        // `~FullRangeGetIterator` without consuming inflight range get result
+    }
+
+    {
+        // Benchmark prefetch
+        // No prefetch
+        FullRangeGetIteratorOptions opts(txn_kv);
+        opts.limit = 11;
+        err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        opts.txn = txn.get();
+
+        auto it = txn_kv->full_range_get(begin, end, opts);
+        int cnt = 0;
+        auto start = std::chrono::steady_clock::now();
+        for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+            ++cnt;
+            std::this_thread::sleep_for(1ms);
+        }
+        auto finish = std::chrono::steady_clock::now();
+        ASSERT_TRUE(it->is_valid());
+        EXPECT_EQ(cnt, 100);
+        std::cout << "no prefetch cost="
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
+                  << "ms" << std::endl;
+
+        // Prefetch
+        err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        opts.txn = txn.get();
+        opts.prefetch = true;
+        it = txn_kv->full_range_get(begin, end, opts);
+        cnt = 0;
+        start = std::chrono::steady_clock::now();
+        for (auto kvp = it->next(); kvp.has_value(); kvp = it->next()) {
+            ++cnt;
+            std::this_thread::sleep_for(1ms);
+        }
+        finish = std::chrono::steady_clock::now();
+        ASSERT_TRUE(it->is_valid());
+        EXPECT_EQ(cnt, 100);
+        std::cout << "prefetch cost="
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
+                  << "ms" << std::endl;
+
+        // Use RangeGetIterator
+        err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        std::unique_ptr<RangeGetIterator> inner_it;
+        auto inner_begin = begin;
+        cnt = 0;
+        start = std::chrono::steady_clock::now();
+        do {
+            err = txn->get(inner_begin, end, &inner_it, false, 11);
+            ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+            if (!inner_it->has_next()) {
+                break;
+            }
+            while (inner_it->has_next()) {
+                // recycle corresponding resources
+                auto [k, v] = inner_it->next();
+                std::this_thread::sleep_for(1ms);
+                ++cnt;
+                if (!inner_it->has_next()) {
+                    inner_begin = k;
+                }
+            }
+            inner_begin.push_back('\x00'); // Update to next smallest key for iteration
+        } while (inner_it->more());
+        finish = std::chrono::steady_clock::now();
+        EXPECT_EQ(cnt, 100);
+        std::cout << "RangeGetIterator cost="
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
+                  << "ms" << std::endl;
     }
 }

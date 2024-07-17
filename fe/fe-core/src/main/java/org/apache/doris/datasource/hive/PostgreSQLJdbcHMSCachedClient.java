@@ -24,6 +24,7 @@ import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Joiner;
@@ -60,6 +61,11 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     public PostgreSQLJdbcHMSCachedClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
+    }
+
+    @Override
+    public void close() {
+        // the jdbc connection is used on demand, so we do not need to close it.
     }
 
     @Override
@@ -538,6 +544,10 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
 
     public void dropDatabase(String dbName) {
         throw new NotImplementedException("PostgreSQL dropDatabase not implemented");
+    }
+
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {
+        throw new NotImplementedException("PostgreSQL truncateTable not implemented");
     }
 
     public void createTable(TableMetadata hiveTable, boolean ignoreIfExists) {

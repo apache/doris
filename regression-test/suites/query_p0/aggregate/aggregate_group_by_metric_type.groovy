@@ -68,8 +68,6 @@ suite("aggregate_group_by_metric_type") {
         sql "select hll_set from test_group_by_hll_and_bitmap order by hll_set"
         exception "${error_msg}"
     }
-    sql 'set enable_nereids_planner=false'
-
     sql "DROP TABLE test_group_by_hll_and_bitmap"
 
     sql "DROP TABLE IF EXISTS test_group_by_array"

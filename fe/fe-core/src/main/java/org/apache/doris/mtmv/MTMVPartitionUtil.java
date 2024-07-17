@@ -27,12 +27,13 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -56,33 +57,45 @@ public class MTMVPartitionUtil {
     private static final Pattern PARTITION_NAME_PATTERN = Pattern.compile("[^a-zA-Z0-9,]");
     private static final String PARTITION_NAME_PREFIX = "p_";
 
+    private static final List<MTMVRelatedPartitionDescGeneratorService> partitionDescGenerators = ImmutableList
+            .of(
+                    // It is necessary to maintain this order,
+                    // because some impl deal `PartitionItem`, and some impl deal `PartitionDesc`
+                    // for example: if `MTMVRelatedPartitionDescOnePartitionColGenerator` not generate `PartitionDesc`,
+                    // `MTMVRelatedPartitionDescRollUpGenerator` will not have parameter
+                    new MTMVRelatedPartitionDescInitGenerator(),
+                    new MTMVRelatedPartitionDescSyncLimitGenerator(),
+                    new MTMVRelatedPartitionDescOnePartitionColGenerator(),
+                    new MTMVRelatedPartitionDescRollUpGenerator()
+            );
+
     /**
      * Determine whether the partition is sync with retated partition and other baseTables
      *
      * @param mtmv
-     * @param partitionId
-     * @param relatedPartitionIds
+     * @param partitionName
+     * @param relatedPartitionNames
      * @param tables
      * @param excludedTriggerTables
      * @return
      * @throws AnalysisException
      */
-    public static boolean isMTMVPartitionSync(MTMV mtmv, Long partitionId, Set<Long> relatedPartitionIds,
+    public static boolean isMTMVPartitionSync(MTMV mtmv, String partitionName, Set<String> relatedPartitionNames,
             Set<BaseTableInfo> tables,
             Set<String> excludedTriggerTables) throws AnalysisException {
         boolean isSyncWithPartition = true;
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+        if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
             // if follow base table, not need compare with related table, only should compare with related partition
             excludedTriggerTables.add(relatedTable.getName());
-            if (CollectionUtils.isEmpty(relatedPartitionIds)) {
+            if (CollectionUtils.isEmpty(relatedPartitionNames)) {
                 LOG.warn("can not found related partition, partitionId: {}, mtmvName: {}, relatedTableName: {}",
-                        partitionId, mtmv.getName(), relatedTable.getName());
+                        partitionName, mtmv.getName(), relatedTable.getName());
                 return false;
             }
-            isSyncWithPartition = isSyncWithPartitions(mtmv, partitionId, relatedTable, relatedPartitionIds);
+            isSyncWithPartition = isSyncWithPartitions(mtmv, partitionName, relatedTable, relatedPartitionNames);
         }
-        return isSyncWithPartition && isSyncWithAllBaseTables(mtmv, partitionId, tables, excludedTriggerTables);
+        return isSyncWithPartition && isSyncWithAllBaseTables(mtmv, partitionName, tables, excludedTriggerTables);
 
     }
 
@@ -95,10 +108,11 @@ public class MTMVPartitionUtil {
      */
     public static void alignMvPartition(MTMV mtmv)
             throws DdlException, AnalysisException {
-        Map<Long, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
-        Set<PartitionKeyDesc> relatedPartitionDescs = mtmv.generateRelatedPartitionDescs().keySet();
+        Map<String, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
+        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv.getMvPartitionInfo(),
+                mtmv.getMvProperties()).keySet();
         // drop partition of mtmv
-        for (Entry<Long, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
+        for (Entry<String, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
             if (!relatedPartitionDescs.contains(entry.getValue())) {
                 dropPartition(mtmv, entry.getKey());
             }
@@ -115,19 +129,18 @@ public class MTMVPartitionUtil {
     /**
      * getPartitionDescsByRelatedTable when create MTMV
      *
-     * @param relatedTable
      * @param tableProperties
-     * @param relatedCol
+     * @param mvPartitionInfo
      * @return
      * @throws AnalysisException
      */
-    public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(MTMVRelatedTableIf relatedTable,
-            Map<String, String> tableProperties, String relatedCol, Map<String, String> mvProperties)
+    public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(
+            Map<String, String> tableProperties, MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties)
             throws AnalysisException {
-        HashMap<String, String> partitionProperties = Maps.newHashMap();
         List<AllPartitionDesc> res = Lists.newArrayList();
-        Set<PartitionKeyDesc> relatedPartitionDescs = getRelatedPartitionDescs(relatedTable, relatedCol,
-                MTMVUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties));
+        HashMap<String, String> partitionProperties = Maps.newHashMap();
+        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mvPartitionInfo, mvProperties)
+                .keySet();
         for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
             SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
                     generatePartitionName(partitionKeyDesc),
@@ -139,28 +152,18 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    private static Set<PartitionKeyDesc> getRelatedPartitionDescs(MTMVRelatedTableIf relatedTable, String relatedCol,
-            MTMVPartitionSyncConfig config)
-            throws AnalysisException {
-        int pos = getPos(relatedTable, relatedCol);
-        Set<PartitionKeyDesc> res = Sets.newHashSet();
-        for (Entry<Long, PartitionItem> entry : relatedTable.getPartitionItemsByTimeFilter(pos, config).entrySet()) {
-            PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(pos);
-            res.add(partitionKeyDesc);
+    public static Map<PartitionKeyDesc, Set<String>> generateRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo,
+            Map<String, String> mvProperties) throws AnalysisException {
+        long start = System.currentTimeMillis();
+        RelatedPartitionDescResult result = new RelatedPartitionDescResult();
+        for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
+            service.apply(mvPartitionInfo, mvProperties, result);
         }
-        return res;
-    }
-
-    public static int getPos(MTMVRelatedTableIf relatedTable, String relatedCol) throws AnalysisException {
-        List<Column> partitionColumns = relatedTable.getPartitionColumns();
-        for (int i = 0; i < partitionColumns.size(); i++) {
-            if (partitionColumns.get(i).getName().equalsIgnoreCase(relatedCol)) {
-                return i;
-            }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("generateRelatedPartitionDescs use [{}] mills, mvPartitionInfo is [{}]",
+                    System.currentTimeMillis() - start, mvPartitionInfo);
         }
-        throw new AnalysisException(
-                String.format("getRelatedColPos error, relatedCol: %s, partitionColumns: %s", relatedCol,
-                        partitionColumns));
+        return result.getDescs();
     }
 
     public static List<String> getPartitionNamesByIds(MTMV mtmv, Collection<Long> ids) throws AnalysisException {
@@ -216,11 +219,11 @@ public class MTMVPartitionUtil {
      * @throws AnalysisException
      */
     public static boolean isMTMVSync(MTMV mtmv, Set<BaseTableInfo> tables, Set<String> excludeTables,
-            Map<Long, Set<Long>> partitionMappings)
+            Map<String, Set<String>> partitionMappings)
             throws AnalysisException {
-        List<Long> partitionIds = mtmv.getPartitionIds();
-        for (Long partitionId : partitionIds) {
-            if (!isMTMVPartitionSync(mtmv, partitionId, partitionMappings.get(partitionId), tables,
+        Set<String> partitionNames = mtmv.getPartitionNames();
+        for (String partitionName : partitionNames) {
+            if (!isMTMVPartitionSync(mtmv, partitionName, partitionMappings.get(partitionName), tables,
                     excludeTables)) {
                 return false;
             }
@@ -233,20 +236,22 @@ public class MTMVPartitionUtil {
      *
      * @param mtmv
      * @param partitionIds
-     * @return partitionId ==> UnSyncTableNames
+     * @return partitionName ==> UnSyncTableNames
      * @throws AnalysisException
      */
     public static Map<Long, List<String>> getPartitionsUnSyncTables(MTMV mtmv, List<Long> partitionIds)
             throws AnalysisException {
         Map<Long, List<String>> res = Maps.newHashMap();
-        Map<Long, Set<Long>> partitionMappings = mtmv.calculatePartitionMappings();
+        Map<String, Set<String>> partitionMappings = mtmv.calculatePartitionMappings();
         for (Long partitionId : partitionIds) {
-            res.put(partitionId, getPartitionUnSyncTables(mtmv, partitionId, partitionMappings.get(partitionId)));
+            String partitionName = mtmv.getPartitionOrAnalysisException(partitionId).getName();
+            res.put(partitionId, getPartitionUnSyncTables(mtmv, partitionName, partitionMappings.get(partitionName)));
         }
         return res;
     }
 
-    private static List<String> getPartitionUnSyncTables(MTMV mtmv, Long partitionId, Set<Long> relatedPartitionIds)
+    private static List<String> getPartitionUnSyncTables(MTMV mtmv, String partitionName,
+            Set<String> relatedPartitionNames)
             throws AnalysisException {
         List<String> res = Lists.newArrayList();
         for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
@@ -258,18 +263,20 @@ public class MTMVPartitionUtil {
             if (!mtmvRelatedTableIf.needAutoRefresh()) {
                 continue;
             }
-            if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE && mtmv
+            if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE && mtmv
                     .getMvPartitionInfo().getRelatedTableInfo().equals(baseTableInfo)) {
-                if (CollectionUtils.isEmpty(relatedPartitionIds)) {
-                    throw new AnalysisException("can not found related partition");
+                if (CollectionUtils.isEmpty(relatedPartitionNames)) {
+                    // can not found related partition
+                    res.add(mtmvRelatedTableIf.getName());
+                    continue;
                 }
-                boolean isSyncWithPartition = isSyncWithPartitions(mtmv, partitionId, mtmvRelatedTableIf,
-                        relatedPartitionIds);
+                boolean isSyncWithPartition = isSyncWithPartitions(mtmv, partitionName, mtmvRelatedTableIf,
+                        relatedPartitionNames);
                 if (!isSyncWithPartition) {
                     res.add(mtmvRelatedTableIf.getName());
                 }
             } else {
-                if (!isSyncWithBaseTable(mtmv, partitionId, baseTableInfo)) {
+                if (!isSyncWithBaseTable(mtmv, partitionName, baseTableInfo)) {
                     res.add(table.getName());
                 }
             }
@@ -284,18 +291,18 @@ public class MTMVPartitionUtil {
      * @param baseTables
      * @return
      */
-    public static List<Long> getMTMVNeedRefreshPartitions(MTMV mtmv, Set<BaseTableInfo> baseTables,
-            Map<Long, Set<Long>> partitionMappings) {
-        List<Long> partitionIds = mtmv.getPartitionIds();
-        List<Long> res = Lists.newArrayList();
-        for (Long partitionId : partitionIds) {
+    public static List<String> getMTMVNeedRefreshPartitions(MTMV mtmv, Set<BaseTableInfo> baseTables,
+            Map<String, Set<String>> partitionMappings) {
+        Set<String> partitionNames = mtmv.getPartitionNames();
+        List<String> res = Lists.newArrayList();
+        for (String partitionName : partitionNames) {
             try {
-                if (!isMTMVPartitionSync(mtmv, partitionId, partitionMappings.get(partitionId), baseTables,
+                if (!isMTMVPartitionSync(mtmv, partitionName, partitionMappings.get(partitionName), baseTables,
                         mtmv.getExcludedTriggerTables())) {
-                    res.add(partitionId);
+                    res.add(partitionName);
                 }
             } catch (AnalysisException e) {
-                res.add(partitionId);
+                res.add(partitionName);
                 LOG.warn("check isMTMVPartitionSync failed", e);
             }
         }
@@ -306,23 +313,26 @@ public class MTMVPartitionUtil {
      * Compare the current and last updated partition (or table) snapshot of the associated partition (or table)
      *
      * @param mtmv
-     * @param mtmvPartitionId
+     * @param mtmvPartitionName
      * @param relatedTable
-     * @param relatedPartitionIds
+     * @param relatedPartitionNames
      * @return
      * @throws AnalysisException
      */
-    public static boolean isSyncWithPartitions(MTMV mtmv, Long mtmvPartitionId,
+    public static boolean isSyncWithPartitions(MTMV mtmv, String mtmvPartitionName,
             MTMVRelatedTableIf relatedTable,
-            Set<Long> relatedPartitionIds) throws AnalysisException {
+            Set<String> relatedPartitionNames) throws AnalysisException {
         if (!relatedTable.needAutoRefresh()) {
             return true;
         }
-        String mtmvPartitionName = mtmv.getPartitionName(mtmvPartitionId);
-        for (Long relatedPartitionId : relatedPartitionIds) {
+        // check if partitions of related table if changed
+        Set<String> snapshotPartitions = mtmv.getRefreshSnapshot().getSnapshotPartitions(mtmvPartitionName);
+        if (!Objects.equals(relatedPartitionNames, snapshotPartitions)) {
+            return false;
+        }
+        for (String relatedPartitionName : relatedPartitionNames) {
             MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable
-                    .getPartitionSnapshot(relatedPartitionId);
-            String relatedPartitionName = relatedTable.getPartitionName(relatedPartitionId);
+                    .getPartitionSnapshot(relatedPartitionName);
             if (!mtmv.getRefreshSnapshot()
                     .equalsWithRelatedPartition(mtmvPartitionName, relatedPartitionName,
                             relatedPartitionCurrentSnapshot)) {
@@ -352,15 +362,14 @@ public class MTMVPartitionUtil {
      * drop partition of mtmv
      *
      * @param mtmv
-     * @param partitionId
+     * @param partitionName
      */
-    private static void dropPartition(MTMV mtmv, Long partitionId) throws AnalysisException, DdlException {
+    private static void dropPartition(MTMV mtmv, String partitionName) throws DdlException {
         if (!mtmv.writeLockIfExist()) {
             return;
         }
         try {
-            Partition partition = mtmv.getPartitionOrAnalysisException(partitionId);
-            DropPartitionClause dropPartitionClause = new DropPartitionClause(false, partition.getName(), false, false);
+            DropPartitionClause dropPartitionClause = new DropPartitionClause(false, partitionName, false, false);
             Env.getCurrentEnv().dropPartition((Database) mtmv.getDatabase(), mtmv, dropPartitionClause);
         } finally {
             mtmv.writeUnlock();
@@ -385,18 +394,19 @@ public class MTMVPartitionUtil {
 
         AddPartitionClause addPartitionClause = new AddPartitionClause(singlePartitionDesc,
                 mtmv.getDefaultDistributionInfo().toDistributionDesc(), partitionProperties, false);
-        Env.getCurrentEnv().addPartition((Database) mtmv.getDatabase(), mtmv.getName(), addPartitionClause);
+        Env.getCurrentEnv().addPartition((Database) mtmv.getDatabase(), mtmv.getName(), addPartitionClause,
+                false, 0, true);
     }
 
     /**
      * Determine is sync, ignoring excludedTriggerTables and non OlapTanle
      *
-     * @param mtmvPartitionId
+     * @param mtmvPartitionName
      * @param tables
      * @param excludedTriggerTables
      * @return
      */
-    private static boolean isSyncWithAllBaseTables(MTMV mtmv, long mtmvPartitionId, Set<BaseTableInfo> tables,
+    private static boolean isSyncWithAllBaseTables(MTMV mtmv, String mtmvPartitionName, Set<BaseTableInfo> tables,
             Set<String> excludedTriggerTables) throws AnalysisException {
         for (BaseTableInfo baseTableInfo : tables) {
             TableIf table = null;
@@ -409,7 +419,7 @@ public class MTMVPartitionUtil {
             if (excludedTriggerTables.contains(table.getName())) {
                 continue;
             }
-            boolean syncWithBaseTable = isSyncWithBaseTable(mtmv, mtmvPartitionId, baseTableInfo);
+            boolean syncWithBaseTable = isSyncWithBaseTable(mtmv, mtmvPartitionName, baseTableInfo);
             if (!syncWithBaseTable) {
                 return false;
             }
@@ -417,7 +427,7 @@ public class MTMVPartitionUtil {
         return true;
     }
 
-    private static boolean isSyncWithBaseTable(MTMV mtmv, long mtmvPartitionId, BaseTableInfo baseTableInfo)
+    private static boolean isSyncWithBaseTable(MTMV mtmv, String mtmvPartitionName, BaseTableInfo baseTableInfo)
             throws AnalysisException {
         TableIf table = null;
         try {
@@ -437,7 +447,6 @@ public class MTMVPartitionUtil {
             return true;
         }
         MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot();
-        String mtmvPartitionName = mtmv.getPartitionName(mtmvPartitionId);
         return mtmv.getRefreshSnapshot()
                 .equalsWithBaseTable(mtmvPartitionName, baseTable.getId(), baseTableCurrentSnapshot);
     }
@@ -447,39 +456,39 @@ public class MTMVPartitionUtil {
      *
      * @param mtmv
      * @param baseTables
-     * @param partitionIds
+     * @param partitionNames
      * @param partitionMappings
      * @return
      * @throws AnalysisException
      */
     public static Map<String, MTMVRefreshPartitionSnapshot> generatePartitionSnapshots(MTMV mtmv,
-            Set<BaseTableInfo> baseTables, Set<Long> partitionIds,
-            Map<Long, Set<Long>> partitionMappings)
+            Set<BaseTableInfo> baseTables, Set<String> partitionNames,
+            Map<String, Set<String>> partitionMappings)
             throws AnalysisException {
         Map<String, MTMVRefreshPartitionSnapshot> res = Maps.newHashMap();
-        for (Long partitionId : partitionIds) {
-            res.put(mtmv.getPartitionName(partitionId),
-                    generatePartitionSnapshot(mtmv, baseTables, partitionMappings.get(partitionId)));
+        for (String partitionName : partitionNames) {
+            res.put(partitionName,
+                    generatePartitionSnapshot(mtmv, baseTables, partitionMappings.get(partitionName)));
         }
         return res;
     }
 
 
     private static MTMVRefreshPartitionSnapshot generatePartitionSnapshot(MTMV mtmv,
-            Set<BaseTableInfo> baseTables, Set<Long> relatedPartitionIds)
+            Set<BaseTableInfo> baseTables, Set<String> relatedPartitionNames)
             throws AnalysisException {
         MTMVRefreshPartitionSnapshot refreshPartitionSnapshot = new MTMVRefreshPartitionSnapshot();
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+        if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
-            for (Long relatedPartitionId : relatedPartitionIds) {
+            for (String relatedPartitionName : relatedPartitionNames) {
                 MTMVSnapshotIf partitionSnapshot = relatedTable
-                        .getPartitionSnapshot(relatedPartitionId);
+                        .getPartitionSnapshot(relatedPartitionName);
                 refreshPartitionSnapshot.getPartitions()
-                        .put(relatedTable.getPartitionName(relatedPartitionId), partitionSnapshot);
+                        .put(relatedPartitionName, partitionSnapshot);
             }
         }
         for (BaseTableInfo baseTableInfo : baseTables) {
-            if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE && mtmv
+            if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE && mtmv
                     .getMvPartitionInfo().getRelatedTableInfo().equals(baseTableInfo)) {
                 continue;
             }
@@ -490,5 +499,15 @@ public class MTMVPartitionUtil {
             refreshPartitionSnapshot.getTables().put(table.getId(), ((MTMVRelatedTableIf) table).getTableSnapshot());
         }
         return refreshPartitionSnapshot;
+    }
+
+    public static Type getPartitionColumnType(MTMVRelatedTableIf relatedTable, String col) throws AnalysisException {
+        List<Column> partitionColumns = relatedTable.getPartitionColumns();
+        for (Column column : partitionColumns) {
+            if (column.getName().equals(col)) {
+                return column.getType();
+            }
+        }
+        throw new AnalysisException("can not getPartitionColumnType by:" + col);
     }
 }

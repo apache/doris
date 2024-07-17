@@ -42,6 +42,7 @@ import org.apache.doris.datasource.es.QueryBuilders.QueryBuilder;
 import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RangePartitionPrunerV2;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
@@ -63,10 +64,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * ScanNode for Elasticsearch.
@@ -183,6 +186,7 @@ public class EsScanNode extends ExternalScanNode {
         }
         esScanNode.setProperties(properties);
         msg.es_scan_node = esScanNode;
+        super.toThrift(msg);
     }
 
     // only do partition(es index level) prune
@@ -216,8 +220,15 @@ public class EsScanNode extends ExternalScanNode {
                     String.join(",", unPartitionedIndices), String.join(",", partitionedIndices));
         }
         List<TScanRangeLocations> result = Lists.newArrayList();
+        boolean enableESParallelScroll = isEnableESParallelScroll();
         for (EsShardPartitions indexState : selectedIndex) {
-            for (List<EsShardRouting> shardRouting : indexState.getShardRoutings().values()) {
+            // When disabling parallel scroll, only use the first shard routing.
+            // Because we only need plan a single scan range.
+            List<List<EsShardRouting>> shardRoutings = enableESParallelScroll
+                    ? new ArrayList<>(indexState.getShardRoutings().values()) :
+                    Collections.singletonList(indexState.getShardRoutings().get(0));
+
+            for (List<EsShardRouting> shardRouting : shardRoutings) {
                 // get backends
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
                 List<String> preLocations = new ArrayList<>();
@@ -229,7 +240,10 @@ public class EsScanNode extends ExternalScanNode {
                 FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
                 backendPolicy.init(preLocations);
                 TScanRangeLocations locations = new TScanRangeLocations();
-                for (int i = 0; i < backendPolicy.numBackends(); ++i) {
+                // When disabling parallel scroll, only use the first backend.
+                // Because we only need plan a single query to one backend.
+                int numBackends = enableESParallelScroll ? backendPolicy.numBackends() : 1;
+                for (int i = 0; i < numBackends; ++i) {
                     TScanRangeLocation location = new TScanRangeLocation();
                     Backend be = backendPolicy.getNextBe();
                     location.setBackendId(be.getId());
@@ -240,11 +254,18 @@ public class EsScanNode extends ExternalScanNode {
                 // Generate on es scan range
                 TEsScanRange esScanRange = new TEsScanRange();
                 esScanRange.setEsHosts(shardAllocations);
-                esScanRange.setIndex(shardRouting.get(0).getIndexName());
+                // When disabling parallel scroll, use the index state's index name to prevent the index aliases from
+                // being expanded.
+                // eg: index alias `log-20240501` may point to multiple indices,
+                // such as `log-20240501-1`/`log-20240501-2`.
+                // When we plan a single query, we should use the index alias instead of the real indices names.
+                esScanRange.setIndex(
+                        enableESParallelScroll ? shardRouting.get(0).getIndexName() : indexState.getIndexName());
                 if (table.getType() != null) {
                     esScanRange.setType(table.getMappingType());
                 }
-                esScanRange.setShardId(shardRouting.get(0).getShardId());
+                // When disabling parallel scroll, set shard id to -1 to disable shard preference in query option.
+                esScanRange.setShardId(enableESParallelScroll ? shardRouting.get(0).getShardId() : -1);
                 // Scan range
                 TScanRange scanRange = new TScanRange();
                 scanRange.setEsScanRange(esScanRange);
@@ -265,6 +286,11 @@ public class EsScanNode extends ExternalScanNode {
             }
         }
         return result;
+    }
+
+    private boolean isEnableESParallelScroll() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext != null && connectContext.getSessionVariable().isEnableESParallelScroll();
     }
 
     /**
@@ -316,6 +342,12 @@ public class EsScanNode extends ExternalScanNode {
         String indexName = table.getIndexName();
         String typeName = table.getMappingType();
         output.append(prefix).append(String.format("ES index/type: %s/%s", indexName, typeName)).append("\n");
+        if (useTopnFilter()) {
+            String topnFilterSources = String.join(",",
+                    topnFilterSortNodes.stream()
+                            .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
+            output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
+        }
         return output.toString();
     }
 

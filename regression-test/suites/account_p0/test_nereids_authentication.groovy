@@ -68,6 +68,13 @@ suite("test_nereids_authentication", "query") {
 
     connect(user=user, password='Doris_123456', url=url) {
         test {
+            sql "SELECT count(*) FROM ${tableName2}"
+            exception "denied"
+        }
+    }
+
+    connect(user=user, password='Doris_123456', url=url) {
+        test {
             sql "SELECT * FROM ${tableName1}, ${tableName2} WHERE ${tableName1}.`key` = ${tableName2}.`key`"
             exception "denied"
         }
@@ -78,6 +85,9 @@ suite("test_nereids_authentication", "query") {
         sql "SELECT * FROM ${tableName2}"
     }
     assertEquals(result.size(), 0)
+    connect(user=user, password='Doris_123456', url=url) {
+        sql "SELECT count(*) FROM ${tableName2}"
+    }
     connect(user=user, password='Doris_123456', url=url) {
         sql "SELECT * FROM ${tableName1}, ${tableName2} WHERE ${tableName1}.`key` = ${tableName2}.`key`"
     }

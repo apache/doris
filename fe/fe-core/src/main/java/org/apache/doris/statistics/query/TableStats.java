@@ -20,7 +20,6 @@ package org.apache.doris.statistics.query;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ImmutableMap;
@@ -126,7 +125,7 @@ public class TableStats {
         Map<String, Map> stat = new HashMap<>();
         stat.put("summary", ImmutableMap.of("query", getQueryStats()));
         Map<String, Map> dstat = new HashMap<>();
-        if (table.getType() == TableType.OLAP) {
+        if (table.isManagedTable()) {
             OlapTable olapTable = (OlapTable) table;
             for (Map.Entry<String, Long> entry : olapTable.getIndexNameToId().entrySet()) {
                 if (indexStats.containsKey(entry.getValue())) {

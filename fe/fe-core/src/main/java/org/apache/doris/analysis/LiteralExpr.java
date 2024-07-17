@@ -20,10 +20,12 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.thrift.TExprNode;
@@ -34,7 +36,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -113,30 +114,29 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return literalExpr;
     }
 
-
-    public static String getStringLiteralForComplexType(Expr v) {
+    public static String getStringLiteralForComplexType(Expr v, FormatOptions options) {
         if (!(v instanceof NullLiteral) && v.getType().isScalarType()
                 && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
                 || v.getType() == Type.BOOLEAN)) {
-            return v.getStringValueInFe();
+            return v.getStringValueInFe(options);
         } else if (v.getType().isComplexType()) {
             // these type should also call getStringValueInFe which should handle special case for itself
-            return v.getStringValueInFe();
+            return v.getStringValueInFe(options);
         } else {
-            return v.getStringValueForArray();
+            return v.getStringValueForArray(options);
         }
     }
 
-    public static String getStringLiteralForStreamLoad(Expr v) {
+    public static String getStringLiteralForStreamLoad(Expr v, FormatOptions options) {
         if (!(v instanceof NullLiteral) && v.getType().isScalarType()
                 && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
                 || v.getType() == Type.BOOLEAN)) {
-            return v.getStringValueInFe();
+            return v.getStringValueInFe(options);
         } else if (v.getType().isComplexType()) {
             // these type should also call getStringValueInFe which should handle special case for itself
-            return v.getStringValueForStreamLoad();
+            return v.getStringValueForStreamLoad(options);
         } else {
-            return v.getStringValueForArray();
+            return v.getStringValueForArray(options);
         }
     }
 
@@ -265,12 +265,12 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public abstract String getStringValue();
 
-    public String getStringValueInFe() {
+    public String getStringValueInFe(FormatOptions options) {
         return getStringValue();
     }
 
     @Override
-    public abstract String getStringValueForArray();
+    public abstract String getStringValueForArray(FormatOptions options);
 
     public long getLongValue() {
         return 0;
@@ -300,15 +300,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     // Throws for non-numeric literals.
     public void swapSign() throws NotImplementedException {
         throw new NotImplementedException("swapSign() only implemented for numeric" + "literals");
-    }
-
-    @Override
-    public boolean supportSerializable() {
-        return true;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -343,62 +334,58 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return getStringValue();
     }
 
-    // Parse from binary data, the format follows mysql binary protocal
-    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
-    // Return next offset
-    public void setupParamFromBinary(ByteBuffer data) {
-        Preconditions.checkState(false,
-                "should implement this in derived class. " + this.type.toSql());
-    }
+    public static LiteralExpr getLiteralByMysqlType(int mysqlType, boolean isUnsigned) throws AnalysisException {
+        LiteralExpr literalExpr = null;
 
-    public static LiteralExpr getLiteralByMysqlType(int mysqlType) throws AnalysisException {
-        switch (mysqlType) {
-            // MYSQL_TYPE_TINY
-            case 1:
-                return LiteralExpr.create("0", Type.TINYINT);
-            // MYSQL_TYPE_SHORT
-            case 2:
-                return LiteralExpr.create("0", Type.SMALLINT);
-            // MYSQL_TYPE_LONG
-            case 3:
-                return LiteralExpr.create("0", Type.INT);
-            // MYSQL_TYPE_LONGLONG
-            case 8:
-                return LiteralExpr.create("0", Type.BIGINT);
-            // MYSQL_TYPE_FLOAT
-            case 4:
-                return LiteralExpr.create("0", Type.FLOAT);
-            // MYSQL_TYPE_DOUBLE
-            case 5:
-                return LiteralExpr.create("0", Type.DOUBLE);
-            // MYSQL_TYPE_DECIMAL
-            case 0:
-            // MYSQL_TYPE_NEWDECIMAL
-            case 246:
-                return LiteralExpr.create("0", Type.DECIMAL32);
-            // MYSQL_TYPE_TIME
-            case 11:
-                return LiteralExpr.create("", Type.TIME);
-            // MYSQL_TYPE_DATE
-            case 10:
-                return LiteralExpr.create("1970-01-01", Type.DATE);
-            // MYSQL_TYPE_DATETIME
-            case 12:
-            // MYSQL_TYPE_TIMESTAMP
-            case 7:
-            // MYSQL_TYPE_TIMESTAMP2
-            case 17:
-                return LiteralExpr.create("1970-01-01 00:00:00", Type.DATETIME);
-            // MYSQL_TYPE_STRING
-            case 254:
-            case 253:
-                return LiteralExpr.create("", Type.STRING);
-            // MYSQL_TYPE_VARCHAR
-            case 15:
-                return LiteralExpr.create("", Type.VARCHAR);
+        // If this is an unsigned numeric type, we convert it by using larger data types. For example, we can use
+        // small int to represent unsigned tiny int (0-255), big int to represent unsigned ints (0-2 ^ 32-1),
+        // and so on.
+        switch (mysqlType & MysqlColType.MYSQL_CODE_MASK) {
+            case 1: // MYSQL_TYPE_TINY
+                literalExpr = LiteralExpr.create("0", !isUnsigned ? Type.TINYINT : Type.SMALLINT);
+                break;
+            case 2: // MYSQL_TYPE_SHORT
+                literalExpr = LiteralExpr.create("0", !isUnsigned ? Type.SMALLINT : Type.INT);
+                break;
+            case 3: // MYSQL_TYPE_LONG
+                literalExpr = LiteralExpr.create("0", !isUnsigned ? Type.INT : Type.BIGINT);
+                break;
+            case 8: // MYSQL_TYPE_LONGLONG
+                literalExpr = LiteralExpr.create("0", !isUnsigned ? Type.BIGINT : Type.LARGEINT);
+                break;
+            case 4: // MYSQL_TYPE_FLOAT
+                literalExpr = LiteralExpr.create("0", Type.FLOAT);
+                break;
+            case 5: // MYSQL_TYPE_DOUBLE
+                literalExpr = LiteralExpr.create("0", Type.DOUBLE);
+                literalExpr.setType(Type.DOUBLE);
+                break;
+            case 0: // MYSQL_TYPE_DECIMAL
+            case 246: // MYSQL_TYPE_NEWDECIMAL
+                literalExpr = LiteralExpr.create("0", Type.DECIMAL32);
+                break;
+            case 11: // MYSQL_TYPE_TIME
+                literalExpr = LiteralExpr.create("", Type.TIME);
+                break;
+            case 10: // MYSQL_TYPE_DATE
+                literalExpr = LiteralExpr.create("1970-01-01", Type.DATE);
+                break;
+            case 12: // MYSQL_TYPE_DATETIME
+            case 7: // MYSQL_TYPE_TIMESTAMP
+            case 17: // MYSQL_TYPE_TIMESTAMP2
+                literalExpr = LiteralExpr.create("1970-01-01 00:00:00", Type.DATETIME);
+                break;
+            case 254: // MYSQL_TYPE_STRING
+            case 253: // MYSQL_TYPE_VAR_STRING
+                literalExpr = LiteralExpr.create("", Type.STRING);
+                break;
+            case 15: // MYSQL_TYPE_VARCHAR
+                literalExpr = LiteralExpr.create("", Type.VARCHAR);
+                break;
             default:
-                return null;
+                throw new AnalysisException("Unsupported MySQL type: " + mysqlType);
         }
+        return literalExpr;
     }
 
     @Override
@@ -498,5 +485,13 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
             default: throw new AnalysisException("Wrong type from thrift;");
         }
+    }
+
+    // Parse from binary data, the format follows mysql binary protocal
+    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
+    // Return next offset
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
+        Preconditions.checkState(false,
+                "should implement this in derived class. " + this.type.toSql());
     }
 }

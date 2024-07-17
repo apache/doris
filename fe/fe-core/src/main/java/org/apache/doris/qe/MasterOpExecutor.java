@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -84,6 +85,14 @@ public class MasterOpExecutor {
 
     public void execute() throws Exception {
         result = forward(buildStmtForwardParams());
+        if (result.getStatusCode() == 0 && ctx.isTxnModel()) {
+            if (result.isSetTxnLoadInfo()) {
+                ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
+            } else {
+                ctx.setTxnEntry(null);
+                LOG.info("set txn entry to null");
+            }
+        }
         waitOnReplaying();
     }
 
@@ -175,7 +184,7 @@ public class MasterOpExecutor {
         }
     }
 
-    private TMasterOpRequest buildStmtForwardParams() {
+    private TMasterOpRequest buildStmtForwardParams() throws AnalysisException {
         TMasterOpRequest params = new TMasterOpRequest();
         // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
@@ -202,6 +211,10 @@ public class MasterOpExecutor {
         params.setUserVariables(getForwardUserVariables(ctx.getUserVars()));
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
+        }
+        // set transaction load info
+        if (ctx.isTxnModel()) {
+            params.setTxnLoadInfo(ctx.getTxnEntry().getTxnLoadInfoInObserver());
         }
         return params;
     }

@@ -16,15 +16,22 @@
 // under the License.
 
 #include <brpc/uri.h>
+#include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
-#include "common/sync_point.h"
+#include "common/logging.h"
+#include "cpp/sync_point.h"
+#include "meta-service/keys.h"
 #include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service_http.h"
 
 using namespace doris::cloud;
 
 int main(int argc, char** argv) {
+    if (!doris::cloud::init_glog("http_encode_key_test")) {
+        std::cerr << "failed to init glog" << std::endl;
+        return -1;
+    }
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
@@ -87,11 +94,13 @@ v v             v                                 v                 v           
     EXPECT_EQ(http_res.body, nonunicode_res);
 
     // test empty body branch
-    auto sp = SyncPoint::get_instance();
+    auto sp = doris::SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("process_http_encode_key::empty_body",
-                      [](void* p) { ((std::string*)p)->clear(); });
+            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("process_http_encode_key::empty_body", [](auto&& args) {
+        auto* body = doris::try_any_cast<std::string*>(args[0]);
+        body->clear();
+    });
     sp->enable_processing();
 
     http_res = process_http_encode_key(uri);
@@ -314,7 +323,7 @@ txn_id=126419752960)",
                     pb.set_num_rowsets(10);
                     return pb.SerializeAsString();
                 },
-                R"({"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008601"},"num_rowsets":"10"})",
+                R"({"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008601"},"data_size":"0","num_rows":"0","num_rowsets":"10","num_segments":"0"})",
         },
         Input {
                 "JobTabletKey",
@@ -545,4 +554,31 @@ TEST(HttpGetValueTest, process_http_get_value_test_cover_all_template) {
         // std::cout << http_res.body << std::endl;
         EXPECT_EQ(http_res.body, input.value);
     }
+
+    // Test splitted tablet stats KV
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    TabletStatsPB stats;
+    stats.set_cumulative_compaction_cnt(10);
+    stats.set_num_rowsets(100);
+    auto key = stats_tablet_key({"gavin-instance", 10001, 10002, 10003, 10004});
+    txn->put(key, stats.SerializeAsString());
+    std::string num_rowsets_key;
+    stats_tablet_num_rowsets_key({"gavin-instance", 10001, 10002, 10003, 10004}, &num_rowsets_key);
+    txn->atomic_add(num_rowsets_key, 300);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    Input input {
+            .key_type = "StatsTabletKey",
+            .param = "instance_id=gavin-instance&table_id=10001&index_id=10002&part_id=10003&"
+                     "tablet_id="
+                     "10004",
+            .value =
+                    R"({"data_size":"0","num_rows":"0","num_rowsets":"400","num_segments":"0","cumulative_compaction_cnt":"10"})",
+    };
+    auto url = gen_url(input, true);
+    ASSERT_EQ(uri.SetHttpURL(url), 0); // clear and set query string
+    auto http_res = process_http_get_value(txn_kv.get(), uri);
+    EXPECT_EQ(http_res.status_code, 200);
+    EXPECT_EQ(http_res.body, input.value);
 }

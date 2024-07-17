@@ -20,6 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.common.TaskStatus;
@@ -30,6 +33,7 @@ import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -38,20 +42,22 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
-import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtils134;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+//import com.google.gson.JsonElement;
+//import com.google.gson.JsonObject;
+//import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -187,7 +193,7 @@ public class MTMV extends OlapTable {
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
-                if (!Env.isCheckpointThread()) {
+                if (!Env.isCheckpointThread() && !Config.enable_check_compatibility_mode) {
                     try {
                         this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
                     } catch (Throwable e) {
@@ -268,17 +274,24 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public MTMVCache getOrGenerateCache() throws AnalysisException {
+    /**
+     * Called when in query, Should use one connection context in query
+     */
+    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws AnalysisException {
         if (cache == null) {
             writeMvLock();
             try {
                 if (cache == null) {
-                    this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
+                    this.cache = MTMVCache.from(this, connectionContext);
                 }
             } finally {
                 writeMvUnlock();
             }
         }
+        return cache;
+    }
+
+    public MTMVCache getCache() {
         return cache;
     }
 
@@ -302,44 +315,53 @@ public class MTMV extends OlapTable {
     /**
      * generateMvPartitionDescs
      *
-     * @return mvPartitionId ==> mvPartitionKeyDesc
+     * @return mvPartitionName ==> mvPartitionKeyDesc
      */
-    public Map<Long, PartitionKeyDesc> generateMvPartitionDescs() {
-        Map<Long, PartitionItem> mtmvItems = getAndCopyPartitionItems();
-        Map<Long, PartitionKeyDesc> result = Maps.newHashMap();
-        for (Entry<Long, PartitionItem> entry : mtmvItems.entrySet()) {
+    public Map<String, PartitionKeyDesc> generateMvPartitionDescs() {
+        Map<String, PartitionItem> mtmvItems = getAndCopyPartitionItems();
+        Map<String, PartitionKeyDesc> result = Maps.newHashMap();
+        for (Entry<String, PartitionItem> entry : mtmvItems.entrySet()) {
             result.put(entry.getKey(), entry.getValue().toPartitionKeyDesc());
         }
         return result;
     }
 
     /**
-     * generateRelatedPartitionDescs
-     * <p>
-     * Different partitions may generate the same PartitionKeyDesc through logical calculations
-     * (such as selecting only one column, or rolling up partitions), so it is a one to many relationship
+     * Calculate the partition and associated partition mapping relationship of the MTMV
+     * It is the result of real-time comparison calculation, so there may be some costs,
+     * so it should be called with caution.
+     * The reason for not directly calling `calculatePartitionMappings` and
+     * generating a reverse index is to directly generate two maps here,
+     * without the need to traverse them again
      *
-     * @return related PartitionKeyDesc ==> relatedPartitionIds
+     * @return mvPartitionName ==> relationPartitionNames and relationPartitionName ==> mvPartitionName
      * @throws AnalysisException
      */
-    public Map<PartitionKeyDesc, Set<Long>> generateRelatedPartitionDescs() throws AnalysisException {
+    public Pair<Map<String, Set<String>>, Map<String, String>> calculateDoublyPartitionMappings()
+            throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return Maps.newHashMap();
+            return Pair.of(Maps.newHashMap(), Maps.newHashMap());
         }
-        Map<PartitionKeyDesc, Set<Long>> res = new HashMap<>();
-        int relatedColPos = mvPartitionInfo.getRelatedColPos();
-        Map<Long, PartitionItem> relatedPartitionItems = mvPartitionInfo.getRelatedTable()
-                .getPartitionItemsByTimeFilter(relatedColPos,
-                        MTMVUtil.generateMTMVPartitionSyncConfigByProperties(mvProperties));
-        for (Entry<Long, PartitionItem> entry : relatedPartitionItems.entrySet()) {
-            PartitionKeyDesc partitionKeyDesc = entry.getValue().toPartitionKeyDesc(relatedColPos);
-            if (res.containsKey(partitionKeyDesc)) {
-                res.get(partitionKeyDesc).add(entry.getKey());
-            } else {
-                res.put(partitionKeyDesc, Sets.newHashSet(entry.getKey()));
+        long start = System.currentTimeMillis();
+        Map<String, Set<String>> mvToBase = Maps.newHashMap();
+        Map<String, String> baseToMv = Maps.newHashMap();
+        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
+        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+        for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
+            Set<String> basePartitionNames = relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(),
+                    Sets.newHashSet());
+            String mvPartitionName = entry.getKey();
+            mvToBase.put(mvPartitionName, basePartitionNames);
+            for (String basePartitionName : basePartitionNames) {
+                baseToMv.put(basePartitionName, mvPartitionName);
             }
         }
-        return res;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("calculateDoublyPartitionMappings use [{}] mills, mvName is [{}]",
+                    System.currentTimeMillis() - start, name);
+        }
+        return Pair.of(mvToBase, baseToMv);
     }
 
     /**
@@ -347,21 +369,72 @@ public class MTMV extends OlapTable {
      * It is the result of real-time comparison calculation, so there may be some costs,
      * so it should be called with caution
      *
-     * @return mvPartitionId ==> relationPartitionIds
+     * @return mvPartitionName ==> relationPartitionNames
      * @throws AnalysisException
      */
-    public Map<Long, Set<Long>> calculatePartitionMappings() throws AnalysisException {
+    public Map<String, Set<String>> calculatePartitionMappings() throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
-        Map<Long, Set<Long>> res = Maps.newHashMap();
-        Map<PartitionKeyDesc, Set<Long>> relatedPartitionDescs = generateRelatedPartitionDescs();
-        Map<Long, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
-        for (Entry<Long, PartitionItem> entry : mvPartitionItems.entrySet()) {
+        long start = System.currentTimeMillis();
+        Map<String, Set<String>> res = Maps.newHashMap();
+        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
+        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+        for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
                     relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Sets.newHashSet()));
         }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("calculatePartitionMappings use [{}] mills, mvName is [{}]",
+                    System.currentTimeMillis() - start, name);
+        }
         return res;
+    }
+
+    // for test
+    public void setRefreshInfo(MTMVRefreshInfo refreshInfo) {
+        this.refreshInfo = refreshInfo;
+    }
+
+    // for test
+    public void setQuerySql(String querySql) {
+        this.querySql = querySql;
+    }
+
+    // for test
+    public void setStatus(MTMVStatus status) {
+        this.status = status;
+    }
+
+    // for test
+    public void setEnvInfo(EnvInfo envInfo) {
+        this.envInfo = envInfo;
+    }
+
+    // for test
+    public void setJobInfo(MTMVJobInfo jobInfo) {
+        this.jobInfo = jobInfo;
+    }
+
+    // for test
+    public void setMvProperties(Map<String, String> mvProperties) {
+        this.mvProperties = mvProperties;
+    }
+
+    // for test
+    public void setRelation(MTMVRelation relation) {
+        this.relation = relation;
+    }
+
+    // for test
+    public void setMvPartitionInfo(MTMVPartitionInfo mvPartitionInfo) {
+        this.mvPartitionInfo = mvPartitionInfo;
+    }
+
+    // for test
+    public void setRefreshSnapshot(MTMVRefreshSnapshot refreshSnapshot) {
+        this.refreshSnapshot = refreshSnapshot;
     }
 
     public void readMvLock() {
@@ -380,16 +453,17 @@ public class MTMV extends OlapTable {
         this.mvRwLock.writeLock().unlock();
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        MTMV materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
+        MTMV materializedView = null;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
+            materializedView = GsonUtils134.GSON.fromJson(Text.readString(in), this.getClass());
+        } else {
+            materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
+        }
+
         refreshInfo = materializedView.refreshInfo;
         querySql = materializedView.querySql;
         status = materializedView.status;
@@ -405,23 +479,29 @@ public class MTMV extends OlapTable {
         }
     }
 
-    @Override
-    public String toString() {
-        return "MTMV{"
-                + ", refreshInfo=" + refreshInfo
-                + ", querySql='" + querySql + '\''
-                + ", status=" + status
-                + ", envInfo=" + envInfo
-                + ", jobInfo=" + jobInfo
-                + ", mvProperties=" + mvProperties
-                + ", relation=" + relation
-                + ", mvPartitionInfo=" + mvPartitionInfo
-                + ", refreshSnapshot=" + refreshSnapshot
-                + ", cache=" + cache
-                + ", id=" + id
-                + ", name='" + name + '\''
-                + ", qualifiedDbName='" + qualifiedDbName + '\''
-                + ", comment='" + comment + '\''
-                + '}';
+    // toString() is not easy to find where to call the method
+    public String toInfoString() {
+        final StringBuilder sb = new StringBuilder("MTMV{");
+        sb.append("refreshInfo=").append(refreshInfo);
+        sb.append(", querySql='").append(querySql).append('\'');
+        sb.append(", status=").append(status);
+        sb.append(", envInfo=").append(envInfo);
+        if (jobInfo != null) {
+            sb.append(", jobInfo=").append(jobInfo.toInfoString());
+        }
+        sb.append(", mvProperties=").append(mvProperties);
+        if (relation != null) {
+            sb.append(", relation=").append(relation.toInfoString());
+        }
+        if (mvPartitionInfo != null) {
+            sb.append(", mvPartitionInfo=").append(mvPartitionInfo.toInfoString());
+        }
+        sb.append(", refreshSnapshot=").append(refreshSnapshot);
+        sb.append(", id=").append(id);
+        sb.append(", name='").append(name).append('\'');
+        sb.append(", qualifiedDbName='").append(qualifiedDbName).append('\'');
+        sb.append(", comment='").append(comment).append('\'');
+        sb.append('}');
+        return sb.toString();
     }
 }

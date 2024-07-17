@@ -16,7 +16,6 @@
  // under the License.
 
 suite("test_push_conjunct_external_table") {
- sql """set enable_nereids_planner=false;"""
  sql """ DROP TABLE IF EXISTS dim_server; """
  sql """ admin set frontend config("enable_odbc_mysql_broker_table" = "true")"""
 

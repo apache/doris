@@ -21,7 +21,6 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
 
 namespace doris {
 class ExecNode;
@@ -57,11 +56,6 @@ protected:
     bool _opened = false;
     Status _status;
 
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::shared_ptr<SpillSortSharedState> _shared_state_holder;
-
     int64_t _external_sort_bytes_threshold = 134217728; // 128M
     std::vector<vectorized::SpillStreamSPtr> _current_merging_streams;
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
@@ -96,7 +90,6 @@ public:
 
 private:
     friend class SpillSortLocalState;
-    Status _initiate_merge_spill_partition_agg_data(RuntimeState* state);
 
     std::unique_ptr<SortSourceOperatorX> _sort_source_operator;
 };

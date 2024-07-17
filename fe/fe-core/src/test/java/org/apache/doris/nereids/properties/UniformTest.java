@@ -38,17 +38,20 @@ class UniformTest extends TestWithFeService {
         createDatabase("test");
         createTable("create table test.agg (\n"
                 + "id int not null,\n"
+                + "id2 int replace not null,\n"
                 + "name varchar(128) replace not null )\n"
                 + "AGGREGATE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
         createTable("create table test.uni (\n"
                 + "id int not null,\n"
+                + "id2 int not null,\n"
                 + "name varchar(128) not null)\n"
                 + "UNIQUE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     @Test
@@ -57,26 +60,26 @@ class UniformTest extends TestWithFeService {
         Plan plan = PlanChecker.from(connectContext)
                 .analyze("select count(id) from agg group by id")
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniform(plan.getOutput().get(0)));
 
         // propagate uniform
         plan = PlanChecker.from(connectContext)
                 .analyze("select id from agg where id = 1 group by id ")
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniform(plan.getOutput().get(0)));
 
         // group by all/uniform
         plan = PlanChecker.from(connectContext)
                 .analyze("select sum(id) from agg ")
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniform(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
                 .analyze("select sum(id) from agg where id = 1 group by id")
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniform(plan.getOutput().get(0)));
 
     }
@@ -87,13 +90,13 @@ class UniformTest extends TestWithFeService {
                 .analyze("select name from agg limit 1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniformAndNotNull(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
                 .analyze("select name from agg order by name limit 1 ")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniformAndNotNull(plan.getOutput().get(0)));
     }
 
@@ -103,13 +106,13 @@ class UniformTest extends TestWithFeService {
                 .analyze("select name from agg limit 1 except select name from agg")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniform(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
                 .analyze("select id from agg intersect select name from agg limit 1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniform(plan.getOutput().get(0)));
     }
 
@@ -119,13 +122,13 @@ class UniformTest extends TestWithFeService {
                 .analyze("select id from agg where id = 1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniformAndNotNull(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
                 .analyze("select name from uni group by name having name = \"\"")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies()
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniformAndNotNull(plan.getOutput().get(0)));
     }
 
@@ -135,8 +138,8 @@ class UniformTest extends TestWithFeService {
                 .analyze("select id from agg lateral view explode([1,2,3]) tmp1 as e1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isEmpty());
+        Assertions.assertFalse(plan.getLogicalProperties()
+                .getTrait().isUniform(plan.getOutputSet()));
     }
 
     @Test
@@ -147,7 +150,7 @@ class UniformTest extends TestWithFeService {
                         + "on agg.id = uni.id where uni.id = 1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties().getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait().isUniform(plan.getOutput().get(0)));
     }
 
     @Test
@@ -157,7 +160,7 @@ class UniformTest extends TestWithFeService {
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+                .getTrait().isUniform(plan.getOutput().get(0)));
     }
 
     @Test
@@ -167,9 +170,9 @@ class UniformTest extends TestWithFeService {
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
+                .getTrait().isUniformAndNotNull(plan.getOutput().get(0)));
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(1)));
+                .getTrait().isUniformAndNotNull(plan.getOutput().get(1)));
     }
 
     @Test
@@ -178,7 +181,7 @@ class UniformTest extends TestWithFeService {
                 .analyze("select id from (select id from agg where id = 1) t")
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
+                .getTrait().isUniformAndNotNull(plan.getOutput().get(0)));
     }
 
     @Test
@@ -189,19 +192,28 @@ class UniformTest extends TestWithFeService {
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+                .getTrait().isUniform(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
                 .analyze("select rank() over(partition by id) from agg")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+                .getTrait().isUniform(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
                 .analyze("select dense_rank() over(partition by id) from agg")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniform(plan.getOutput().get(0)));
+                .getTrait().isUniform(plan.getOutput().get(0)));
     }
 
+    @Test
+    void testEqual() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select id2 from agg where id = 1 and id = id2")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties()
+                .getTrait().isUniqueAndNotNull(plan.getOutputSet()));
+    }
 }

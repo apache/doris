@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -128,6 +129,11 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.isEmpty(), "LogicalDeferMaterializeOlapScan should have no child");
         return this;
+    }
+
+    @Override
+    public LogicalDeferMaterializeOlapScan withRelationId(RelationId relationId) {
+        throw new RuntimeException("should not call LogicalDeferMaterializeOlapScan's withRelationId method");
     }
 
     @Override

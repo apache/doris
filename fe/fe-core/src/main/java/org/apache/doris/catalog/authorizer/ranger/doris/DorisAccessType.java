@@ -46,9 +46,11 @@ public enum DorisAccessType {
         } else if (priv == PrivPredicate.SHOW_VIEW) {
             return SHOW_VIEW;
         } else if (priv == PrivPredicate.SHOW_RESOURCES) {
-            return SHOW_RESOURCES;
+            // For Ranger, there is only USAGE priv for RESOURCE and WORKLOAD_GROUP.
+            // So when checking SHOW_XXX priv, convert it to USAGE priv and pass to Ranger.
+            return USAGE;
         } else if (priv == PrivPredicate.SHOW_WORKLOAD_GROUP) {
-            return SHOW_WORKLOAD_GROUP;
+            return USAGE;
         } else if (priv == PrivPredicate.GRANT) {
             return GRANT;
         } else if (priv == PrivPredicate.ADMIN) {

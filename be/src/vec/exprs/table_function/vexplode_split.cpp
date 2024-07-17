@@ -125,11 +125,11 @@ void VExplodeSplitTableFunction::process_close() {
     _delimiter = {};
 }
 
-void VExplodeSplitTableFunction::get_value(MutableColumnPtr& column) {
+void VExplodeSplitTableFunction::get_same_many_values(MutableColumnPtr& column, int length) {
     if (current_empty()) {
-        column->insert_default();
+        column->insert_many_defaults(length);
     } else {
-        column->insert_data(_backup[_cur_offset].data, _backup[_cur_offset].size);
+        column->insert_many_data(_backup[_cur_offset].data, _backup[_cur_offset].size, length);
     }
 }
 

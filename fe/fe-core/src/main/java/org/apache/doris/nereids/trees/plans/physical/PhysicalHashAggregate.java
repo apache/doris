@@ -17,12 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
-import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
@@ -36,10 +33,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -194,6 +190,8 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public String toString() {
+        TopnPushInfo topnPushInfo = (TopnPushInfo) getMutableState(
+                MutableState.KEY_PUSH_TOPN_TO_AGG).orElseGet(() -> null);
         return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "aggPhase", aggregateParam.aggPhase,
                 "aggMode", aggregateParam.aggMode,
@@ -202,6 +200,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 "outputExpr", outputExpressions,
                 "partitionExpr", partitionExpressions,
                 "requireProperties", requireProperties,
+                "topnOpt", topnPushInfo != null,
                 "stats", statistics
         );
     }
@@ -292,30 +291,6 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     }
 
     @Override
-    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-            AbstractPhysicalJoin<?, ?> builderNode, Expression src, Expression probeExpr,
-            TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        // currently, we can ensure children in the two side are corresponding to the equal_to's.
-        // so right maybe an expression and left is a slot
-        Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-
-        // aliasTransMap doesn't contain the key, means that the path from the scan to the join
-        // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkProbeSlot(ctx, probeSlot)) {
-            return false;
-        }
-        PhysicalRelation scan = ctx.getAliasTransferPair(probeSlot).first;
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
-            return false;
-        }
-
-        AbstractPhysicalPlan child = (AbstractPhysicalPlan) child(0);
-        return child.pushDownRuntimeFilter(context, generator, builderNode,
-                src, probeExpr, type, buildSideNdv, exprOrder);
-    }
-
-    @Override
     public List<Slot> computeOutput() {
         return outputExpressions.stream()
                 .map(NamedExpression::toSlot)
@@ -328,5 +303,31 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 aggregateParam, maybeUsingStream, groupExpression, null,
                 requireProperties, physicalProperties, statistics,
                 child());
+    }
+
+    /**
+     * used to push limit down to localAgg
+     */
+    public static class TopnPushInfo {
+        public List<OrderKey> orderkeys;
+        public long limit;
+
+        public TopnPushInfo(List<OrderKey> orderkeys, long limit) {
+            this.orderkeys = ImmutableList.copyOf(orderkeys);
+            this.limit = limit;
+        }
+    }
+
+    public TopnPushInfo getTopnPushInfo() {
+        Optional<Object> obj = getMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG);
+        if (obj.isPresent() && obj.get() instanceof TopnPushInfo) {
+            return (TopnPushInfo) obj.get();
+        }
+        return null;
+    }
+
+    public PhysicalHashAggregate<CHILD_TYPE> setTopnPushInfo(TopnPushInfo topnPushInfo) {
+        setMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG, topnPushInfo);
+        return this;
     }
 }

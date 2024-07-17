@@ -25,7 +25,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Maps;
@@ -43,7 +42,6 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -179,19 +177,15 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     @Override
-    public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
-            String col) {
-        return Optional.empty();
-    }
-
-    @Override
     public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
         return false;
     }
 
     @Override
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
-        return false;
+        // Not support workload group privilege in ranger hive plugin.
+        // So always return true to pass the check
+        return true;
     }
 
     @Override

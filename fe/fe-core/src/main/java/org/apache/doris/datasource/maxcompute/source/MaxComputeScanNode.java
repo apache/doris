@@ -116,7 +116,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected List<Split> getSplits() throws UserException {
+    public List<Split> getSplits() throws UserException {
         List<Split> result = new ArrayList<>();
         com.aliyun.odps.Table odpsTable = table.getOdpsTable();
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {
@@ -197,7 +197,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                     partitionValues.getSingleColumnRangeMap(),
                     false);
             Collection<Long> filteredPartitionIds = pruner.prune();
-            this.readPartitionNum = filteredPartitionIds.size();
+            this.selectedPartitionNum = filteredPartitionIds.size();
             // get partitions from cache
             Map<Long, String> partitionIdToNameMap = partitionValues.getPartitionIdToNameMap();
             filteredPartitionIds.forEach(id -> result.add(partitionIdToNameMap.get(id)));

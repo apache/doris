@@ -35,7 +35,7 @@ class TExpr;
 namespace pipeline {
 class AsyncWriterDependency;
 class Dependency;
-class PipelineXTask;
+class PipelineTask;
 
 } // namespace pipeline
 
@@ -65,23 +65,13 @@ public:
 
     virtual Status open(RuntimeState* state, RuntimeProfile* profile) = 0;
 
-    bool can_write() {
-        std::lock_guard l(_m);
-        return _data_queue_is_available() || _is_finished();
-    }
-
-    [[nodiscard]] bool is_pending_finish() const { return !_writer_thread_closed; }
-
     // sink the block date to date queue, it is async
     Status sink(Block* block, bool eos);
 
     // Add the IO thread task process block() to thread pool to dispose the IO
     Status start_writer(RuntimeState* state, RuntimeProfile* profile);
 
-    Status get_writer_status() {
-        std::lock_guard l(_m);
-        return _writer_status;
-    }
+    Status get_writer_status() { return _writer_status.status(); }
 
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
@@ -103,7 +93,8 @@ private:
     std::mutex _m;
     std::condition_variable _cv;
     std::deque<std::unique_ptr<Block>> _data_queue;
-    Status _writer_status = Status::OK();
+    // Default value is ok
+    AtomicStatus _writer_status;
     bool _eos = false;
     // The writer is not started at the beginning. If prepare failed but not open, the the writer
     // is not started, so should not pending finish on it.

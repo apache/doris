@@ -25,7 +25,7 @@
 3	[-1, 20, 0]	[0, 1, 0]
 
 -- !test_view_6 --
-v1	CREATE VIEW `v1` COMMENT 'VIEW' AS SELECT\n      error_code, \n      1, \n      'string', \n      now(), \n      dayofyear(op_time), \n      cast (source AS BIGINT), \n      min(`timestamp`) OVER (\n        ORDER BY \n          op_time DESC ROWS BETWEEN UNBOUNDED PRECEDING\n          AND 1 FOLLOWING\n      ), \n      1 > 2,\n      2 + 3,\n      1 IN (1, 2, 3, 4), \n      remark LIKE '%like', \n      CASE WHEN remark = 's' THEN 1 ELSE 2 END,\n      TRUE | FALSE \n    FROM \n      `internal`.`regression_test_ddl_p0`.`view_column_name_test_nereids`;
+v1	CREATE VIEW `v1` AS SELECT\n      `internal`.`regression_test_ddl_p0`.`view_column_name_test_nereids`.`error_code`, \n      1, \n      'string', \n      now(), \n      dayofyear(`internal`.`regression_test_ddl_p0`.`view_column_name_test_nereids`.`op_time`), \n      cast (`internal`.`regression_test_ddl_p0`.`view_column_name_test_nereids`.`source` AS BIGINT), \n      min(`internal`.`regression_test_ddl_p0`.`view_column_name_test_nereids`.`timestamp`) OVER (\n        ORDER BY \n          `internal`.`regression_test_ddl_p0`.`view_column_name_test_nereids`.`op_time` DESC ROWS BETWEEN UNBOUNDED PRECEDING\n          AND 1 FOLLOWING\n      ), \n      1 > 2,\n      2 + 3,\n      1 IN (1, 2, 3, 4), \n      `internal`.`regression_test_ddl_p0`.`view_column_name_test_nereids`.`remark` LIKE '%like', \n      CASE WHEN `internal`.`regression_test_ddl_p0`.`view_column_name_test_nereids`.`remark` = 's' THEN 1 ELSE 2 END,\n      TRUE | FALSE \n    FROM \n      `internal`.`regression_test_ddl_p0`.`view_column_name_test_nereids`;
 
 -- !test_with_as --
 1	1	2
@@ -47,7 +47,7 @@ v1	CREATE VIEW `v1` COMMENT 'VIEW' AS SELECT\n      error_code, \n      1, \n   
 6	7	1
 
 -- !test_with_as_sql --
-test_view_with_as	CREATE VIEW `test_view_with_as` COMMENT 'VIEW' AS (\n            with t1 as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`),  t2 as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`),  \n            t3 as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`) SELECT `t1`.`pk`, `t1`.`a`, `t1`.`b` FROM t1);	utf8mb4	utf8mb4_0900_bin
+test_view_with_as	CREATE VIEW `test_view_with_as` AS (\n            with `t1` as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`),  `t2` as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`),  \n            `t3` as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`) SELECT `t1`.`pk`, `t1`.`a`, `t1`.`b` FROM t1);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_union --
 1	1	2
@@ -86,13 +86,13 @@ test_view_with_as	CREATE VIEW `test_view_with_as` COMMENT 'VIEW' AS (\n         
 6	7	1
 
 -- !test_union_sql --
-test_view_union	CREATE VIEW `test_view_union` COMMENT 'VIEW' AS (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk` AS `c1`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a` AS `c2`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` AS `c3` from `internal`.`regression_test_ddl_p0`.`mal_test_view` Union all SELECT `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` FROM `internal`.`regression_test_ddl_p0`.`mal_test_view`);	utf8mb4	utf8mb4_0900_bin
+test_view_union	CREATE VIEW `test_view_union` AS (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk` AS `c1`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a` AS `c2`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` AS `c3` from `internal`.`regression_test_ddl_p0`.`mal_test_view` Union all SELECT `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` FROM `internal`.`regression_test_ddl_p0`.`mal_test_view`);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_count_star --
 17
 
 -- !test_count_star_sql --
-test_view_count_star	CREATE VIEW `test_view_count_star` COMMENT 'VIEW' AS (select count(*) AS `c1` from `internal`.`regression_test_ddl_p0`.`mal_test_view` having count(*) > 0);	utf8mb4	utf8mb4_0900_bin
+test_view_count_star	CREATE VIEW `test_view_count_star` AS (select count(*) AS `c1` from `internal`.`regression_test_ddl_p0`.`mal_test_view` having count(*) > 0);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_expression --
 \N	\N	6
@@ -114,7 +114,7 @@ test_view_count_star	CREATE VIEW `test_view_count_star` COMMENT 'VIEW' AS (selec
 8	10	1
 
 -- !test_expression_sql --
-test_view_expression	CREATE VIEW `test_view_expression` COMMENT 'VIEW' AS (select a+1 AS `c1`, abs(a)+2+1 AS `c2`, cast(b as varchar(10)) AS `c3` from `internal`.`regression_test_ddl_p0`.`mal_test_view`);	utf8mb4	utf8mb4_0900_bin
+test_view_expression	CREATE VIEW `test_view_expression` AS (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`+1 AS `c1`, abs(`internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`)+2+1 AS `c2`, cast(`internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` as varchar(10)) AS `c3` from `internal`.`regression_test_ddl_p0`.`mal_test_view`);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_alias --
 \N	\N	6
@@ -136,7 +136,7 @@ test_view_expression	CREATE VIEW `test_view_expression` COMMENT 'VIEW' AS (selec
 8	10	1
 
 -- !test_alias_sql --
-test_view_alias	CREATE VIEW `test_view_alias` COMMENT 'VIEW' AS (\n        select c8 AS `c1`, c2 AS `c2`, c1 AS `c3` from (select a+1 c8,abs(a)+2+1 as c2, cast(b as varchar(10)) as c1 from `internal`.`regression_test_ddl_p0`.`mal_test_view`) t);	utf8mb4	utf8mb4_0900_bin
+test_view_alias	CREATE VIEW `test_view_alias` AS (\n        select `t`.`c8` AS `c1`, `t`.`c2` AS `c2`, `t`.`c1` AS `c3` from (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`+1 `c8`,abs(`internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`)+2+1 as `c2`, cast(`internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` as varchar(10)) as `c1` from `internal`.`regression_test_ddl_p0`.`mal_test_view`) `t`);	utf8mb4	utf8mb4_0900_bin
 
 -- !test_star_except --
 \N	6
@@ -158,7 +158,7 @@ test_view_alias	CREATE VIEW `test_view_alias` COMMENT 'VIEW' AS (\n        selec
 7	1
 
 -- !test_star_except_sql --
-test_view_star_except	CREATE VIEW `test_view_star_except` COMMENT 'VIEW' AS select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`;	utf8mb4	utf8mb4_0900_bin
+test_view_star_except	CREATE VIEW `test_view_star_except` AS select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`;	utf8mb4	utf8mb4_0900_bin
 
 -- !test_create_view_from_view --
 1	1	2
@@ -180,7 +180,7 @@ test_view_star_except	CREATE VIEW `test_view_star_except` COMMENT 'VIEW' AS sele
 6	7	1
 
 -- !test_create_view_from_view_sql --
-test_view_from_view	CREATE VIEW `test_view_from_view` COMMENT 'VIEW' AS select `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`pk` AS `c1`, `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`a` AS `c2`, `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`b` AS `c3` from `internal`.`regression_test_ddl_p0`.`test_view_with_as`;	utf8mb4	utf8mb4_0900_bin
+test_view_from_view	CREATE VIEW `test_view_from_view` AS select `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`pk` AS `c1`, `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`a` AS `c2`, `internal`.`regression_test_ddl_p0`.`test_view_with_as`.`b` AS `c3` from `internal`.`regression_test_ddl_p0`.`test_view_with_as`;	utf8mb4	utf8mb4_0900_bin
 
 -- !test_backquote_in_view_define --
 \N	6
@@ -202,7 +202,7 @@ test_view_from_view	CREATE VIEW `test_view_from_view` COMMENT 'VIEW' AS select `
 7	1
 
 -- !test_backquote_in_view_define_sql --
-test_backquote_in_view_define	CREATE VIEW `test_backquote_in_view_define` COMMENT 'VIEW' AS select a AS `ab``c`, b AS `c2` from `internal`.`regression_test_ddl_p0`.`mal_test_view`;	utf8mb4	utf8mb4_0900_bin
+test_backquote_in_view_define	CREATE VIEW `test_backquote_in_view_define` AS select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a` AS `ab``c`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` AS `c2` from `internal`.`regression_test_ddl_p0`.`mal_test_view`;	utf8mb4	utf8mb4_0900_bin
 
 -- !test_backquote_in_table_alias --
 \N	6
@@ -224,5 +224,142 @@ test_backquote_in_view_define	CREATE VIEW `test_backquote_in_view_define` COMMEN
 7	1
 
 -- !test_backquote_in_table_alias_sql --
-test_backquote_in_table_alias	CREATE VIEW `test_backquote_in_table_alias` COMMENT 'VIEW' AS select `ab``c`.`a` AS `c1`, `ab``c`.`b` AS `c2` from (select a,b from `internal`.`regression_test_ddl_p0`.`mal_test_view`) `ab``c`;	utf8mb4	utf8mb4_0900_bin
+test_backquote_in_table_alias	CREATE VIEW `test_backquote_in_table_alias` AS select `ab``c`.`a` AS `c1`, `ab``c`.`b` AS `c2` from (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`,`internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`) `ab``c`;	utf8mb4	utf8mb4_0900_bin
+
+-- !test_generate --
+1	10	A	30
+1	10	A	60
+2	20	B	30
+2	20	B	60
+3	30	C	30
+3	30	C	60
+4	40	D	30
+4	40	D	60
+
+-- !test_generate_sql --
+test_view_generate	CREATE VIEW `test_view_generate` AS select `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`, `internal`.`regression_test_ddl_p0`.`create_view_table1`.`value1`, `internal`.`regression_test_ddl_p0`.`create_view_table1`.`value2`, `t1`.`age` from `internal`.`regression_test_ddl_p0`.`create_view_table1` lateral view EXPLODE(ARRAY(30,60)) `t1` as `age`;	utf8mb4	utf8mb4_0900_bin
+
+-- !test_generate_with_column --
+1	10	A	0
+2	20	B	0
+2	20	B	1
+3	30	C	0
+3	30	C	1
+3	30	C	2
+4	40	D	0
+4	40	D	1
+4	40	D	2
+4	40	D	3
+
+-- !test_generate_with_column_sql --
+test_view_generate_with_column	CREATE VIEW `test_view_generate_with_column` AS select `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`, `internal`.`regression_test_ddl_p0`.`create_view_table1`.`value1`, `internal`.`regression_test_ddl_p0`.`create_view_table1`.`value2`, `t1`.`age` from `internal`.`regression_test_ddl_p0`.`create_view_table1` lateral view EXPLODE_numbers(`internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`) `t1` as `age`;	utf8mb4	utf8mb4_0900_bin
+
+-- !test_col_alias --
+1	10
+2	20
+3	30
+4	40
+
+-- !test_col_alias_sql --
+test_view_col_alias	CREATE VIEW `test_view_col_alias` AS select `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id` as `c1`, `internal`.`regression_test_ddl_p0`.`create_view_table1`.`value1` as `c2` from `internal`.`regression_test_ddl_p0`.`create_view_table1`;	utf8mb4	utf8mb4_0900_bin
+
+-- !test_col_alias_with_specific_name --
+1	10
+2	20
+3	30
+4	40
+
+-- !test_col_alias_with_specific_name_sql --
+test_view_col_alias_specific_name	CREATE VIEW `test_view_col_alias_specific_name` AS select `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id` AS `col1`, `internal`.`regression_test_ddl_p0`.`create_view_table1`.`value1` AS `col2` from `internal`.`regression_test_ddl_p0`.`create_view_table1`;	utf8mb4	utf8mb4_0900_bin
+
+-- !test_table_alias --
+1	10
+2	20
+3	30
+4	40
+
+-- !test_table_alias_sql --
+test_view_table_alias	CREATE VIEW `test_view_table_alias` AS select `t`.`c1`, `t`.`c2` from (\n            select `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id` as `c1`, `internal`.`regression_test_ddl_p0`.`create_view_table1`.`value1` as `c2` from `internal`.`regression_test_ddl_p0`.`create_view_table1` limit 10) as `t`;	utf8mb4	utf8mb4_0900_bin
+
+-- !test_join_table_alias --
+1	10
+2	20
+3	30
+4	40
+
+-- !test_join_table_alias_sql --
+test_view_join_table_alias	CREATE VIEW `test_view_join_table_alias` AS select `t`.`c1`, `t`.`c2` from (\n            select `t1`.`id` as `c1`, `t1`.`value1` as `c2` from `internal`.`regression_test_ddl_p0`.`create_view_table1` `t1` inner join `internal`.`regression_test_ddl_p0`.`create_view_table2` `t2` on `t1`.`id`=`t2`.`id` limit 10) as `t`;	utf8mb4	utf8mb4_0900_bin
+
+-- !test_alias_udf --
+1****1	1
+2****2	2
+3****3	3
+4****4	4
+
+-- !test_alias_udf_sql --
+test_view_alias_udf	CREATE VIEW `test_view_alias_udf` AS (select `regression_test_ddl_p0`.`alias_function_create_view_test`(`internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`) as `c1`,abs(`internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`) from `internal`.`regression_test_ddl_p0`.`create_view_table1`);	utf8mb4	utf8mb4_0900_bin
+
+-- !test_alias_with_db_udf --
+1****1	1
+2****2	2
+3****3	3
+4****4	4
+
+-- !test_alias_with_db_udf_sql --
+test_view_alias_udf_with_db	CREATE VIEW `test_view_alias_udf_with_db` AS (select `regression_test_ddl_p0`.`alias_function_create_view_test`(`internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`) as `c1`,abs(`internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`) from `internal`.`regression_test_ddl_p0`.`create_view_table1`);	utf8mb4	utf8mb4_0900_bin
+
+-- !test_udf_sql --
+test_view_udf	CREATE VIEW `test_view_udf` AS (select `regression_test_ddl_p0`.`alias_function_create_view_test`(`internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`) as `c1`, `regression_test_ddl_p0`.`java_udf_create_view_test`('2011-01-01','2011-01-02'),\n        `regression_test_ddl_p0`.`java_udf_create_view_test`('2011-01-01','2011-01-03') from `internal`.`regression_test_ddl_p0`.`create_view_table1`);	utf8mb4	utf8mb4_0900_bin
+
+-- !test_udf --
+1****1	false	false
+2****2	false	false
+3****3	false	false
+4****4	false	false
+
+-- !test_with_as_with_columns --
+1	1	2
+1	1	4
+1	3	6
+2	1	3
+2	1	4
+2	1	7
+2	3	5
+2	3	9
+2	4	2
+3	2	8
+3	5	\N
+3	5	6
+3	5	6
+3	5	8
+4	5	6
+6	\N	6
+6	7	1
+
+-- !test_with_as_with_columns_sql --
+test_view_with_as_with_columns	CREATE VIEW `test_view_with_as_with_columns` AS (\n            with `t1`(`c1`,`c2`,`c3`) as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`),  `t2` as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`),  \n            `t3` as (select `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`, `internal`.`regression_test_ddl_p0`.`mal_test_view`.`b` from `internal`.`regression_test_ddl_p0`.`mal_test_view`) SELECT `t1`.`c1`, `t1`.`c2`, `t1`.`c3` FROM t1);	utf8mb4	utf8mb4_0900_bin
+
+-- !test_having --
+2	2
+3	3
+4	2
+4	4
+5	5
+6	3
+7	7
+8	4
+9	3
+10	5
+14	7
+15	5
+
+-- !test_having_sql --
+test_having	CREATE VIEW `test_having` AS select sum(`internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`) over(partition by `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a` order by `internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`) as `c1` , `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a` from `internal`.`regression_test_ddl_p0`.`mal_test_view` group by grouping sets((`internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`),(`internal`.`regression_test_ddl_p0`.`mal_test_view`.`b`),(`internal`.`regression_test_ddl_p0`.`mal_test_view`.`pk`,`internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`)) having `internal`.`regression_test_ddl_p0`.`mal_test_view`.`a`>1;	utf8mb4	utf8mb4_0900_bin
+
+-- !complicated_view1 --
+1	100	1
+2	200	1
+
+-- !complicated_view1_sql --
+test_view_complicated	CREATE VIEW `test_view_complicated` AS SELECT `t`.`id`, `t`.`value3`, `t`.`row_num` FROM (\n        SELECT `t1`.`id`, `tt`.`value3`, ROW_NUMBER() OVER (PARTITION BY `t1`.`id` ORDER BY `tt`.`value3` DESC) as `row_num`\n    FROM (SELECT `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id` FROM `internal`.`regression_test_ddl_p0`.`create_view_table1` GROUP BY `internal`.`regression_test_ddl_p0`.`create_view_table1`.`id`) `t1`\n    FULL OUTER JOIN (SELECT `internal`.`regression_test_ddl_p0`.`create_view_table2`.`value3`, `internal`.`regression_test_ddl_p0`.`create_view_table2`.`id`, MAX(`internal`.`regression_test_ddl_p0`.`create_view_table2`.`value4`) FROM `internal`.`regression_test_ddl_p0`.`create_view_table2` GROUP BY `internal`.`regression_test_ddl_p0`.`create_view_table2`.`value3`, `internal`.`regression_test_ddl_p0`.`create_view_table2`.`id`) `tt`\n    ON `tt`.`id` = `t1`.`id`\n    ORDER BY `t1`.`id`\n    ) `t`\n    WHERE `t`.`value3` < 280 AND (`t`.`id` < 3 or `t`.`id` >8);	utf8mb4	utf8mb4_0900_bin
 

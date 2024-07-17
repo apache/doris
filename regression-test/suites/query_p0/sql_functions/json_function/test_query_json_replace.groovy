@@ -42,4 +42,27 @@ suite("test_query_json_replace", "query") {
     sql "insert into ${tableName} values(4,null,null);"
     qt_sql1 "select json_replace('{\"id\": 0, \"time\": \"1970-01-01 00:00:00\", \"a1\": [1, 2], \"a2\": [1, 2]}', '\$.id', id, '\$.time', time, '\$.a1[1]', k, '\$.a2[3]', k) from ${tableName} order by id;"
     sql "DROP TABLE ${tableName};"
+
+    sql "DROP TABLE IF EXISTS test_query_json_replace_nullable"
+    sql """
+            CREATE TABLE test_query_json_replace_nullable (
+              `id` int(11) null,
+              `time` datetime,
+              `k` int(11)
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`,`time`,`k`)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+    """
+    sql "insert into test_query_json_replace_nullable values(1,'2022-01-01 11:45:14',9);"
+    sql "insert into test_query_json_replace_nullable values(2,'2022-01-01 11:45:14',null);"
+    sql "insert into test_query_json_replace_nullable values(3,null,9);"
+    qt_sql2 "select json_replace('{\"id\": 0, \"time\": \"1970-01-01 00:00:00\", \"a1\": [1, 2], \"a2\": [1, 2]}', '\$.id', id, '\$.time', time, '\$.a1[1]', k, '\$.a2[3]', k) from test_query_json_replace_nullable order by id;"
+
+    sql "DROP TABLE test_query_json_replace_nullable;"
 }

@@ -59,14 +59,12 @@ suite("txn_insert_values_with_schema_change") {
                 break
             }
         }
-        Assert.fail("alter table job state is not ${job_state} after retry 10 times")
+        assertTrue(false, "alter table job state is ${last_state}, not ${job_state} after retry ${retry} times")
     }
 
     def txnInsert = {
         try (Connection conn = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword);
              Statement statement = conn.createStatement()) {
-            statement.execute("SET enable_nereids_planner = true")
-            statement.execute("SET enable_fallback_to_original_planner = false")
             statement.execute("begin")
             statement.execute("insert into ${table} values(1, 'b', 20), (2, 'c', 30);")
 

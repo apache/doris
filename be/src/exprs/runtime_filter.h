@@ -70,7 +70,6 @@ struct SharedRuntimeFilterContext;
 
 namespace pipeline {
 class RuntimeFilterTimer;
-struct CountedFinishDependency;
 } // namespace pipeline
 
 enum class RuntimeFilterType {
@@ -208,11 +207,10 @@ public:
               registration_time_(MonotonicMillis()),
               _wait_infinitely(_state->runtime_filter_wait_infinitely),
               _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
-              _enable_pipeline_exec(_state->enable_pipeline_exec),
               _runtime_filter_type(get_runtime_filter_type(desc)),
-              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                                to_string(_runtime_filter_type))),
-              _profile(new RuntimeProfile(_name)),
+              _profile(
+                      new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
+                                                     _filter_id, to_string(_runtime_filter_type)))),
               _need_local_merge(need_local_merge) {}
 
     ~IRuntimeFilter() = default;
@@ -231,7 +229,7 @@ public:
     // push filter to remote node or push down it to scan_node
     Status publish(bool publish_local = false);
 
-    Status send_filter_size(uint64_t local_filter_size);
+    Status send_filter_size(RuntimeState* state, uint64_t local_filter_size);
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
@@ -245,15 +243,14 @@ public:
 
     bool has_remote_target() const { return _has_remote_target; }
 
+    bool has_local_target() const { return _has_local_target; }
+
     bool is_ready() const {
-        return (!_enable_pipeline_exec && _rf_state == RuntimeFilterState::READY) ||
-               (_enable_pipeline_exec &&
-                _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY);
+        return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY;
     }
     RuntimeFilterState current_state() const {
-        return _enable_pipeline_exec ? _rf_state_atomic.load(std::memory_order_acquire) : _rf_state;
+        return _rf_state_atomic.load(std::memory_order_acquire);
     }
-    bool is_ready_or_timeout();
 
     bool is_producer() const { return _role == RuntimeFilterRole::PRODUCER; }
     bool is_consumer() const { return _role == RuntimeFilterRole::CONSUMER; }
@@ -306,11 +303,11 @@ public:
     bool need_sync_filter_size();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(const TNetworkAddress* addr, bool opt_remote_rf);
+    Status push_to_remote(const TNetworkAddress* addr);
 
     void init_profile(RuntimeProfile* parent_profile);
 
-    std::string& get_name() { return _name; }
+    std::string debug_string() const;
 
     void update_runtime_filter_type_to_profile();
 
@@ -366,7 +363,7 @@ public:
 
     void set_synced_size(uint64_t global_size);
 
-    void set_dependency(pipeline::CountedFinishDependency* dependency);
+    void set_dependency(std::shared_ptr<pipeline::Dependency> dependency);
 
     int64_t get_synced_size() const { return _synced_size; }
 
@@ -390,18 +387,11 @@ protected:
     void _set_push_down(bool push_down) { _is_push_down = push_down; }
 
     std::string _get_explain_state_string() const {
-        if (_enable_pipeline_exec) {
-            return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
-                           ? "READY"
-                   : _rf_state_atomic.load(std::memory_order_acquire) ==
-                                   RuntimeFilterState::TIME_OUT
-                           ? "TIME_OUT"
-                           : "NOT_READY";
-        } else {
-            return _rf_state == RuntimeFilterState::READY      ? "READY"
-                   : _rf_state == RuntimeFilterState::TIME_OUT ? "TIME_OUT"
-                                                               : "NOT_READY";
-        }
+        return _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY
+                       ? "READY"
+               : _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::TIME_OUT
+                       ? "TIME_OUT"
+                       : "NOT_READY";
     }
 
     RuntimeFilterParamsContext* _state = nullptr;
@@ -436,16 +426,12 @@ protected:
     const bool _wait_infinitely;
     const int32_t _rf_wait_time_ms;
 
-    const bool _enable_pipeline_exec;
-
     std::atomic<bool> _profile_init = false;
     // runtime filter type
     RuntimeFilterType _runtime_filter_type;
-    std::string _name;
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
-    bool _opt_remote_rf;
     // `_need_local_merge` indicates whether this runtime filter is global on this BE.
     // All runtime filters should be merged on each BE before push_to_remote or publish.
     bool _need_local_merge = false;
@@ -453,7 +439,7 @@ protected:
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
     int64_t _synced_size = -1;
-    pipeline::CountedFinishDependency* _dependency = nullptr;
+    std::shared_ptr<pipeline::Dependency> _dependency;
 };
 
 // avoid expose RuntimePredicateWrapper

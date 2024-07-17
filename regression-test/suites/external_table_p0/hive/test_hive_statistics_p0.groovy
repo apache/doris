@@ -36,6 +36,12 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             sql """use `${catalog_name}`.`stats_test`"""
             sql """analyze database stats_test with sync"""
 
+            // Test hive scan node cardinality.
+            sql """analyze table `${catalog_name}`.`statistics`.`statistics` with sync"""
+            explain {
+                sql "select count(2) from `${catalog_name}`.`statistics`.`statistics`;"
+                contains "cardinality=100"
+            }
 
             def result = sql """show catalog ${catalog_name}"""
             for (int i = 0; i < result.size(); i++) {

@@ -127,6 +127,7 @@ suite("regression_test_variant_github_events_p0", "nonConcurrent"){
             set 'read_json_by_line', 'true' 
             set 'format', 'json' 
             set 'max_filter_ratio', '0.1'
+            set 'memtable_on_sink_node', 'true'
             file file_name // import json file
             time 10000 // limit inflight 10s
 
@@ -177,11 +178,13 @@ suite("regression_test_variant_github_events_p0", "nonConcurrent"){
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-22.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
 
-    // BUILD INDEX and expect state is FINISHED 
-    sql """ BUILD INDEX idx_var ON  github_events"""
-    state = wait_for_last_build_index_on_table_finish("github_events", timeout)
-    assertEquals("FINISHED", state)
-
+    if (!isCloudMode()) {
+        // BUILD INDEX and expect state is FINISHED 
+        sql """ BUILD INDEX idx_var ON  github_events"""
+        state = wait_for_last_build_index_on_table_finish("github_events", timeout)
+        assertEquals("FINISHED", state)
+    }
+   
     // add bloom filter at the end of loading data 
 
     def tablets = sql_return_maparray """ show tablets from github_events; """

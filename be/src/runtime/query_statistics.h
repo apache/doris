@@ -73,7 +73,17 @@ public:
         this->shuffle_send_rows.fetch_add(delta_rows, std::memory_order_relaxed);
     }
 
-    void set_returned_rows(int64_t num_rows) { this->returned_rows = num_rows; }
+    void add_scan_bytes_from_local_storage(int64_t scan_bytes_from_local_storage) {
+        this->_scan_bytes_from_local_storage += scan_bytes_from_local_storage;
+    }
+
+    void add_scan_bytes_from_remote_storage(int64_t scan_bytes_from_remote_storage) {
+        this->_scan_bytes_from_remote_storage += scan_bytes_from_remote_storage;
+    }
+
+    void add_returned_rows(int64_t num_rows) {
+        this->returned_rows.fetch_add(num_rows, std::memory_order_relaxed);
+    }
 
     void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) {
         this->max_peak_memory_bytes.store(max_peak_memory_bytes, std::memory_order_relaxed);
@@ -95,8 +105,10 @@ public:
         cpu_nanos.store(0, std::memory_order_relaxed);
         shuffle_send_bytes.store(0, std::memory_order_relaxed);
         shuffle_send_rows.store(0, std::memory_order_relaxed);
+        _scan_bytes_from_local_storage.store(0);
+        _scan_bytes_from_remote_storage.store(0);
 
-        returned_rows = 0;
+        returned_rows.store(0, std::memory_order_relaxed);
         max_peak_memory_bytes.store(0, std::memory_order_relaxed);
         clearNodeStatistics();
         //clear() is used before collection, so calling "clear" is equivalent to being collected.
@@ -120,9 +132,11 @@ private:
     std::atomic<int64_t> scan_rows;
     std::atomic<int64_t> scan_bytes;
     std::atomic<int64_t> cpu_nanos;
+    std::atomic<int64_t> _scan_bytes_from_local_storage;
+    std::atomic<int64_t> _scan_bytes_from_remote_storage;
     // number rows returned by query.
     // only set once by result sink when closing.
-    int64_t returned_rows;
+    std::atomic<int64_t> returned_rows;
     // Maximum memory peak for all backends.
     // only set once by result sink when closing.
     std::atomic<int64_t> max_peak_memory_bytes;

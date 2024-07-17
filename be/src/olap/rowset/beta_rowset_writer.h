@@ -98,7 +98,8 @@ public:
     Status add_rowset(RowsetSharedPtr rowset) override;
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override;
 
-    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) override;
+    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
+                              FileType file_type = FileType::SEGMENT_FILE) override;
 
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;
@@ -120,6 +121,10 @@ public:
 
     int64_t num_rows() const override { return _segment_creator.num_rows_written(); }
 
+    // for partial update
+    int64_t num_rows_updated() const override { return _segment_creator.num_rows_updated(); }
+    int64_t num_rows_deleted() const override { return _segment_creator.num_rows_deleted(); }
+    int64_t num_rows_new_added() const override { return _segment_creator.num_rows_new_added(); }
     int64_t num_rows_filtered() const override { return _segment_creator.num_rows_filtered(); }
 
     RowsetId rowset_id() override { return _context.rowset_id; }
@@ -162,7 +167,7 @@ private:
 protected:
     Status _generate_delete_bitmap(int32_t segment_id);
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
-    Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
+    Status _create_file_writer(const std::string& path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
     virtual Status _check_segment_number_limit();
     virtual int64_t _num_seg() const;

@@ -20,32 +20,11 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vaggregation_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class AggSourceOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
-public:
-    AggSourceOperatorBuilder(int32_t, ExecNode*);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class AggSourceOperator final : public SourceOperator<vectorized::AggregationNode> {
-public:
-    AggSourceOperator(OperatorBuilderBase*, ExecNode*);
-    // if exec node split to: sink, source operator. the source operator
-    // should skip `alloc_resource()` function call, only sink operator
-    // call the function
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
 
 class AggSourceOperatorX;
 
@@ -62,6 +41,7 @@ public:
     void make_nullable_output_key(vectorized::Block* block);
     template <bool limit>
     Status merge_with_serialized_key_helper(vectorized::Block* block);
+    void do_agg_limit(vectorized::Block* block, bool* eos);
 
 protected:
     friend class AggSourceOperatorX;
@@ -98,7 +78,6 @@ protected:
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
     RuntimeProfile::Counter* _serialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
 
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
@@ -114,9 +93,6 @@ protected:
     };
 
     executor _executor;
-
-    bool _should_limit_output = false;
-    bool _reach_limit = false;
 };
 
 class AggSourceOperatorX : public OperatorX<AggLocalState> {

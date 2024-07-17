@@ -21,28 +21,8 @@
 
 #include "operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/join/vnested_loop_join_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class NestLoopJoinBuildOperatorBuilder final
-        : public OperatorBuilder<vectorized::VNestedLoopJoinNode> {
-public:
-    NestLoopJoinBuildOperatorBuilder(int32_t, ExecNode*);
-
-    OperatorPtr build_operator() override;
-    bool is_sink() const override { return true; }
-};
-
-class NestLoopJoinBuildOperator final : public StreamingOperator<vectorized::VNestedLoopJoinNode> {
-public:
-    NestLoopJoinBuildOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
-    bool can_write() override { return true; }
-};
+namespace doris::pipeline {
 
 class NestedLoopJoinBuildSinkOperatorX;
 
@@ -111,5 +91,4 @@ private:
     RowDescriptor _row_descriptor;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

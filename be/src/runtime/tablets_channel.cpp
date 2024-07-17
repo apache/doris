@@ -21,10 +21,9 @@
 #include <fmt/format.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
-#include <time.h>
 
-#include "cloud/cloud_delta_writer.h"
-#include "cloud/config.h"
+#include <ctime>
+
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 // IWYU pragma: no_include <bits/chrono.h>
@@ -129,21 +128,45 @@ void TabletsChannel::_init_profile(RuntimeProfile* profile) {
 
 Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
-    if (_state == kOpened) {
-        // Normal case, already open by other sender
+    // if _state is kOpened, it's a normal case, already open by other sender
+    // if _state is kFinished, already cancelled by other sender
+    if (_state == kOpened || _state == kFinished) {
         return Status::OK();
     }
-    LOG(INFO) << "open tablets channel: " << _key << ", tablets num: " << request.tablets().size()
-              << ", timeout(s): " << request.load_channel_timeout_s();
+    LOG(INFO) << fmt::format("open tablets channel of index {}, tablets num: {} timeout(s): {}",
+                             _index_id, request.tablets().size(), request.load_channel_timeout_s());
     _txn_id = request.txn_id();
     _index_id = request.index_id();
     _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request.schema()));
     _tuple_desc = _schema->tuple_desc();
 
-    _num_remaining_senders = request.num_senders();
-    _next_seqs.resize(_num_remaining_senders, 0);
-    _closed_senders.Reset(_num_remaining_senders);
+    int max_sender = request.num_senders();
+    /*
+     * a tablets channel in reciever is related to a bulk of VNodeChannel of sender. each instance one or none.
+     * there are two possibilities:
+     *  1. there's partitions originally broadcasted by FE. so all sender(instance) know it at start. and open() will be 
+     *     called directly, not by incremental_open(). and after _state changes to kOpened. _open_by_incremental will never 
+     *     be true. in this case, _num_remaining_senders will keep same with senders number. when all sender sent close rpc,
+     *     the tablets channel will close. and if for auto partition table, these channel's closing will hang on reciever and
+     *     return together to avoid close-then-incremental-open problem.
+     *  2. this tablets channel is opened by incremental_open of sender's sink node. so only this sender will know this partition
+     *     (this TabletsChannel) at that time. and we are not sure how many sender will know in the end. it depends on data
+     *     distribution. in this situation open() is called by incremental_open() at first time. so _open_by_incremental is true.
+     *     then _num_remaining_senders will not be set here. but inc every time when incremental_open() called. so it's dynamic
+     *     and also need same number of senders' close to close. but will not hang.
+     */
+    if (_open_by_incremental) {
+        DCHECK(_num_remaining_senders == 0) << _num_remaining_senders;
+    } else {
+        _num_remaining_senders = max_sender;
+    }
+    LOG(INFO) << fmt::format(
+            "txn {}: TabletsChannel of index {} init senders {} with incremental {}", _txn_id,
+            _index_id, _num_remaining_senders, _open_by_incremental ? "on" : "off");
+    // just use max_sender no matter incremental or not cuz we dont know how many senders will open.
+    _next_seqs.resize(max_sender, 0);
+    _closed_senders.Reset(max_sender);
 
     RETURN_IF_ERROR(_open_all_writers(request));
 
@@ -153,10 +176,27 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
 
 Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) {
     SCOPED_TIMER(_incremental_open_timer);
-    if (_state == kInitialized) { // haven't opened
+
+    // current node first opened by incremental open
+    if (_state == kInitialized) {
+        _open_by_incremental = true;
         RETURN_IF_ERROR(open(params));
     }
+
     std::lock_guard<std::mutex> l(_lock);
+
+    // one sender may incremental_open many times. but only close one time. so dont count duplicately.
+    if (_open_by_incremental) {
+        if (params.has_sender_id() && !_recieved_senders.contains(params.sender_id())) {
+            _recieved_senders.insert(params.sender_id());
+            _num_remaining_senders++;
+        } else if (!params.has_sender_id()) { // for compatible
+            _num_remaining_senders++;
+        }
+        VLOG_DEBUG << fmt::format("txn {}: TabletsChannel {} inc senders to {}", _txn_id, _index_id,
+                                  _num_remaining_senders);
+    }
+
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
     for (const auto& index : _schema->indexes()) {
@@ -230,14 +270,18 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
         *finished = (_num_remaining_senders == 0);
         return _close_status;
     }
-    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
-              << ", backend id: " << backend_id;
+
     for (auto pid : partition_ids) {
         _partition_ids.emplace(pid);
     }
     _closed_senders.Set(sender_id, true);
     _num_remaining_senders--;
     *finished = (_num_remaining_senders == 0);
+
+    LOG(INFO) << fmt::format(
+            "txn {}: close tablets channel of index {} , sender id: {}, backend {}, remain "
+            "senders: {}",
+            _txn_id, _index_id, sender_id, backend_id, _num_remaining_senders);
 
     if (!*finished) {
         return Status::OK();
@@ -551,19 +595,11 @@ Status BaseTabletsChannel::_write_block_data(
         return Status::OK();
     };
 
-    if (request.is_single_tablet_block()) {
-        SCOPED_TIMER(_write_block_timer);
-        RETURN_IF_ERROR(write_tablet_data(request.tablet_ids(0), [&](BaseDeltaWriter* writer) {
-            return writer->append(&send_data);
+    SCOPED_TIMER(_write_block_timer);
+    for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
+        RETURN_IF_ERROR(write_tablet_data(tablet_to_rowidxs_it.first, [&](BaseDeltaWriter* writer) {
+            return writer->write(&send_data, tablet_to_rowidxs_it.second);
         }));
-    } else {
-        SCOPED_TIMER(_write_block_timer);
-        for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
-            RETURN_IF_ERROR(
-                    write_tablet_data(tablet_to_rowidxs_it.first, [&](BaseDeltaWriter* writer) {
-                        return writer->write(&send_data, tablet_to_rowidxs_it.second);
-                    }));
-        }
     }
 
     {

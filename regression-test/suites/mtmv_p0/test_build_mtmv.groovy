@@ -69,7 +69,6 @@ suite("test_build_mtmv") {
     sql """drop materialized view if exists ${mvName};"""
     sql """drop materialized view if exists ${mvNameRenamed};"""
 
-    // show create table
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         (aa comment "aaa",bb)
@@ -84,13 +83,23 @@ suite("test_build_mtmv") {
         SELECT id, username FROM ${tableName};
         """
 
-    def showCreateTableResult = sql """show create table ${mvName}"""
-    logger.info("showCreateTableResult: " + showCreateTableResult.toString())
-    assertTrue(showCreateTableResult.toString().contains("CREATE MATERIALIZED VIEW `multi_mv_test_create_mtmv` (\n  `aa` BIGINT NULL COMMENT 'aaa',\n  `bb` VARCHAR(20) NULL\n) ENGINE=MATERIALIZED_VIEW\nCOMMENT 'comment1'\nDISTRIBUTED BY RANDOM BUCKETS 2\nPROPERTIES"))
+    // not support show create table
+    test {
+          sql """
+              show create table ${mvName};
+          """
+          exception "not support"
+      }
 
+    // desc
     def descTableAllResult = sql """desc ${mvName} all"""
     logger.info("descTableAllResult: " + descTableAllResult.toString())
     assertTrue(descTableAllResult.toString().contains("${mvName}"))
+
+    // show data
+    def showDataResult = sql """show data"""
+    logger.info("showDataResult: " + showDataResult.toString())
+    assertTrue(showDataResult.toString().contains("${mvName}"))
 
     // if not exist
     try {
@@ -438,58 +447,6 @@ suite("test_build_mtmv") {
         alter Materialized View ${mvName} set("grace_period"="3333");
     """
     order_qt_select "select MvProperties from mv_infos('database'='regression_test_mtmv_p0') where Name = '${mvName}'"
-
-    // use alter table
-    // not allow rename
-    try {
-        sql """
-            alter table ${mvName} rename ${mvNameRenamed}
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-
-    // not allow modify `grace_period`
-    try {
-        sql """
-            alter table ${mvName} set("grace_period"="3333");
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-    // allow modify comment
-    try {
-        sql """
-            alter table ${mvName} MODIFY COMMENT "new table comment";
-            """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        Assert.fail();
-    }
-
-    // not allow modify column
-    try {
-        sql """
-            alter table ${mvName} DROP COLUMN pv;
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-    // not allow replace
-    try {
-        sql """
-            alter table ${mvName} REPLACE WITH TABLE ${tableName};
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
 
     // not allow use mv modify property of table
     if (!isCloudMode()) {

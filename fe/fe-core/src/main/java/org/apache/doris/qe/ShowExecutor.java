@@ -30,6 +30,7 @@ import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
 import org.apache.doris.analysis.ShowAuthorStmt;
+import org.apache.doris.analysis.ShowAutoAnalyzeJobsStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
@@ -50,6 +51,7 @@ import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
+import org.apache.doris.analysis.ShowCreateMTMVStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
 import org.apache.doris.analysis.ShowCreateRepositoryStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
@@ -95,6 +97,7 @@ import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowStageStmt;
 import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
 import org.apache.doris.analysis.ShowStorageVaultStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
@@ -114,7 +117,7 @@ import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
-import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -130,6 +133,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -151,6 +155,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -213,8 +218,11 @@ import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.qe.help.HelpTopic;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.AutoAnalysisPendingJob;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.PartitionColumnStatistic;
+import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -295,6 +303,7 @@ public class ShowExecutor {
     }
 
     public ShowResultSet execute() throws AnalysisException {
+        checkStmtSupported();
         if (stmt instanceof ShowRollupStmt) {
             handleShowRollup();
         } else if (stmt instanceof ShowAuthorStmt) {
@@ -317,6 +326,8 @@ public class ShowExecutor {
             handleDescribe();
         } else if (stmt instanceof ShowCreateTableStmt) {
             handleShowCreateTable();
+        } else if (stmt instanceof ShowCreateMTMVStmt) {
+            handleShowCreateMTMV();
         } else if (stmt instanceof ShowCreateDbStmt) {
             handleShowCreateDb();
         } else if (stmt instanceof ShowProcesslistStmt) {
@@ -408,6 +419,11 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowReplicaDistributionStmt) {
             handleAdminShowTabletDistribution();
         } else if (stmt instanceof ShowConfigStmt) {
+            if (Config.isCloudMode() && !ctx.getCurrentUserIdentity()
+                    .getUser().equals(Auth.ROOT_USER)) {
+                LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
+                throw new AnalysisException("Unsupported operation");
+            }
             handleAdminShowConfig();
         } else if (stmt instanceof ShowSmallFilesStmt) {
             handleShowSmallFiles();
@@ -449,12 +465,16 @@ public class ShowExecutor {
             handleShowCreateMaterializedView();
         } else if (stmt instanceof ShowPolicyStmt) {
             handleShowPolicy();
+        } else if (stmt instanceof ShowStoragePolicyUsingStmt) {
+            handleShowStoragePolicyUsing();
         } else if (stmt instanceof ShowCatalogStmt) {
             handleShowCatalogs();
         } else if (stmt instanceof ShowCreateCatalogStmt) {
             handleShowCreateCatalog();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
+        } else if (stmt instanceof ShowAutoAnalyzeJobsStmt) {
+            handleShowAutoAnalyzePendingJobs();
         } else if (stmt instanceof ShowTabletsBelongStmt) {
             handleShowTabletsBelong();
         } else if (stmt instanceof AdminCopyTabletStmt) {
@@ -950,13 +970,13 @@ public class ShowExecutor {
             }
             if (showTableStmt.isVerbose()) {
                 String storageFormat = "NONE";
-                String invertedIndexStorageFormat = "NONE";
+                String invertedIndexFileStorageFormat = "NONE";
                 if (tbl instanceof OlapTable) {
                     storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
-                    invertedIndexStorageFormat = ((OlapTable) tbl).getInvertedIndexStorageFormat().toString();
+                    invertedIndexFileStorageFormat = ((OlapTable) tbl).getInvertedIndexFileStorageFormat().toString();
                 }
                 rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
-                        invertedIndexStorageFormat));
+                        invertedIndexFileStorageFormat));
             } else {
                 rows.add(Lists.newArrayList(tbl.getName()));
             }
@@ -1133,6 +1153,23 @@ public class ShowExecutor {
             }
         } finally {
             table.readUnlock();
+        }
+    }
+
+    private void handleShowCreateMTMV() throws AnalysisException {
+        ShowCreateMTMVStmt showStmt = (ShowCreateMTMVStmt) stmt;
+        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(showStmt.getCtl())
+                .getDbOrAnalysisException(showStmt.getDb());
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException(showStmt.getTable());
+        List<List<String>> rows = Lists.newArrayList();
+
+        mtmv.readLock();
+        try {
+            String mtmvDdl = Env.getMTMVDdl(mtmv);
+            rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
+            resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+        } finally {
+            mtmv.readUnlock();
         }
     }
 
@@ -1327,11 +1364,17 @@ public class ShowExecutor {
         Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
                 .map(entity -> entity.name())
                 .collect(Collectors.toSet());
-        loadInfos.addAll(env.getLoadManager().getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
+        if (!Config.isCloudMode()) {
+            loadInfos.addAll(env.getLoadManager()
+                    .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), statesValue));
+        } else {
+            loadInfos.addAll(((CloudLoadManager) env.getLoadManager())
+                    .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
                         showStmt.isAccurateMatch(), statesValue, jobTypes, showStmt.getCopyIdValue(),
                         showStmt.isCopyIdAccurateMatch(), showStmt.getTableNameValue(),
                         showStmt.isTableNameAccurateMatch(),
                         showStmt.getFileValue(), showStmt.isFileAccurateMatch()));
+        }
         // add the nerieds load info
         JobManager loadMgr = env.getJobManager();
         loadInfos.addAll(loadMgr.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
@@ -1522,9 +1565,17 @@ public class ShowExecutor {
             throws AnalysisException {
         LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
         if (showWarningsStmt.isFindByLabel()) {
-            List<List<Comparable>> loadJobInfosByDb = loadManager.getLoadJobInfosByDb(db.getId(),
-                    showWarningsStmt.getLabel(),
-                    true, null, null, null, false, null, false, null, false);
+            List<List<Comparable>> loadJobInfosByDb;
+            if (!Config.isCloudMode()) {
+                loadJobInfosByDb = loadManager.getLoadJobInfosByDb(db.getId(),
+                        showWarningsStmt.getLabel(),
+                        true, null);
+            } else {
+                loadJobInfosByDb = ((CloudLoadManager) loadManager)
+                        .getLoadJobInfosByDb(db.getId(),
+                        showWarningsStmt.getLabel(),
+                        true, null, null, null, false, null, false, null, false);
+            }
             if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
                 return null;
             }
@@ -2180,7 +2231,7 @@ public class ShowExecutor {
         backendInfos.sort(new Comparator<List<String>>() {
             @Override
             public int compare(List<String> o1, List<String> o2) {
-                return Integer.parseInt(o1.get(0)) - Integer.parseInt(o2.get(0));
+                return Long.compare(Long.parseLong(o1.get(0)), Long.parseLong(o2.get(0)));
             }
         });
 
@@ -2601,19 +2652,32 @@ public class ShowExecutor {
 
     private void handleShowColumnStats() throws AnalysisException {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
-        TableName tableName = showColumnStatsStmt.getTableName();
         TableIf tableIf = showColumnStatsStmt.getTable();
         List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics = new ArrayList<>();
         Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
         boolean showCache = showColumnStatsStmt.isCached();
         boolean isAllColumns = showColumnStatsStmt.isAllColumns();
-        if (isAllColumns && !showCache && partitionNames == null) {
-            getStatsForAllColumns(columnStatistics, tableIf);
+        if (partitionNames != null) {
+            List<String> partNames = partitionNames.getPartitionNames() == null
+                    ? new ArrayList<>(tableIf.getPartitionNames())
+                    : partitionNames.getPartitionNames();
+            if (showCache) {
+                resultSet = showColumnStatsStmt.constructPartitionCachedColumnStats(
+                    getCachedPartitionColumnStats(columnNames, partNames, tableIf), tableIf);
+            } else {
+                List<ResultRow> partitionColumnStats =
+                        StatisticsRepository.queryColumnStatisticsByPartitions(tableIf, columnNames, partNames);
+                resultSet = showColumnStatsStmt.constructPartitionResultSet(partitionColumnStats, tableIf);
+            }
         } else {
-            getStatsForSpecifiedColumns(columnStatistics, columnNames, tableIf, showCache, tableName, partitionNames);
+            if (isAllColumns && !showCache) {
+                getStatsForAllColumns(columnStatistics, tableIf);
+            } else {
+                getStatsForSpecifiedColumns(columnStatistics, columnNames, tableIf, showCache);
+            }
+            resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
         }
-        resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
     }
 
     private void getStatsForAllColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
@@ -2636,8 +2700,7 @@ public class ShowExecutor {
     }
 
     private void getStatsForSpecifiedColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
-            Set<String> columnNames, TableIf tableIf, boolean showCache,
-            TableName tableName, PartitionNames partitionNames)
+            Set<String> columnNames, TableIf tableIf, boolean showCache)
             throws AnalysisException {
         for (String colName : columnNames) {
             // Olap base index use -1 as index id.
@@ -2657,26 +2720,53 @@ public class ShowExecutor {
                     continue;
                 }
                 // Show column statistics in columnStatisticsCache.
+                ColumnStatistic columnStatistic;
                 if (showCache) {
-                    ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                            tableIf.getDatabase().getCatalog().getId(),
-                            tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
-                } else if (partitionNames == null) {
-                    ColumnStatistic columnStatistic =
-                            StatisticsRepository.queryColumnStatisticsByName(
-                                    tableIf.getDatabase().getCatalog().getId(),
-                                    tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
-                    columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
+                    columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+                        tableIf.getDatabase().getCatalog().getId(),
+                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
                 } else {
-                    String finalIndexName = indexName;
-                    columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                                    colName, partitionNames.getPartitionNames())
-                            .stream().map(s -> Pair.of(Pair.of(finalIndexName, colName), s))
-                            .collect(Collectors.toList()));
+                    columnStatistic = StatisticsRepository.queryColumnStatisticsByName(
+                        tableIf.getDatabase().getCatalog().getId(),
+                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
+                }
+                columnStatistics.add(Pair.of(Pair.of(indexName, colName), columnStatistic));
+            }
+        }
+    }
+
+    private Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> getCachedPartitionColumnStats(
+            Set<String> columnNames, List<String> partitionNames, TableIf tableIf) {
+        Map<PartitionColumnStatisticCacheKey, PartitionColumnStatistic> ret = new HashMap<>();
+        long catalogId = tableIf.getDatabase().getCatalog().getId();
+        long dbId = tableIf.getDatabase().getId();
+        long tableId = tableIf.getId();
+        for (String colName : columnNames) {
+            // Olap base index use -1 as index id.
+            List<Long> indexIds = Lists.newArrayList();
+            if (tableIf instanceof OlapTable) {
+                indexIds = ((OlapTable) tableIf).getMvColumnIndexIds(colName);
+            } else {
+                indexIds.add(-1L);
+            }
+            for (long indexId : indexIds) {
+                String indexName = tableIf.getName();
+                if (tableIf instanceof OlapTable) {
+                    OlapTable olapTable = (OlapTable) tableIf;
+                    indexName = olapTable.getIndexNameById(indexId == -1 ? olapTable.getBaseIndexId() : indexId);
+                }
+                if (indexName == null) {
+                    continue;
+                }
+                for (String partName : partitionNames) {
+                    PartitionColumnStatistic partitionStatistics = Env.getCurrentEnv().getStatisticsCache()
+                            .getPartitionColumnStatistics(catalogId, dbId, tableId, indexId, partName, colName);
+                    ret.put(new PartitionColumnStatisticCacheKey(catalogId, dbId, tableId, indexId, partName, colName),
+                            partitionStatistics);
                 }
             }
         }
+        return ret;
     }
 
     public void handleShowColumnHist() {
@@ -2804,6 +2894,11 @@ public class ShowExecutor {
         resultSet = Env.getCurrentEnv().getPolicyMgr().showPolicy(showStmt);
     }
 
+    public void handleShowStoragePolicyUsing() throws AnalysisException {
+        ShowStoragePolicyUsingStmt showStmt = (ShowStoragePolicyUsingStmt) stmt;
+        resultSet = Env.getCurrentEnv().getPolicyMgr().showStoragePolicyUsing(showStmt);
+    }
+
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
         resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt, ctx.getCurrentCatalog() != null
@@ -2819,7 +2914,7 @@ public class ShowExecutor {
 
     private void handleShowAnalyze() {
         ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().showAnalysisJob(showStmt);
+        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().findAnalysisJobs(showStmt);
         List<List<String>> resultRows = Lists.newArrayList();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (AnalysisInfo analysisInfo : results) {
@@ -2841,7 +2936,7 @@ public class ShowExecutor {
                 row.add(analysisInfo.jobType.toString());
                 row.add(analysisInfo.analysisType.toString());
                 row.add(analysisInfo.message);
-                row.add(TimeUtils.DATETIME_FORMAT.format(
+                row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
                         LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                                 ZoneId.systemDefault())));
                 row.add(analysisInfo.state.toString());
@@ -2855,10 +2950,41 @@ public class ShowExecutor {
                                 java.time.ZoneId.systemDefault());
                 row.add(startTime.format(formatter));
                 row.add(endTime.format(formatter));
+                row.add(analysisInfo.priority.name());
+                row.add(String.valueOf(analysisInfo.enablePartition));
                 resultRows.add(row);
             } catch (Exception e) {
                 LOG.warn("Failed to get analyze info for table {}.{}.{}, reason: {}",
                         analysisInfo.catalogId, analysisInfo.dbId, analysisInfo.tblId, e.getMessage());
+                continue;
+            }
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
+    }
+
+    private void handleShowAutoAnalyzePendingJobs() {
+        ShowAutoAnalyzeJobsStmt showStmt = (ShowAutoAnalyzeJobsStmt) stmt;
+        List<AutoAnalysisPendingJob> jobs = Env.getCurrentEnv().getAnalysisManager().showAutoPendingJobs(showStmt);
+        List<List<String>> resultRows = Lists.newArrayList();
+        for (AutoAnalysisPendingJob job : jobs) {
+            try {
+                List<String> row = new ArrayList<>();
+                CatalogIf<? extends DatabaseIf<? extends TableIf>> c = StatisticsUtil.findCatalog(job.catalogName);
+                row.add(c.getName());
+                Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(job.dbName);
+                row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
+                if (databaseIf.isPresent()) {
+                    Optional<? extends TableIf> table = databaseIf.get().getTable(job.tableName);
+                    row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+                } else {
+                    row.add("DB may get deleted");
+                }
+                row.add(job.getColumnNames());
+                row.add(String.valueOf(job.priority));
+                resultRows.add(row);
+            } catch (Exception e) {
+                LOG.warn("Failed to get pending jobs for table {}.{}.{}, reason: {}",
+                        job.catalogName, job.dbName, job.tableName, e.getMessage());
                 continue;
             }
         }
@@ -3079,7 +3205,7 @@ public class ShowExecutor {
                 row.add(table.getName());
             }
             row.add(analysisInfo.message);
-            row.add(TimeUtils.DATETIME_FORMAT.format(
+            row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
             row.add(String.valueOf(analysisInfo.timeCostInMs));
@@ -3177,8 +3303,13 @@ public class ShowExecutor {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
                     .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+            Auth auth = Env.getCurrentEnv().getAuth();
+            UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
-                            .map(StorageVault::convertToShowStorageVaultProperties)
+                    .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
+                            PrivPredicate.USAGE)
+                    )
+                    .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
             if (resp.hasDefaultStorageVaultId()) {
                 StorageVault.setDefaultVaultToShowVaultResult(rows, resp.getDefaultStorageVaultId());
@@ -3189,4 +3320,26 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
+    private void checkStmtSupported() throws AnalysisException {
+        // check stmt has been supported in cloud mode
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+
+        if (stmt instanceof ShowReplicaStatusStmt
+                || stmt instanceof ShowReplicaDistributionStmt
+                || stmt instanceof ShowConfigStmt) {
+            if (!ctx.getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
+                LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
+                throw new AnalysisException("Unsupported operation");
+            }
+        }
+
+        if (stmt instanceof ShowTabletStorageFormatStmt
+                || stmt instanceof DiagnoseTabletStmt
+                || stmt instanceof AdminCopyTabletStmt) {
+            LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
+            throw new AnalysisException("Unsupported operation");
+        }
+    }
 }

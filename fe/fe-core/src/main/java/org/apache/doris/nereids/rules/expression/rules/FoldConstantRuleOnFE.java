@@ -43,7 +43,6 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -404,11 +403,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     }
 
     @Override
-    public Expression visitLike(Like like, ExpressionRewriteContext context) {
-        return like;
-    }
-
-    @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = rewriteChildren(cast, context);
         Optional<Expression> checkedExpr = preProcess(cast);
@@ -690,6 +684,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     private <E extends Expression> ExpressionPatternMatcher<? extends Expression> matches(
             Class<E> clazz, BiFunction<E, ExpressionRewriteContext, Expression> visitMethod) {
         return matchesType(clazz)
+                .whenCtx(ctx -> !ctx.cascadesContext.getConnectContext().getSessionVariable()
+                        .isDebugSkipFoldConstant())
                 .whenCtx(NOT_UNDER_AGG_DISTINCT.as())
                 .thenApply(ctx -> visitMethod.apply(ctx.expr, ctx.rewriteContext));
     }

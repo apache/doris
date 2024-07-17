@@ -17,15 +17,15 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,7 +35,7 @@ import java.util.Map;
 /**
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
  */
-public class MaterializedIndex extends MetaObject implements Writable, GsonPostProcessable {
+public class MaterializedIndex extends MetaObject implements GsonPostProcessable {
     public enum IndexState {
         NORMAL,
         @Deprecated
@@ -206,25 +206,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
         return -1;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-
-        Text.writeString(out, state.name());
-        out.writeLong(rowCount);
-
-        int tabletCount = tablets.size();
-        out.writeInt(tabletCount);
-        for (Tablet tablet : tablets) {
-            tablet.write(out);
-        }
-
-        out.writeLong(rollupIndexId);
-        out.writeLong(rollupFinishedVersion);
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -244,10 +226,15 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
         rollupFinishedVersion = in.readLong();
     }
 
+    @Deprecated
     public static MaterializedIndex read(DataInput in) throws IOException {
-        MaterializedIndex materializedIndex = new MaterializedIndex();
-        materializedIndex.readFields(in);
-        return materializedIndex;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            MaterializedIndex mi = new MaterializedIndex();
+            mi.readFields(in);
+            return mi;
+        }
+
+        return GsonUtils.GSON.fromJson(Text.readString(in), MaterializedIndex.class);
     }
 
     @Override

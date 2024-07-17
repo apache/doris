@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS customer_demographics (
     cd_dep_college_count integer
 )
 DUPLICATE KEY(cd_demo_sk)
-DISTRIBUTED BY HASH(cd_gender) BUCKETS 12
+DISTRIBUTED BY HASH(cd_demo_sk) BUCKETS 12
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -213,7 +213,7 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(cs_item_sk, cs_order_number) BUCKETS 64
+DISTRIBUTED BY HASH(cs_item_sk, cs_order_number) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1",
   "colocate_with" = "catalog"
@@ -340,7 +340,7 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(inv_item_sk, inv_warehouse_sk) BUCKETS 64
+DISTRIBUTED BY HASH(inv_item_sk, inv_warehouse_sk) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -450,7 +450,7 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(cr_item_sk, cr_order_number) BUCKETS 64
+DISTRIBUTED BY HASH(cr_item_sk, cr_order_number) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1",
   "colocate_with" = "catalog"
@@ -485,7 +485,7 @@ CREATE TABLE IF NOT EXISTS customer_address (
     ca_location_type char(20)
 )
 DUPLICATE KEY(ca_address_sk)
-DISTRIBUTED BY HASH(ca_address_sk) BUCKETS 64
+DISTRIBUTED BY HASH(ca_address_sk) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -543,7 +543,7 @@ CREATE TABLE IF NOT EXISTS item (
     i_product_name char(50)
 )
 DUPLICATE KEY(i_item_sk)
-DISTRIBUTED BY HASH(i_item_sk) BUCKETS 24
+DISTRIBUTED BY HASH(i_item_sk) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1"
 );
@@ -650,7 +650,7 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(wr_item_sk, wr_order_number) BUCKETS 64
+DISTRIBUTED BY HASH(wr_item_sk, wr_order_number) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1",
   "colocate_with" = "web"
@@ -829,7 +829,7 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(ws_item_sk, ws_order_number) BUCKETS 64
+DISTRIBUTED BY HASH(ws_item_sk, ws_order_number) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1",
   "colocate_with" = "web"
@@ -1010,7 +1010,7 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(sr_item_sk, sr_ticket_number) BUCKETS 64
+DISTRIBUTED BY HASH(sr_item_sk, sr_ticket_number) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1",
   "colocate_with" = "store"
@@ -1117,7 +1117,7 @@ PARTITION `p70` VALUES LESS THAN ("2452945"),
 PARTITION `p71` VALUES LESS THAN ("2452975"),
 PARTITION `p72` VALUES LESS THAN (MAXVALUE)
 )
-DISTRIBUTED BY HASH(ss_item_sk, ss_ticket_number) BUCKETS 64
+DISTRIBUTED BY HASH(ss_item_sk, ss_ticket_number) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1",
   "colocate_with" = "store"

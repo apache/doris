@@ -123,6 +123,8 @@ suite("test_ip_basic") {
     qt_sql6 "select ip_v6 from t0 order by ip_v6 limit 1 offset 1"
     qt_sql7 "select ip_v4 from t0 order by ip_v4 desc limit 1 offset 1"
     qt_sql8 "select ip_v6 from t0 order by ip_v6 desc limit 1 offset 1"
+    qt_sql8_2 "select ip_v6 from t0 order by ip_v6 desc limit 1 offset 1"
+    qt_sql8_3 "select ip_v6 from t0 order by ip_v6 desc limit 1 offset 1"
 
     // group by and agg
     qt_sql9 "select ip_v4, count(ip_v4) as cnt from t0 group by ip_v4 order by ip_v4"

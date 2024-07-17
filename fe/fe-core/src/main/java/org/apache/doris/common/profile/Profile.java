@@ -19,6 +19,10 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
 
 import com.google.common.collect.Lists;
@@ -54,7 +58,6 @@ public class Profile {
     private static final Logger LOG = LogManager.getLogger(Profile.class);
     private static final int MergedProfileLevel = 1;
     private final String name;
-    private final boolean isPipelineX;
     private SummaryProfile summaryProfile;
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     private boolean isFinished;
@@ -62,9 +65,8 @@ public class Profile {
 
     private int profileLevel = 3;
 
-    public Profile(String name, boolean isEnable, int profileLevel, boolean isPipelineX) {
+    public Profile(String name, boolean isEnable, int profileLevel) {
         this.name = name;
-        this.isPipelineX = isPipelineX;
         this.summaryProfile = new SummaryProfile();
         // if disabled, just set isFinished to true, so that update() will do nothing
         this.isFinished = !isEnable;
@@ -76,9 +78,6 @@ public class Profile {
         if (executionProfile == null) {
             LOG.warn("try to set a null excecution profile, it is abnormal", new Exception());
             return;
-        }
-        if (this.isPipelineX) {
-            executionProfile.setPipelineX();
         }
         executionProfile.setSummaryProfile(summaryProfile);
         this.executionProfiles.add(executionProfile);
@@ -96,11 +95,36 @@ public class Profile {
             if (this.isFinished) {
                 return;
             }
+            if (planner instanceof NereidsPlanner) {
+                NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
+                StringBuilder builder = new StringBuilder();
+                builder.append("\n");
+                builder.append(nereidsPlanner.getPhysicalPlan()
+                        .treeString());
+                builder.append("\n");
+                for (PhysicalRelation relation : nereidsPlanner.getPhysicalRelations()) {
+                    if (relation.getStats() != null) {
+                        builder.append(relation).append("\n")
+                                .append(relation.getStats().printColumnStats());
+                    }
+                }
+                summaryInfo.put(SummaryProfile.PHYSICAL_PLAN,
+                        builder.toString().replace("\n", "\n     "));
+
+                FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
+                if (distributedPlans != null) {
+                    summaryInfo.put(SummaryProfile.DISTRIBUTED_PLAN,
+                            DistributedPlan.toString(Lists.newArrayList(distributedPlans.values()))
+                                    .replace("\n", "\n     ")
+                    );
+                }
+            }
             summaryProfile.update(summaryInfo);
             for (ExecutionProfile executionProfile : executionProfiles) {
                 // Tell execution profile the start time
                 executionProfile.update(startTime, isFinished);
             }
+
             // Nerids native insert not set planner, so it is null
             if (planner != null) {
                 this.planNodeMap = planner.getExplainStringMap();
@@ -134,6 +158,7 @@ public class Profile {
             }
         }
         try {
+            // For load task, they will have multiple execution_profiles.
             for (ExecutionProfile executionProfile : executionProfiles) {
                 builder.append("\n");
                 executionProfile.getRoot().prettyPrint(builder, "");
@@ -168,9 +193,7 @@ public class Profile {
     }
 
     private RuntimeProfile composeRootProfile() {
-
         RuntimeProfile rootProfile = new RuntimeProfile(name);
-        rootProfile.setIsPipelineX(isPipelineX);
         rootProfile.addChild(summaryProfile.getSummary());
         rootProfile.addChild(summaryProfile.getExecutionSummary());
         for (ExecutionProfile executionProfile : executionProfiles) {

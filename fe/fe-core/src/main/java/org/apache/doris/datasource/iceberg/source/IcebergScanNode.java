@@ -78,7 +78,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -143,6 +142,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
         int formatVersion = icebergSplit.getFormatVersion();
         fileDesc.setFormatVersion(formatVersion);
+        fileDesc.setOriginalFilePath(icebergSplit.getOriginalPath());
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
         } else {
@@ -150,10 +150,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
                 String deleteFilePath = filter.getDeleteFilePath();
                 LocationPath locationPath = new LocationPath(deleteFilePath, icebergSplit.getConfig());
-                Path splitDeletePath = locationPath.toScanRangeLocation();
+                Path splitDeletePath = locationPath.toStorageLocation();
                 deleteFileDesc.setPath(splitDeletePath.toString());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
-                    fileDesc.setContent(FileContent.POSITION_DELETES.id());
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
                             (IcebergDeleteFileFilter.PositionDelete) filter;
                     OptionalLong lowerBound = positionDelete.getPositionLowerBound();
@@ -164,11 +163,12 @@ public class IcebergScanNode extends FileQueryScanNode {
                     if (upperBound.isPresent()) {
                         deleteFileDesc.setPositionUpperBound(upperBound.getAsLong());
                     }
+                    deleteFileDesc.setContent(FileContent.POSITION_DELETES.id());
                 } else {
-                    fileDesc.setContent(FileContent.EQUALITY_DELETES.id());
                     IcebergDeleteFileFilter.EqualityDelete equalityDelete =
                             (IcebergDeleteFileFilter.EqualityDelete) filter;
                     deleteFileDesc.setFieldIds(equalityDelete.getFieldIds());
+                    deleteFileDesc.setContent(FileContent.EQUALITY_DELETES.id());
                 }
                 fileDesc.addToDeleteFiles(deleteFileDesc);
             }
@@ -212,6 +212,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         HashSet<String> partitionPathSet = new HashSet<>();
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
+        long rowCount = getCountFromSnapshot();
+        if (getPushDownAggNoGroupingOp().equals(TPushAggOp.COUNT) && rowCount >= 0) {
+            this.rowCount = rowCount;
+            return new ArrayList<>();
+        }
+
         CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), splitSize);
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
                 TableScanUtil.planTasks(fileScanTasks, splitSize, 1, 0)) {
@@ -244,7 +250,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     partitionPathSet.add(structLike.toString());
                 }
                 LocationPath locationPath = new LocationPath(dataFilePath, source.getCatalog().getProperties());
-                Path finalDataFilePath = locationPath.toScanRangeLocation();
+                Path finalDataFilePath = locationPath.toStorageLocation();
                 IcebergSplit split = new IcebergSplit(
                         finalDataFilePath,
                         splitTask.start(),
@@ -253,7 +259,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                         new String[0],
                         formatVersion,
                         source.getCatalog().getProperties(),
-                        partitionValues);
+                        partitionValues,
+                        splitTask.file().path().toString());
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
                     split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
                 }
@@ -264,19 +271,16 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new UserException(e.getMessage(), e.getCause());
         }
 
-        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
-        if (aggOp.equals(TPushAggOp.COUNT) && getCountFromSnapshot() > 0) {
-            // we can create a special empty split and skip the plan process
-            return Collections.singletonList(splits.get(0));
-        }
-
-        readPartitionNum = partitionPathSet.size();
+        selectedPartitionNum = partitionPathSet.size();
 
         return splits;
     }
 
     public Long getSpecifiedSnapshot() throws UserException {
         TableSnapshot tableSnapshot = source.getDesc().getRef().getTableSnapshot();
+        if (tableSnapshot == null) {
+            tableSnapshot = this.tableSnapshot;
+        }
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
             try {
@@ -327,8 +331,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                 filters.add(IcebergDeleteFileFilter.createPositionDelete(delete.path().toString(),
                         positionLowerBound.orElse(-1L), positionUpperBound.orElse(-1L)));
             } else if (delete.content() == FileContent.EQUALITY_DELETES) {
-                // todo: filters.add(IcebergDeleteFileFilter.createEqualityDelete(delete.path().toString(),
-                throw new IllegalStateException("Don't support equality delete file");
+                filters.add(IcebergDeleteFileFilter.createEqualityDelete(
+                        delete.path().toString(), delete.equalityFieldIds()));
             } else {
                 throw new IllegalStateException("Unknown delete content: " + delete.content());
             }
@@ -420,7 +424,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
         // empty table
         if (snapshot == null) {
-            return -1;
+            return 0;
         }
 
         Map<String, String> summary = snapshot.summary();
@@ -437,10 +441,15 @@ public class IcebergScanNode extends FileQueryScanNode {
         super.toThrift(planNode);
         if (getPushDownAggNoGroupingOp().equals(TPushAggOp.COUNT)) {
             long countFromSnapshot = getCountFromSnapshot();
-            if (countFromSnapshot > 0) {
+            if (countFromSnapshot >= 0) {
                 planNode.setPushDownCount(countFromSnapshot);
             }
         }
+    }
+
+    @Override
+    public long getPushDownCount() {
+        return getCountFromSnapshot();
     }
 
     @Override
@@ -454,5 +463,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         return super.getNodeExplainString(prefix, detailLevel)
                 + String.format("%sicebergPredicatePushdown=\n%s\n", prefix, sb);
+    }
+
+    public void setTableSnapshot(TableSnapshot tableSnapshot) {
+        this.tableSnapshot = tableSnapshot;
     }
 }

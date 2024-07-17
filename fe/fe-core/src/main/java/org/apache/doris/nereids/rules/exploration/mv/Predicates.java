@@ -17,15 +17,8 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
-import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.EquivalenceClassSetMapping;
-import org.apache.doris.nereids.rules.exploration.mv.mapping.Mapping.MappedSlot;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
@@ -34,17 +27,13 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -52,7 +41,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * This record the predicates which can be pulled up or some other type predicates.
@@ -79,11 +67,6 @@ public class Predicates {
         Set<Expression> mergedPredicates = new HashSet<>(predicates);
         mergedPredicates.addAll(this.pulledUpPredicates);
         return new Predicates(mergedPredicates);
-    }
-
-    public Expression composedExpression() {
-        return ExpressionUtils.and(pulledUpPredicates.stream().map(Expression.class::cast)
-                .collect(Collectors.toList()));
     }
 
     /**
@@ -229,47 +212,6 @@ public class Predicates {
     @Override
     public String toString() {
         return Utils.toSqlString("Predicates", "pulledUpPredicates", pulledUpPredicates);
-    }
-
-    /** Construct filter by partition
-     * @param partitions this is the partition which filter should be constructed from
-     * @param queryToViewSlotMapping construct filter on slot, the slot belong the slotmapping
-     * */
-    public static Map<TableIf, Set<Expression>> constructFilterByPartitions(
-            Multimap<Pair<MTMVPartitionInfo, PartitionInfo>, Partition> partitions,
-            SlotMapping queryToViewSlotMapping) throws AnalysisException {
-        Map<TableIf, Set<Expression>> constructedFilterMap = new HashMap<>();
-        for (Map.Entry<Pair<MTMVPartitionInfo, PartitionInfo>, Collection<Partition>> entry :
-                partitions.asMap().entrySet()) {
-            // Get the base table partition column mv related
-            String relatedCol = entry.getKey().key().getRelatedCol();
-            TableIf relatedTableInfo = entry.getKey().key().getRelatedTable();
-            // Find the query slot which mv partition col mapped to
-            Optional<MappedSlot> partitionSlotQueryUsed = queryToViewSlotMapping.getRelationSlotMap()
-                    .keySet()
-                    .stream()
-                    .filter(mappedSlot -> mappedSlot.getSlot().isColumnFromTable()
-                            && mappedSlot.getSlot().getName().equals(relatedCol)
-                            && mappedSlot.getBelongedRelation() != null
-                            && mappedSlot.getBelongedRelation().getTable().getId() == relatedTableInfo.getId())
-                    .findFirst();
-            if (!partitionSlotQueryUsed.isPresent()) {
-                return ImmutableMap.of();
-            }
-            // Constructed filter which should add on the query base table,
-            // after supported data roll up this method should keep logic consistency to partition mapping
-            Set<Expression> partitionExpressions = UpdateMvByPartitionCommand.constructPredicates(
-                    // get mv partition items
-                    entry.getValue().stream()
-                            .map(partition -> entry.getKey().value().getItem(partition.getId()))
-                            .collect(Collectors.toSet()),
-                    partitionSlotQueryUsed.get().getSlot());
-            // Put partition expressions on query base table
-            constructedFilterMap.computeIfPresent(relatedTableInfo,
-                    (key, existExpressions) -> Sets.union(existExpressions, partitionExpressions));
-            constructedFilterMap.computeIfAbsent(relatedTableInfo, key -> partitionExpressions);
-        }
-        return constructedFilterMap;
     }
 
     /**

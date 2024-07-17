@@ -17,34 +17,24 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
-import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MutableState;
-import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -202,89 +192,16 @@ public class PhysicalHashJoin<
     }
 
     @Override
-    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-            AbstractPhysicalJoin<?, ?> builderNode, Expression srcExpr, Expression probeExpr,
-            TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
-        if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(getJoinType()) || isMarkJoin()) {
-            if (builderNode instanceof PhysicalHashJoin) {
-                PhysicalHashJoin<?, ?> builderJoin = (PhysicalHashJoin<?, ?>) builderNode;
-                if (builderJoin == this) {
-                    return false;
-                }
-                EqualPredicate equal = (EqualPredicate) builderNode.getHashJoinConjuncts().get(exprOrder);
-                if (equal instanceof NullSafeEqual) {
-                    if (this.joinType.isOuterJoin()) {
-                        return false;
-                    }
-                }
-            }
-        }
-        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-
-        // if rf built between plan nodes containing cte both, for example both src slot and target slot are from cte,
-        // or two sub-queries both containing cte, disable this rf since this kind of cross-cte rf will make one side
-        // of cte to wait for a long time until another side cte consumer finished, which will make the rf into
-        // not ready state.
-        AbstractPhysicalPlan builderLeftNode = (AbstractPhysicalPlan) builderNode.child(0);
-        AbstractPhysicalPlan builderRightNode = (AbstractPhysicalPlan) builderNode.child(1);
-        Preconditions.checkState(builderLeftNode != null && builderRightNode != null,
-                "builder join node child node is null");
-        // if (RuntimeFilterGenerator.hasCTEConsumerDescendant(builderLeftNode)
-        //         && RuntimeFilterGenerator.hasCTEConsumerDescendant(builderRightNode)) {
-        //     return false;
-        // }
-
-        boolean pushedDown = false;
-        AbstractPhysicalPlan leftNode = (AbstractPhysicalPlan) child(0);
-        AbstractPhysicalPlan rightNode = (AbstractPhysicalPlan) child(1);
-        Preconditions.checkState(leftNode != null && rightNode != null,
-                "join child node is null");
-
-        Set<Expression> probExprList = Sets.newLinkedHashSet();
-        probExprList.add(probeExpr);
-        Pair<PhysicalRelation, Slot> srcPair = ctx.getAliasTransferMap().get(srcExpr);
-        PhysicalRelation srcNode = (srcPair == null) ? null : srcPair.first;
-        Pair<PhysicalRelation, Slot> targetPair = ctx.getAliasTransferMap().get(probeExpr);
-        // when probeExpr is output slot of setOperator, targetPair is null
-        PhysicalRelation target1 = (targetPair == null) ? null : targetPair.first;
-        PhysicalRelation target2 = null;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
-            if (!this.equals(builderNode)
-                    && (this.getJoinType() == JoinType.INNER_JOIN || this.getJoinType().isSemiJoin())) {
-                for (Expression expr : this.getHashJoinConjuncts()) {
-                    EqualPredicate equalTo = (EqualPredicate) expr;
-                    if (probeExpr.equals(equalTo.left())) {
-                        probExprList.add(equalTo.right());
-                        targetPair = ctx.getAliasTransferMap().get(equalTo.right());
-                        target2 = (targetPair == null) ? null : targetPair.first;
-                    } else if (probeExpr.equals(equalTo.right())) {
-                        probExprList.add(equalTo.left());
-                        targetPair = ctx.getAliasTransferMap().get(equalTo.left());
-                        target2 = (targetPair == null) ? null : targetPair.first;
-                    }
-                    if (target2 != null) {
-                        ctx.getExpandedRF().add(
-                            new RuntimeFilterContext.ExpandRF(this, srcNode, target1, target2, equalTo));
-                    }
-                }
-                probExprList.remove(srcExpr);
-
-            }
-        }
-        for (Expression prob : probExprList) {
-            pushedDown |= leftNode.pushDownRuntimeFilter(context, generator, builderNode,
-                    srcExpr, prob, type, buildSideNdv, exprOrder);
-            pushedDown |= rightNode.pushDownRuntimeFilter(context, generator, builderNode,
-                    srcExpr, prob, type, buildSideNdv, exprOrder);
-        }
-
-        return pushedDown;
-    }
-
-    @Override
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder();
-        builder.append("hashJoin[").append(joinType).append("]");
+        boolean ignoreDistribute = ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes()
+                .contains(PhysicalDistribute.class.getSimpleName());
+        if (ignoreDistribute) {
+            builder.append("hashJoin[").append(joinType).append("]");
+        } else {
+            builder.append("hashJoin[").append(joinType).append(" ").append(shuffleType()).append("]");
+        }
         // print sorted hash conjuncts for plan check
         builder.append(hashJoinConjuncts.stream().map(conjunct -> conjunct.shapeInfo())
                 .sorted().collect(Collectors.joining(" and ", " hashCondition=(", ")")));

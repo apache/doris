@@ -24,6 +24,8 @@ suite("push_filter_inside_join") {
     sql "SET disable_join_reorder=true"
     sql 'set be_number_for_test=3'
     sql "set enable_fold_constant_by_be=false"//plan shape will be different
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     // Push down > condition to cross join
     qt_pushdown_cross_join"""

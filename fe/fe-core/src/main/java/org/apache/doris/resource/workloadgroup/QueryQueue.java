@@ -106,17 +106,16 @@ public class QueryQueue {
                 LOG.info(this.debugString());
             }
             if (currentRunningQueryNum < maxConcurrency) {
+                QueueToken retToken = new QueueToken(TokenState.READY_TO_RUN, queueTimeout, this);
+                retToken.complete();
                 currentRunningQueryNum++;
-                QueueToken retToken = new QueueToken(TokenState.READY_TO_RUN, queueTimeout, "offer success");
-                retToken.setQueueTimeWhenOfferSuccess();
                 return retToken;
             }
             if (priorityTokenQueue.size() >= maxQueueSize) {
                 throw new UserException("query waiting queue is full, queue length=" + maxQueueSize);
             }
             QueueToken newQueryToken = new QueueToken(TokenState.ENQUEUE_SUCCESS, queueTimeout,
-                    "query wait timeout " + queueTimeout + " ms");
-            newQueryToken.setQueueTimeWhenQueueSuccess();
+                    this);
             this.priorityTokenQueue.offer(newQueryToken);
             return newQueryToken;
         } finally {
@@ -127,35 +126,29 @@ public class QueryQueue {
         }
     }
 
-    // If the token is acquired and do work success, then call this method to release it.
-    public void returnToken(QueueToken token) {
+    public void releaseAndNotify(QueueToken releaseToken) {
         queueLock.lock();
         try {
-            // If current token is not in ready to run state, then it is still in the queue
-            // it is not running, just remove it.
-            if (!token.isReadyToRun()) {
-                this.priorityTokenQueue.remove(token);
-                return;
+            // NOTE:token's tokenState need to be locked by queueLock
+            if (releaseToken.isReadyToRun()) {
+                currentRunningQueryNum--;
+            } else {
+                priorityTokenQueue.remove(releaseToken);
             }
-            currentRunningQueryNum--;
             Preconditions.checkArgument(currentRunningQueryNum >= 0);
-            // If return token and find user changed concurrency num,  then maybe need signal
-            // more tokens.
             while (currentRunningQueryNum < maxConcurrency) {
-                QueueToken nextToken = this.priorityTokenQueue.poll();
-                if (nextToken != null) {
-                    if (nextToken.signal()) {
-                        ++currentRunningQueryNum;
-                    }
-                } else {
+                QueueToken queueToken = this.priorityTokenQueue.poll();
+                if (queueToken == null) {
                     break;
                 }
+                queueToken.complete();
+                currentRunningQueryNum++;
             }
         } finally {
+            queueLock.unlock();
             if (LOG.isDebugEnabled()) {
                 LOG.info(this.debugString());
             }
-            queueLock.unlock();
         }
     }
 

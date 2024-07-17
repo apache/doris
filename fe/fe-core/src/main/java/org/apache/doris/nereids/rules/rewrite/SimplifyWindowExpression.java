@@ -22,6 +22,7 @@ import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -81,7 +82,7 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             // after normalize window, partition key must be slot
             List<Slot> partitionSlots = (List<Slot>) (List) windowExpression.getPartitionKeys();
             Set<Slot> partitionSlotSet = new HashSet<>(partitionSlots);
-            if (!window.getLogicalProperties().getFunctionalDependencies().isUnique(partitionSlotSet)) {
+            if (!window.getLogicalProperties().getTrait().isUnique(partitionSlotSet)) {
                 remainWindowExpression.add(expr);
                 continue;
             }
@@ -91,7 +92,8 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
                 String name = ((BoundFunction) function).getName();
                 if ((name.equals(COUNT) && checkCount((Count) boundFunction))
                         || REWRRITE_TO_CONST_WINDOW_FUNCTIONS.contains(name)) {
-                    projectionsBuilder.add(new Alias(alias.getExprId(), new TinyIntLiteral((byte) 1), alias.getName()));
+                    projectionsBuilder.add(new Alias(alias.getExprId(),
+                            new Cast(new TinyIntLiteral((byte) 1), function.getDataType()), alias.getName()));
                 } else if (REWRRITE_TO_SLOT_WINDOW_FUNCTIONS.contains(name)) {
                     projectionsBuilder.add(new Alias(alias.getExprId(),
                             TypeCoercionUtils.castIfNotSameType(boundFunction.child(0), boundFunction.getDataType()),
@@ -120,7 +122,7 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             }
             List<NamedExpression> finalProjections = Lists.newArrayList(projections);
             finalProjections.addAll(windowOutputs);
-            return new LogicalProject(finalProjections, window.withExpression(remainWindows,
+            return new LogicalProject(finalProjections, window.withExpressionsAndChild(remainWindows,
                     window.child(0)));
         }
     }

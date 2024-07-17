@@ -18,6 +18,8 @@
 suite("test_cast") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     def tbl = "test_cast"
 
@@ -109,11 +111,6 @@ suite("test_cast") {
         )
         DISTRIBUTED BY HASH(`k0`) BUCKETS 5 properties("replication_num" = "1");
         """
-    explain {
-        sql """select k0 from table_decimal38_4 union all select k0 from table_decimal27_9;"""
-        contains """AS DECIMALV3(38, 4)"""
-    }
-    sql """set enable_nereids_planner=false;"""
     explain {
         sql """select k0 from table_decimal38_4 union all select k0 from table_decimal27_9;"""
         contains """AS DECIMALV3(38, 4)"""

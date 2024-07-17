@@ -17,8 +17,8 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.proto.Types;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -36,10 +36,9 @@ public class QueryCancelWorker extends MasterDaemon {
         List<Backend> allBackends = systemInfoService.getAllBackends();
 
         for (Coordinator co : QeProcessorImpl.INSTANCE.getAllCoordinators()) {
-            if (co.shouldCancel(allBackends)) {
-                // TODO(zhiqiang): We need more clear cancel message, so that user can figure out what happened
-                //  by searching log.
-                co.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+            Status status = co.shouldCancel(allBackends);
+            if (!status.ok()) {
+                co.cancel(status);
             }
         }
     }

@@ -16,9 +16,7 @@
 // under the License.
 
 suite("test_array_functions_array_with_const", "p0") {
-
     sql "set enable_nereids_planner=false;"
-
     //array_with_constant
     qt_old_sql "SELECT 'array_with_constant';"
     order_qt_old_sql "SELECT array_with_constant(3, number) FROM numbers limit 10;"
@@ -34,7 +32,16 @@ suite("test_array_functions_array_with_const", "p0") {
                 SELECT array_with_constant(-231.37104, -138); 
                 """
     } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("Array size can not be negative in function:array_with_constant"))
+        assertTrue(ex.getMessage().contains("Array size should in range(0, 1000000) in function"))
+    }
+
+    // -- {server for large array}
+    try {
+        sql """
+                SELECT array_with_constant(1000001, 1);
+                """
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Array size should in range(0, 1000000) in function"))
     }
 
 
@@ -56,7 +63,15 @@ suite("test_array_functions_array_with_const", "p0") {
                 SELECT array_with_constant(-231.37104, -138); 
                 """
     } catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("Array size can not be negative in function:array_with_constant"))
+        assertTrue(ex.getMessage().contains("Array size should in range(0, 1000000) in function"))
     }
 
+    // -- {server for large array}
+    try {
+        sql """
+                SELECT array_with_constant(1000001, 1);
+                """
+    } catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Array size should in range(0, 1000000) in function"))
+    }
 }

@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
+----------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[orders]
 ------------------PhysicalProject
@@ -17,6 +17,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(orders lineitem )
-UnUsed:
+UnUsed: 
 SyntaxError:
 

@@ -19,6 +19,7 @@ package org.apache.doris.common.security.authentication;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,7 +43,8 @@ public class HadoopUGI {
         if (config instanceof KerberosAuthenticationConfig) {
             KerberosAuthenticationConfig krbConfig = (KerberosAuthenticationConfig) config;
             Configuration hadoopConf = krbConfig.getConf();
-            hadoopConf.set(AuthenticationConfig.HADOOP_KERBEROS_AUTHORIZATION, "true");
+            hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHORIZATION, "true");
+            hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_KERBEROS_KEYTAB_LOGIN_AUTORENEWAL_ENABLED, "true");
             UserGroupInformation.setConfiguration(hadoopConf);
             String principal = krbConfig.getKerberosPrincipal();
             try {
@@ -71,8 +73,19 @@ public class HadoopUGI {
             String hadoopUserName = ((SimpleAuthenticationConfig) config).getUsername();
             if (hadoopUserName == null) {
                 hadoopUserName = "hadoop";
+                ((SimpleAuthenticationConfig) config).setUsername(hadoopUserName);
                 LOG.debug(AuthenticationConfig.HADOOP_USER_NAME + " is unset, use default user: hadoop");
             }
+
+            try {
+                ugi = UserGroupInformation.getLoginUser();
+                if (ugi.getUserName().equals(hadoopUserName)) {
+                    return ugi;
+                }
+            } catch (IOException e) {
+                LOG.warn("A SecurityException occurs with simple, do login immediately.", e);
+            }
+
             ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
             UserGroupInformation.setLoginUser(ugi);
             LOG.debug("Login by proxy user, hadoop.username: {}", hadoopUserName);
@@ -88,6 +101,10 @@ public class HadoopUGI {
         if (config instanceof KerberosAuthenticationConfig) {
             KerberosAuthenticationConfig krbConfig = (KerberosAuthenticationConfig) config;
             try {
+                Configuration hadoopConf = krbConfig.getConf();
+                hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHORIZATION, "true");
+                hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_KERBEROS_KEYTAB_LOGIN_AUTORENEWAL_ENABLED, "true");
+                UserGroupInformation.setConfiguration(hadoopConf);
                 /**
                  * Because metastore client is created by using
                  * {@link org.apache.hadoop.hive.metastore.RetryingMetaStoreClient#getProxy}
@@ -105,7 +122,9 @@ public class HadoopUGI {
         UserGroupInformation ugi = HadoopUGI.loginWithUGI(authConf);
         try {
             if (ugi != null) {
-                ugi.checkTGTAndReloginFromKeytab();
+                if (authConf instanceof KerberosAuthenticationConfig) {
+                    ugi.checkTGTAndReloginFromKeytab();
+                }
                 return ugi.doAs(action);
             } else {
                 return action.run();

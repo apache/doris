@@ -802,4 +802,27 @@ public class TypeCoercionUtilsTest {
         datetimeDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(datetimeDowngrade);
         Assertions.assertEquals(DateTimeType.INSTANCE, datetimeDowngrade.left().getDataType());
     }
+
+    @Test
+    public void testProcessInStringCoercion() {
+        // BigInt slot vs String literal
+        InPredicate bigintString = new InPredicate(
+                new SlotReference("c1", BigIntType.INSTANCE),
+                ImmutableList.of(
+                        new VarcharLiteral("200"),
+                        new VarcharLiteral("922337203685477001")));
+        bigintString = (InPredicate) TypeCoercionUtils.processInPredicate(bigintString);
+        Assertions.assertEquals(BigIntType.INSTANCE, bigintString.getCompareExpr().getDataType());
+        Assertions.assertEquals(BigIntType.INSTANCE, bigintString.getOptions().get(0).getDataType());
+
+        // SmallInt slot vs String literal
+        InPredicate smallIntString = new InPredicate(
+                new SlotReference("c1", SmallIntType.INSTANCE),
+                ImmutableList.of(
+                        new DecimalLiteral(new BigDecimal("987654.321")),
+                        new VarcharLiteral("922337203685477001")));
+        smallIntString = (InPredicate) TypeCoercionUtils.processInPredicate(smallIntString);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(23, 3), smallIntString.getCompareExpr().getDataType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(23, 3), smallIntString.getOptions().get(0).getDataType());
+    }
 }

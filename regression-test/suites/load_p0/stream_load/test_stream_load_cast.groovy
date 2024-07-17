@@ -301,6 +301,10 @@ suite("test_stream_load_cast", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
+            if (json.ErrorURL && !json.ErrorURL.isEmpty()) {
+                def (code, out, err) = curl("GET", json.ErrorURL)
+                log.info("error url: " + out)
+            }
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)

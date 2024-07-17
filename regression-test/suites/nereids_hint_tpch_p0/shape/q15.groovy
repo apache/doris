@@ -22,6 +22,7 @@ suite("q15") {
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql 'set runtime_filter_mode=OFF'
 
     sql 'set exec_mem_limit=21G'
@@ -37,7 +38,7 @@ suite("q15") {
     qt_select """
     explain shape plan
     select 
-    /*+ leading(revenue0 supplier) */
+    /*+ leading(supplier revenue0) */
         s_suppkey,
         s_name,
         s_address,

@@ -60,7 +60,7 @@ enum LRUCacheType {
 };
 
 static constexpr LRUCacheType DEFAULT_LRU_CACHE_TYPE = LRUCacheType::SIZE;
-static constexpr uint32_t DEFAULT_LRU_CACHE_NUM_SHARDS = 16;
+static constexpr uint32_t DEFAULT_LRU_CACHE_NUM_SHARDS = 32;
 static constexpr size_t DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY = 0;
 
 class CacheKey {
@@ -349,6 +349,7 @@ public:
     uint64_t get_hit_count() const { return _hit_count; }
     size_t get_usage() const { return _usage; }
     size_t get_capacity() const { return _capacity; }
+    size_t get_element_count() const { return _table.element_count(); }
 
 private:
     void _lru_remove(LRUHandle* e);
@@ -433,6 +434,7 @@ private:
     std::shared_ptr<MetricEntity> _entity;
     IntGauge* cache_capacity = nullptr;
     IntGauge* cache_usage = nullptr;
+    IntGauge* cache_element_count = nullptr;
     DoubleGauge* cache_usage_ratio = nullptr;
     IntAtomicCounter* cache_lookup_count = nullptr;
     IntAtomicCounter* cache_hit_count = nullptr;

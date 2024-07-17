@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <vector>
 
 #include "common/status.h"
@@ -41,6 +42,9 @@ public:
     PageBuilder() {}
 
     virtual ~PageBuilder() {}
+
+    // Init the internal state of the page builder.
+    virtual Status init() = 0;
 
     // Used by column writer to determine whether the current page is full.
     // Column writer depends on the result to decide whether to flush current page.
@@ -69,7 +73,7 @@ public:
     // Reset the internal state of the page builder.
     //
     // Any data previously returned by finish may be invalidated by this call.
-    virtual void reset() = 0;
+    virtual Status reset() = 0;
 
     // Return the number of entries that have been added to the page.
     virtual size_t count() const = 0;
@@ -89,6 +93,18 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(PageBuilder);
+};
+
+template <typename Derived>
+class PageBuilderHelper : public PageBuilder {
+public:
+    template <typename... Args>
+    static Status create(PageBuilder** builder, Args&&... args) {
+        std::unique_ptr<PageBuilder> builder_uniq_ptr(new Derived(std::forward<Args>(args)...));
+        RETURN_IF_ERROR(builder_uniq_ptr->init());
+        *builder = builder_uniq_ptr.release();
+        return Status::OK();
+    }
 };
 
 } // namespace segment_v2

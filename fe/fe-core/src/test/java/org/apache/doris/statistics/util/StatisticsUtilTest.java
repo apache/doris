@@ -17,10 +17,21 @@
 
 package org.apache.doris.statistics.util;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.collect.Lists;
 import mockit.Mock;
@@ -33,6 +44,7 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 
 class StatisticsUtilTest {
     @Test
@@ -149,5 +161,142 @@ class StatisticsUtilTest {
         String origin = "\\'\"";
         // \\''""
         Assertions.assertEquals("\\\\''\"", StatisticsUtil.escapeSQL(origin));
+    }
+
+    @Test
+    void testNeedAnalyzeColumn() {
+        Column column = new Column("testColumn", PrimitiveType.INT);
+        List<Column> schema = new ArrayList<>();
+        schema.add(column);
+        OlapTable table = new OlapTable(200, "testTable", schema, null, null, null);
+        // Test table stats meta is null.
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return null;
+            }
+        };
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+
+        // Test user injected flag is set.
+        TableStatsMeta tableMeta = new TableStatsMeta();
+        tableMeta.userInjected = true;
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return tableMeta;
+            }
+        };
+        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+
+        // Test column meta is null.
+        tableMeta.userInjected = false;
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(0, null, null, null, 0, 0, 0, null);
+            }
+        };
+
+        // Test not supported external table type.
+        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbcdb", null);
+        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(externalTable, Pair.of("index", column.getName())));
+
+        // Test hms external table not hive type.
+        new MockUp<HMSExternalTable>() {
+            @Mock
+            public DLAType getDlaType() {
+                return DLAType.ICEBERG;
+            }
+        };
+        ExternalTable hmsExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", null);
+        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(hmsExternalTable, Pair.of("index", column.getName())));
+
+        // Test partition first load.
+        new MockUp<OlapTable>() {
+            @Mock
+            public boolean isPartitionColumn(String columnName) {
+                return true;
+            }
+        };
+        tableMeta.partitionChanged.set(true);
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+
+        // Test empty table to non-empty table.
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 100;
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+
+        // Test non-empty table to empty table.
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 0;
+            }
+        };
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(0, null, null, null, 0, 100, 0, null);
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+
+        // Test table still empty.
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(0, null, null, null, 0, 0, 0, null);
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+
+        // Test row count changed more than threshold.
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 1000;
+            }
+        };
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(0, null, null, null, 0, 500, 0, null);
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+
+        // Test update rows changed more than threshold.
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 120;
+            }
+        };
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(0, null, null, null, 0, 100, 80, null);
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        tableMeta.updatedRows.set(200);
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+
+        // Test update rows changed less than threshold
+        tableMeta.partitionChanged.set(false);
+        tableMeta.updatedRows.set(100);
+        Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+
     }
 }

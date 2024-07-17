@@ -57,14 +57,6 @@ suite("test_having_between", "query,p0") {
     sql "INSERT INTO ${tableName} VALUES(now(), 'bb', 'b', 'c', 11, 22);"
     sql "INSERT INTO ${tableName} VALUES(now(), 'bbb', 'b', 'c', 11, 22);"
 
-    sql """set enable_nereids_planner=true;"""
-    sql "set enable_fallback_to_original_planner=false;"
-
-    // with nereids planner
-    test_query()
-    sql """set enable_nereids_planner=false;"""
-
-    // with legacy planner
     test_query()
 
     sql "DROP TABLE ${tableName};"

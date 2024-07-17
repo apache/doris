@@ -18,11 +18,6 @@ import org.apache.commons.lang3.StringUtils
 // under the License.
 
 suite("one_level_nestedtypes_with_s3data") {
-    sql """set enable_nereids_planner=false"""
-    sql """ set enable_fallback_to_original_planner=true;"""
-    // this test case aim to test one-level nested type with s3 data
-
-
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
@@ -95,6 +90,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "s3.access_key"= "${ak}",
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
+                    "provider" = "${getS3Provider()}",
                     "column_separator"="|",
                     "read_json_by_line"="true") order by c1 limit 10; """
 
@@ -105,6 +101,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
                     "column_separator"="|",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true"); """
         } else {
             order_qt_sql_s3 """select * from s3(
@@ -112,6 +109,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "s3.access_key"= "${ak}",
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true") order by k1 limit 10; """
 
             sql """
@@ -120,6 +118,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "s3.access_key"= "${ak}",
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true"); """
         }
         // where to filter different format data

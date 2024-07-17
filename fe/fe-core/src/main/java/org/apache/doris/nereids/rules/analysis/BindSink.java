@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.GeneratedColumnInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -29,8 +30,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
+import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -39,25 +44,27 @@ import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -66,6 +73,7 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -83,15 +91,24 @@ public class BindSink implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 RuleType.BINDING_INSERT_TARGET_TABLE.build(unboundTableSink().thenApply(this::bindOlapTableSink)),
-                RuleType.BINDING_INSERT_FILE.build(
-                        logicalFileSink().when(s -> s.getOutputExprs().isEmpty())
-                                .then(fileSink -> fileSink.withOutputExprs(
-                                        fileSink.child().getOutput().stream()
-                                                .map(NamedExpression.class::cast)
-                                                .collect(ImmutableList.toImmutableList())))
+                RuleType.BINDING_INSERT_FILE.build(logicalFileSink().when(s -> s.getOutputExprs().isEmpty())
+                        .then(fileSink -> {
+                            ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder =
+                                    ImmutableListMultimap.builder();
+                            List<Slot> childOutput = fileSink.child().getOutput();
+                            for (int index = 0; index < childOutput.size(); index++) {
+                                exprIdToIndexMapBuilder.put(childOutput.get(index).getExprId(), index);
+                            }
+                            InferPlanOutputAlias aliasInfer = new InferPlanOutputAlias(childOutput);
+                            List<NamedExpression> output = aliasInfer.infer(fileSink.child(),
+                                    exprIdToIndexMapBuilder.build());
+                            return fileSink.withOutputExprs(output);
+                        })
                 ),
                 // TODO: bind hive taget table
-                RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink))
+                RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
+                RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
+                    unboundIcebergTableSink().thenApply(this::bindIcebergTableSink))
         );
     }
 
@@ -186,8 +203,8 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
 
-        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, isPartialUpdate,
-                boundSink, child);
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(
+                ctx, table, isPartialUpdate, boundSink, child);
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
@@ -259,28 +276,18 @@ public class BindSink implements AnalysisRuleFactory {
         Map<String, NamedExpression> columnToOutput = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         NereidsParser expressionParser = new NereidsParser();
 
+        List<Column> generatedColumns = Lists.newArrayList();
+        List<Column> materializedViewColumn = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
         for (Column column : boundSink.getTargetTable().getFullSchema()) {
-            if (column.isMaterializedViewColumn()) {
-                List<SlotRef> refs = column.getRefColumns();
-                // now we have to replace the column to slots.
-                Preconditions.checkArgument(refs != null,
-                        "mv column %s 's ref column cannot be null", column);
-                Expression parsedExpression = expressionParser.parseExpression(
-                        column.getDefineExpr().toSqlWithoutTbl());
-                Expression boundSlotExpression = SlotReplacer.INSTANCE
-                        .replace(parsedExpression, columnToOutput);
-                // the boundSlotExpression is an expression whose slots are bound but function
-                // may not be bound, we have to bind it again.
-                // for example: to_bitmap.
-                Expression boundExpression = FunctionBinder.INSTANCE.rewrite(
-                        boundSlotExpression, new ExpressionRewriteContext(ctx.cascadesContext));
-                if (boundExpression instanceof Alias) {
-                    boundExpression = ((Alias) boundExpression).child();
-                }
-                NamedExpression slot = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
-                columnToOutput.put(column.getName(), slot);
-            } else if (columnToChildOutput.containsKey(column)
+            if (column.getGeneratedColumnInfo() != null) {
+                generatedColumns.add(column);
+                continue;
+            } else if (column.isMaterializedViewColumn()) {
+                materializedViewColumn.add(column);
+                continue;
+            }
+            if (columnToChildOutput.containsKey(column)
                     // do not process explicitly use DEFAULT value here:
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
@@ -315,12 +322,15 @@ public class BindSink implements AnalysisRuleFactory {
                     // update the value of the column to the current timestamp whenever there
                     // is an update on the row
                     if (column.hasOnUpdateDefaultValue()) {
-                        Expression defualtValueExpression = FunctionBinder.INSTANCE.rewrite(
-                                new NereidsParser().parseExpression(
-                                        column.getOnUpdateDefaultValueExpr().toSqlWithoutTbl()),
-                                new ExpressionRewriteContext(ctx.cascadesContext));
+                        Expression unboundFunctionDefaultValue = new NereidsParser().parseExpression(
+                                column.getOnUpdateDefaultValueExpr().toSqlWithoutTbl()
+                        );
+                        Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
+                                boundSink, ctx.cascadesContext, unboundFunctionDefaultValue
+                        );
                         columnToOutput.put(column.getName(),
-                                new Alias(defualtValueExpression, column.getName()));
+                                new Alias(defualtValueExpression, column.getName())
+                        );
                     } else {
                         continue;
                     }
@@ -348,10 +358,10 @@ public class BindSink implements AnalysisRuleFactory {
                                             .checkedCastTo(DataType.fromCatalogType(column.getType())),
                                             column.getName()));
                         } else {
-                            Expression defualtValueExpression = FunctionBinder.INSTANCE.rewrite(
-                                    new NereidsParser().parseExpression(
-                                            column.getDefaultValueExpr().toSqlWithoutTbl()),
-                                    new ExpressionRewriteContext(ctx.cascadesContext));
+                            Expression unboundDefaultValue = new NereidsParser().parseExpression(
+                                    column.getDefaultValueExpr().toSqlWithoutTbl());
+                            Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
+                                    boundSink, ctx.cascadesContext, unboundDefaultValue);
                             if (defualtValueExpression instanceof Alias) {
                                 defualtValueExpression = ((Alias) defualtValueExpression).child();
                             }
@@ -364,6 +374,40 @@ public class BindSink implements AnalysisRuleFactory {
                 }
             }
         }
+        // the generated columns can use all ordinary columns,
+        // if processed in upper for loop, will lead to not found slot error
+        // It's the same reason for moving the processing of materialized columns down.
+        for (Column column : generatedColumns) {
+            GeneratedColumnInfo info = column.getGeneratedColumnInfo();
+            Expression parsedExpression = new NereidsParser().parseExpression(info.getExpr().toSqlWithoutTbl());
+            Expression boundExpression = new CustomExpressionAnalyzer(boundSink, ctx.cascadesContext, columnToOutput)
+                    .analyze(parsedExpression);
+            if (boundExpression instanceof Alias) {
+                boundExpression = ((Alias) boundExpression).child();
+            }
+            NamedExpression slot = new Alias(boundExpression, info.getExprSql());
+            columnToOutput.put(column.getName(), slot);
+        }
+        for (Column column : materializedViewColumn) {
+            if (column.isMaterializedViewColumn()) {
+                List<SlotRef> refs = column.getRefColumns();
+                // now we have to replace the column to slots.
+                Preconditions.checkArgument(refs != null,
+                        "mv column %s 's ref column cannot be null", column);
+                Expression parsedExpression = expressionParser.parseExpression(
+                        column.getDefineExpr().toSqlWithoutTbl());
+                // the boundSlotExpression is an expression whose slots are bound but function
+                // may not be bound, we have to bind it again.
+                // for example: to_bitmap.
+                Expression boundExpression = new CustomExpressionAnalyzer(
+                        boundSink, ctx.cascadesContext, columnToOutput).analyze(parsedExpression);
+                if (boundExpression instanceof Alias) {
+                    boundExpression = ((Alias) boundExpression).child();
+                }
+                NamedExpression slot = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
+                columnToOutput.put(column.getName(), slot);
+            }
+        }
         return columnToOutput;
     }
 
@@ -373,6 +417,10 @@ public class BindSink implements AnalysisRuleFactory {
         HMSExternalDatabase database = pair.first;
         HMSExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
+
+        if (!sink.getPartitions().isEmpty()) {
+            throw new AnalysisException("Not support insert with partition spec in hive catalog.");
+        }
 
         List<Column> bindColumns;
         if (sink.getColNames().isEmpty()) {
@@ -388,6 +436,47 @@ public class BindSink implements AnalysisRuleFactory {
             }).collect(ImmutableList.toImmutableList());
         }
         LogicalHiveTableSink<?> boundSink = new LogicalHiveTableSink<>(
+                database,
+                table,
+                bindColumns,
+                child.getOutput().stream()
+                    .map(NamedExpression.class::cast)
+                    .collect(ImmutableList.toImmutableList()),
+                sink.getDMLCommandType(),
+                Optional.empty(),
+                Optional.empty(),
+                child);
+        // we need to insert all the columns of the target table
+        if (boundSink.getCols().size() != child.getOutput().size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
+                boundSink, child);
+        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+        return boundSink.withChildAndUpdateOutput(fullOutputProject);
+    }
+
+    private Plan bindIcebergTableSink(MatchingContext<UnboundIcebergTableSink<Plan>> ctx) {
+        UnboundIcebergTableSink<?> sink = ctx.root;
+        Pair<IcebergExternalDatabase, IcebergExternalTable> pair = bind(ctx.cascadesContext, sink);
+        IcebergExternalDatabase database = pair.first;
+        IcebergExternalTable table = pair.second;
+        LogicalPlan child = ((LogicalPlan) sink.child());
+
+        List<Column> bindColumns;
+        if (sink.getColNames().isEmpty()) {
+            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
+        } else {
+            bindColumns = sink.getColNames().stream().map(cn -> {
+                Column column = table.getColumn(cn);
+                if (column == null) {
+                    throw new AnalysisException(String.format("column %s is not found in table %s",
+                            cn, table.getName()));
+                }
+                return column;
+            }).collect(ImmutableList.toImmutableList());
+        }
+        LogicalIcebergTableSink<?> boundSink = new LogicalIcebergTableSink<>(
                 database,
                 table,
                 bindColumns,
@@ -431,9 +520,24 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv());
         if (pair.second instanceof HMSExternalTable) {
-            return Pair.of(((HMSExternalDatabase) pair.first), (HMSExternalTable) pair.second);
+            HMSExternalTable table = (HMSExternalTable) pair.second;
+            if (table.getDlaType() == HMSExternalTable.DLAType.HIVE) {
+                return Pair.of(((HMSExternalDatabase) pair.first), table);
+            }
         }
         throw new AnalysisException("the target table of insert into is not a Hive table");
+    }
+
+    private Pair<IcebergExternalDatabase, IcebergExternalTable> bind(CascadesContext cascadesContext,
+                                                                     UnboundIcebergTableSink<? extends Plan> sink) {
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                sink.getNameParts());
+        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
+                cascadesContext.getConnectContext().getEnv());
+        if (pair.second instanceof IcebergExternalTable) {
+            return Pair.of(((IcebergExternalDatabase) pair.first), (IcebergExternalTable) pair.second);
+        }
+        throw new AnalysisException("the target table of insert into is not an iceberg table");
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {
@@ -466,6 +570,9 @@ public class BindSink implements AnalysisRuleFactory {
                         ++extraColumnsNum;
                         processedColsName.add(col.getName());
                     }
+                } else if (col.getGeneratedColumnInfo() != null) {
+                    ++extraColumnsNum;
+                    processedColsName.add(col.getName());
                 }
             }
             if (!processedColsName.contains(Column.SEQUENCE_COL) && (childHasSeqCol || needExtraSeqCol)) {
@@ -491,19 +598,21 @@ public class BindSink implements AnalysisRuleFactory {
                 && !column.isMaterializedViewColumn();
     }
 
-    private static class SlotReplacer extends DefaultExpressionRewriter<Map<String, NamedExpression>> {
-        public static final SlotReplacer INSTANCE = new SlotReplacer();
+    private static class CustomExpressionAnalyzer extends ExpressionAnalyzer {
+        private Map<String, NamedExpression> slotBinder;
 
-        public Expression replace(Expression e, Map<String, NamedExpression> replaceMap) {
-            return e.accept(this, replaceMap);
+        public CustomExpressionAnalyzer(
+                Plan currentPlan, CascadesContext cascadesContext, Map<String, NamedExpression> slotBinder) {
+            super(currentPlan, new Scope(ImmutableList.of()), cascadesContext, false, false);
+            this.slotBinder = slotBinder;
         }
 
         @Override
-        public Expression visitUnboundSlot(UnboundSlot unboundSlot, Map<String, NamedExpression> replaceMap) {
-            if (!replaceMap.containsKey(unboundSlot.getName())) {
+        public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
+            if (!slotBinder.containsKey(unboundSlot.getName())) {
                 throw new AnalysisException("cannot find column from target table " + unboundSlot.getNameParts());
             }
-            return replaceMap.get(unboundSlot.getName());
+            return slotBinder.get(unboundSlot.getName());
         }
     }
 }

@@ -40,4 +40,9 @@ suite("fold_constant_by_be") {
     sql """ INSERT INTO str_tb VALUES (2, repeat("test1111", 10000)); """
 
     qt_sql_1 """ select length(v1) from str_tb; """
+
+    def res1 = sql " select /*+SET_VAR(enable_fold_constant_by_be=true)*/ ST_CIRCLE(121.510651, 31.234391, 1918.0); "
+    def res2 = sql " select /*+SET_VAR(enable_fold_constant_by_be=false)*/ ST_CIRCLE(121.510651, 31.234391, 1918.0); "
+    log.info("result: {}, {}", res1, res2)
+    assertEquals(res1[0][0], res2[0][0])
 }

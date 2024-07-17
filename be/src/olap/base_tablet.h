@@ -22,6 +22,8 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/iterators.h"
+#include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
@@ -42,6 +44,8 @@ struct TabletWithVersion {
     int64_t version;
 };
 
+enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
+
 // Base class for all tablet classes
 class BaseTablet {
 public:
@@ -50,7 +54,6 @@ public:
     BaseTablet(const BaseTablet&) = delete;
     BaseTablet& operator=(const BaseTablet&) = delete;
 
-    const std::string& tablet_path() const { return _tablet_path; }
     TabletState tablet_state() const { return _tablet_meta->tablet_state(); }
     Status set_tablet_state(TabletState state);
     int64_t table_id() const { return _tablet_meta->table_id(); }
@@ -128,8 +131,8 @@ public:
     ////////////////////////////////////////////////////////////////////////////
     // begin MoW functions
     ////////////////////////////////////////////////////////////////////////////
-    std::vector<RowsetSharedPtr> get_rowset_by_ids(const RowsetIdUnorderedSet* specified_rowset_ids,
-                                                   bool include_stale = false);
+    std::vector<RowsetSharedPtr> get_rowset_by_ids(
+            const RowsetIdUnorderedSet* specified_rowset_ids);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
@@ -186,8 +189,8 @@ public:
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
 
     static Status generate_new_block_for_partial_update(
-            TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
-            const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
+            TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
+            const PartialUpdateReadPlan& read_plan_ori,
             const PartialUpdateReadPlan& read_plan_update,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             vectorized::Block* output_block);
@@ -210,7 +213,7 @@ public:
             const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
             int64_t txn_expiration = 0) = 0;
 
-    static Status update_delete_bitmap(const BaseTabletSPtr& self, const TabletTxnInfo* txn_info,
+    static Status update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                        int64_t txn_id, int64_t txn_expiration = 0);
 
     virtual Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
@@ -230,8 +233,9 @@ public:
             const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
                     location_map);
 
-    static Status update_delete_bitmap_without_lock(const BaseTabletSPtr& self,
-                                                    const RowsetSharedPtr& rowset);
+    static Status update_delete_bitmap_without_lock(
+            const BaseTabletSPtr& self, const RowsetSharedPtr& rowset,
+            const std::vector<RowsetSharedPtr>* specified_base_rowsets = nullptr);
 
     ////////////////////////////////////////////////////////////////////////////
     // end MoW functions
@@ -243,13 +247,20 @@ public:
 
     virtual void clear_cache() = 0;
 
+    // Find the first consecutive empty rowsets. output->size() >= limit
+    void calc_consecutive_empty_rowsets(std::vector<RowsetSharedPtr>* empty_rowsets,
+                                        const std::vector<RowsetSharedPtr>& candidate_rowsets,
+                                        int limit);
+
 protected:
     // Find the missed versions until the spec_version.
     //
     // for example:
     //     [0-4][5-5][8-8][9-9][14-14]
-    // if spec_version = 12, it will return [6-7],[10-12]
-    static Versions calc_missed_versions(int64_t spec_version, Versions existing_versions);
+    // for cloud, if spec_version = 12, it will return [6-7],[10-12]
+    // for local, if spec_version = 12, it will return [6, 6], [7, 7], [10, 10], [11, 11], [12, 12]
+    virtual Versions calc_missed_versions(int64_t spec_version,
+                                          Versions existing_versions) const = 0;
 
     void _print_missed_versions(const Versions& missed_versions) const;
     bool _reconstruct_version_tracker_if_necessary();
@@ -262,7 +273,7 @@ protected:
     Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
                                                 std::vector<RowsetSharedPtr>* rowsets) const;
 
-    void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
+    Status sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 
     mutable std::shared_mutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;
@@ -275,8 +286,6 @@ protected:
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
     const TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _max_version_schema;
-
-    std::string _tablet_path;
 
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity;
@@ -291,6 +300,14 @@ public:
     IntCounter* flush_bytes = nullptr;
     IntCounter* flush_finish_count = nullptr;
     std::atomic<int64_t> published_count = 0;
+    std::atomic<int64_t> read_block_count = 0;
+    std::atomic<int64_t> write_count = 0;
+    std::atomic<int64_t> compaction_count = 0;
+
+    CompactionStage compaction_stage = CompactionStage::NOT_SCHEDULED;
+    std::mutex sample_info_lock;
+    std::vector<CompactionSampleInfo> sample_infos;
+    Status last_compaction_status = Status::OK();
 };
 
 } /* namespace doris */

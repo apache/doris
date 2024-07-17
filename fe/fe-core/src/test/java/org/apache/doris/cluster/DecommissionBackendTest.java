@@ -49,7 +49,6 @@ public class DecommissionBackendTest extends TestWithFeService {
     @Override
     protected void beforeCluster() {
         FeConstants.runningUnitTest = true;
-        needCleanDir = false;
     }
 
     @BeforeAll
@@ -263,8 +262,8 @@ public class DecommissionBackendTest extends TestWithFeService {
                 + " `c1` varchar(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` int(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `k4` bitmap BITMAP_UNION,\n"
+                + " `k5` bitmap BITMAP_UNION\n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
                 + "COMMENT 'OLAP'\n"
@@ -275,22 +274,22 @@ public class DecommissionBackendTest extends TestWithFeService {
                 + " `c1` bigint(20) NULL,\n"
                 + " `c2` bigint(20) NULL,\n"
                 + " `c3` bigint(20) not NULL,\n"
-                + " `k4` bitmap BITMAP_UNION NULL,\n"
-                + " `k5` bitmap BITMAP_UNION NULL\n"
+                + " `k4` bitmap BITMAP_UNION,\n"
+                + " `k5` bitmap BITMAP_UNION\n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`c1`, `c2`, `c3`)\n"
                 + "COMMENT 'OLAP'\n"
                 + "DISTRIBUTED BY HASH(`c2`) BUCKETS 1\n"
                 + ";");
 
-        createMvByNereids("create materialized view db4.mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+        createMvByNereids("create materialized view db4.mv1 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "as "
                 + "select t1.c1, t2.c2, t2.k4 "
                 + "from db4.table1 t1 "
                 + "inner join db4.table2 t2 on t1.c1= t2.c2;");
 
-        createMvByNereids("create materialized view db4.mv2 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+        createMvByNereids("create materialized view db4.mv2 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "DISTRIBUTED BY HASH(c1) BUCKETS 20 \n"
                 + "PROPERTIES ( 'colocate_with' = 'foo', 'replication_num' = '3' ) "
                 + "as "

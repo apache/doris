@@ -21,14 +21,18 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 public class MiniLoadTxnCommitAttachment extends TxnCommitAttachment {
+    @SerializedName(value = "lr")
     private long loadedRows;
+    @SerializedName(value = "fr")
     private long filteredRows;
     // optional
+    @SerializedName(value = "elr")
     private String errorLogUrl;
 
     public MiniLoadTxnCommitAttachment() {
@@ -47,20 +51,7 @@ public class MiniLoadTxnCommitAttachment extends TxnCommitAttachment {
         return errorLogUrl;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(filteredRows);
-        out.writeLong(loadedRows);
-        if (errorLogUrl == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, errorLogUrl);
-        }
-
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         filteredRows = in.readLong();

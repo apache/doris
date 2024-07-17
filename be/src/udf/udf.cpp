@@ -84,7 +84,7 @@ void FunctionContext::set_error(const char* error_msg) {
         ss << "UDF ERROR: " << error_msg;
 
         if (_state != nullptr) {
-            _state->set_process_status(ss.str());
+            _state->cancel(Status::InternalError(ss.str()));
         }
     }
 }

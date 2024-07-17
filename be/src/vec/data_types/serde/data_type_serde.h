@@ -97,6 +97,7 @@ namespace vectorized {
 class IColumn;
 class Arena;
 class IDataType;
+
 // Deserialize means read from different file format or memory format,
 // for example read from arrow, read from parquet.
 // Serialize means write the column cell or the total column into another
@@ -106,7 +107,6 @@ class IDataType;
 // how many cases or files we has to modify when we add a new type. And also
 // it is very difficult to add a new read file format or write file format because
 // the developer does not know how many datatypes has to deal.
-
 class DataTypeSerDe {
 public:
     // Text serialization/deserialization of data types depend on some settings witch we define
@@ -142,6 +142,24 @@ public:
          * only used for export data
          */
         bool _output_object_data = true;
+
+        /**
+         * The format of null value in nested type, eg:
+         *      NULL
+         *      null
+         */
+        const char* null_format;
+        int null_len;
+
+        /**
+         * The wrapper char for string type in nested type.
+         *  eg, if set to empty, the array<string> will be:
+         *       [abc, def, , hig]
+         *      if set to '"', the array<string> will be:
+         *       ["abc", "def", "", "hig"]
+         */
+        const char* nested_string_wrapper;
+        int wrapper_len;
 
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
@@ -216,6 +234,27 @@ public:
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                        int* num_deserialized,
                                                        const FormatOptions& options) const = 0;
+    // deserialize fixed values.Repeatedly insert the value row times into the column.
+    virtual Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                                      int* num_deserialized,
+                                                      const FormatOptions& options) const {
+        Status st = deserialize_one_cell_from_json(column, slice, options);
+        if (!st.ok()) {
+            *num_deserialized = 0;
+            return st;
+        }
+        insert_column_last_value_multiple_times(column, rows - 1);
+        *num_deserialized = rows;
+        return Status::OK();
+    }
+    // Insert the last value to the end of this column multiple times.
+    virtual void insert_column_last_value_multiple_times(IColumn& column, int times) const {
+        //If you try to simplify this operation by using `column.insert_many_from(column, column.size() - 1, rows - 1);`
+        // you are likely to get incorrect data results.
+        MutableColumnPtr dum_col = column.clone_empty();
+        dum_col->insert_from(column, column.size() - 1);
+        column.insert_many_from(*dum_col.get(), 0, times);
+    }
 
     virtual Status deserialize_one_cell_from_hive_text(
             IColumn& column, Slice& slice, const FormatOptions& options,
@@ -251,10 +290,12 @@ public:
 
     // MySQL serializer and deserializer
     virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                         int row_idx, bool col_const) const = 0;
+                                         int row_idx, bool col_const,
+                                         const FormatOptions& options) const = 0;
 
     virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                         int row_idx, bool col_const) const = 0;
+                                         int row_idx, bool col_const,
+                                         const FormatOptions& options) const = 0;
     // Thrift serializer and deserializer
 
     // JSON serializer and deserializer
@@ -278,7 +319,7 @@ public:
     // rapidjson
     virtual Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                           rapidjson::Document::AllocatorType& allocator,
-                                          int row_num) const;
+                                          Arena& mem_pool, int row_num) const;
     virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
 
 protected:
@@ -303,9 +344,11 @@ inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start,
         return res;
     }
 
-    res.reserve(end - start);
-    for (size_t i = start; i < end; ++i) {
-        res.emplace_back(!(*null_bytemap)[i]);
+    res.resize(end - start);
+    auto* __restrict src_data = (*null_bytemap).data();
+    auto* __restrict res_data = res.data();
+    for (size_t i = 0; i < res.size(); ++i) {
+        res_data[i] = !src_data[i + start];
     }
     return res;
 }

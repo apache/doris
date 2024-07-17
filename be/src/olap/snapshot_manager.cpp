@@ -120,8 +120,8 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 }
 
 Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
-        const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t partition_id,
-        int32_t schema_hash) {
+        const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t table_id,
+        int64_t partition_id, int32_t schema_hash) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     std::vector<PendingRowsetGuard> guards;
     // check clone dir existed
@@ -151,6 +151,9 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     *new_tablet_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
     new_tablet_meta_pb.set_replica_id(replica_id);
+    if (table_id > 0) {
+        new_tablet_meta_pb.set_table_id(table_id);
+    }
     if (partition_id != -1) {
         new_tablet_meta_pb.set_partition_id(partition_id);
     }
@@ -264,7 +267,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.partition_id = org_rowset_meta->partition_id();
     context.tablet_schema_hash = org_rowset_meta->tablet_schema_hash();
     context.rowset_type = org_rowset_meta->rowset_type();
-    context.rowset_dir = new_tablet_path;
+    context.tablet_path = new_tablet_path;
     context.tablet_schema =
             org_rowset_meta->tablet_schema() ? org_rowset_meta->tablet_schema() : tablet_schema;
     context.rowset_state = org_rowset_meta->rowset_state();
@@ -450,6 +453,15 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     }
                 }
             }
+
+            DBUG_EXECUTE_IF("SnapshotManager.create_snapshot_files.allow_inc_clone", {
+                auto tablet_id = dp->param("tablet_id", 0);
+                auto is_full_clone = dp->param("is_full_clone", false);
+                if (ref_tablet->tablet_id() == tablet_id && is_full_clone) {
+                    LOG(INFO) << "injected full clone for tabelt: " << tablet_id;
+                    res = Status::InternalError("fault injection error");
+                }
+            });
 
             // be would definitely set it as true no matter has missed version or not, we could
             // just check whether the missed version is empty or not
@@ -688,8 +700,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     }
                 } else {
                     if (tablet_schema.has_inverted_index()) {
-                        auto index_file =
-                                InvertedIndexDescriptor::get_index_file_name(segment_file_path);
+                        auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(
+                                        segment_file_path));
                         auto snapshot_segment_index_file_path =
                                 fmt::format("{}/{}_{}.binlog-index", schema_full_path, rowset_id,
                                             segment_index);

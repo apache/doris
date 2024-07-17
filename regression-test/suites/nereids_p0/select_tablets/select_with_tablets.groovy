@@ -44,9 +44,16 @@ suite("select_with_tablets") {
     logger.info("insert result: " + insert_res.toString())
     order_qt_select1 """ SELECT * FROM ${table_name1} """
 
-    def res = sql_return_maparray """ show tablets from ${table_name1} where version = 2 """
+    def res = sql_return_maparray """ show tablets from ${table_name1}"""
+    log.info("res: " + res.toString())
     res = deduplicate_tablets(res)
-    assertTrue(res.size() == 1)
+    log.info("res: " + res.toString())
+
+    res = sql_return_maparray """ show tablets from ${table_name1} where version = 2 """
+    log.info("res: " + res.toString())
+    res = deduplicate_tablets(res)
+    log.info("res: " + res.toString())
+    assertEquals(res.size(), 1)
     assertEquals("2", res[0].Version)
 
     order_qt_select2 """ SELECT * FROM ${table_name1} TABLET(${res[0].TabletId}) """
@@ -65,8 +72,10 @@ suite("select_with_tablets") {
     order_qt_select11 """ SELECT * FROM ${table_name1} PARTITION between_20_70 where id < 2"""
 
     res = sql_return_maparray """ show tablets from ${table_name1} where version = 1 """
+    log.info("res: " + res.toString())
     res = deduplicate_tablets(res)
-    assertTrue(res.size() == 2)
+    log.info("res: " + res.toString())
+    assertEquals(res.size(), 2)
     assertEquals("1", res[0].Version)
     assertEquals("1", res[1].Version)
     // result should be empty because TABLET(${res[0].TabletId}) does not have data.

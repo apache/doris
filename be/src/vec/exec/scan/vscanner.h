@@ -45,8 +45,6 @@ class ScanLocalStateBase;
 
 namespace doris::vectorized {
 
-class VScanNode;
-
 // Counter for load
 struct ScannerCounter {
     ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0) {}
@@ -57,7 +55,6 @@ struct ScannerCounter {
 
 class VScanner {
 public:
-    VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile);
     VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
              RuntimeProfile* profile);
 
@@ -105,10 +102,9 @@ protected:
     Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
 
 public:
-    VScanNode* get_parent() { return _parent; }
-
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
+    int64_t projection_time() const { return _projection_timer; }
     int64_t get_rows_read() const { return _num_rows_read; }
 
     bool is_init() const { return _is_init; }
@@ -174,7 +170,6 @@ protected:
     }
 
     RuntimeState* _state = nullptr;
-    VScanNode* _parent = nullptr;
     pipeline::ScanLocalStateBase* _local_state = nullptr;
     QueryStatistics* _query_statistics = nullptr;
 
@@ -237,6 +232,7 @@ protected:
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
+    int64_t _projection_timer = 0;
 
     bool _should_stop = false;
 };

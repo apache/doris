@@ -80,7 +80,7 @@ public class AnalysisJobTest {
 
         new MockUp<AnalysisJob>() {
             @Mock
-            protected void writeBuf() {
+            protected void flushBuffer() {
                 writeBufInvokeTimes.incrementAndGet();
             }
 
@@ -111,7 +111,7 @@ public class AnalysisJobTest {
 
         new MockUp<AnalysisJob>() {
             @Mock
-            protected void writeBuf() {
+            protected void flushBuffer() {
                 writeBufInvokeTimes.incrementAndGet();
             }
 
@@ -184,7 +184,7 @@ public class AnalysisJobTest {
             protected void syncLoadStats() {
             }
         };
-        job.writeBuf();
+        job.flushBuffer();
 
         Assertions.assertEquals(0, job.queryFinished.size());
     }
@@ -210,7 +210,7 @@ public class AnalysisJobTest {
         job.buf.add(new ColStatsData());
         job.queryFinished = new HashSet<>();
         job.queryFinished.add(task2);
-        job.writeBuf();
+        job.flushBuffer();
         Assertions.assertEquals(0, job.queryFinished.size());
     }
 

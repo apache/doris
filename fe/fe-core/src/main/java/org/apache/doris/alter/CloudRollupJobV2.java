@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -89,8 +90,11 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                 baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            LOG.debug("rollup job add cloud cluster, context not null, cluster: {}", context.getCloudCluster());
-            setCloudClusterName(context.getCloudCluster());
+            String clusterName = context.getCloudCluster();
+            LOG.debug("rollup job add cloud cluster, context not null, cluster: {}", clusterName);
+            if (!Strings.isNullOrEmpty(clusterName)) {
+                setCloudClusterName(clusterName);
+            }
         }
         LOG.debug("rollup job add cloud cluster, context {}", context);
     }
@@ -185,23 +189,29 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             MaterializedIndex rollupIndex = entry.getValue();
             Cloud.CreateTabletsRequest.Builder requestBuilder =
                     Cloud.CreateTabletsRequest.newBuilder();
+            List<String> rowStoreColumns =
+                                        tbl.getTableProperty().getCopiedRowStoreColumns();
             for (Tablet rollupTablet : rollupIndex.getTablets()) {
                 OlapFile.TabletMetaCloudPB.Builder builder =
                         ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                             .createTabletMetaBuilder(tableId, rollupIndexId,
                             partitionId, rollupTablet, tabletType, rollupSchemaHash,
-                            rollupKeysType, rollupShortKeyColumnCount, tbl.getCopiedBfColumns(),
-                            tbl.getBfFpp(), null, rollupSchema,
-                            tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStoragePolicy(),
-                            tbl.isInMemory(), true,
-                            tbl.getName(), tbl.getTTLSeconds(),
-                            tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                            tbl.getBaseSchemaVersion(), tbl.getCompactionPolicy(),
-                            tbl.getTimeSeriesCompactionGoalSizeMbytes(),
-                            tbl.getTimeSeriesCompactionFileCountThreshold(),
-                            tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
-                            tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                            tbl.getTimeSeriesCompactionLevelThreshold());
+                                    rollupKeysType, rollupShortKeyColumnCount, tbl.getCopiedBfColumns(),
+                                    tbl.getBfFpp(), null, rollupSchema,
+                                    tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStoragePolicy(),
+                                    tbl.isInMemory(), true,
+                                    tbl.getName(), tbl.getTTLSeconds(),
+                                    tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
+                                    tbl.getBaseSchemaVersion(), tbl.getCompactionPolicy(),
+                                    tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                                    tbl.getTimeSeriesCompactionFileCountThreshold(),
+                                    tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                    tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                    tbl.getTimeSeriesCompactionLevelThreshold(),
+                                    tbl.disableAutoCompaction(),
+                                    tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                                    tbl.getEnableMowLightDelete(), null,
+                                    tbl.rowStorePageSize());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())

@@ -19,11 +19,8 @@ suite("materialized_view_switch") {
 
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
 
     sql """
     drop table if exists orders
@@ -152,4 +149,42 @@ suite("materialized_view_switch") {
     sql "SET enable_materialized_view_rewrite=true"
     check_mv_rewrite_success(db, mv_name, query, "mv_name")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name"""
+
+    // test when materialized_view_relation_mapping_max_count is 8
+    def mv1_0 = """
+        select  t1.L_LINENUMBER, t2.l_extendedprice, t2.L_ORDERKEY
+        from lineitem t1
+        inner join lineitem t2 on t1.L_ORDERKEY = t2.L_ORDERKEY;
+    """
+    def query1_0 = """
+        select  t1.L_LINENUMBER, t2.L_ORDERKEY
+        from lineitem t1
+        inner join lineitem t2 on t1.L_ORDERKEY = t2.L_ORDERKEY;
+    """
+    order_qt_query1_0_before "${query1_0}"
+    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    order_qt_query1_0_after "${query1_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
+
+
+    // test when  materialized_view_relation_mapping_max_count is 0
+    sql "SET materialized_view_relation_mapping_max_count = 0"
+
+    def mv1_1 = """
+        select  t1.L_LINENUMBER,t2.l_extendedprice, t2.L_ORDERKEY
+        from lineitem t1
+        inner join lineitem t2 on t1.L_ORDERKEY = t2.L_ORDERKEY;
+    """
+    def query1_1 = """
+        select  t1.L_LINENUMBER, t2.L_ORDERKEY
+        from lineitem t1
+        inner join lineitem t2 on t1.L_ORDERKEY = t2.L_ORDERKEY;
+    """
+    order_qt_query1_1_before "${query1_1}"
+    check_mv_rewrite_fail(db, mv1_1, query1_1, "mv1_1")
+    order_qt_query1_1_after "${query1_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
+
+    sql "SET materialized_view_relation_mapping_max_count = 8"
+
 }

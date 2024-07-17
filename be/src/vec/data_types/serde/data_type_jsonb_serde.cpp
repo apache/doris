@@ -38,7 +38,8 @@ namespace vectorized {
 template <bool is_binary_format>
 Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<is_binary_format>& result,
-                                                  int row_idx, bool col_const) const {
+                                                  int row_idx, bool col_const,
+                                                  const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnString&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     const auto jsonb_val = data.get_data_at(col_index);
@@ -58,14 +59,16 @@ Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
 
 Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                 bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                 bool col_const,
+                                                 const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                 bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                 bool col_const,
+                                                 const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeJsonbSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
@@ -205,7 +208,7 @@ static void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& 
 
 Status DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
-                                                  int row_num) const {
+                                                  Arena& mem_pool, int row_num) const {
     const auto& data = assert_cast<const ColumnString&>(column);
     const auto jsonb_val = data.get_data_at(row_num);
     if (jsonb_val.empty()) {

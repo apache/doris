@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
 
@@ -126,11 +127,13 @@ public interface LoadTaskInfo {
     }
 
     default int getStreamPerNode() {
-        return 20;
+        return 2;
     }
 
     class ImportColumnDescs {
+        @SerializedName("des")
         public List<ImportColumnDesc> descs = Lists.newArrayList();
+        @SerializedName("icdr")
         public boolean isColumnDescsRewrited = false;
 
         public List<String> getFileColNames() {

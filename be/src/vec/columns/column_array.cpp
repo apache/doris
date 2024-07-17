@@ -20,13 +20,9 @@
 
 #include "vec/columns/column_array.h"
 
-#include <assert.h>
-#include <string.h>
-
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <limits>
-#include <memory>
+#include <cstring>
 #include <vector>
 
 #include "vec/columns/column_const.h"
@@ -45,51 +41,9 @@ class SipHash;
 
 namespace doris::vectorized {
 
-namespace ErrorCodes {
-extern const int NOT_IMPLEMENTED;
-extern const int BAD_ARGUMENTS;
-extern const int PARAMETER_OUT_OF_BOUND;
-extern const int SIZES_OF_COLUMNS_DOESNT_MATCH;
-extern const int LOGICAL_ERROR;
-extern const int TOO_LARGE_ARRAY_SIZE;
-} // namespace ErrorCodes
-
-template <typename T>
-ColumnPtr ColumnArray::index_impl(const PaddedPODArray<T>& indexes, size_t limit) const {
-    assert(limit <= indexes.size());
-    if (limit == 0) {
-        return ColumnArray::create(data->clone_empty());
-    }
-    /// Convert indexes to UInt64 in case of overflow.
-    auto nested_indexes_column = ColumnUInt64::create();
-    PaddedPODArray<UInt64>& nested_indexes = nested_indexes_column->get_data();
-    nested_indexes.reserve(get_offsets().back());
-    auto res = ColumnArray::create(data->clone_empty());
-    Offsets64& res_offsets = res->get_offsets();
-    res_offsets.resize(limit);
-    size_t current_offset = 0;
-    for (size_t i = 0; i < limit; ++i) {
-        for (size_t j = 0; j < size_at(indexes[i]); ++j) {
-            nested_indexes.push_back(offset_at(indexes[i]) + j);
-        }
-        current_offset += size_at(indexes[i]);
-        res_offsets[i] = current_offset;
-    }
-    if (current_offset != 0) {
-        res->data = data->index(*nested_indexes_column, current_offset);
-    }
-    return res;
-}
-
-ColumnPtr ColumnArray::index(const IColumn& indexes, size_t limit) const {
-    return select_index_impl(*this, indexes, limit);
-}
-
-INSTANTIATE_INDEX_IMPL(ColumnArray)
-
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
-    const ColumnOffsets* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
+    const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
 
     if (!offsets_concrete) {
         LOG(FATAL) << "offsets_column must be a ColumnUInt64";
@@ -101,8 +55,8 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
         /// This will also prevent possible overflow in offset.
         if (data->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with nested_column " << data->size()
-                       << " " << last_offset;
+            LOG(FATAL) << "nested_column's size " << data->size()
+                       << " is not consistent with offsets_column's " << last_offset;
         }
     }
 
@@ -549,10 +503,6 @@ void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t s
         for (size_t i = 0; i < length; ++i)
             cur_offsets[old_size + i] = src_offsets[start + i] - nested_offset + prev_max_offset;
     }
-}
-
-double ColumnArray::get_ratio_of_default_rows(double sample_ratio) const {
-    return get_ratio_of_default_rows_impl<ColumnArray>(sample_ratio);
 }
 
 ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) const {

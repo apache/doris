@@ -621,6 +621,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
         request.__set_memtable_on_sink_node(value);
     }
+    if (!http_req->header(HTTP_LOAD_STREAM_PER_NODE).empty()) {
+        int value = std::stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE));
+        request.__set_stream_per_node(value);
+    }
     if (ctx->group_commit) {
         if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {
             request.__set_group_commit_mode(http_req->header(HTTP_GROUP_COMMIT));
@@ -651,6 +655,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!plan_status.ok()) {
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
+    }
+    if (config::is_cloud_mode() && ctx->two_phase_commit && ctx->is_mow_table()) {
+        return Status::NotSupported("stream load 2pc is unsupported for mow table");
     }
     if (http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
         // FIXME find a way to avoid chunked stream load write large WALs

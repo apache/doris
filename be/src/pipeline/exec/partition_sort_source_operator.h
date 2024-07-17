@@ -21,32 +21,11 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vpartition_sort_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class PartitionSortSourceOperatorBuilder final
-        : public OperatorBuilder<vectorized::VPartitionSortNode> {
-public:
-    PartitionSortSourceOperatorBuilder(int32_t id, ExecNode* sort_node)
-            : OperatorBuilder(id, "PartitionSortSourceOperator", sort_node) {}
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class PartitionSortSourceOperator final : public SourceOperator<vectorized::VPartitionSortNode> {
-public:
-    PartitionSortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
-            : SourceOperator(operator_builder, sort_node) {}
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
 
 class PartitionSortSourceOperatorX;
 class PartitionSortSourceLocalState final

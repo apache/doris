@@ -44,4 +44,11 @@ public class MTMVVersionSnapshot implements MTMVSnapshotIf {
     public int hashCode() {
         return Objects.hashCode(version);
     }
+
+    @Override
+    public String toString() {
+        return "MTMVVersionSnapshot{"
+                + "version=" + version
+                + '}';
+    }
 }

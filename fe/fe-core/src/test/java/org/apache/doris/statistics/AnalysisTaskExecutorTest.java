@@ -27,14 +27,13 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -44,7 +43,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.BlockingQueue;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AnalysisTaskExecutorTest extends TestWithFeService {
@@ -97,21 +96,18 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 .setDBId(0)
                 .setTblId(0)
                 .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMode(AnalysisMode.FULL)
                 .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
                 .build();
         OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisJobInfo);
 
         AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
-        BlockingQueue<AnalysisTaskWrapper> b = Deencapsulation.getField(analysisTaskExecutor, "taskQueue");
         AnalysisTaskWrapper analysisTaskWrapper = new AnalysisTaskWrapper(analysisTaskExecutor, analysisJob);
         Deencapsulation.setField(analysisTaskWrapper, "startTime", 5);
-        b.put(analysisTaskWrapper);
+        analysisTaskExecutor.putJob(analysisTaskWrapper);
         analysisTaskExecutor.tryToCancel();
         Assertions.assertTrue(cancelled.get());
-        Assertions.assertTrue(b.isEmpty());
-
+        Assertions.assertEquals(0, analysisTaskExecutor.getTaskQueue().size());
     }
 
     @Test
@@ -157,12 +153,11 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         };
 
         AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
-        List<Pair<String, String>> columns = Lists.newArrayList();
+        Set<Pair<String, String>> columns = Sets.newHashSet();
         columns.add(Pair.of("col1", "t1"));
         AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
                 .setCatalogId(0).setDBId(0).setTblId(0)
                 .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMode(AnalysisMode.FULL)
                 .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
                 .setState(AnalysisState.RUNNING)

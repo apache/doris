@@ -41,6 +41,7 @@ class BlockFileCache;
 class FileBlock {
     friend struct FileBlocksHolder;
     friend class BlockFileCache;
+    friend class CachedRemoteFileReader;
 
 public:
     enum class State {
@@ -153,6 +154,8 @@ private:
     FileCacheKey _key;
     size_t _downloaded_size {0};
 };
+
+extern std::ostream& operator<<(std::ostream& os, const FileBlock::State& value);
 
 using FileBlockSPtr = std::shared_ptr<FileBlock>;
 using FileBlocks = std::list<FileBlockSPtr>;

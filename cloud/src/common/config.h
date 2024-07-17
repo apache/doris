@@ -72,14 +72,15 @@ CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
 CONF_mInt64(recycle_task_threshold_seconds, "10800");    // 3h
 
-CONF_String(test_s3_ak, "ak");
-CONF_String(test_s3_sk, "sk");
-CONF_String(test_s3_endpoint, "endpoint");
-CONF_String(test_s3_region, "region");
-CONF_String(test_s3_bucket, "bucket");
+CONF_String(test_s3_ak, "");
+CONF_String(test_s3_sk, "");
+CONF_String(test_s3_endpoint, "");
+CONF_String(test_s3_region, "");
+CONF_String(test_s3_bucket, "");
+CONF_String(test_s3_prefix, "");
 
-CONF_String(test_hdfs_prefix, "prefix");
-CONF_String(test_hdfs_fs_name, "fs_name");
+CONF_String(test_hdfs_prefix, "");
+CONF_String(test_hdfs_fs_name, "");
 // CONF_Int64(a, "1073741824");
 // CONF_Bool(b, "true");
 
@@ -160,6 +161,15 @@ CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 // Whether to retry the txn conflict errors that returns by the underlying txn store.
 CONF_Bool(enable_retry_txn_conflict, "true");
 
+CONF_mBool(enable_s3_rate_limiter, "false");
+CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+CONF_mInt64(s3_get_token_per_second, "1000000000000000000");
+CONF_mInt64(s3_get_token_limit, "0");
+
+CONF_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+CONF_mInt64(s3_put_token_per_second, "1000000000000000000");
+CONF_mInt64(s3_put_token_limit, "0");
+
 // The secondary package name of the MetaService.
 CONF_String(secondary_package_name, "");
 
@@ -177,5 +187,16 @@ CONF_mBool(enable_distinguish_hdfs_path, "true");
 // e.g. 10.10.10.0/24;192.168.0.1/24
 // If no IP match this rule, a random IP is used (usually it is the IP binded to hostname).
 CONF_String(priority_networks, "");
+
+CONF_Bool(enable_cluster_name_check, "false");
+
+// http scheme in S3Client to use. E.g. http or https
+CONF_String(s3_client_http_scheme, "http");
+CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
+    return config == "http" || config == "https";
+});
+
+// Max retry times for object storage request
+CONF_mInt64(max_s3_client_retry, "10");
 
 } // namespace doris::cloud::config

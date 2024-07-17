@@ -28,8 +28,7 @@
 
 #include "common/status.h"
 #include "exec/olap_common.h"
-#include "vec/exec/format/generic_reader.h"
-#include "vec/exec/jni_connector.h"
+#include "vec/exec/format/jni_reader.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -48,7 +47,7 @@ namespace doris::vectorized {
 /**
  * Read avro-format file
  */
-class AvroJNIReader : public GenericReader {
+class AvroJNIReader : public JniReader {
     ENABLE_FACTORY_CREATOR(AvroJNIReader);
 
 public:
@@ -83,16 +82,10 @@ public:
 
     TypeDescriptor convert_to_doris_type(const rapidjson::Value& column_schema);
 
-    TypeDescriptor convert_complex_type(const rapidjson::Document::ConstObject child_schema);
-
 private:
-    const std::vector<SlotDescriptor*>& _file_slot_descs;
-    RuntimeState* _state = nullptr;
-    RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams _params;
     const TFileRangeDesc _range;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
-    std::unique_ptr<JniConnector> _jni_connector;
 };
 
 } // namespace doris::vectorized

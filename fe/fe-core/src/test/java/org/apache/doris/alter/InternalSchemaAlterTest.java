@@ -42,22 +42,20 @@ public class InternalSchemaAlterTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-        InternalSchemaInitializer.createDb();
-        InternalSchemaInitializer.createTbl();
         Config.allow_replica_on_same_host = true;
         FeConstants.runningUnitTest = true;
+        InternalSchemaInitializer.createDb();
+        InternalSchemaInitializer.createTbl();
     }
 
     @Test
     public void testModifyTblReplicaCount() throws AnalysisException {
         Database db = Env.getCurrentEnv().getCatalogMgr()
                 .getInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
-        InternalSchemaInitializer.modifyTblReplicaCount(db, StatisticConstants.STATISTIC_TBL_NAME);
-        InternalSchemaInitializer.modifyTblReplicaCount(db, StatisticConstants.HISTOGRAM_TBL_NAME);
+        InternalSchemaInitializer.modifyTblReplicaCount(db, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         InternalSchemaInitializer.modifyTblReplicaCount(db, AuditLoaderPlugin.AUDIT_LOG_TABLE);
 
-        checkReplicationNum(db, StatisticConstants.STATISTIC_TBL_NAME);
-        checkReplicationNum(db, StatisticConstants.HISTOGRAM_TBL_NAME);
+        checkReplicationNum(db, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
         checkReplicationNum(db, AuditLoaderPlugin.AUDIT_LOG_TABLE);
     }
 

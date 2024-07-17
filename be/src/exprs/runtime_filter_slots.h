@@ -42,7 +42,7 @@ public:
     }
 
     Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
-                            pipeline::CountedFinishDependency* dependency) {
+                            std::shared_ptr<pipeline::Dependency> dependency) {
         if (_runtime_filters.empty()) {
             return Status::OK();
         }
@@ -55,7 +55,7 @@ public:
         // send_filter_size may call dependency->sub(), so we call set_dependency firstly for all rf to avoid dependency set_ready repeatedly
         for (auto* runtime_filter : _runtime_filters) {
             if (runtime_filter->need_sync_filter_size()) {
-                RETURN_IF_ERROR(runtime_filter->send_filter_size(hash_table_size));
+                RETURN_IF_ERROR(runtime_filter->send_filter_size(state, hash_table_size));
             }
         }
         return Status::OK();
@@ -71,6 +71,9 @@ public:
         // process ignore duplicate IN_FILTER
         std::unordered_set<int> has_in_filter;
         for (auto* filter : _runtime_filters) {
+            if (filter->get_ignored()) {
+                continue;
+            }
             if (filter->get_real_type() != RuntimeFilterType::IN_FILTER) {
                 continue;
             }
@@ -83,6 +86,9 @@ public:
 
         // process ignore filter when it has IN_FILTER on same expr, and init bloom filter size
         for (auto* filter : _runtime_filters) {
+            if (filter->get_ignored()) {
+                continue;
+            }
             if (filter->get_real_type() == RuntimeFilterType::IN_FILTER ||
                 !has_in_filter.contains(filter->expr_order())) {
                 continue;
@@ -95,12 +101,19 @@ public:
     Status init_filters(RuntimeState* state, uint64_t local_hash_table_size) {
         // process IN_OR_BLOOM_FILTER's real type
         for (auto* filter : _runtime_filters) {
+            if (filter->get_ignored()) {
+                continue;
+            }
             if (filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
                 get_real_size(filter, local_hash_table_size) > state->runtime_filter_max_in_num()) {
                 RETURN_IF_ERROR(filter->change_to_bloom_filter());
             }
 
             if (filter->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
+                if (filter->need_sync_filter_size() != filter->isset_synced_size()) {
+                    return Status::InternalError("sync filter size meet error, filter: {}",
+                                                 filter->debug_string());
+                }
                 RETURN_IF_ERROR(
                         filter->init_bloom_filter(get_real_size(filter, local_hash_table_size)));
             }

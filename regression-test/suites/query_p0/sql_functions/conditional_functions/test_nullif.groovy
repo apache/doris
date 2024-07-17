@@ -89,11 +89,11 @@ suite("test_nullif") {
     def tableName1 = "test"
     qt_if_nullif1 """select if(null, -1, 10) a, if(null, "hello", "worlk") b"""
     qt_if_nullif2 """select if(k1 > 5, true, false) a from baseall order by k1"""
-    qt_if_nullif3 """select /*+ SET_VAR(enable_nereids_planner=false) */ if(k1, 10, -1) a from baseall order by k1"""
+    qt_if_nullif3 """select if(k1, 10, -1) a from baseall order by k1"""
     qt_if_nullif4 """select if(length(k6) >= 5, true, false) a from baseall order by k1"""
     qt_if_nullif5 """select if(k6 like "fa%", -1, 10) a from baseall order by k6"""
     qt_if_nullif6 """select if(k6 like "%e", "hello", "world") a from baseall order by k6"""
-    qt_if_nullif7 """select /*+ SET_VAR(enable_nereids_planner=false) */ if(k6, -1, 0) a from baseall order by k6"""
+    qt_if_nullif7 """select if(k6, -1, 0) a from baseall order by k6"""
     qt_if_nullif8 """select ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
             order by a.k1"""
     // make sure stable
@@ -158,7 +158,7 @@ suite("test_nullif") {
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName2} (
                 c_int int NULL COMMENT "",
-                c_pv bitmap BITMAP_UNION NULL COMMENT ""
+                c_pv bitmap BITMAP_UNION  COMMENT ""
             )
             AGGREGATE KEY(c_int)
             DISTRIBUTED BY HASH(c_int) BUCKETS 1

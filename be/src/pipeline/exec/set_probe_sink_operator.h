@@ -21,11 +21,8 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vset_operation_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace vectorized {
@@ -35,37 +32,6 @@ struct HashTableProbe;
 } // namespace vectorized
 
 namespace pipeline {
-
-template <bool is_intersect>
-class SetProbeSinkOperatorBuilder final
-        : public OperatorBuilder<vectorized::VSetOperationNode<is_intersect>> {
-private:
-    constexpr static auto builder_name =
-            is_intersect ? "IntersectProbeSinkOperator" : "ExceptProbeSinkOperator";
-
-public:
-    SetProbeSinkOperatorBuilder(int32_t id, int child_id, ExecNode* set_node);
-    [[nodiscard]] bool is_sink() const override { return true; }
-
-    OperatorPtr build_operator() override;
-
-private:
-    int _child_id;
-};
-
-template <bool is_intersect>
-class SetProbeSinkOperator : public StreamingOperator<vectorized::VSetOperationNode<is_intersect>> {
-public:
-    SetProbeSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* set_node);
-
-    bool can_write() override;
-
-    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override;
-    Status open(RuntimeState* /*state*/) override { return Status::OK(); }
-
-private:
-    int _child_id;
-};
 
 template <bool is_intersect>
 class SetProbeSinkOperatorX;

@@ -18,8 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("k1s2m3") {
-    sql "set enable_fallback_to_original_planner = false"
-
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -36,16 +34,18 @@ suite ("k1s2m3") {
 
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 2,2,2,'b';"
+    sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
     createMV("create materialized view k1s2m3 as select k1,sum(k2*k3) from d_table group by k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table(k4,k2) values('d',4);"
+    sql "analyze table d_table with sync;"
+    sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
 
-    sql "set enable_nereids_planner=false"
     explain {
         sql("select k1,sum(k2*k3) from d_table group by k1 order by k1;")
         contains "(k1s2m3)"
@@ -58,36 +58,21 @@ suite ("k1s2m3") {
     }
     qt_select_mv "select K1,sum(K2*K3) from d_table group by K1 order by K1;"
 
-    sql "set enable_nereids_planner=true"
+    sql """set enable_stats=true;"""
     explain {
         sql("select k1,sum(k2*k3) from d_table group by k1 order by k1;")
         contains "(k1s2m3)"
     }
-    qt_select_mv "select k1,sum(k2*k3) from d_table group by k1 order by k1;"
 
     explain {
         sql("select K1,sum(K2*K3) from d_table group by K1 order by K1;")
         contains "(k1s2m3)"
     }
-    qt_select_mv "select K1,sum(K2*K3) from d_table group by K1 order by K1;"
 
     sql""" drop materialized view k1s2m3 on d_table; """
     createMV("create materialized view k1s2m3 as select K1,sum(K2*K3) from d_table group by K1;")
 
-    sql "set enable_nereids_planner=false"
-    explain {
-        sql("select k1,sum(k2*k3) from d_table group by k1 order by k1;")
-        contains "(k1s2m3)"
-    }
-    qt_select_mv "select k1,sum(k2*k3) from d_table group by k1 order by k1;"
-
-    explain {
-        sql("select K1,sum(K2*K3) from d_table group by K1 order by K1;")
-        contains "(k1s2m3)"
-    }
-    qt_select_mv "select K1,sum(K2*K3) from d_table group by K1 order by K1;"
-
-    sql "set enable_nereids_planner=true"
+    sql """set enable_stats=false;"""
     explain {
         sql("select k1,sum(k2*k3) from d_table group by k1 order by k1;")
         contains "(k1s2m3)"
@@ -108,6 +93,22 @@ suite ("k1s2m3") {
     }
     qt_select_mv "select k1,sum(k2*k3) from d_table group by k1 order by k1;"
 
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select k1,sum(k2*k3) from d_table group by k1 order by k1;")
+        contains "(k1s2m3)"
+    }
+
+    explain {
+        sql("select K1,sum(K2*K3) from d_table group by K1 order by K1;")
+        contains "(k1s2m3)"
+    }
+
+    explain {
+        sql("select k1,sum(k2*k3) from d_table group by k1 order by k1;")
+        contains "(k1s2m3)"
+    }
+    sql """set enable_stats=false;"""
     createMV("create materialized view kdup321 as select k3,k2,k1 from d_table;")
     explain {
         sql("select count(k2) from d_table where k3 = 1;")
@@ -116,6 +117,12 @@ suite ("k1s2m3") {
     qt_select_mv "select count(k2) from d_table where k3 = 1;"
 
     qt_select_star "select * from d_table order by k1;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select count(k2) from d_table where k3 = 1;")
+        contains "(kdup321)"
+    }
 
     test {
         sql "create materialized view k1s2m3 as select K1,sum(k2*k3)+1 from d_table group by k1;"

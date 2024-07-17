@@ -278,15 +278,16 @@ public class NereidsParser {
     }
 
     public LogicalPlan parseForCreateView(String sql) {
-        return parseForCreateViewInternal(sql, null, DorisParser::singleStatement);
+        ParserRuleContext tree = toAst(sql, DorisParser::singleStatement);
+        LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView();
+        return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
-    private <T> T parseForCreateViewInternal(String sql, @Nullable LogicalPlanBuilder logicalPlanBuilder,
-            Function<DorisParser, ParserRuleContext> parseFunction) {
-        ParserRuleContext tree = toAst(sql, parseFunction);
-        LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
-                ? new LogicalPlanBuilder(true) : logicalPlanBuilder;
-        return (T) realLogicalPlanBuilder.visit(tree);
+    public Optional<String> parseForSyncMv(String sql) {
+        ParserRuleContext tree = toAst(sql, DorisParser::singleStatement);
+        LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv();
+        logicalPlanBuilderForSyncMv.visit(tree);
+        return logicalPlanBuilderForSyncMv.getQuerySql();
     }
 
     /** toAst */

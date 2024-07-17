@@ -51,6 +51,17 @@ public interface NormalizeToSlot {
             this.normalizeToSlotMap = normalizeToSlotMap;
         }
 
+        public Map<Expression, NormalizeToSlotTriplet> getNormalizeToSlotMap() {
+            return normalizeToSlotMap;
+        }
+
+        public NormalizeToSlotContext mergeContext(NormalizeToSlotContext context) {
+            Map<Expression, NormalizeToSlotTriplet> newMap = Maps.newHashMap();
+            newMap.putAll(this.normalizeToSlotMap);
+            newMap.putAll(context.getNormalizeToSlotMap());
+            return new NormalizeToSlotContext(newMap);
+        }
+
         /**
          * build normalization context by follow step.
          * 1. collect all exists alias by input parameters existsAliases build a reverted map: expr -> alias

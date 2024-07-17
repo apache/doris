@@ -36,41 +36,37 @@
 
 namespace doris::io {
 
-struct S3FileMeta {
+struct DownloadFileMeta {
     Path path;
-    size_t file_size {0};
+    int64_t file_size {-1};
+    int64_t offset {0};
+    int64_t download_size {-1};
     io::FileSystemSPtr file_system;
-    uint64_t expiration_time {0};
-    bool is_cold_data {false};
-    std::function<void(Status)> download_callback;
+    IOContext ctx;
+    std::function<void(Status)> download_done;
 };
 
 struct DownloadTask {
     std::chrono::steady_clock::time_point atime = std::chrono::steady_clock::now();
-    std::variant<std::vector<FileCacheBlockMeta>, S3FileMeta> task_message;
-    DownloadTask(std::vector<FileCacheBlockMeta> metas) : task_message(std::move(metas)) {}
-    DownloadTask(S3FileMeta meta) : task_message(std::move(meta)) {}
+
+    using FileCacheBlockMetaVec =
+            ::google::protobuf::RepeatedPtrField< ::doris::FileCacheBlockMeta>;
+
+    std::variant<FileCacheBlockMetaVec, DownloadFileMeta> task_message;
+    DownloadTask(FileCacheBlockMetaVec metas) : task_message(std::move(metas)) {}
+    DownloadTask(DownloadFileMeta meta) : task_message(std::move(meta)) {}
     DownloadTask() = default;
 };
 
 class FileCacheBlockDownloader {
 public:
-    FileCacheBlockDownloader(CloudStorageEngine& engine) : _engine(engine) {
-        _download_thread = std::thread(&FileCacheBlockDownloader::polling_download_task, this);
-    }
+    explicit FileCacheBlockDownloader(CloudStorageEngine& engine);
 
-    virtual ~FileCacheBlockDownloader() {
-        _closed = true;
-        _empty.notify_all();
-        if (_download_thread.joinable()) {
-            _download_thread.join();
-        }
-    }
+    ~FileCacheBlockDownloader();
 
-    // dowloan into cache block
-    virtual void download_blocks(DownloadTask& task) = 0;
+    // download into cache block
+    void download_blocks(DownloadTask& task);
 
-    static FileCacheBlockDownloader* instance();
     // submit the task to download queue
     void submit_download_task(DownloadTask task);
     // polling the queue, get the task to download
@@ -78,32 +74,25 @@ public:
     // check whether the tasks about tables finish or not
     void check_download_task(const std::vector<int64_t>& tablets, std::map<int64_t, bool>* done);
 
-protected:
+private:
+    void download_file_cache_block(const DownloadTask::FileCacheBlockMetaVec&);
+    void download_segment_file(const DownloadFileMeta&);
+
+    CloudStorageEngine& _engine;
+
+    std::thread _poller;
+    std::unique_ptr<ThreadPool> _workers;
+
     std::mutex _mtx;
+    bool _closed {false};
+    std::condition_variable _empty;
+    std::deque<DownloadTask> _task_queue;
+
     std::mutex _inflight_mtx;
     // tablet id -> inflight block num of tablet
     std::unordered_map<int64_t, int64_t> _inflight_tablets;
-    CloudStorageEngine& _engine;
 
-private:
-    std::thread _download_thread;
-    std::condition_variable _empty;
-    std::deque<DownloadTask> _task_queue;
-    std::atomic_bool _closed {false};
-    const size_t _max_size {10240};
-};
-
-class FileCacheBlockS3Downloader : public FileCacheBlockDownloader {
-public:
-    FileCacheBlockS3Downloader(CloudStorageEngine& engine) : FileCacheBlockDownloader(engine) {}
-    ~FileCacheBlockS3Downloader() override = default;
-
-    void download_blocks(DownloadTask& task) override;
-
-private:
-    void download_file_cache_block(std::vector<FileCacheBlockMeta>&);
-    static void download_s3_file(S3FileMeta&);
-    std::atomic<size_t> _cur_download_file {0};
+    static inline constexpr size_t _max_size {10240};
 };
 
 } // namespace doris::io

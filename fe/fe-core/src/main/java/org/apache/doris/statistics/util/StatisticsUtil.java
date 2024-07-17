@@ -47,6 +47,7 @@ import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -56,20 +57,27 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.PartitionColumnStatistic;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
@@ -104,6 +112,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -116,6 +125,7 @@ public class StatisticsUtil {
     private static final String NUM_ROWS = "numRows";
 
     private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
+    public static final int UPDATED_PARTITION_THRESHOLD = 3;
 
     public static List<ResultRow> executeQuery(String template, Map<String, String> params) {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -149,9 +159,11 @@ public class StatisticsUtil {
     }
 
     public static QueryState execUpdate(String sql) throws Exception {
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+        StmtExecutor stmtExecutor = null;
+        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext();
+        try {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
             QueryState state = r.connectContext.getState();
@@ -159,6 +171,12 @@ public class StatisticsUtil {
                 throw new Exception(state.getErrorMessage());
             }
             return state;
+        } finally {
+            r.close();
+            if (stmtExecutor != null) {
+                AuditLogHelper.logAuditLog(r.connectContext, stmtExecutor.getOriginStmt().originStmt,
+                        stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(), true);
+            }
         }
     }
 
@@ -170,9 +188,15 @@ public class StatisticsUtil {
         return ColumnStatistic.fromResultRow(resultBatches);
     }
 
-    public static List<Histogram> deserializeToHistogramStatistics(List<ResultRow> resultBatches)
-            throws Exception {
+    public static List<Histogram> deserializeToHistogramStatistics(List<ResultRow> resultBatches) {
         return resultBatches.stream().map(Histogram::fromResultRow).collect(Collectors.toList());
+    }
+
+    public static PartitionColumnStatistic deserializeToPartitionStatistics(List<ResultRow> resultBatches) {
+        if (CollectionUtils.isEmpty(resultBatches)) {
+            return null;
+        }
+        return PartitionColumnStatistic.fromResultRow(resultBatches);
     }
 
     public static AutoCloseConnectContext buildConnectContext() {
@@ -186,12 +210,12 @@ public class StatisticsUtil {
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
+        sessionVariable.setInsertMaxFilterRatio(1.0);
         sessionVariable.enablePageCache = false;
         sessionVariable.enableProfile = Config.enable_profile_when_analyze;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(true);
-        sessionVariable.setEnablePipelineEngine(false);
         sessionVariable.enableScanRunSerial = limitScan;
         sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
@@ -447,7 +471,7 @@ public class StatisticsUtil {
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
-                                    StatisticConstants.STATISTIC_TBL_NAME));
+                                    StatisticConstants.TABLE_STATISTIC_TBL_NAME));
             // uncomment it when hist is available for user.
             // statsTbls.add(
             //         (OlapTable) StatisticsUtil
@@ -458,6 +482,9 @@ public class StatisticsUtil {
             return false;
         }
         if (Config.isCloudMode()) {
+            if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).availableBackendsExists()) {
+                return false;
+            }
             try (AutoCloseConnectContext r = buildConnectContext()) {
                 r.connectContext.getCloudCluster();
                 for (OlapTable table : statsTbls) {
@@ -775,7 +802,7 @@ public class StatisticsUtil {
     }
 
     protected static SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
-        SessionVariable sessionVariable =  VariableMgr.newSessionVariable();
+        SessionVariable sessionVariable =  VariableMgr.getDefaultSessionVariable();
         VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
         VariableMgr.getValue(sessionVariable, variableExpr);
         return sessionVariable;
@@ -786,6 +813,26 @@ public class StatisticsUtil {
             return findConfigFromGlobalSessionVar(SessionVariable.ENABLE_AUTO_ANALYZE).enableAutoAnalyze;
         } catch (Exception e) {
             LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
+        }
+        return false;
+    }
+
+    public static boolean enableAutoAnalyzeInternalCatalog() {
+        try {
+            return findConfigFromGlobalSessionVar(
+                        SessionVariable.ENABLE_AUTO_ANALYZE_INTERNAL_CATALOG).enableAutoAnalyzeInternalCatalog;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable auto analyze internal catalog, return false by default", e);
+        }
+        return true;
+    }
+
+    public static boolean enablePartitionAnalyze() {
+        try {
+            return findConfigFromGlobalSessionVar(
+                SessionVariable.ENABLE_PARTITION_ANALYZE).enablePartitionAnalyze;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable partition analyze, return false by default", e);
         }
         return false;
     }
@@ -818,6 +865,14 @@ public class StatisticsUtil {
             LOG.warn("Failed to get value of huge_table_lower_bound_size_in_bytes, return default", e);
         }
         return StatisticConstants.HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES;
+    }
+
+    public static long getHugePartitionLowerBoundRows() {
+        return GlobalVariable.hugePartitionLowerBoundRows;
+    }
+
+    public static int getPartitionAnalyzeBatchSize() {
+        return GlobalVariable.partitionAnalyzeBatchSize;
     }
 
     public static long getHugeTableAutoAnalyzeIntervalInMillis() {
@@ -898,7 +953,7 @@ public class StatisticsUtil {
     }
 
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
-        int waitRowCountReportedTime = 90;
+        int waitRowCountReportedTime = 75;
         if (!(table instanceof OlapTable) || method.equals(AnalysisInfo.AnalysisMethod.FULL)) {
             return false;
         }
@@ -921,4 +976,129 @@ public class StatisticsUtil {
         return true;
     }
 
+    public static boolean needAnalyzeColumn(TableIf table, Pair<String, String> column) {
+        if (column == null) {
+            return false;
+        }
+        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
+        // Table never been analyzed, need analyze.
+        if (tableStatsStatus == null) {
+            return true;
+        }
+        // User injected column stats, don't do auto analyze, avoid overwrite user injected stats.
+        if (tableStatsStatus.userInjected) {
+            return false;
+        }
+        ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(column.first, column.second);
+        // Column never been analyzed, need analyze.
+        if (columnStatsMeta == null) {
+            return true;
+        }
+        // Partition table partition stats never been collected.
+        if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()
+                && columnStatsMeta.partitionUpdateRows == null) {
+            return true;
+        }
+        if (table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            // 0. Check new partition first time loaded flag.
+            if (olapTable.isPartitionColumn(column.second) && tableStatsStatus.partitionChanged.get()) {
+                return true;
+            }
+            // 1. Check row count.
+            // TODO: One conner case. Last analyze row count is 0, but actually it's not 0 because isEmptyTable waiting.
+            long currentRowCount = olapTable.getRowCount();
+            long lastAnalyzeRowCount = columnStatsMeta.rowCount;
+            // 1.1 Empty table -> non-empty table. Need analyze.
+            if (currentRowCount != 0 && lastAnalyzeRowCount == 0) {
+                return true;
+            }
+            // 1.2 Non-empty table -> empty table. Need analyze;
+            if (currentRowCount == 0 && lastAnalyzeRowCount != 0) {
+                return true;
+            }
+            // 1.3 Table is still empty. Not need to analyze. lastAnalyzeRowCount == 0 is always true here.
+            if (currentRowCount == 0) {
+                return false;
+            }
+            // 1.4 If row count changed more than the threshold, need analyze.
+            // lastAnalyzeRowCount == 0 is always false here.
+            double changeRate =
+                    ((double) Math.abs(currentRowCount - lastAnalyzeRowCount) / lastAnalyzeRowCount) * 100.0;
+            if (changeRate > (100 - StatisticsUtil.getTableStatsHealthThreshold())) {
+                return true;
+            }
+            // 2. Check update rows.
+            long currentUpdatedRows = tableStatsStatus.updatedRows.get();
+            long lastAnalyzeUpdateRows = columnStatsMeta.updatedRows;
+            changeRate = ((double) Math.abs(currentUpdatedRows - lastAnalyzeUpdateRows) / lastAnalyzeRowCount) * 100.0;
+            if (changeRate > (100 - StatisticsUtil.getTableStatsHealthThreshold())) {
+                return true;
+            }
+            // 3. Check partition
+            return needAnalyzePartition(olapTable, tableStatsStatus, columnStatsMeta);
+        } else {
+            // Now, we only support Hive external table auto analyze.
+            if (!(table instanceof HMSExternalTable)) {
+                return false;
+            }
+            HMSExternalTable hmsTable = (HMSExternalTable) table;
+            if (!hmsTable.getDlaType().equals(DLAType.HIVE)) {
+                return false;
+            }
+            // External is hard to calculate change rate, use time interval to control analyze frequency.
+            return System.currentTimeMillis()
+                    - tableStatsStatus.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
+        }
+    }
+
+    public static boolean needAnalyzePartition(OlapTable table, TableStatsMeta tableStatsStatus,
+                                               ColStatsMeta columnStatsMeta) {
+        if (!StatisticsUtil.enablePartitionAnalyze() || !table.isPartitionedTable()) {
+            return false;
+        }
+        Collection<Partition> partitions = table.getPartitions();
+        ConcurrentMap<Long, Long> partitionUpdateRows = columnStatsMeta.partitionUpdateRows;
+        if (partitionUpdateRows == null) {
+            return true;
+        }
+        // New partition added or old partition deleted.
+        if (partitions.size() != partitionUpdateRows.size()) {
+            return true;
+        }
+        int changedPartitions = 0;
+        long hugePartitionLowerBoundRows = getHugePartitionLowerBoundRows();
+        for (Partition p : partitions) {
+            long id = p.getId();
+            // Skip partition that is too large.
+            if (p.getBaseIndex().getRowCount() > hugePartitionLowerBoundRows) {
+                continue;
+            }
+            // New partition added.
+            if (!partitionUpdateRows.containsKey(id)) {
+                return true;
+            }
+            // Former skipped large partition is not large anymore. Need to analyze it.
+            if (partitionUpdateRows.get(id) == -1) {
+                return true;
+            }
+            long currentUpdateRows = tableStatsStatus.partitionUpdateRows.getOrDefault(id, 0L);
+            long lastUpdateRows = partitionUpdateRows.get(id);
+            long changedRows = currentUpdateRows - lastUpdateRows;
+            if (changedRows > 0) {
+                changedPartitions++;
+                // Too much partition changed, need to reanalyze.
+                if (changedPartitions >= UPDATED_PARTITION_THRESHOLD) {
+                    return true;
+                }
+                double changeRate = (((double) changedRows) / currentUpdateRows) * 100;
+                // One partition changed too much, need to reanalyze.
+                if (changeRate > (100 - StatisticsUtil.getTableStatsHealthThreshold())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }

@@ -17,7 +17,7 @@
 
 #include "partitioner.h"
 
-#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
+#include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "runtime/thread_context.h"
 #include "vec/columns/column_const.h"
 #include "vec/sink/vdata_stream_sender.h"
@@ -103,6 +103,6 @@ template class Partitioner<size_t, ShuffleChannelIds>;
 template class XXHashPartitioner<ShuffleChannelIds>;
 template class Partitioner<uint32_t, ShuffleChannelIds>;
 template class Crc32HashPartitioner<ShuffleChannelIds>;
-template class Crc32HashPartitioner<pipeline::LocalExchangeChannelIds>;
+template class Crc32HashPartitioner<SpillPartitionChannelIds>;
 
 } // namespace doris::vectorized

@@ -68,7 +68,7 @@ public class DateTrunc extends ScalarFunction
         final String constParam = ((VarcharLiteral) getArgument(1)).getStringValue().toLowerCase();
         if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
                 .contains(constParam)) {
-            throw new AnalysisException("date_trunc function second param only support argument is"
+            throw new AnalysisException("date_trunc function second param only support argument is "
                     + "year|quarter|month|week|day|hour|minute|second");
         }
     }

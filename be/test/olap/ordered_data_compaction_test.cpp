@@ -200,7 +200,7 @@ protected:
         rowset_writer_context->data_dir = _data_dir.get();
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
-        rowset_writer_context->rowset_dir = rowset_dir;
+        rowset_writer_context->tablet_path = rowset_dir;
         rowset_writer_context->version = Version(inc_id, inc_id);
         rowset_writer_context->segments_overlap = overlap;
         rowset_writer_context->max_rows_per_segment = max_rows_per_segment;
@@ -308,7 +308,7 @@ protected:
         rsm->set_rowset_id(id);
         rsm->set_delete_predicate(del_pred);
         rsm->set_tablet_schema(tablet->tablet_schema());
-        RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), "", rsm);
+        RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), rsm, "");
         static_cast<void>(tablet->add_rowset(rowset));
     }
 

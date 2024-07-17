@@ -44,8 +44,10 @@ struct ParsedData {
         _values_null_flag.clear();
     }
     virtual int set_output(rapidjson::Document& document, int value_size) = 0;
-    virtual void insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
-                                                int64_t cur_offset) = 0;
+    virtual void insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
+                                                int max_step) = 0;
+    virtual void insert_many_same_value_from_parsed_data(MutableColumnPtr& column,
+                                                         int64_t cur_offset, int length) = 0;
     const char* get_null_flag_address(int cur_offset) {
         return reinterpret_cast<const char*>(_values_null_flag.data() + cur_offset);
     }
@@ -88,11 +90,17 @@ struct ParsedDataInt : public ParsedData<int64_t> {
         }
         return value_size;
     }
-    void insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
-                                        int64_t cur_offset) override {
+
+    void insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
+                                        int max_step) override {
         assert_cast<ColumnInt64*>(column.get())
                 ->insert_many_raw_data(
                         reinterpret_cast<const char*>(_backup_data.data() + cur_offset), max_step);
+    }
+
+    void insert_many_same_value_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
+                                                 int length) override {
+        assert_cast<ColumnInt64*>(column.get())->insert_many_vals(_backup_data[cur_offset], length);
     }
 };
 
@@ -112,20 +120,35 @@ struct ParsedDataDouble : public ParsedData<double> {
         }
         return value_size;
     }
-    void insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
-                                        int64_t cur_offset) override {
+
+    void insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
+                                        int max_step) override {
         assert_cast<ColumnFloat64*>(column.get())
                 ->insert_many_raw_data(
                         reinterpret_cast<const char*>(_backup_data.data() + cur_offset), max_step);
     }
+
+    void insert_many_same_value_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
+                                                 int length) override {
+        assert_cast<ColumnFloat64*>(column.get())
+                ->insert_many_vals(_backup_data[cur_offset], length);
+    }
 };
 
 struct ParsedDataStringBase : public ParsedData<std::string> {
-    void insert_result_from_parsed_data(MutableColumnPtr& column, int max_step,
-                                        int64_t cur_offset) override {
+    void insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
+                                        int max_step) override {
         assert_cast<ColumnString*>(column.get())
                 ->insert_many_strings(_data_string_ref.data() + cur_offset, max_step);
     }
+
+    void insert_many_same_value_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
+                                                 int length) override {
+        assert_cast<ColumnString*>(column.get())
+                ->insert_many_data(_data_string_ref[cur_offset].data,
+                                   _data_string_ref[cur_offset].size, length);
+    }
+
     void reset() override {
         ParsedData<std::string>::reset();
         _data_string_ref.clear();
@@ -236,11 +259,12 @@ public:
     Status process_init(Block* block, RuntimeState* state) override;
     void process_row(size_t row_idx) override;
     void process_close() override;
-    void get_value(MutableColumnPtr& column) override;
+    void get_same_many_values(MutableColumnPtr& column, int length) override;
     int get_value(MutableColumnPtr& column, int max_step) override;
-    void insert_values_into_column(MutableColumnPtr& column, int max_step);
 
 private:
+    void _insert_same_many_values_into_column(MutableColumnPtr& column, int max_step);
+    void _insert_values_into_column(MutableColumnPtr& column, int max_step);
     DataImpl _parsed_data;
     ColumnPtr _text_column;
 };

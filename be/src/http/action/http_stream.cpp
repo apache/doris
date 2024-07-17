@@ -52,7 +52,6 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/plan_fragment_executor.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
@@ -334,11 +333,14 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
-    ctx->db = ctx->put_result.params.db_name;
-    ctx->table = ctx->put_result.params.table_name;
-    ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
-    ctx->label = ctx->put_result.params.import_label;
-    ctx->put_result.params.__set_wal_id(ctx->wal_id);
+    if (config::is_cloud_mode() && ctx->two_phase_commit && ctx->is_mow_table()) {
+        return Status::NotSupported("http stream 2pc is unsupported for mow table");
+    }
+    ctx->db = ctx->put_result.pipeline_params.db_name;
+    ctx->table = ctx->put_result.pipeline_params.table_name;
+    ctx->txn_id = ctx->put_result.pipeline_params.txn_conf.txn_id;
+    ctx->label = ctx->put_result.pipeline_params.import_label;
+    ctx->put_result.pipeline_params.__set_wal_id(ctx->wal_id);
     if (http_req != nullptr && http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
         // FIXME find a way to avoid chunked stream load write large WALs
         size_t content_length = 0;
@@ -354,7 +356,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
                 content_length *= 3;
             }
         }
-        ctx->put_result.params.__set_content_length(content_length);
+        ctx->put_result.pipeline_params.__set_content_length(content_length);
     }
 
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);

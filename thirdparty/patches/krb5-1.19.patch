@@ -1,12 +1,14 @@
 diff --git a/src/lib/krb5/os/dnsglue.c b/src/lib/krb5/os/dnsglue.c
-index 0cd213f..2514fcd 100644
+index 0cd213f..db35532 100644
 --- a/src/lib/krb5/os/dnsglue.c
 +++ b/src/lib/krb5/os/dnsglue.c
-@@ -87,6 +87,8 @@ static int initparse(struct krb5int_dns_state *);
+@@ -87,6 +87,10 @@ static int initparse(struct krb5int_dns_state *);
  
  #elif HAVE_RES_NINIT && HAVE_RES_NSEARCH
  
++#if defined(__x86_64__)
 +__asm__(".symver __res_nsearch,__res_nsearch@GLIBC_2.2.5");
++#endif
 +
  /* Use res_ninit, res_nsearch, and res_ndestroy or res_nclose. */
  #define DECLARE_HANDLE(h) struct __res_state h

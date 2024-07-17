@@ -94,6 +94,8 @@ public interface HMSCachedClient {
 
     void dropTable(String dbName, String tableName);
 
+    void truncateTable(String dbName, String tblName, List<String> partitions);
+
     void createTable(TableMetadata catalogTable, boolean ignoreIfExists);
 
     void updateTableStatistics(
@@ -110,4 +112,9 @@ public interface HMSCachedClient {
     void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions);
 
     void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData);
+
+    /**
+     * close the connection, eg, to hms
+     */
+    void close();
 }

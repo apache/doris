@@ -70,6 +70,12 @@ public:
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;
 
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
+                                              int* num_deserialized,
+                                              const FormatOptions& options) const override;
+
+    void insert_column_last_value_multiple_times(IColumn& column, int times) const override;
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
@@ -86,23 +92,25 @@ public:
                                 int end, const cctz::time_zone& ctz) const override;
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override;
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override;
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int start, int end,
                                std::vector<StringRef>& buffer_list) const override;
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator,
+                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
                                   int row_num) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const) const;
+                                  int row_idx, bool col_const, const FormatOptions& options) const;
 };
 
 template <typename T>
@@ -295,7 +303,7 @@ template <typename T>
 Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
                                                       rapidjson::Value& result,
                                                       rapidjson::Document::AllocatorType& allocator,
-                                                      int row_num) const {
+                                                      Arena& mem_pool, int row_num) const {
     const auto& data = reinterpret_cast<const ColumnType&>(column).get_data();
     if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> || std::is_same_v<T, Int32>) {
         result.SetInt(data[row_num]);

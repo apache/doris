@@ -591,9 +591,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 // for create view stmt expand star
                 List<Slot> slotsForLambda = slots;
                 UnboundStar unboundStar = (UnboundStar) expression;
-                unboundStar.getIndexInSqlString().ifPresent(pair ->
-                        statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda))
-                );
+                unboundStar.getIndexInSqlString().ifPresent(pair -> {
+                    statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda));
+                });
             }
         }
         return project.withProjects(boundProjections.build());
@@ -740,16 +740,25 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private Plan bindSortWithoutSetOperation(MatchingContext<LogicalSort<Plan>> ctx) {
+        CascadesContext cascadesContext = ctx.cascadesContext;
         LogicalSort<Plan> sort = ctx.root;
         Plan input = sort.child();
-
         List<Slot> childOutput = input.getOutput();
 
+        // we should skip distinct project to bind slot in LogicalSort;
+        // check input.child(0) to avoid process SELECT DISTINCT a FROM t ORDER BY b by mistake
+        // NOTICE: SELECT a FROM (SELECT sum(a) AS a FROM t GROUP BY b) v ORDER BY b will not raise error result
+        //   because input.child(0) is LogicalSubqueryAlias
+        if (input instanceof LogicalProject && ((LogicalProject<?>) input).isDistinct()
+                && (input.child(0) instanceof LogicalHaving
+                || input.child(0) instanceof LogicalAggregate
+                || input.child(0) instanceof LogicalRepeat)) {
+            input = input.child(0);
+        }
         // we should skip LogicalHaving to bind slot in LogicalSort;
         if (input instanceof LogicalHaving) {
             input = input.child(0);
         }
-        CascadesContext cascadesContext = ctx.cascadesContext;
 
         // 1. We should deduplicate the slots, otherwise the binding process will fail due to the
         //    ambiguous slots exist.

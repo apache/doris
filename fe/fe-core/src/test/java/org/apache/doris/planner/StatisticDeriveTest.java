@@ -31,6 +31,7 @@ public class StatisticDeriveTest extends TestWithFeService {
         Config.enable_odbc_mysql_broker_table = true;
         // create database
         createDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
 
         createTable(
                 "CREATE TABLE test.join1 (\n"

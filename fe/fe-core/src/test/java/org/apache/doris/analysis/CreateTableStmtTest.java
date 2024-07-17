@@ -77,6 +77,8 @@ public class CreateTableStmtTest {
      **/
     @Before
     public void setUp() {
+        MockedAuth.mockedAccess(accessManager);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         // analyzer
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         // table name
@@ -98,9 +100,6 @@ public class CreateTableStmtTest {
         invalidColsName.add("col1");
         invalidColsName.add("col2");
         invalidColsName.add("col2");
-
-        MockedAuth.mockedAccess(accessManager);
-        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
     @Test
@@ -400,8 +399,8 @@ public class CreateTableStmtTest {
     @Test
     public void testToSql() {
         List<ColumnDef> columnDefs = new ArrayList<>();
-        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT), false));
-        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT), false));
+        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT)));
         String engineName = "olap";
         ArrayList<String> aggKeys = Lists.newArrayList("a");
         KeysDesc keysDesc = new KeysDesc(KeysType.AGG_KEYS, aggKeys);
@@ -426,12 +425,12 @@ public class CreateTableStmtTest {
         Assert.assertEquals(createTableStmt.toSql(), createTableSql);
 
 
-        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), true));
-        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), true));
-        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128), false));
-        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE), false));
-        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT), false));
-        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN), false));
+        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), ColumnNullableType.NULLABLE));
+        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128)));
+        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE)));
+        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT)));
+        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN)));
 
         aggKeys = Lists.newArrayList("a", "d", "f");
         keysDesc = new KeysDesc(KeysType.DUP_KEYS, aggKeys);
@@ -464,8 +463,8 @@ public class CreateTableStmtTest {
     @Test
     public void testToSqlWithComment() {
         List<ColumnDef> columnDefs = new ArrayList<>();
-        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT), false));
-        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT), false));
+        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT)));
+        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT)));
         String engineName = "olap";
         ArrayList<String> aggKeys = Lists.newArrayList("a");
         KeysDesc keysDesc = new KeysDesc(KeysType.AGG_KEYS, aggKeys);
@@ -489,12 +488,12 @@ public class CreateTableStmtTest {
         Assert.assertEquals(createTableStmt.toSql(), createTableSql);
 
 
-        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), true));
-        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), true));
-        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128), false));
-        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE), false));
-        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT), false));
-        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN), false));
+        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), ColumnNullableType.NULLABLE));
+        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128)));
+        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE)));
+        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT)));
+        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN)));
         aggKeys = Lists.newArrayList("a", "d", "f");
         keysDesc = new KeysDesc(KeysType.DUP_KEYS, aggKeys);
         properties = new HashMap<String, String>() {

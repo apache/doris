@@ -108,7 +108,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                                    io::IOContext* io_ctx,
                                    std::unique_ptr<ParquetColumnReader>& reader,
-                                   size_t max_buf_size) {
+                                   size_t max_buf_size, const tparquet::OffsetIndex* offset_index) {
     if (field->type.type == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
@@ -144,7 +144,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         reader.reset(struct_reader.release());
     } else {
         const tparquet::ColumnChunk& chunk = row_group.columns[field->physical_column_index];
-        auto scalar_reader = ScalarColumnReader::create_unique(row_ranges, chunk, ctz, io_ctx);
+        auto scalar_reader =
+                ScalarColumnReader::create_unique(row_ranges, chunk, offset_index, ctz, io_ctx);
         RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
         reader.reset(scalar_reader.release());
     }
@@ -190,7 +191,7 @@ Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, siz
     _stream_reader = std::make_unique<io::BufferedFileStreamReader>(file, chunk_start, chunk_len,
                                                                     prefetch_buffer_size);
     _chunk_reader = std::make_unique<ColumnChunkReader>(_stream_reader.get(), &_chunk_meta, field,
-                                                        _ctz, _io_ctx);
+                                                        _offset_index, _ctz, _io_ctx);
     RETURN_IF_ERROR(_chunk_reader->init());
     return Status::OK();
 }
@@ -593,7 +594,9 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
         data_column = doris_column->assume_mutable();
     }
     if (remove_nullable(type)->get_type_id() != TypeIndex::Array) {
-        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
+        return Status::Corruption(
+                "Wrong data type for column '{}', expected Array type, actual type id {}.",
+                _field_schema->name, remove_nullable(type)->get_type_id());
     }
 
     ColumnPtr& element_column = static_cast<ColumnArray&>(*data_column).get_data_ptr();
@@ -642,7 +645,9 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
         data_column = doris_column->assume_mutable();
     }
     if (remove_nullable(type)->get_type_id() != TypeIndex::Map) {
-        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
+        return Status::Corruption(
+                "Wrong data type for column '{}', expected Map type, actual type id {}.",
+                _field_schema->name, remove_nullable(type)->get_type_id());
     }
 
     auto& map = static_cast<ColumnMap&>(*data_column);
@@ -709,7 +714,9 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         data_column = doris_column->assume_mutable();
     }
     if (remove_nullable(type)->get_type_id() != TypeIndex::Struct) {
-        return Status::Corruption("Wrong data type for column '{}'", _field_schema->name);
+        return Status::Corruption(
+                "Wrong data type for column '{}', expected Struct type, actual type id {}.",
+                _field_schema->name, remove_nullable(type)->get_type_id());
     }
 
     auto& doris_struct = static_cast<ColumnStruct&>(*data_column);

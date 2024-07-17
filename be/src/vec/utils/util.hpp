@@ -184,7 +184,7 @@ inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) 
     size_t rows = column->size();
     if (is_column_const(*column)) {
         change_null_to_true(assert_cast<const ColumnConst*>(column.get())->get_data_column_ptr());
-    } else if (column->is_nullable()) {
+    } else if (column->has_null()) {
         auto* nullable =
                 const_cast<ColumnNullable*>(assert_cast<const ColumnNullable*>(column.get()));
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
@@ -195,7 +195,7 @@ inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) 
             data[i] |= null_map[i];
         }
         memset(null_map, 0, rows);
-    } else if (argument != nullptr) {
+    } else if (argument != nullptr && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
         auto* __restrict data =

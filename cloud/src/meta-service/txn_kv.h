@@ -20,7 +20,6 @@
 #include <foundationdb/fdb_c.h>
 #include <foundationdb/fdb_c_options.g.h>
 
-#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,6 +38,49 @@ namespace doris::cloud {
 
 class Transaction;
 class RangeGetIterator;
+class TxnKv;
+
+/**
+ * Unlike `RangeGetIterator`, which can only iterate within a page of range, this iterator is
+ * capable of iterating over the entire specified range.
+ *
+ * Usage:
+ * for (auto kvp = it.next(); kvp.has_value(); kvp = it.next()) {
+ *     auto [k, v] = *kvp;
+ * }
+ * if (!it.is_valid()) {
+ *     return err;
+ * }
+ */
+struct FullRangeGetIteratorOptions {
+    std::shared_ptr<TxnKv> txn_kv;
+    // Trigger prefetch getting next batch kvs before access them
+    bool prefetch = false;
+    bool snapshot = false;
+    // If non-zero, indicates the maximum number of key-value pairs to return (not effective in memkv)
+    int limit = 0;
+    // Reference. If not null, each inner range get is performed through this transaction; otherwise
+    // perform each inner range get through a new transaction.
+    Transaction* txn = nullptr;
+    // If users want to extend the lifespan of the kv pair returned by `next()`, they can pass an
+    // object pool to collect the inner iterators that have completed iterated.
+    std::vector<std::unique_ptr<RangeGetIterator>>* obj_pool = nullptr;
+
+    FullRangeGetIteratorOptions(std::shared_ptr<TxnKv> _txn_kv) : txn_kv(std::move(_txn_kv)) {}
+};
+
+class FullRangeGetIterator {
+public:
+    FullRangeGetIterator() = default;
+
+    virtual ~FullRangeGetIterator() = default;
+
+    virtual bool is_valid() = 0;
+
+    virtual bool has_next() = 0;
+
+    virtual std::optional<std::pair<std::string_view, std::string_view>> next() = 0;
+};
 
 class TxnKv {
 public:
@@ -55,6 +97,9 @@ public:
     virtual TxnErrorCode create_txn(std::unique_ptr<Transaction>* txn) = 0;
 
     virtual int init() = 0;
+
+    virtual std::unique_ptr<FullRangeGetIterator> full_range_get(
+            std::string begin, std::string end, FullRangeGetIteratorOptions opts) = 0;
 };
 
 class Transaction {
@@ -101,12 +146,23 @@ public:
     virtual void atomic_set_ver_value(std::string_view key, std::string_view val) = 0;
 
     /**
-     * Adds a value to database
+     * Adds a value to database.
+     *
+     * The default value is zero if no such key exists before.
+     *
      * @param to_add positive for addition, negative for substraction
      * @return 0 for success otherwise error
      */
     virtual void atomic_add(std::string_view key, int64_t to_add) = 0;
     // TODO: min max or and xor cmp_and_clear set_ver_value
+
+    /**
+     * Decode the atomic value written by `atomic_add`.
+     *
+     * @param data the data to decode
+     * @return true for success, otherwise the data format is invalid.
+     */
+    virtual bool decode_atomic_int(std::string_view data, int64_t* val) = 0;
 
     virtual void remove(std::string_view key) = 0;
 
@@ -171,6 +227,31 @@ public:
     virtual TxnErrorCode batch_get(std::vector<std::optional<std::string>>* res,
                                    const std::vector<std::string>& keys,
                                    const BatchGetOptions& opts = BatchGetOptions()) = 0;
+
+    /**
+     * @brief return the approximate bytes consumed by the underlying transaction buffer.
+     **/
+    virtual size_t approximate_bytes() const = 0;
+
+    /**
+     * @brief return the num delete keys submitted to this txn.
+     **/
+    virtual size_t num_del_keys() const = 0;
+
+    /**
+     * @brief return the num put keys submitted to this txn.
+     **/
+    virtual size_t num_put_keys() const = 0;
+
+    /**
+     * @brief return the bytes of the delete keys consumed.
+     **/
+    virtual size_t delete_bytes() const = 0;
+
+    /**
+     * @brief return the bytes of the put key and values consumed.
+     **/
+    virtual size_t put_bytes() const = 0;
 };
 
 class RangeGetIterator {
@@ -244,6 +325,9 @@ public:
     TxnErrorCode create_txn(std::unique_ptr<Transaction>* txn) override;
 
     int init() override;
+
+    std::unique_ptr<FullRangeGetIterator> full_range_get(std::string begin, std::string end,
+                                                         FullRangeGetIteratorOptions opts) override;
 
 private:
     std::shared_ptr<fdb::Network> network_;
@@ -381,6 +465,8 @@ private:
 class Transaction : public cloud::Transaction {
 public:
     friend class Database;
+    friend class FullRangeGetIterator;
+
     Transaction(std::shared_ptr<Database> db) : db_(std::move(db)) {}
 
     ~Transaction() override {
@@ -438,6 +524,8 @@ public:
     void atomic_add(std::string_view key, int64_t to_add) override;
     // TODO: min max or and xor cmp_and_clear set_ver_value
 
+    bool decode_atomic_int(std::string_view data, int64_t* val) override;
+
     void remove(std::string_view key) override;
 
     /**
@@ -460,11 +548,63 @@ public:
                            const std::vector<std::string>& keys,
                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
+    size_t approximate_bytes() const override { return approximate_bytes_; }
+
+    size_t num_del_keys() const override { return num_del_keys_; }
+
+    size_t num_put_keys() const override { return num_put_keys_; }
+
+    size_t delete_bytes() const override { return delete_bytes_; }
+
+    size_t put_bytes() const override { return put_bytes_; }
+
 private:
     std::shared_ptr<Database> db_ {nullptr};
     bool commited_ = false;
     bool aborted_ = false;
     FDBTransaction* txn_ = nullptr;
+
+    size_t num_del_keys_ {0};
+    size_t num_put_keys_ {0};
+    size_t delete_bytes_ {0};
+    size_t put_bytes_ {0};
+    size_t approximate_bytes_ {0};
+};
+
+class FullRangeGetIterator final : public cloud::FullRangeGetIterator {
+public:
+    FullRangeGetIterator(std::string begin, std::string end, FullRangeGetIteratorOptions opts);
+
+    ~FullRangeGetIterator() override;
+
+    bool is_valid() override { return is_valid_; }
+
+    bool has_next() override;
+
+    std::optional<std::pair<std::string_view, std::string_view>> next() override;
+
+private:
+    // Set `is_valid_` to false if meet any error
+    void init();
+
+    // Await `fut_` and create new inner iter.
+    // Set `is_valid_` to false if meet any error
+    void await_future();
+
+    // Perform a paginate range get asynchronously and set `fut_`.
+    // Set `is_valid_` to false if meet any error
+    void async_inner_get(std::string_view begin);
+
+    bool prefetch();
+
+    FullRangeGetIteratorOptions opts_;
+
+    bool is_valid_ = true;
+    std::string begin_;
+    std::string end_;
+    std::unique_ptr<Transaction> txn_;
+    std::unique_ptr<RangeGetIterator> inner_iter_;
+    FDBFuture* fut_ = nullptr;
 };
 
 } // namespace fdb

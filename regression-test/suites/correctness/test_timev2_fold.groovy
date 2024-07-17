@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_timev2_fold") {
-    sql """ set enable_nereids_planner=false,enable_fold_constant_by_be=false """
+    sql """ set enable_fold_constant_by_be=false """
     qt_select1 """
         select timediff( convert_tz("2020-05-05 00:00:00", 'UTC', 'America/Los_Angeles'), "2020-05-05 00:00:00");
     """
@@ -24,7 +24,7 @@ suite("test_timev2_fold") {
     qt_select2 """
         select timediff( convert_tz("2020-05-05 00:00:00", 'UTC', 'America/Los_Angeles'), "2020-05-05 00:00:00");
     """
-    sql """ set enable_nereids_planner=false,enable_fold_constant_by_be=true """
+    sql """ set enable_fold_constant_by_be=true """
     qt_select3 """
         select timediff( convert_tz("2020-05-05 00:00:00", 'UTC', 'America/Los_Angeles'), "2020-05-05 00:00:00");
     """

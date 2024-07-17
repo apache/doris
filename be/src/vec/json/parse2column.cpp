@@ -143,41 +143,43 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     }
     if (!result) {
         VLOG_DEBUG << "failed to parse " << std::string_view(src, length) << ", length= " << length;
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
-                               std::string_view(src, length));
+        if (config::variant_throw_exeception_on_invalid_json) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
+                                   std::string_view(src, length));
+        }
+        // Treat as string
+        PathInData root_path;
+        Field field(src, length);
+        result = ParseResult {{root_path}, {field}};
     }
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
-    phmap::flat_hash_set<std::string> paths_set;
-    size_t num_rows = column_object.size();
+    size_t old_num_rows = column_object.size();
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
         get_field_info(values[i], &field_info);
-        if (is_nothing(field_info.scalar_type)) {
+        if (WhichDataType(field_info.scalar_type_id).is_nothing()) {
             continue;
         }
-        if (!paths_set.insert(paths[i].get_path()).second) {
-            // return Status::DataQualityError(
-            //         fmt::format("Object has ambiguous path {}, {}", paths[i].get_path()));
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Object has ambiguous path {}",
-                                   paths[i].get_path());
+        if (column_object.get_subcolumn(paths[i], i) == nullptr) {
+            column_object.add_sub_column(paths[i], old_num_rows);
         }
-
-        if (!column_object.has_subcolumn(paths[i])) {
-            column_object.add_sub_column(paths[i], num_rows);
-        }
-        auto* subcolumn = column_object.get_subcolumn(paths[i]);
+        auto* subcolumn = column_object.get_subcolumn(paths[i], i);
         if (!subcolumn) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
                                    paths[i].get_path());
         }
-        assert(subcolumn->size() == num_rows);
+        if (subcolumn->size() != old_num_rows) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "subcolumn {} size missmatched, may contains duplicated entry",
+                                   paths[i].get_path());
+        }
         subcolumn->insert(std::move(values[i]), std::move(field_info));
     }
     // /// Insert default values to missed subcolumns.
     const auto& subcolumns = column_object.get_subcolumns();
     for (const auto& entry : subcolumns) {
-        if (!paths_set.contains(entry->path.get_path())) {
+        if (entry->data.size() == old_num_rows) {
             entry->data.insertDefault();
         }
     }

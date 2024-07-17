@@ -21,6 +21,14 @@ package org.apache.doris.common;
  * LDAP configuration
  */
 public class LdapConfig extends ConfigBase {
+
+    /**
+     * Flag to enable LDAP authentication.
+     */
+    @Deprecated
+    @ConfigBase.ConfField
+    public static boolean ldap_authentication_enabled = false;
+
     /**
      * LDAP server ip.
      */

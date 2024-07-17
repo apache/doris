@@ -21,6 +21,7 @@
 #include "vec/columns/column_object.h"
 
 #include <assert.h>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
@@ -34,6 +35,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -45,16 +47,19 @@
 #include "util/defer_op.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/field_visitors.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -67,6 +72,7 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/get_least_supertype.h"
+#include "vec/json/path_in_data.h"
 
 #ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
@@ -77,23 +83,22 @@
 namespace doris::vectorized {
 namespace {
 
-DataTypePtr create_array_of_type(DataTypePtr type, size_t num_dimensions, bool is_nullable) {
-    const DataTypeNullable* nullable = typeid_cast<const DataTypeNullable*>(type.get());
-    if ((nullable &&
-         typeid_cast<const ColumnObject::MostCommonType*>(nullable->get_nested_type().get())) ||
-        typeid_cast<const ColumnObject::MostCommonType*>(type.get())) {
+DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
+    if (type == ColumnObject::MOST_COMMON_TYPE_ID) {
         // JSONB type MUST NOT wrapped in ARRAY column, it should be top level.
         // So we ignored num_dimensions.
-        return type;
+        return is_nullable ? make_nullable(std::make_shared<ColumnObject::MostCommonType>())
+                           : std::make_shared<ColumnObject::MostCommonType>();
     }
+    DataTypePtr result = DataTypeFactory::instance().create_data_type(type, is_nullable);
     for (size_t i = 0; i < num_dimensions; ++i) {
-        type = std::make_shared<DataTypeArray>(std::move(type));
+        result = std::make_shared<DataTypeArray>(result);
         if (is_nullable) {
             // wrap array with nullable
-            type = make_nullable(type);
+            result = make_nullable(result);
         }
     }
-    return type;
+    return result;
 }
 
 DataTypePtr get_base_type_of_array(const DataTypePtr& type) {
@@ -146,6 +151,63 @@ public:
     size_t operator()(const T&) const {
         return 0;
     }
+};
+
+// Visitor that allows to get type of scalar field
+// but exclude fields contain complex field.This is a faster version
+// for FieldVisitorToScalarType which does not support complex field.
+class SimpleFieldVisitorToScalarType : public StaticVisitor<size_t> {
+public:
+    size_t operator()(const Array& x) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Array type is not supported");
+    }
+    size_t operator()(const UInt64& x) {
+        if (x <= std::numeric_limits<Int8>::max()) {
+            type = TypeIndex::Int8;
+        } else if (x <= std::numeric_limits<Int16>::max()) {
+            type = TypeIndex::Int16;
+        } else if (x <= std::numeric_limits<Int32>::max()) {
+            type = TypeIndex::Int32;
+        } else {
+            type = TypeIndex::Int64;
+        }
+        return 1;
+    }
+    size_t operator()(const Int64& x) {
+        if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
+            type = TypeIndex::Int8;
+        } else if (x <= std::numeric_limits<Int16>::max() &&
+                   x >= std::numeric_limits<Int16>::min()) {
+            type = TypeIndex::Int16;
+        } else if (x <= std::numeric_limits<Int32>::max() &&
+                   x >= std::numeric_limits<Int32>::min()) {
+            type = TypeIndex::Int32;
+        } else {
+            type = TypeIndex::Int64;
+        }
+        return 1;
+    }
+    size_t operator()(const JsonbField& x) {
+        type = TypeIndex::JSONB;
+        return 1;
+    }
+    size_t operator()(const Null&) {
+        have_nulls = true;
+        return 1;
+    }
+    template <typename T>
+    size_t operator()(const T&) {
+        type = TypeId<NearestFieldType<T>>::value;
+        return 1;
+    }
+    void get_scalar_type(TypeIndex* data_type) const { *data_type = type; }
+    bool contain_nulls() const { return have_nulls; }
+
+    bool need_convert_field() const { return false; }
+
+private:
+    TypeIndex type = TypeIndex::Nothing;
+    bool have_nulls = false;
 };
 
 /// Visitor that allows to get type of scalar field
@@ -207,8 +269,10 @@ public:
         type_indexes.insert(TypeId<NearestFieldType<T>>::value);
         return 0;
     }
-    void get_scalar_type(DataTypePtr* type) const {
-        get_least_supertype<LeastSupertypeOnError::Jsonb>(type_indexes, type);
+    void get_scalar_type(TypeIndex* type) const {
+        DataTypePtr data_type;
+        get_least_supertype_jsonb(type_indexes, &data_type);
+        *type = data_type->get_type_id();
     }
     bool contain_nulls() const { return have_nulls; }
     bool need_convert_field() const { return field_types.size() > 1; }
@@ -220,18 +284,28 @@ private:
 };
 
 } // namespace
-void get_field_info(const Field& field, FieldInfo* info) {
-    FieldVisitorToScalarType to_scalar_type_visitor;
+
+template <typename Visitor>
+void get_field_info_impl(const Field& field, FieldInfo* info) {
+    Visitor to_scalar_type_visitor;
     apply_visitor(to_scalar_type_visitor, field);
-    DataTypePtr type = nullptr;
-    to_scalar_type_visitor.get_scalar_type(&type);
+    TypeIndex type_id;
+    to_scalar_type_visitor.get_scalar_type(&type_id);
     // array item's dimension may missmatch, eg. [1, 2, [1, 2, 3]]
     *info = {
-            type,
+            type_id,
             to_scalar_type_visitor.contain_nulls(),
             to_scalar_type_visitor.need_convert_field(),
             apply_visitor(FieldVisitorToNumberOfDimensions(), field),
     };
+}
+
+void get_field_info(const Field& field, FieldInfo* info) {
+    if (field.is_complex_field()) {
+        get_field_info_impl<FieldVisitorToScalarType>(field, info);
+    } else {
+        get_field_info_impl<SimpleFieldVisitorToScalarType>(field, info);
+    }
 }
 
 ColumnObject::Subcolumn::Subcolumn(MutableColumnPtr&& data_, DataTypePtr type, bool is_nullable_,
@@ -284,8 +358,8 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
 }
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
-    auto base_type = std::move(info.scalar_type);
-    if (is_nothing(base_type)) {
+    auto base_type = WhichDataType(info.scalar_type_id);
+    if (base_type.is_nothing()) {
         insertDefault();
         return;
     }
@@ -294,7 +368,7 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     if (is_nothing(least_common_type.get_base())) {
         column_dim = value_dim;
     }
-    if (is_nothing(base_type)) {
+    if (base_type.is_nothing()) {
         value_dim = column_dim;
     }
     bool type_changed = false;
@@ -304,29 +378,30 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
                 "Dimension of types mismatched between inserted value and column, "
                 "expected:{}, but meet:{} for type:{}",
                 column_dim, value_dim, least_common_type.get()->get_name());
-        base_type = std::make_shared<MostCommonType>();
+        base_type = MOST_COMMON_TYPE_ID;
         value_dim = 0;
         type_changed = true;
     }
-    if (is_nullable && !is_nothing(base_type)) {
-        base_type = make_nullable(base_type);
-    }
-
-    const auto& least_common_base_type = least_common_type.get_base();
     if (data.empty()) {
-        add_new_column_part(create_array_of_type(std::move(base_type), value_dim, is_nullable));
-    } else if (!least_common_base_type->equals(*base_type) && !is_nothing(base_type)) {
-        if (!schema_util::is_conversion_required_between_integers(*base_type,
-                                                                  *least_common_base_type)) {
-            get_least_supertype<LeastSupertypeOnError::Jsonb>(
-                    DataTypes {std::move(base_type), least_common_base_type}, &base_type);
+        add_new_column_part(create_array_of_type(base_type.idx, value_dim, is_nullable));
+    } else if (least_common_type.get_type_id() != base_type.idx && !base_type.is_nothing()) {
+        if (schema_util::is_conversion_required_between_integers(base_type.idx,
+                                                                 least_common_type.get_type_id())) {
+            LOG_EVERY_N(INFO, 100) << "Conversion between " << getTypeName(base_type.idx) << " and "
+                                   << getTypeName(least_common_type.get_type_id());
+            DataTypePtr base_data_type;
+            TypeIndex base_data_type_id;
+            get_least_supertype_jsonb(
+                    TypeIndexSet {base_type.idx, least_common_type.get_base_type_id()},
+                    &base_data_type);
             type_changed = true;
+            base_data_type_id = base_data_type->get_type_id();
             if (is_nullable) {
-                base_type = make_nullable(base_type);
+                base_data_type = make_nullable(base_data_type);
             }
-            if (!least_common_base_type->equals(*base_type)) {
+            if (!least_common_type.get_base()->equals(*base_data_type)) {
                 add_new_column_part(
-                        create_array_of_type(std::move(base_type), value_dim, is_nullable));
+                        create_array_of_type(base_data_type_id, value_dim, is_nullable));
             }
         }
     }
@@ -348,9 +423,8 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
         add_new_column_part(src.get_least_common_type());
     } else if (!least_common_type.get()->equals(*src.get_least_common_type())) {
         DataTypePtr new_least_common_type;
-        get_least_supertype<LeastSupertypeOnError::Jsonb>(
-                DataTypes {least_common_type.get(), src.get_least_common_type()},
-                &new_least_common_type);
+        get_least_supertype_jsonb(DataTypes {least_common_type.get(), src.get_least_common_type()},
+                                  &new_least_common_type);
         if (!new_least_common_type->equals(*least_common_type.get())) {
             add_new_column_part(std::move(new_least_common_type));
         }
@@ -377,8 +451,7 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
             Status st = schema_util::cast_column({column, column_type, ""}, least_common_type.get(),
                                                  &casted_column);
             if (!st.ok()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       st.to_string() + ", real_code:{}", st.code());
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
             }
             data.back()->insert_range_from(*casted_column, from, n);
             return;
@@ -387,8 +460,7 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
         Status st = schema_util::cast_column({casted_column, column_type, ""},
                                              least_common_type.get(), &casted_column);
         if (!st.ok()) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string() + ", real_code:{}",
-                                   st.code());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
         }
         data.back()->insert_range_from(*casted_column, 0, n);
     };
@@ -439,10 +511,6 @@ MutableColumnPtr ColumnObject::apply_for_subcolumns(Func&& func) const {
     }
     return res;
 }
-ColumnPtr ColumnObject::index(const IColumn& indexes, size_t limit) const {
-    return apply_for_subcolumns(
-            [&](const auto& subcolumn) { return subcolumn.index(indexes, limit); });
-}
 
 bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
     if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
@@ -485,8 +553,7 @@ void ColumnObject::Subcolumn::finalize() {
             ColumnPtr ptr;
             Status st = schema_util::cast_column({part, from_type, ""}, to_type, &ptr);
             if (!st.ok()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       st.to_string() + ", real_code:{}", st.code());
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT, st.to_string());
             }
             part = ptr->convert_to_full_column_if_const();
         }
@@ -577,6 +644,14 @@ ColumnObject::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_)
     if (!WhichDataType(type).is_nothing()) {
         least_common_type_serder = type->get_serde();
     }
+    type_id = type->is_nullable() ? assert_cast<const DataTypeNullable*>(type.get())
+                                            ->get_nested_type()
+                                            ->get_type_id()
+                                  : type->get_type_id();
+    base_type_id = base_type->is_nullable() ? assert_cast<const DataTypeNullable*>(base_type.get())
+                                                      ->get_nested_type()
+                                                      ->get_type_id()
+                                            : base_type->get_type_id();
 }
 
 ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
@@ -604,8 +679,6 @@ void ColumnObject::check_consistency() const {
     }
     for (const auto& leaf : subcolumns) {
         if (num_rows != leaf->data.size()) {
-            // LOG(FATAL) << "unmatched column:" << leaf->path.get_path()
-            //            << ", expeted rows:" << num_rows << ", but meet:" << leaf->data.size();
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "unmatched column: {}, expeted rows: {}, but meet: {}",
                                    leaf->path.get_path(), num_rows, leaf->data.size());
@@ -668,22 +741,27 @@ void ColumnObject::insert_from(const IColumn& src, size_t n) {
 void ColumnObject::try_insert(const Field& field) {
     if (field.get_type() != Field::Types::VariantMap) {
         auto* root = get_subcolumn({});
-        if (!root) {
-            doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Failed to find root column_path");
+        // Insert to an emtpy ColumnObject may result root null,
+        // so create a root column of Variant is expected.
+        if (root == nullptr) {
+            bool succ = add_sub_column({}, num_rows);
+            if (!succ) {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Failed to add root sub column {}");
+            }
+            root = get_subcolumn({});
         }
         root->insert(field);
         ++num_rows;
         return;
     }
     const auto& object = field.get<const VariantMap&>();
-    phmap::flat_hash_set<std::string> inserted;
     size_t old_size = size();
     for (const auto& [key_str, value] : object) {
         PathInData key;
         if (!key_str.empty()) {
             key = PathInData(key_str);
         }
-        inserted.insert(key_str);
         if (!has_subcolumn(key)) {
             bool succ = add_sub_column(key, old_size);
             if (!succ) {
@@ -699,7 +777,7 @@ void ColumnObject::try_insert(const Field& field) {
         subcolumn->insert(value);
     }
     for (auto& entry : subcolumns) {
-        if (!inserted.contains(entry->path.get_path())) {
+        if (old_size == entry->data.size()) {
             entry->data.insertDefault();
         }
     }
@@ -713,26 +791,61 @@ void ColumnObject::insert_default() {
     ++num_rows;
 }
 
-Field ColumnObject::operator[](size_t n) const {
-    if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
-    }
-    VariantMap map;
-    for (const auto& entry : subcolumns) {
-        if (WhichDataType(remove_nullable(entry->data.data_types.back())).is_json()) {
+void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
+    if (is_finalized()) {
+        if (least_common_type.get_base_type_id() == TypeIndex::JSONB) {
             // JsonbFiled is special case
-            Field f = JsonbField();
-            (*entry->data.data.back()).get(n, f);
-            map[entry->path.get_path()] = std::move(f);
-            continue;
+            res = JsonbField();
         }
-        map[entry->path.get_path()] = (*entry->data.data.back())[n];
+        get_finalized_column().get(n, res);
+        return;
     }
-    return map;
+
+    size_t ind = n;
+    if (ind < num_of_defaults_in_prefix) {
+        if (least_common_type.get_base_type_id() == TypeIndex::Nothing) {
+            res = Null();
+            return;
+        }
+        res = least_common_type.get()->get_default();
+        return;
+    }
+
+    ind -= num_of_defaults_in_prefix;
+    for (size_t i = 0; i < data.size(); ++i) {
+        const auto& part = data[i];
+        const auto& part_type = data_types[i];
+        if (ind < part->size()) {
+            res = vectorized::remove_nullable(part_type)->get_default();
+            part->get(ind, res);
+            Field new_field;
+            convert_field_to_type(res, *least_common_type.get(), &new_field);
+            res = new_field;
+            return;
+        }
+
+        ind -= part->size();
+    }
+
+    throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
+                           n);
+}
+
+Field ColumnObject::operator[](size_t n) const {
+    Field object;
+    get(n, object);
+    return object;
 }
 
 void ColumnObject::get(size_t n, Field& res) const {
-    res = (*this)[n];
+    assert(n < size());
+    res = VariantMap();
+    auto& object = res.get<VariantMap&>();
+
+    for (const auto& entry : subcolumns) {
+        auto it = object.try_emplace(entry->path.get_path()).first;
+        entry->data.get(n, it->second);
+    }
 }
 
 Status ColumnObject::try_insert_indices_from(const IColumn& src, const int* indices_begin,
@@ -746,16 +859,6 @@ Status ColumnObject::try_insert_indices_from(const IColumn& src, const int* indi
     }
     finalize();
     return Status::OK();
-}
-
-FieldInfo ColumnObject::Subcolumn::get_subcolumn_field_info() const {
-    const auto& base_type = least_common_type.get_base();
-    return FieldInfo {
-            .scalar_type = base_type,
-            .have_nulls = base_type->is_nullable(),
-            .need_convert = false,
-            .num_dimensions = least_common_type.get_dimensions(),
-    };
 }
 
 void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t length) {
@@ -806,6 +909,33 @@ const ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key
         return nullptr;
     }
     return &node->data;
+}
+
+const ColumnObject::Subcolumn* ColumnObject::get_subcolumn_with_cache(const PathInData& key,
+                                                                      size_t key_index) const {
+    // Optimization by caching the order of fields (which is almost always the same)
+    // and a quick check to match the next expected field, instead of searching the hash table.
+    if (_prev_positions.size() > key_index && _prev_positions[key_index].second != nullptr &&
+        key == _prev_positions[key_index].first) {
+        return _prev_positions[key_index].second;
+    }
+    const auto* subcolumn = get_subcolumn(key);
+    if (key_index >= _prev_positions.size()) {
+        _prev_positions.resize(key_index + 1);
+    }
+    if (subcolumn != nullptr) {
+        _prev_positions[key_index] = std::make_pair(key, subcolumn);
+    }
+    return subcolumn;
+}
+
+ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key, size_t key_index) {
+    return const_cast<ColumnObject::Subcolumn*>(get_subcolumn_with_cache(key, key_index));
+}
+
+const ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key,
+                                                           size_t key_index) const {
+    return get_subcolumn_with_cache(key, key_index);
 }
 
 ColumnObject::Subcolumn* ColumnObject::get_subcolumn(const PathInData& key) {
@@ -921,7 +1051,7 @@ void ColumnObject::Subcolumn::wrapp_array_nullable() {
         auto new_null_map = ColumnUInt8::create();
         new_null_map->reserve(result_column->size());
         auto& null_map_data = new_null_map->get_data();
-        auto array = static_cast<const ColumnArray*>(result_column.get());
+        const auto* array = static_cast<const ColumnArray*>(result_column.get());
         for (size_t i = 0; i < array->size(); ++i) {
             null_map_data.push_back(array->is_default_at(i));
         }
@@ -956,7 +1086,8 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
 Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                                 const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
                                 rapidjson::Value& root,
-                                rapidjson::Document::AllocatorType& allocator, int row) {
+                                rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
+                                int row) {
     // sanitize type and column
     if (column->get_name() != type->create_column()->get_name()) {
         return Status::InternalError(
@@ -977,7 +1108,7 @@ Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                      << ", root: " << std::string(buffer.GetString(), buffer.GetSize());
         return Status::NotFound("Not found path {}", path.get_path());
     }
-    RETURN_IF_ERROR(type_serde->write_one_cell_to_json(*column, *target, allocator, row));
+    RETURN_IF_ERROR(type_serde->write_one_cell_to_json(*column, *target, allocator, mem_pool, row));
     return Status::OK();
 }
 
@@ -1079,14 +1210,16 @@ Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::String
     if (!doc_structure->IsNull()) {
         root.CopyFrom(*doc_structure, doc_structure->GetAllocator());
     }
+    Arena mem_pool;
 #ifndef NDEBUG
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
     for (const auto& subcolumn : subcolumns) {
-        RETURN_IF_ERROR(find_and_set_leave_value(
-                subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
-                subcolumn->data.get_least_common_type_serde(),
-                subcolumn->data.get_least_common_type(), root, doc_structure->GetAllocator(), row));
+        RETURN_IF_ERROR(find_and_set_leave_value(subcolumn->data.get_finalized_column_ptr(),
+                                                 subcolumn->path,
+                                                 subcolumn->data.get_least_common_type_serde(),
+                                                 subcolumn->data.get_least_common_type(), root,
+                                                 doc_structure->GetAllocator(), mem_pool, row));
         if (subcolumn->path.empty() && !root.IsObject()) {
             // root was modified, only handle root node
             break;
@@ -1147,6 +1280,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
             root.CopyFrom(*doc_structure, doc_structure->GetAllocator());
         }
         size_t null_count = 0;
+        Arena mem_pool;
         for (const auto& subcolumn : sparse_columns) {
             auto& column = subcolumn->data.get_finalized_column_ptr();
             if (assert_cast<const ColumnNullable&>(*column).is_null_at(i)) {
@@ -1156,7 +1290,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
             bool succ = find_and_set_leave_value(column, subcolumn->path,
                                                  subcolumn->data.get_least_common_type_serde(),
                                                  subcolumn->data.get_least_common_type(), root,
-                                                 doc_structure->GetAllocator(), i);
+                                                 doc_structure->GetAllocator(), mem_pool, i);
             if (succ && subcolumn->path.empty() && !root.IsObject()) {
                 // root was modified, only handle root node
                 break;
@@ -1190,9 +1324,11 @@ Status ColumnObject::merge_sparse_to_root_column() {
                                        parser.getWriter().getOutput()->getSize());
         result_column_nullable->get_null_map_data().push_back(0);
     }
-
-    // assign merged column
-    subcolumns.get_mutable_root()->data.get_finalized_column_ptr() = mresult->get_ptr();
+    subcolumns.get_mutable_root()->data.get_finalized_column().clear();
+    // assign merged column, do insert_range_from to make a copy, instead of replace the ptr itselft
+    // to make sure the root column ptr is not changed
+    subcolumns.get_mutable_root()->data.get_finalized_column().insert_range_from(
+            *mresult->get_ptr(), 0, num_rows);
     return Status::OK();
 }
 
@@ -1233,6 +1369,7 @@ void ColumnObject::finalize(bool ignore_sparse) {
     }
     std::swap(subcolumns, new_subcolumns);
     doc_structure = nullptr;
+    _prev_positions.clear();
 }
 
 void ColumnObject::finalize() {
@@ -1278,7 +1415,10 @@ void ColumnObject::strip_outer_array() {
 
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize();
+        auto finalized = clone_finalized();
+        auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
+        return finalized_object.apply_for_subcolumns(
+                [&](const auto& subcolumn) { return subcolumn.filter(filter, count); });
     }
     auto new_column = ColumnObject::create(true, false);
     for (auto& entry : subcolumns) {
@@ -1351,6 +1491,7 @@ void ColumnObject::clear() {
     Subcolumns empty;
     std::swap(empty, subcolumns);
     num_rows = 0;
+    _prev_positions.clear();
 }
 
 void ColumnObject::revise_to(int target_num_rows) {
@@ -1442,27 +1583,52 @@ void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indic
     }
 }
 
-void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
-    if (!is_finalized()) {
-        // finalize has no side effect and can be safely used in const functions
-        const_cast<ColumnObject*>(this)->finalize();
-    }
-    for_each_imutable_subcolumn([&](const auto& subcolumn) {
-        if (n >= subcolumn.size()) {
-            LOG(FATAL) << n << " greater than column size " << subcolumn.size()
-                       << " sub_column_info:" << subcolumn.dump_structure()
-                       << " total lines of this column " << num_rows;
-        }
-        return subcolumn.update_hash_with_value(n, hash);
-    });
-}
-
 void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) const {
+    if (!is_finalized()) {
+        auto finalized = clone_finalized();
+        auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
+        finalized_object.for_each_imutable_subcolumn(callback);
+        return;
+    }
     for (const auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
             callback(*part);
         }
     }
+}
+
+void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
+    for_each_imutable_subcolumn(
+            [&](const auto& subcolumn) { return subcolumn.update_hash_with_value(n, hash); });
+}
+
+void ColumnObject::update_hashes_with_value(uint64_t* __restrict hashes,
+                                            const uint8_t* __restrict null_data) const {
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_hashes_with_value(hashes, nullptr);
+    });
+}
+
+void ColumnObject::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                            const uint8_t* __restrict null_data) const {
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_xxHash_with_value(start, end, hash, nullptr);
+    });
+}
+
+void ColumnObject::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
+                                          const uint8_t* __restrict null_data) const {
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_crcs_with_value(hash, type, rows, offset, nullptr);
+    });
+}
+
+void ColumnObject::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                                         const uint8_t* __restrict null_data) const {
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        return subcolumn.update_crc_with_value(start, end, hash, nullptr);
+    });
 }
 
 std::string ColumnObject::debug_string() const {
@@ -1495,14 +1661,6 @@ Status ColumnObject::sanitize() const {
 
     VLOG_DEBUG << "sanitized " << debug_string();
     return Status::OK();
-}
-
-void ColumnObject::replace_column_data(const IColumn& col, size_t row, size_t self_row) {
-    LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
-}
-
-void ColumnObject::replace_column_data_default(size_t self_row) {
-    LOG(FATAL) << "Method replace_column_data_default is not supported for " << get_name();
 }
 
 } // namespace doris::vectorized

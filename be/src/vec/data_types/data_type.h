@@ -33,6 +33,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
@@ -86,6 +87,8 @@ public:
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
+
+    virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
     // only for compound type now.
     virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
 
@@ -111,11 +114,6 @@ public:
     virtual Field get_default() const = 0;
 
     virtual Field get_field(const TExprNode& node) const = 0;
-
-    /** Directly insert default value into a column. Default implementation use method IColumn::insert_default.
-      * This should be overridden if data type default value differs from column default value (example: Enum data types).
-      */
-    virtual void insert_default_into(IColumn& column) const;
 
     /// Checks that two instances belong to the same type
     virtual bool equals(const IDataType& rhs) const = 0;
@@ -410,6 +408,10 @@ inline bool is_compilable_type(const DataTypePtr& data_type) {
 inline bool is_complex_type(const DataTypePtr& data_type) {
     WhichDataType which(data_type);
     return which.is_array() || which.is_map() || which.is_struct();
+}
+
+inline bool is_variant_type(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_variant_type();
 }
 
 } // namespace vectorized

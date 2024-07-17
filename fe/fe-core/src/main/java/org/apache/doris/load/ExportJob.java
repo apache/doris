@@ -39,7 +39,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -62,6 +61,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -174,6 +174,8 @@ public class ExportJob implements Writable {
     private String withBom;
     @SerializedName("dataConsistency")
     private String dataConsistency;
+    @SerializedName("compressType")
+    private String compressType;
 
     private TableRef tableRef;
 
@@ -270,7 +272,7 @@ public class ExportJob implements Writable {
                 if (exportTable.getType() == TableType.VIEW) {
                     // view table
                     generateViewOrExternalTableOutfile(qualifiedTableName);
-                } else if (exportTable.getType() == TableType.OLAP) {
+                } else if (exportTable.isManagedTable()) {
                     // olap table
                     generateOlapTableOutfile(qualifiedTableName);
                 } else {
@@ -407,6 +409,13 @@ public class ExportJob implements Writable {
             ExportTaskExecutor executor = new ExportTaskExecutor(selectStmts, this);
             jobExecutorList.add(executor);
         }
+
+        // add empty task to make export job could be finished finally if jobExecutorList is empty
+        // which means that export table without data
+        if (jobExecutorList.isEmpty()) {
+            ExportTaskExecutor executor = new ExportTaskExecutor(Lists.newArrayList(), this);
+            jobExecutorList.add(executor);
+        }
     }
 
     /**
@@ -511,26 +520,33 @@ public class ExportJob implements Writable {
             // get partitions
             // user specifies partitions, already checked in ExportCommand
             if (!this.partitionNames.isEmpty()) {
-                this.partitionNames.forEach(partitionName -> partitions.add(table.getPartition(partitionName)));
+                this.partitionNames.forEach(partitionName -> {
+                    Partition partition = table.getPartition(partitionName);
+                    if (partition.hasData()) {
+                        partitions.add(partition);
+                    }
+                });
             } else {
-                if (table.getPartitions().size() > Config.maximum_number_of_export_partitions) {
-                    throw new UserException("The partitions number of this export job is larger than the maximum number"
-                            + " of partitions allowed by a export job");
-                }
-                partitions.addAll(table.getPartitions());
+                table.getPartitions().forEach(partition -> {
+                    if (partition.hasData()) {
+                        partitions.add(partition);
+                    }
+                });
             }
-
+            if (partitions.size() > Config.maximum_number_of_export_partitions) {
+                throw new UserException("The partitions number of this export job is larger than the maximum number"
+                        + " of partitions allowed by a export job");
+            }
             // get tablets
             for (Partition partition : partitions) {
                 // Partition data consistency is not need to verify partition version.
                 if (!isPartitionConsistency()) {
                     partitionToVersion.put(partition.getName(), partition.getVisibleVersion());
                 }
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                    List<Long> tablets = index.getTabletIdsInOrder();
-                    tabletsAllNum += tablets.size();
-                    tabletIdList.add(tablets);
-                }
+                MaterializedIndex index = partition.getBaseIndex();
+                List<Long> tablets = index.getTabletIdsInOrder();
+                tabletsAllNum += tablets.size();
+                tabletIdList.add(tablets);
             }
         } finally {
             table.readUnlock();
@@ -589,8 +605,7 @@ public class ExportJob implements Writable {
             List<Long> tabletsList = new ArrayList<>(flatTabletIdList.subList(start, start + tabletsNum));
             List<List<Long>> tablets = new ArrayList<>();
             for (int i = 0; i < tabletsList.size(); i += MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT) {
-                int end = i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT < tabletsList.size()
-                        ? i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT : tabletsList.size();
+                int end = Math.min(i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT, tabletsList.size());
                 tablets.add(new ArrayList<>(tabletsList.subList(i, end)));
             }
 
@@ -607,6 +622,12 @@ public class ExportJob implements Writable {
         if (format.equals("csv") || format.equals("csv_with_names") || format.equals("csv_with_names_and_types")) {
             outfileProperties.put(OutFileClause.PROP_COLUMN_SEPARATOR, columnSeparator);
             outfileProperties.put(OutFileClause.PROP_LINE_DELIMITER, lineDelimiter);
+        } else {
+            // orc / parquet
+            // compressType == null means outfile will use default compression type
+            if (compressType != null) {
+                outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
+            }
         }
         if (!maxFileSize.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_MAX_FILE_SIZE, maxFileSize);

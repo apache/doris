@@ -74,7 +74,9 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
         if (config::enable_java_support) {
             if (_fn.is_udtf_function) {
                 // fake function. it's no use and can't execute.
-                _function = FunctionFake<UDTFImpl>::create();
+                auto builder =
+                        std::make_shared<DefaultFunctionBuilder>(FunctionFake<UDTFImpl>::create());
+                _function = builder->build(argument_template, std::make_shared<DataTypeUInt8>());
             } else {
                 _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
             }
@@ -117,7 +119,8 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
-    _can_fast_execute = _function->can_fast_execute();
+    _can_fast_execute = _function->can_fast_execute() && _children.size() == 2 &&
+                        _children[0]->is_slot_ref() && _children[1]->is_literal();
     _prepare_finished = true;
     return Status::OK();
 }
@@ -139,6 +142,31 @@ Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
 void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
     VExpr::close(context, scope);
+}
+
+Status VectorizedFnCall::eval_inverted_index(
+        VExprContext* context,
+        const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
+                                                     segment_v2::InvertedIndexIterator*>>&
+                colid_to_inverted_index_iter,
+        uint32_t num_rows, roaring::Roaring* bitmap) const {
+    DCHECK_GE(get_num_children(), 1);
+    if (get_child(0)->is_slot_ref()) {
+        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+        if (auto iter = colid_to_inverted_index_iter.find(column_slot_ref->column_id());
+            iter != colid_to_inverted_index_iter.end()) {
+            const auto& pair = iter->second;
+            return _function->eval_inverted_index(context->fn_context(_fn_context_index),
+                                                  pair.first, pair.second, num_rows, bitmap);
+        } else {
+            return Status::NotSupported("column id {} not found in colid_to_inverted_index_iter",
+                                        column_slot_ref->column_id());
+        }
+    } else {
+        return Status::NotSupported("we can only eval inverted index for slot ref expr, but got ",
+                                    get_child(0)->expr_name());
+    }
+    return Status::OK();
 }
 
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
@@ -163,8 +191,8 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
     if (_can_fast_execute) {
-        auto can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, args,
-                                             num_columns_without_result, block->rows());
+        auto can_fast_execute = fast_execute(*block, args, num_columns_without_result,
+                                             block->rows(), _function->get_name());
         if (can_fast_execute) {
             *result_column_id = num_columns_without_result;
             return Status::OK();
@@ -186,32 +214,6 @@ Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block
                                  int* result_column_id) {
     std::vector<size_t> arguments;
     return _do_execute(context, block, result_column_id, arguments);
-}
-
-// fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-bool VectorizedFnCall::fast_execute(FunctionContext* context, Block& block,
-                                    const ColumnNumbers& arguments, size_t result,
-                                    size_t input_rows_count) {
-    auto query_value = block.get_by_position(arguments[1]).to_string(0);
-    std::string column_name = block.get_by_position(arguments[0]).name;
-    auto result_column_name = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" +
-                              _function->get_name() + "_" + query_value;
-    if (!block.has(result_column_name)) {
-        return false;
-    }
-
-    auto result_column =
-            block.get_by_name(result_column_name).column->convert_to_full_column_if_const();
-    auto& result_info = block.get_by_position(result);
-    if (result_info.type->is_nullable()) {
-        block.replace_by_position(
-                result,
-                ColumnNullable::create(result_column, ColumnUInt8::create(input_rows_count, 0)));
-    } else {
-        block.replace_by_position(result, std::move(result_column));
-    }
-
-    return true;
 }
 
 const std::string& VectorizedFnCall::expr_name() const {

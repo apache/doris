@@ -52,7 +52,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
 #include "runtime/exec_env.h"
@@ -104,19 +103,19 @@ private:
     std::weak_ptr<LoadStreamStub> _stub;
 };
 
-class LoadStreamStub {
+class LoadStreamStub : public std::enable_shared_from_this<LoadStreamStub> {
     friend class LoadStreamReplyHandler;
 
 public:
     // construct new stub
     LoadStreamStub(PUniqueId load_id, int64_t src_id,
                    std::shared_ptr<IndexToTabletSchema> schema_map,
-                   std::shared_ptr<IndexToEnableMoW> mow_map);
+                   std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false);
 
     LoadStreamStub(UniqueId load_id, int64_t src_id,
                    std::shared_ptr<IndexToTabletSchema> schema_map,
-                   std::shared_ptr<IndexToEnableMoW> mow_map)
-            : LoadStreamStub(load_id.to_proto(), src_id, schema_map, mow_map) {};
+                   std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false)
+            : LoadStreamStub(load_id.to_proto(), src_id, schema_map, mow_map, incremental) {};
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -125,8 +124,7 @@ public:
             ~LoadStreamStub();
 
     // open_load_stream
-    Status open(std::shared_ptr<LoadStreamStub> self,
-                BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
+    Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, int total_streams,
                 int64_t idle_timeout_ms, bool enable_profile);
@@ -139,7 +137,7 @@ public:
             Status
             append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                         int64_t segment_id, uint64_t offset, std::span<const Slice> data,
-                        bool segment_eos = false);
+                        bool segment_eos = false, FileType file_type = FileType::SEGMENT_FILE);
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
@@ -196,6 +194,8 @@ public:
 
     int64_t dst_id() const { return _dst_id; }
 
+    bool is_incremental() const { return _is_incremental; }
+
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub);
 
     std::string to_string();
@@ -206,7 +206,6 @@ public:
         _success_tablets.push_back(tablet_id);
     }
 
-    // for tests only
     void add_failed_tablet(int64_t tablet_id, Status reason) {
         std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
         _failed_tablets[tablet_id] = reason;
@@ -216,6 +215,7 @@ private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
     Status _send_with_retry(butil::IOBuf& buf);
+    void _handle_failure(butil::IOBuf& buf, Status st);
 
     Status _check_cancel() {
         if (!_is_cancelled.load()) {
@@ -256,6 +256,8 @@ protected:
     bthread::Mutex _failed_tablets_mutex;
     std::vector<int64_t> _success_tablets;
     std::unordered_map<int64_t, Status> _failed_tablets;
+
+    bool _is_incremental = false;
 };
 
 } // namespace doris

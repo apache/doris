@@ -18,12 +18,12 @@
 #pragma once
 
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
 static constexpr int32_t CACHE_MIN_FREE_SIZE = 67108864; // 64M
+static constexpr int32_t CACHE_MIN_FREE_NUMBER = 1024;
 
 // Base of all caches. register to CacheManager when cache is constructed.
 class CachePolicy {
@@ -101,8 +101,6 @@ public:
     virtual void prune_all(bool force) = 0;
 
     CacheType type() { return _type; }
-    MemTracker* mem_tracker() { return _mem_tracker.get(); }
-    int64_t mem_consumption() { return _mem_tracker->consumption(); }
     bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 
@@ -117,15 +115,7 @@ protected:
         _cost_timer = ADD_TIMER(_profile, "CostTime");
     }
 
-    void init_mem_tracker(const std::string& type_name) {
-        _mem_tracker =
-                std::make_unique<MemTracker>(fmt::format("{}[{}]", type_string(_type), type_name),
-                                             ExecEnv::GetInstance()->details_mem_tracker_set());
-    }
-
     CacheType _type;
-
-    std::unique_ptr<MemTracker> _mem_tracker;
 
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile::Counter* _prune_stale_number_counter = nullptr;

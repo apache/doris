@@ -30,6 +30,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
@@ -62,14 +63,29 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
     protected static final String CLOUD_CLUSTER_ID = "clusterId";
     protected String cloudClusterId;
 
-    private int retryTimes = 3;
+    protected int retryTimes = 3;
 
     public CloudBrokerLoadJob() {
+    }
+
+    public CloudBrokerLoadJob(EtlJobType type) {
+        super(type);
+    }
+
+    public CloudBrokerLoadJob(EtlJobType type, long dbId, String label, BrokerDesc brokerDesc,
+            OriginStatement originStmt, UserIdentity userInfo)
+            throws MetaNotFoundException {
+        super(type, dbId, label, brokerDesc, originStmt, userInfo);
+        setCloudClusterId();
     }
 
     public CloudBrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, OriginStatement originStmt,
             UserIdentity userInfo) throws MetaNotFoundException {
         super(dbId, label, brokerDesc, originStmt, userInfo);
+        setCloudClusterId();
+    }
+
+    private void setCloudClusterId() throws MetaNotFoundException {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             String clusterName = context.getCloudCluster();
@@ -121,15 +137,15 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
 
     @Override
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
-            boolean isEnableMemtableOnSinkNode, FileGroupAggKey aggKey, BrokerPendingTaskAttachment attachment)
-            throws UserException {
+            boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
+            BrokerPendingTaskAttachment attachment) throws UserException {
         cloudClusterId = sessionVariables.get(CLOUD_CLUSTER_ID);
         LoadLoadingTask task = new CloudLoadLoadingTask(db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                 isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, cloudClusterId);
+                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId);
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
 

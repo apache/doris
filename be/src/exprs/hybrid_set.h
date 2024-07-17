@@ -668,7 +668,7 @@ public:
                      const doris::vectorized::NullMap* null_map,
                      doris::vectorized::ColumnUInt8::Container& results) {
         const auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
-        const uint32_t* __restrict offset = col.get_offsets().data();
+        const auto& offset = col.get_offsets();
         const uint8_t* __restrict data = col.get_chars().data();
         auto* __restrict cursor = const_cast<uint8_t*>(data);
         const uint8_t* __restrict null_map_data;

@@ -26,10 +26,11 @@ import java.util.function.Supplier;
 public class PreAggStatus {
 
     private enum Status {
-        ON, OFF
+        ON, OFF, UNSET
     }
 
     private static final PreAggStatus PRE_AGG_ON = new PreAggStatus(Status.ON, "");
+    private static final PreAggStatus PRE_AGG_UNSET = new PreAggStatus(Status.UNSET, "");
     private final Status status;
     private final String offReason;
 
@@ -46,6 +47,10 @@ public class PreAggStatus {
         return status == Status.OFF;
     }
 
+    public boolean isUnset() {
+        return status == Status.UNSET;
+    }
+
     public String getOffReason() {
         return offReason;
     }
@@ -56,6 +61,10 @@ public class PreAggStatus {
         } else {
             return supplier.get();
         }
+    }
+
+    public static PreAggStatus unset() {
+        return PRE_AGG_UNSET;
     }
 
     public static PreAggStatus on() {
@@ -70,8 +79,10 @@ public class PreAggStatus {
     public String toString() {
         if (status == Status.ON) {
             return "ON";
-        } else {
+        } else if (status == Status.OFF) {
             return "OFF, " + offReason;
+        } else {
+            return "UNSET";
         }
     }
 }

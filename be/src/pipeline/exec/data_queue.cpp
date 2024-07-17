@@ -24,7 +24,7 @@
 #include <utility>
 
 #include "gutil/integral_types.h"
-#include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/dependency.h"
 #include "vec/core/block.h"
 
 namespace doris {

@@ -56,8 +56,9 @@ public class S3StorageVault extends StorageVault {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    public S3StorageVault(String name, boolean ifNotExists, CreateResourceStmt stmt) throws DdlException {
-        super(name, StorageVault.StorageVaultType.S3, ifNotExists);
+    public S3StorageVault(String name, boolean ifNotExists,
+            boolean setAsDefault, CreateResourceStmt stmt) throws DdlException {
+        super(name, StorageVault.StorageVaultType.S3, ifNotExists, setAsDefault);
         resource = Resource.fromStmt(stmt);
     }
 

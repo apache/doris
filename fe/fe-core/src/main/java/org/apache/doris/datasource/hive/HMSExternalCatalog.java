@@ -22,6 +22,7 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.datasource.CatalogProperty;
@@ -34,10 +35,12 @@ import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.fs.FileSystemProvider;
+import org.apache.doris.fs.FileSystemProviderImpl;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
@@ -46,6 +49,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * External catalog for hive metastore compatible data sources.
@@ -56,12 +60,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     // broker name for file split and query scan.
     public static final String BIND_BROKER_NAME = "broker.name";
-    private static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
 
     // -1 means file cache no ttl set
     public static final int FILE_META_CACHE_NO_TTL = -1;
     // 0 means file cache is disabled; >0 means file cache with ttl;
     public static final int FILE_META_CACHE_TTL_DISABLE_CACHE = 0;
+
+    private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
+    private ThreadPoolExecutor fileSystemExecutor;
 
     public HMSExternalCatalog() {
         catalogProperty = new CatalogProperty(null, null);
@@ -147,21 +153,27 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     AuthenticationConfig.HADOOP_KERBEROS_KEYTAB));
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
-        transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps);
+        FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
+                this.bindBrokerName(), this.catalogProperty.getHadoopProperties());
+        this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,
+                Integer.MAX_VALUE, String.format("hms_committer_%s_file_system_executor_pool", name), true);
+        transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,
+                fileSystemExecutor);
         metadataOps = hiveOps;
+    }
+
+    @Override
+    public void onRefresh(boolean invalidCache) {
+        super.onRefresh(invalidCache);
+        if (metadataOps != null) {
+            metadataOps.close();
+        }
     }
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
-        if (hmsExternalDatabase != null && hmsExternalDatabase.isInitialized()) {
-            List<String> names = Lists.newArrayList();
-            hmsExternalDatabase.getTables().forEach(table -> names.add(table.getName()));
-            return names;
-        } else {
-            return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
-        }
+        return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
     }
 
     @Override
@@ -172,7 +184,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExistInLocal(String dbName, String tblName) {
         makeSureInitialized();
-        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
+        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) getDbNullable(dbName);
         if (hmsExternalDatabase == null) {
             return false;
         }
@@ -189,11 +201,17 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (LOG.isDebugEnabled()) {
             LOG.debug("drop database [{}]", dbName);
         }
-        Long dbId = dbNameToId.remove(dbName);
-        if (dbId == null) {
-            LOG.warn("drop database [{}] failed", dbName);
+        if (useMetaCache.get()) {
+            if (isInitialized()) {
+                metaCache.invalidate(dbName);
+            }
+        } else {
+            Long dbId = dbNameToId.remove(dbName);
+            if (dbId == null) {
+                LOG.warn("drop database [{}] failed", dbName);
+            }
+            idToDb.remove(dbId);
         }
-        idToDb.remove(dbId);
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
     }
 
@@ -202,9 +220,16 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (LOG.isDebugEnabled()) {
             LOG.debug("create database [{}]", dbName);
         }
-        dbNameToId.put(dbName, dbId);
-        ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);
-        idToDb.put(dbId, db);
+
+        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, dbId, logType);
+        if (useMetaCache.get()) {
+            if (isInitialized()) {
+                metaCache.updateCache(dbName, db);
+            }
+        } else {
+            dbNameToId.put(dbName, dbId);
+            idToDb.put(dbId, db);
+        }
     }
 
     @Override
@@ -217,13 +242,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void setDefaultPropsWhenCreating(boolean isReplay) {
-        if (isReplay) {
-            return;
-        }
-        if (catalogProperty.getOrDefault(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty()) {
+    public void setDefaultPropsIfMissing(boolean isReplay) {
+        super.setDefaultPropsIfMissing(isReplay);
+        if (ifNotSetFallbackToSimpleAuth()) {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
-            catalogProperty.addProperty(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
+            catalogProperty.addProperty(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
         }
     }
 

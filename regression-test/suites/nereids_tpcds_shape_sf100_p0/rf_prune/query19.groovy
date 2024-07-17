@@ -30,6 +30,8 @@ suite("query19") {
     sql 'set enable_nereids_timeout = false'
     sql 'set runtime_filter_type=8'
     sql 'set enable_runtime_filter_prune=true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     def ds = """select  i_brand_id brand_id, i_brand brand, i_manufact_id, i_manufact,
  	sum(ss_ext_sales_price) ext_price

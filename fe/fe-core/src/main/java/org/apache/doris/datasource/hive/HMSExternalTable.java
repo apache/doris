@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -29,24 +28,14 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
-import org.apache.doris.datasource.hudi.source.COWIncrementalRelation;
-import org.apache.doris.datasource.hudi.source.IncrementalRelation;
-import org.apache.doris.datasource.hudi.source.MORIncrementalRelation;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -59,7 +48,6 @@ import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -68,7 +56,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
-import org.apache.hadoop.hive.metastore.api.Decimal;
 import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -76,14 +63,10 @@ import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
-import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -159,16 +142,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
-    private List<Column> partitionColumns;
 
     private DLAType dlaType = DLAType.UNKNOWN;
 
     // record the event update time when enable hms event listener
     protected volatile long eventUpdateTime;
-
-    // for hudi incremental read
-    private TableScanParams scanParams = null;
-    private IncrementalRelation incrementalRelation = null;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
@@ -296,91 +274,17 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     public List<Type> getPartitionColumnTypes() {
         makeSureInitialized();
-        getFullSchema();
-        return partitionColumns.stream().map(c -> c.getType()).collect(Collectors.toList());
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(value -> ((HMSSchemaCacheValue) value).getPartitionColTypes())
+                .orElse(Collections.emptyList());
     }
 
     @Override
     public List<Column> getPartitionColumns() {
         makeSureInitialized();
-        getFullSchema();
-        return partitionColumns;
-    }
-
-    public TableScanParams getScanParams() {
-        return scanParams;
-    }
-
-    public void setScanParams(TableScanParams scanParams) {
-        if (scanParams != null && scanParams.incrementalRead()) {
-            Map<String, String> optParams = getHadoopProperties();
-            if (scanParams.getParams().containsKey("beginTime")) {
-                optParams.put("hoodie.datasource.read.begin.instanttime", scanParams.getParams().get("beginTime"));
-            }
-            if (scanParams.getParams().containsKey("endTime")) {
-                optParams.put("hoodie.datasource.read.end.instanttime", scanParams.getParams().get("endTime"));
-            }
-            scanParams.getParams().forEach((k, v) -> {
-                if (k.startsWith("hoodie.")) {
-                    optParams.put(k, v);
-                }
-            });
-            HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(this);
-            try {
-                boolean isCowOrRoTable = isHoodieCowTable();
-                if (isCowOrRoTable) {
-                    Map<String, String> serd = remoteTable.getSd().getSerdeInfo().getParameters();
-                    if ("true".equals(serd.get("hoodie.query.as.ro.table"))
-                            && remoteTable.getTableName().endsWith("_ro")) {
-                        // Incremental read RO table as RT table, I don't know why?
-                        isCowOrRoTable = false;
-                        LOG.warn("Execute incremental read on RO table");
-                    }
-                }
-                if (isCowOrRoTable) {
-                    incrementalRelation = new COWIncrementalRelation(
-                            optParams, HiveMetaStoreClientHelper.getConfiguration(this), hudiClient);
-                } else {
-                    incrementalRelation = new MORIncrementalRelation(
-                            optParams, HiveMetaStoreClientHelper.getConfiguration(this), hudiClient);
-                }
-            } catch (Exception e) {
-                LOG.warn("Failed to create incremental relation", e);
-            }
-        }
-        this.scanParams = scanParams;
-    }
-
-    public IncrementalRelation getIncrementalRelation() {
-        return incrementalRelation;
-    }
-
-    /**
-     * replace incremental params as AND expression
-     * incr('beginTime'='20240308110257169', 'endTime'='20240308110677278') =>
-     * _hoodie_commit_time >= 20240308110257169 and _hoodie_commit_time <= '20240308110677278'
-     */
-    public Set<Expression> generateIncrementalExpression(List<Slot> slots) {
-        if (incrementalRelation == null) {
-            return Collections.emptySet();
-        }
-        SlotReference timeField = null;
-        for (Slot slot : slots) {
-            if ("_hoodie_commit_time".equals(slot.getName())) {
-                timeField = (SlotReference) slot;
-                break;
-            }
-        }
-        if (timeField == null) {
-            return Collections.emptySet();
-        }
-        StringLiteral upperValue = new StringLiteral(incrementalRelation.getEndTs());
-        StringLiteral lowerValue = new StringLiteral(incrementalRelation.getStartTs());
-        ComparisonPredicate less = new LessThanEqual(timeField, upperValue);
-        ComparisonPredicate great = incrementalRelation.isIncludeStartTime()
-                ? new GreaterThanEqual(timeField, lowerValue)
-                : new GreaterThan(timeField, lowerValue);
-        return ImmutableSet.of(great, less);
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(value -> ((HMSSchemaCacheValue) value).getPartitionColumns())
+                .orElse(Collections.emptyList());
     }
 
     public boolean isHiveTransactionalTable() {
@@ -532,7 +436,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public List<Column> initSchemaAndUpdateTime() {
+    public Optional<SchemaCacheValue> initSchemaAndUpdateTime() {
         org.apache.hadoop.hive.metastore.api.Table table = ((HMSExternalCatalog) catalog).getClient()
                 .getTable(dbName, name);
         // try to use transient_lastDdlTime from hms client
@@ -554,7 +458,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public List<Column> initSchema() {
+    public Optional<SchemaCacheValue> initSchema() {
         makeSureInitialized();
         List<Column> columns;
         if (dlaType.equals(DLAType.ICEBERG)) {
@@ -564,8 +468,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         } else {
             columns = getHiveSchema();
         }
-        initPartitionColumns(columns);
-        return columns;
+        List<Column> partitionColumns = initPartitionColumns(columns);
+        return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
 
     private List<Column> getIcebergSchema() {
@@ -585,18 +489,16 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private List<Column> getHiveSchema() {
         HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
-        List<Column> columns;
         List<FieldSchema> schema = client.getSchema(dbName, name);
         Map<String, String> colDefaultValues = client.getDefaultColumnValues(dbName, name);
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
+        List<Column> columns = Lists.newArrayListWithCapacity(schema.size());
         for (FieldSchema field : schema) {
             String fieldName = field.getName().toLowerCase(Locale.ROOT);
             String defaultValue = colDefaultValues.getOrDefault(fieldName, null);
-            tmpSchema.add(new Column(fieldName,
+            columns.add(new Column(fieldName,
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
                     true, defaultValue, field.getComment(), true, -1));
         }
-        columns = tmpSchema;
         return columns;
     }
 
@@ -613,10 +515,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return rowCount;
     }
 
-    private void initPartitionColumns(List<Column> schema) {
+    private List<Column> initPartitionColumns(List<Column> schema) {
         List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
                 .collect(Collectors.toList());
-        partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
+        List<Column> partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (String partitionKey : partitionKeys) {
             // Do not use "getColumn()", which will cause dead loop
             for (Column column : schema) {
@@ -636,6 +538,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (LOG.isDebugEnabled()) {
             LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
         }
+        return partitionColumns;
     }
 
     public boolean hasColumnStatistics(String colName) {
@@ -670,10 +573,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             case HIVE:
                 return getHiveColumnStats(colName);
             case ICEBERG:
-                return StatisticsUtil.getIcebergColumnStats(colName,
+                if (GlobalVariable.enableFetchIcebergStats) {
+                    return StatisticsUtil.getIcebergColumnStats(colName,
                         Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
-                                catalog, dbName, name
+                            catalog, dbName, name
                         ));
+                } else {
+                    break;
+                }
             default:
                 LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
         }
@@ -696,8 +603,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return Optional.empty();
         }
         Map<String, String> parameters = remoteTable.getParameters();
+        if (!parameters.containsKey(NUM_ROWS) || Long.parseLong(parameters.get(NUM_ROWS)) == 0) {
+            return Optional.empty();
+        }
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-        double count = parameters.containsKey(NUM_ROWS) ? Double.parseDouble(parameters.get(NUM_ROWS)) : 0;
+        long count = Long.parseLong(parameters.get(NUM_ROWS));
         columnStatisticBuilder.setCount(count);
         // The tableStats length is at most 1.
         for (ColumnStatisticsObj tableStat : tableStats) {
@@ -718,12 +628,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return Optional.of(columnStatisticBuilder.build());
     }
 
-    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, double count)
+    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, long count)
             throws AnalysisException {
         long ndv = 0;
         long nulls = 0;
-        String min = "";
-        String max = "";
         double colSize = 0;
         if (!data.isSetStringStats()) {
             colSize = count * col.getType().getSlotSize();
@@ -733,8 +641,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             LongColumnStatsData longStats = data.getLongStats();
             ndv = longStats.getNumDVs();
             nulls = longStats.getNumNulls();
-            min = String.valueOf(longStats.getLowValue());
-            max = String.valueOf(longStats.getHighValue());
         } else if (data.isSetStringStats()) {
             StringColumnStatsData stringStats = data.getStringStats();
             ndv = stringStats.getNumDVs();
@@ -745,67 +651,23 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             DecimalColumnStatsData decimalStats = data.getDecimalStats();
             ndv = decimalStats.getNumDVs();
             nulls = decimalStats.getNumNulls();
-            if (decimalStats.isSetLowValue()) {
-                Decimal lowValue = decimalStats.getLowValue();
-                if (lowValue != null) {
-                    BigDecimal lowDecimal = new BigDecimal(new BigInteger(lowValue.getUnscaled()), lowValue.getScale());
-                    min = lowDecimal.toString();
-                }
-            }
-            if (decimalStats.isSetHighValue()) {
-                Decimal highValue = decimalStats.getHighValue();
-                if (highValue != null) {
-                    BigDecimal highDecimal =
-                            new BigDecimal(new BigInteger(highValue.getUnscaled()), highValue.getScale());
-                    max = highDecimal.toString();
-                }
-            }
         } else if (data.isSetDoubleStats()) {
             DoubleColumnStatsData doubleStats = data.getDoubleStats();
             ndv = doubleStats.getNumDVs();
             nulls = doubleStats.getNumNulls();
-            min = String.valueOf(doubleStats.getLowValue());
-            max = String.valueOf(doubleStats.getHighValue());
         } else if (data.isSetDateStats()) {
             DateColumnStatsData dateStats = data.getDateStats();
             ndv = dateStats.getNumDVs();
             nulls = dateStats.getNumNulls();
-            if (dateStats.isSetLowValue()) {
-                org.apache.hadoop.hive.metastore.api.Date lowValue = dateStats.getLowValue();
-                if (lowValue != null) {
-                    LocalDate lowDate = LocalDate.ofEpochDay(lowValue.getDaysSinceEpoch());
-                    min = lowDate.toString();
-                }
-            }
-            if (dateStats.isSetHighValue()) {
-                org.apache.hadoop.hive.metastore.api.Date highValue = dateStats.getHighValue();
-                if (highValue != null) {
-                    LocalDate highDate = LocalDate.ofEpochDay(highValue.getDaysSinceEpoch());
-                    max = highDate.toString();
-                }
-            }
         } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug(String.format("Not suitable data type for column %s", col.getName()));
-            }
-            throw new RuntimeException("Not supported data type.");
+            LOG.warn(String.format("Not suitable data type for column %s", col.getName()));
         }
         builder.setNdv(ndv);
         builder.setNumNulls(nulls);
         builder.setDataSize(colSize);
         builder.setAvgSizeByte(colSize / count);
-        if (!min.equals("")) {
-            builder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
-            builder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
-        } else {
-            builder.setMinValue(Double.MIN_VALUE);
-        }
-        if (!max.equals("")) {
-            builder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
-            builder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
-        } else {
-            builder.setMaxValue(Double.MAX_VALUE);
-        }
+        builder.setMinValue(Double.NEGATIVE_INFINITY);
+        builder.setMaxValue(Double.POSITIVE_INFINITY);
     }
 
     public void setEventUpdateTime(long updateTime) {
@@ -877,12 +739,22 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public Map<Long, PartitionItem> getAndCopyPartitionItems() {
+    public Map<String, PartitionItem> getAndCopyPartitionItems() {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 getDbName(), getName(), getPartitionColumnTypes());
-        return hivePartitionValues.getIdToPartitionItem();
+        Map<String, PartitionItem> res = Maps.newHashMap();
+        Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+        for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
+            try {
+                res.put(getPartitionName(entry.getKey()), entry.getValue());
+            } catch (AnalysisException e) {
+                LOG.info("can not get partitionName by: " + entry.getKey());
+            }
+
+        }
+        return res;
     }
 
     @Override
@@ -904,35 +776,35 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(long partitionId) throws AnalysisException {
-        long partitionLastModifyTime = getPartitionLastModifyTime(partitionId);
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName) throws AnalysisException {
+        long partitionLastModifyTime = getPartitionLastModifyTime(partitionName);
         return new MTMVTimestampSnapshot(partitionLastModifyTime);
     }
 
     @Override
     public MTMVSnapshotIf getTableSnapshot() throws AnalysisException {
         if (getPartitionType() == PartitionType.UNPARTITIONED) {
-            return new MTMVMaxTimestampSnapshot(-1L, getLastDdlTime());
+            return new MTMVMaxTimestampSnapshot(getName(), getLastDdlTime());
         }
-        long partitionId = 0L;
+        String partitionName = "";
         long maxVersionTime = 0L;
         long visibleVersionTime;
-        for (Entry<Long, PartitionItem> entry : getAndCopyPartitionItems().entrySet()) {
+        for (Entry<String, PartitionItem> entry : getAndCopyPartitionItems().entrySet()) {
             visibleVersionTime = getPartitionLastModifyTime(entry.getKey());
             if (visibleVersionTime > maxVersionTime) {
                 maxVersionTime = visibleVersionTime;
-                partitionId = entry.getKey();
+                partitionName = entry.getKey();
             }
         }
-        return new MTMVMaxTimestampSnapshot(partitionId, maxVersionTime);
+        return new MTMVMaxTimestampSnapshot(partitionName, maxVersionTime);
     }
 
-    private long getPartitionLastModifyTime(long partitionId) throws AnalysisException {
-        return getPartitionById(partitionId).getLastModifiedTime();
+    private long getPartitionLastModifyTime(String partitionName) throws AnalysisException {
+        return getPartitionByName(partitionName).getLastModifiedTime();
     }
 
-    private HivePartition getPartitionById(long partitionId) throws AnalysisException {
-        PartitionItem item = getAndCopyPartitionItems().get(partitionId);
+    private HivePartition getPartitionByName(String partitionName) throws AnalysisException {
+        PartitionItem item = getAndCopyPartitionItems().get(partitionName);
         List<List<String>> partitionValuesList = transferPartitionItemToPartitionValues(item);
         List<HivePartition> partitions = getPartitionsByPartitionValues(partitionValuesList);
         if (partitions.size() != 1) {
@@ -957,7 +829,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public boolean needAutoRefresh() {
-        return false;
+        return true;
     }
 
     @Override
@@ -1003,7 +875,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
 
         int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
-        if (samplePartitionSize < totalPartitionSize) {
+        if (samplePartitionSize != 0 && samplePartitionSize < totalPartitionSize) {
             totalSize = totalSize * totalPartitionSize / samplePartitionSize;
         }
         return totalSize / estimatedRowSize;
@@ -1067,5 +939,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         // Get files for all partitions.
         String bindBrokerName = catalog.bindBrokerName();
         return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName);
+    }
+
+    @Override
+    public boolean isPartitionedTable() {
+        makeSureInitialized();
+        return remoteTable.getPartitionKeysSize() > 0;
     }
 }

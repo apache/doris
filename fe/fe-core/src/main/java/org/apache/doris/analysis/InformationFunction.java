@@ -25,10 +25,17 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TInfoFunc;
 
+import com.google.gson.annotations.SerializedName;
+
 public class InformationFunction extends Expr {
-    private final String funcType;
+    @SerializedName("ft")
+    private String funcType;
     private long intValue;
     private String strValue;
+
+    private InformationFunction() {
+        // only for serde
+    }
 
     // First child is the comparison expr which should be in [lowerBound, upperBound].
     public InformationFunction(String funcType) {

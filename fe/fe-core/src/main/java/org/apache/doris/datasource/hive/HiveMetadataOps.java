@@ -36,8 +36,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
-import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -61,7 +59,6 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private static final Logger LOG = LogManager.getLogger(HiveMetadataOps.class);
     private static final int MIN_CLIENT_POOL_SIZE = 8;
     private final HMSCachedClient client;
-    private final FileSystem fs;
     private final HMSExternalCatalog catalog;
 
     public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
@@ -74,28 +71,18 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     public HiveMetadataOps(HMSExternalCatalog catalog, HMSCachedClient client) {
         this.catalog = catalog;
         this.client = client;
-        // TODO Currently only supports DFSFileSystem, more types will be supported in the future
-        this.fs = new DFSFileSystem(catalog.getProperties());
     }
-
-    @VisibleForTesting
-    public HiveMetadataOps(HMSExternalCatalog catalog, HMSCachedClient client, FileSystem fs) {
-        this.catalog = catalog;
-        this.client = client;
-        this.fs = fs;
-    }
-
 
     public HMSCachedClient getClient() {
         return client;
     }
 
-    public FileSystem getFs() {
-        return fs;
+    public HMSExternalCatalog getCatalog() {
+        return catalog;
     }
 
-    public static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
-                                                     JdbcClientConfig jdbcClientConfig) {
+    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
+            JdbcClientConfig jdbcClientConfig) {
         if (hiveConf != null) {
             return new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
         }
@@ -160,7 +147,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void createTable(CreateTableStmt stmt) throws UserException {
+    public boolean createTable(CreateTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
         String tblName = stmt.getTableName();
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);
@@ -170,7 +157,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         if (tableExist(dbName, tblName)) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tblName);
-                return;
+                return true;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tblName);
             }
@@ -238,6 +225,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         } catch (Exception e) {
             throw new UserException(e.getMessage(), e);
         }
+        return false;
     }
 
     @Override
@@ -264,6 +252,22 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException {
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+        }
+        try {
+            client.truncateTable(dbName, tblName, partitions);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tblName);
+        db.setLastUpdateTime(System.currentTimeMillis());
+        db.setUnInitialized(true);
+    }
+
+    @Override
     public List<String> listTableNames(String dbName) {
         return client.getAllTables(dbName);
     }
@@ -276,6 +280,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean databaseExist(String dbName) {
         return listDatabaseNames().contains(dbName);
+    }
+
+    @Override
+    public void close() {
+        client.close();
     }
 
     public List<String> listDatabaseNames() {

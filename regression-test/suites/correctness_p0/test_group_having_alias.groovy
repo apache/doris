@@ -71,22 +71,6 @@
         ORDER BY date;
     """
 
-    sql """set group_by_and_having_use_alias_first=true"""
-    sql "set enable_nereids_planner=false" // nereids not support it
-
-    qt_sql """
-        SELECT
-        date_format(date, '%x%v') AS `date`,
-        count(date) AS `diff_days`
-        FROM `tb_holiday`
-        WHERE `date` between 20221111 AND 20221116
-        GROUP BY date
-        HAVING date = 20221111
-        ORDER BY date;
-    """
-
-    sql "set enable_nereids_planner=default" // nereids not support bellow sql
-
     qt_sql """
         SELECT
         date_format(date, '%x%v') AS `date2`,
@@ -106,8 +90,6 @@
         HAVING date = 202245
         ORDER BY date;
     """
-
-    sql """set group_by_and_having_use_alias_first=false"""
 
     sql """
          CREATE TABLE `test_having_alias_tb` (
@@ -133,8 +115,6 @@
     qt_case5 """ SELECT id, max(v1) v1 FROM test_having_alias_tb GROUP BY 1 having count(distinct v1)>1 ORDER BY id; """
     qt_case_cir2273 """ select sum( id * 0.5 ) val from test_having_alias_tb having val > 0; """
 
-    sql """set enable_nereids_planner=true"""
-    sql """set enable_fallback_to_original_planner=false"""
     qt_case6 """
       SELECT date_format(date, '%x%v') AS `date` FROM `tb_holiday` WHERE `date` between 20221111 AND 20221116 HAVING date = 202245 ORDER BY date;
     """

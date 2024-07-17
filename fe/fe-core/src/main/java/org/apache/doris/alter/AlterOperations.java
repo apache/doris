@@ -50,8 +50,8 @@ public class AlterOperations {
 
     public void checkMTMVAllow(List<AlterClause> alterClauses) throws DdlException {
         for (AlterClause alterClause : alterClauses) {
-            if (!alterClause.getOpType().mtmvAllowOp()) {
-                throw new DdlException("Alter operation " + alterClause.getOpType() + " Not allowed to MTMV");
+            if (!(alterClause.allowOpMTMV())) {
+                throw new DdlException("Not allowed to perform current operation on async materialized view");
             }
         }
     }

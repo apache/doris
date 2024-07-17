@@ -8,23 +8,20 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
---------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------PhysicalProject
-------------------------------filter((supplier.s_nation = 'UNITED STATES'))
---------------------------------PhysicalOlapScan[supplier]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------filter((customer.c_nation = 'UNITED STATES'))
-----------------------------PhysicalOlapScan[customer]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------filter((dates.d_year <= 1997) and (dates.d_year >= 1992))
-------------------------PhysicalOlapScan[dates]
+--------------------------PhysicalProject
+----------------------------filter((supplier.s_nation = 'UNITED STATES'))
+------------------------------PhysicalOlapScan[supplier]
+----------------------PhysicalProject
+------------------------filter((customer.c_nation = 'UNITED STATES'))
+--------------------------PhysicalOlapScan[customer]
+------------------PhysicalProject
+--------------------filter((dates.d_year <= 1997) and (dates.d_year >= 1992))
+----------------------PhysicalOlapScan[dates]
 

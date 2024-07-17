@@ -22,19 +22,21 @@ networks:
     ipam:
       driver: default
       config:
-        - subnet: 168.45.0.0/24
-
+        - subnet: 192.168.0.0/24
 services:
     doris--zookeeper:
-        image: wurstmeister/zookeeper
+        image: bitnami/zookeeper
         restart: always
         container_name: doris--zookeeper
         ports:
             - ${DOCKER_ZOOKEEPER_EXTERNAL_PORT}:2181
+        environment:
+            - ZOO_CFG_LISTEN_PORT=2181
+            - ALLOW_ANONYMOUS_LOGIN=yes
         networks:
             - doris--kafka--network
     doris--kafka:
-        image: wurstmeister/kafka 
+        image: bitnami/kafka:2
         restart: always
         container_name: doris--kafka
         depends_on:
@@ -42,10 +44,11 @@ services:
         ports:
             - ${DOCKER_KAFKA_EXTERNAL_PORT}:19193
         environment:
-            KAFKA_ZOOKEEPER_CONNECT: doris--zookeeper:2181/kafka
-            KAFKA_LISTENERS: PLAINTEXT://:19193
-            KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:19193
-            KAFKA_BROKER_ID: 1
+            - KAFKA_BROKER_ID=1
+            - KAFKA_LISTENERS=PLAINTEXT://:19193
+            - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:19193
+            - KAFKA_ZOOKEEPER_CONNECT=doris--zookeeper:2181
+            - ALLOW_PLAINTEXT_LISTENER=yes
         volumes:
             - /var/run/docker.sock:/var/run/docker.sock
         networks:

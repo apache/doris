@@ -55,17 +55,22 @@ github:
           - P1 Regression (Doris Regression)
           - External Regression (Doris External Regression)
           - cloud_p1 (Doris Cloud Regression)
+          - cloud_p0 (Doris Cloud Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
           - ShellCheck          
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
+          - Build Third Party Libraries (macOS-arm64)
           - COMPILE (DORIS_COMPILE)
           - Need_2_Approval
+          - Cloud UT (Doris Cloud UT)
+          - performance (Doris Performance)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
+        require_code_owner_reviews: true
         required_approving_review_count: 1
     branch-1.1-lts:
       required_status_checks:
@@ -77,6 +82,28 @@ github:
       required_pull_request_reviews:
         dismiss_stale_reviews: true
         required_approving_review_count: 1
+
+    branch-2.1:
+      required_status_checks:
+        # strict means "Require branches to be up to date before merging".
+        strict: false
+        contexts:
+          - License Check
+          - Clang Formatter
+          - CheckStyle
+          - Build Broker
+          - ShellCheck
+          - Build Third Party Libraries (Linux)
+          - Build Third Party Libraries (macOS)
+          - COMPILE (DORIS_COMPILE)
+          - External Regression (Doris External Regression)
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - P0 Regression (Doris Regression)
+
+        required_pull_request_reviews:
+          dismiss_stale_reviews: true
+          required_approving_review_count: 1
 
     branch-2.0:
       required_status_checks:
@@ -110,8 +137,8 @@ github:
     - shuke987
     - wm1581066
     - KassieZ
-    - gavinchou
     - yujun777
+    - gavinchou
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

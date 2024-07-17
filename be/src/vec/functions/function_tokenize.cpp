@@ -26,6 +26,7 @@
 #include "CLucene/StdHeader.h"
 #include "CLucene/config/repl_wchar.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -151,6 +152,9 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                         "inverted index create analyzer failed: {}", e.what());
             }
+            doris::segment_v2::FullTextIndexReader::setup_analyzer_lowercase(analyzer, properties);
+            doris::segment_v2::FullTextIndexReader::setup_analyzer_use_stopwords(analyzer,
+                                                                                 properties);
 
             inverted_index_ctx.analyzer = analyzer.get();
             _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,

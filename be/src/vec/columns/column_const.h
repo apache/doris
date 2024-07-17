@@ -67,6 +67,15 @@ template <typename T>
 T index_check_const(T arg, bool constancy) noexcept {
     return constancy ? 0 : arg;
 }
+template <bool is_const, typename T>
+    requires std::is_integral_v<T>
+constexpr T index_check_const(T arg) noexcept {
+    if constexpr (is_const) {
+        return 0;
+    } else {
+        return arg;
+    }
+}
 
 /*
  * @return first : data_column_ptr for ColumnConst, itself otherwise.
@@ -83,7 +92,7 @@ std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr&) noexcept;
 */
 void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
                                           const std::initializer_list<size_t>& parameters,
-                                          Block& block, const ColumnNumbers& arg_indexes) noexcept;
+                                          Block& block, const ColumnNumbers& arg_indexes);
 
 /** ColumnConst contains another column with single element,
   *  but looks like a column with arbitrary amount of same elements.
@@ -127,15 +136,9 @@ public:
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
 
-    UInt64 get64(size_t) const override { return data->get64(0); }
-
-    UInt64 get_uint(size_t) const override { return data->get_uint(0); }
-
     Int64 get_int(size_t) const override { return data->get_int(0); }
 
     bool get_bool(size_t) const override { return data->get_bool(0); }
-
-    Float64 get_float64(size_t) const override { return data->get_float64(0); }
 
     bool is_null_at(size_t) const override { return data->is_null_at(0); }
 
@@ -159,11 +162,6 @@ public:
     void insert_default() override { ++s; }
 
     void pop_back(size_t n) override { s -= n; }
-
-    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                         size_t limit) const override;
-
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
     StringRef serialize_value_into_arena(size_t, Arena& arena, char const*& begin) const override {
         return data->serialize_value_into_arena(0, arena, begin);
@@ -271,7 +269,6 @@ public:
     bool only_null() const override { return data->is_null_at(0); }
     bool is_numeric() const override { return data->is_numeric(); }
     bool is_fixed_and_contiguous() const override { return data->is_fixed_and_contiguous(); }
-    bool values_have_fixed_size() const override { return data->values_have_fixed_size(); }
     size_t size_of_value_if_fixed() const override { return data->size_of_value_if_fixed(); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
@@ -291,12 +288,6 @@ public:
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data->replace_column_data(rhs, row, self_row);
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        LOG(FATAL) << "should not call the method in column const";
-        __builtin_unreachable();
     }
 };
 } // namespace doris::vectorized

@@ -589,15 +589,12 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     if (this->is_set_sink()) {
         node.__set_is_sink(this->is_sink());
     }
-    CounterMap counter_map;
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
-        counter_map = _counter_map;
         node.child_counters_map = _child_counter_map;
-    }
-
-    for (auto&& [name, counter] : counter_map) {
-        counter->to_thrift(name, node.counters, node.child_counters_map);
+        for (auto&& [name, counter] : _counter_map) {
+            counter->to_thrift(name, node.counters, node.child_counters_map);
+        }
     }
 
     {
@@ -715,17 +712,6 @@ void RuntimeProfile::print_child_counters(const std::string& prefix,
                                                  child_counter_map, s);
         }
     }
-}
-
-void RuntimeProfile::sort_children_by_total_time() {
-    std::lock_guard<std::mutex> l(_children_lock);
-    auto cmp = [](const std::pair<RuntimeProfile*, bool>& L,
-                  const std::pair<RuntimeProfile*, bool>& R) {
-        const RuntimeProfile* L_profile = L.first;
-        const RuntimeProfile* R_profile = R.first;
-        return L_profile->_counter_total_time.value() > R_profile->_counter_total_time.value();
-    };
-    std::sort(_children.begin(), _children.end(), cmp);
 }
 
 } // namespace doris

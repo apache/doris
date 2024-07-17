@@ -718,3 +718,11 @@ LICENSE file in the root directory of this source tree. An additional grant
 of patent rights can be found in the PATENTS file in the same directory.
 
 ----------------------------------------------------------------------------------
+
+me.bechberger.ap-loader-all: Apache 2.0 license
+
+Apache 2.0, Copyright 2023 SAP SE or an SAP affiliate company, Johannes Bechberger and ap-loader contributors
+
+This project is maintained by the SapMachine team at SAP SE
+
+----------------------------------------------------------------------------------

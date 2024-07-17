@@ -31,6 +31,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -103,11 +104,11 @@ Status ScannerScheduler::init(ExecEnv* env) {
             _remote_thread_pool_max_size, remote_scan_pool_queue_size, "RemoteScanThreadPool");
 
     // 3. limited scan thread pool
-    static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
-                              .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-                              .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                              .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-                              .build(&_limited_scan_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
+                            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
+                            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+                            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
+                            .build(&_limited_scan_thread_pool));
     _register_metrics();
     _is_init = true;
     return Status::OK();
@@ -136,8 +137,17 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         }
 
         scanner_delegate->_scanner->start_wait_worker_timer();
-        auto s = ctx->thread_token->submit_func(
-                [this, scanner_ref = scan_task, ctx]() { this->_scanner_scan(ctx, scanner_ref); });
+        auto s = ctx->thread_token->submit_func([scanner_ref = scan_task, ctx]() {
+            auto status = [&] {
+                RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
+                return Status::OK();
+            }();
+
+            if (!status.ok()) {
+                scanner_ref->set_status(status);
+                ctx->append_block_to_queue(scanner_ref);
+            }
+        });
         if (!s.ok()) {
             scan_task->set_status(s);
             ctx->append_block_to_queue(scan_task);
@@ -151,41 +161,49 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
         scanner_delegate->_scanner->start_wait_worker_timer();
         TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
-        bool ret = false;
-        if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-            if (auto* scan_sched = ctx->get_simple_scan_scheduler()) {
-                auto work_func = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
+        auto sumbit_task = [&]() {
+            bool is_local = type == TabletStorageType::STORAGE_TYPE_LOCAL;
+            auto* scan_sched =
+                    is_local ? ctx->get_simple_scan_scheduler() : ctx->get_remote_scan_scheduler();
+            auto& thread_pool = is_local ? _local_scan_thread_pool : _remote_scan_thread_pool;
+            if (scan_sched) {
+                auto work_func = [scanner_ref = scan_task, ctx]() {
+                    auto status = [&] {
+                        RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
+                        return Status::OK();
+                    }();
+
+                    if (!status.ok()) {
+                        scanner_ref->set_status(status);
+                        ctx->append_block_to_queue(scanner_ref);
+                    }
                 };
                 SimplifiedScanTask simple_scan_task = {work_func, ctx};
-                ret = scan_sched->submit_scan_task(simple_scan_task);
-            } else {
-                PriorityThreadPool::Task task;
-                task.work_function = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                task.priority = nice;
-                ret = _local_scan_thread_pool->offer(task);
+                return scan_sched->submit_scan_task(simple_scan_task);
             }
-        } else {
-            if (auto* remote_scan_sched = ctx->get_remote_scan_scheduler()) {
-                auto work_func = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                SimplifiedScanTask simple_scan_task = {work_func, ctx};
-                ret = remote_scan_sched->submit_scan_task(simple_scan_task);
-            } else {
-                PriorityThreadPool::Task task;
-                task.work_function = [this, scanner_ref = scan_task, ctx]() {
-                    this->_scanner_scan(ctx, scanner_ref);
-                };
-                task.priority = nice;
-                ret = _remote_scan_thread_pool->offer(task);
-            }
-        }
-        if (!ret) {
-            scan_task->set_status(
-                    Status::InternalError("Failed to submit scanner to scanner pool"));
+
+            PriorityThreadPool::Task task;
+            task.work_function = [scanner_ref = scan_task, ctx]() {
+                auto status = [&] {
+                    RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
+                    return Status::OK();
+                }();
+
+                if (!status.ok()) {
+                    scanner_ref->set_status(status);
+                    ctx->append_block_to_queue(scanner_ref);
+                }
+            };
+            task.priority = nice;
+            return thread_pool->offer(task)
+                           ? Status::OK()
+                           : Status::InternalError("Scan thread pool had shutdown");
+        };
+
+        if (auto ret = sumbit_task(); !ret) {
+            scan_task->set_status(Status::InternalError(
+                    "Failed to submit scanner to scanner pool reason:" + std::string(ret.msg()) +
+                    "|type:" + std::to_string(type)));
             ctx->append_block_to_queue(scan_task);
             return;
         }
@@ -229,63 +247,75 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     scanner->start_scan_cpu_timer();
     Status status = Status::OK();
     bool eos = false;
-    RuntimeState* state = ctx->state();
-    DCHECK(nullptr != state);
-    if (!scanner->is_init()) {
-        status = scanner->init();
-        if (!status.ok()) {
-            eos = true;
-        }
-    }
-
-    if (!eos && !scanner->is_open()) {
-        status = scanner->open(state);
-        if (!status.ok()) {
-            eos = true;
-        }
-        scanner->set_opened();
-    }
-
-    static_cast<void>(scanner->try_append_late_arrival_runtime_filter());
-
-    size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
-    size_t raw_bytes_read = 0;
-    bool first_read = true;
-    while (!eos && raw_bytes_read < raw_bytes_threshold) {
-        if (UNLIKELY(ctx->done())) {
-            eos = true;
-            break;
-        }
-        BlockUPtr free_block = ctx->get_free_block(first_read);
-        if (free_block == nullptr) {
-            break;
-        }
-        status = scanner->get_block_after_projects(state, free_block.get(), &eos);
-        first_read = false;
-        if (!status.ok()) {
-            LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
-            break;
-        }
-        raw_bytes_read += free_block->allocated_bytes();
-        if (!scan_task->cached_blocks.empty() &&
-            scan_task->cached_blocks.back()->rows() + free_block->rows() <= ctx->batch_size()) {
-            size_t block_size = scan_task->cached_blocks.back()->allocated_bytes();
-            vectorized::MutableBlock mutable_block(scan_task->cached_blocks.back().get());
-            status = mutable_block.merge(*free_block);
-            if (!status.ok()) {
-                LOG(WARNING) << "Block merge failed: " << status.to_string();
-                break;
+    ASSIGN_STATUS_IF_CATCH_EXCEPTION(
+            RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
+            if (!scanner->is_init()) {
+                status = scanner->init();
+                if (!status.ok()) {
+                    eos = true;
+                }
             }
-            scan_task->cached_blocks.back().get()->set_columns(
-                    std::move(mutable_block.mutable_columns()));
-            ctx->return_free_block(std::move(free_block));
-            ctx->inc_free_block_usage(scan_task->cached_blocks.back()->allocated_bytes() -
-                                      block_size);
-        } else {
-            ctx->inc_free_block_usage(free_block->allocated_bytes());
-            scan_task->cached_blocks.push_back(std::move(free_block));
-        }
-    } // end for while
+
+            if (!eos && !scanner->is_open()) {
+                status = scanner->open(state);
+                if (!status.ok()) {
+                    eos = true;
+                }
+                scanner->set_opened();
+            }
+
+            Status rf_status = scanner->try_append_late_arrival_runtime_filter();
+            if (!rf_status.ok()) {
+                LOG(WARNING) << "Failed to append late arrival runtime filter: "
+                             << rf_status.to_string();
+            }
+
+            size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
+            size_t raw_bytes_read = 0; bool first_read = true;
+            while (!eos && raw_bytes_read < raw_bytes_threshold) {
+                if (UNLIKELY(ctx->done())) {
+                    eos = true;
+                    break;
+                }
+                BlockUPtr free_block = ctx->get_free_block(first_read);
+                if (free_block == nullptr) {
+                    break;
+                }
+                status = scanner->get_block_after_projects(state, free_block.get(), &eos);
+                first_read = false;
+                if (!status.ok()) {
+                    LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
+                    break;
+                }
+                auto free_block_bytes = free_block->allocated_bytes();
+                raw_bytes_read += free_block_bytes;
+                if (!scan_task->cached_blocks.empty() &&
+                    scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
+                            ctx->batch_size()) {
+                    size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
+                    vectorized::MutableBlock mutable_block(
+                            scan_task->cached_blocks.back().first.get());
+                    status = mutable_block.merge(*free_block);
+                    if (!status.ok()) {
+                        LOG(WARNING) << "Block merge failed: " << status.to_string();
+                        break;
+                    }
+                    scan_task->cached_blocks.back().first.get()->set_columns(
+                            std::move(mutable_block.mutable_columns()));
+                    ctx->return_free_block(std::move(free_block));
+                    ctx->inc_free_block_usage(
+                            scan_task->cached_blocks.back().first->allocated_bytes() - block_size);
+                } else {
+                    ctx->inc_free_block_usage(free_block->allocated_bytes());
+                    scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
+                }
+            } // end for while
+
+            if (UNLIKELY(!status.ok())) {
+                scan_task->set_status(status);
+                eos = true;
+            },
+            status);
 
     if (UNLIKELY(!status.ok())) {
         scan_task->set_status(status);

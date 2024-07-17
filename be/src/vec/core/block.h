@@ -202,6 +202,8 @@ public:
     /// Approximate number of bytes in memory - for profiling and limits.
     size_t bytes() const;
 
+    std::string columns_bytes() const;
+
     /// Approximate number of allocated bytes in memory - for profiling and limits.
     size_t allocated_bytes() const;
 
@@ -221,7 +223,7 @@ public:
 
     void set_columns(const Columns& columns);
     Block clone_with_columns(const Columns& columns) const;
-    Block clone_without_columns() const;
+    Block clone_without_columns(const std::vector<int>* column_offset = nullptr) const;
 
     /** Get empty columns with the same types as in block. */
     MutableColumns clone_empty_columns() const;
@@ -274,15 +276,16 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
-    void append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
+    Status append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
     // need exception safety
     static void filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                       const IColumn::Filter& filter);
-
     // need exception safety
     static void filter_block_internal(Block* block, const IColumn::Filter& filter,
                                       uint32_t column_to_keep);
+    // need exception safety
+    static void filter_block_internal(Block* block, const IColumn::Filter& filter);
 
     static Status filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                int filter_column_id, int column_to_keep);
@@ -603,9 +606,11 @@ public:
     void swap(MutableBlock&& other) noexcept;
 
     void add_row(const Block* block, int row);
-    void add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end);
-    void add_rows(const Block* block, size_t row_begin, size_t length);
-    void add_rows(const Block* block, std::vector<int64_t> rows);
+    // Batch add row should return error status if allocate memory failed.
+    Status add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end,
+                    const std::vector<int>* column_offset = nullptr);
+    Status add_rows(const Block* block, size_t row_begin, size_t length);
+    Status add_rows(const Block* block, std::vector<int64_t> rows);
 
     /// remove the column with the specified name
     void erase(const String& name);

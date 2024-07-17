@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -64,6 +65,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Transaction Manager
@@ -243,6 +245,22 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         dbTransactionMgr.commitTransaction(tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false);
     }
 
+    /**
+     * @note callers should get all tables' write locks before call this api
+     */
+    public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
+            List<SubTransactionState> subTransactionStates, long timeout) throws UserException {
+        if (Config.disable_load_job) {
+            throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try to commit transaction: {}", transactionId);
+        }
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+        dbTransactionMgr.commitTransaction(transactionId, tableList, subTransactionStates);
+    }
+
     private void commitTransaction2PC(long dbId, long transactionId)
             throws UserException {
         if (Config.disable_load_job) {
@@ -271,6 +289,35 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         try {
             commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
+        }
+        stopWatch.stop();
+        long publishTimeoutMillis = timeoutMillis - stopWatch.getTime();
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
+        if (publishTimeoutMillis < 0) {
+            // here commit transaction successfully cost too much time
+            // to cause that publishTimeoutMillis is less than zero,
+            // so we just return false to indicate publish timeout
+            return false;
+        }
+        return dbTransactionMgr.waitForTransactionFinished(db, transactionId, publishTimeoutMillis);
+    }
+
+    public boolean commitAndPublishTransaction(DatabaseIf db, long transactionId,
+            List<SubTransactionState> subTransactionStates, long timeoutMillis) throws UserException {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        List<Long> tableIdList = subTransactionStates.stream().map(s -> s.getTable().getId()).distinct()
+                .collect(Collectors.toList());
+        List<? extends TableIf> tableIfList = db.getTablesOnIdOrderOrThrowException(tableIdList);
+        List<Table> tableList = tableIfList.stream().map(t -> (Table) t).collect(Collectors.toList());
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get tableList write lock timeout, tableList=("
+                    + StringUtils.join(tableList, ",") + ")");
+        }
+        try {
+            commitTransaction(db.getId(), tableList, transactionId, subTransactionStates, timeoutMillis);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
@@ -402,9 +449,10 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
      * @param transactionId
      * @return
      */
-    public void finishTransaction(long dbId, long transactionId) throws UserException {
+    public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.finishTransaction(transactionId);
+        dbTransactionMgr.finishTransaction(transactionId, partitionVisibleVersions, backendPartitions);
     }
 
     /**
@@ -474,11 +522,11 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             throws AnalysisException, TimeoutException {
         long dbId = request.getDbId();
         int commitTimeoutSec = Config.commit_timeout_second;
+        TransactionStatus txnStatus = null;
         for (int i = 0; i < commitTimeoutSec; ++i) {
             Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
             TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
             statusResult.status = new TStatus();
-            TransactionStatus txnStatus = null;
             if (request.isSetTxnId()) {
                 long txnId = request.getTxnId();
                 TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
@@ -503,7 +551,13 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("commit sleep exception.", e);
             }
         }
-        throw new TimeoutException("Operation is timeout");
+        if (txnStatus == TransactionStatus.COMMITTED) {
+            TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
+            statusResult.status = new TStatus();
+            statusResult.setTxnStatusId(txnStatus.value());
+            return statusResult;
+        }
+        throw new TimeoutException("Operation is timeout, txn status is " + txnStatus);
     }
 
     @Override
@@ -512,20 +566,35 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         dbTransactionMgr.updateDatabaseUsedQuotaData(usedQuotaDataBytes);
     }
 
+    @Override
+    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime) {
+        List<Pair<Long, Long>> transactionIdByCoordinateBe
+                = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, Integer.MAX_VALUE);
+        for (Pair<Long, Long> txnInfo : transactionIdByCoordinateBe) {
+            try {
+                DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(txnInfo.first);
+                TransactionState transactionState = dbTransactionMgr.getTransactionState(txnInfo.second);
+                long coordStartTime = transactionState.getCoordinator().startTime;
+                if (coordStartTime > 0 && coordStartTime < beStartTime) {
+                    dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE restart", null);
+                }
+            } catch (UserException e) {
+                LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+            }
+        }
+    }
+
     /**
      * If a Coordinate BE is down when running txn, the txn will remain in FE until killed by timeout
      * So when FE identify the Coordinate BE is down, FE should cancel it initiative
      */
     @Override
-    public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit) {
-        List<Pair<Long, Long>> transactionIdByCoordinateBe = getTransactionIdByCoordinateBe(coordinateHost, limit);
+    public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit) {
+        List<Pair<Long, Long>> transactionIdByCoordinateBe
+                = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, limit);
         for (Pair<Long, Long> txnInfo : transactionIdByCoordinateBe) {
             try {
                 DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(txnInfo.first);
-                TransactionState transactionState = dbTransactionMgr.getTransactionState(txnInfo.second);
-                if (transactionState.getTransactionStatus() == TransactionStatus.PRECOMMITTED) {
-                    continue;
-                }
                 dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE is down", null);
             } catch (UserException e) {
                 LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
@@ -709,11 +778,12 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    @Deprecated
-    protected List<Pair<Long, Long>> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {
+    protected List<Pair<Long, Long>> getPrepareTransactionIdByCoordinateBe(long coordinateBeId,
+            String coordinateHost, int limit) {
         ArrayList<Pair<Long, Long>> txnInfos = new ArrayList<>();
         for (DatabaseTransactionMgr databaseTransactionMgr : dbIdToDatabaseTransactionMgrs.values()) {
-            txnInfos.addAll(databaseTransactionMgr.getTransactionIdByCoordinateBe(coordinateHost, limit));
+            txnInfos.addAll(databaseTransactionMgr.getPrepareTransactionIdByCoordinateBe(
+                        coordinateBeId, coordinateHost, limit));
             if (txnInfos.size() > limit) {
                 break;
             }
@@ -723,7 +793,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public long getAllRunningTxnNum() {
-        return updateTxnMetric(databaseTransactionMgr -> (long) databaseTransactionMgr.getRunningTxnNum(),
+        return updateTxnMetric(databaseTransactionMgr -> (long) databaseTransactionMgr.getRunningTxnNumsWithLock(),
                 MetricRepo.DB_GAUGE_TXN_NUM);
     }
 
@@ -773,8 +843,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     public void readFields(DataInput in) throws IOException {
         int numTransactions = in.readInt();
         for (int i = 0; i < numTransactions; ++i) {
-            TransactionState transactionState = new TransactionState();
-            transactionState.readFields(in);
+            TransactionState transactionState = TransactionState.read(in);
             try {
                 DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(transactionState.getDbId());
                 dbTransactionMgr.unprotectUpsertTransactionState(transactionState, true);
@@ -830,6 +899,26 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             dbTransactionMgr.replayBatchRemoveTransaction(operation);
         } catch (AnalysisException e) {
             LOG.warn("replay batch remove transactions failed. db " + operation.getDbId(), e);
+        }
+    }
+
+    @Override
+    public void addSubTransaction(long dbId, long transactionId, long subTransactionId) {
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+            dbTransactionMgr.addSubTransaction(transactionId, subTransactionId);
+        } catch (AnalysisException e) {
+            LOG.warn("add sub transaction failed. db " + dbId, e);
+        }
+    }
+
+    @Override
+    public void removeSubTransaction(long dbId, long subTransactionId) {
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+            dbTransactionMgr.removeSubTransaction(subTransactionId);
+        } catch (AnalysisException e) {
+            LOG.warn("remove sub transaction failed. db " + dbId, e);
         }
     }
 }

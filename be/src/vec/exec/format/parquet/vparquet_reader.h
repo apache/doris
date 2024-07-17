@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include <list>
-#include <map>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -90,6 +89,8 @@ public:
         int64_t open_file_num = 0;
         int64_t row_group_filter_time = 0;
         int64_t page_index_filter_time = 0;
+        int64_t read_page_index_time = 0;
+        int64_t parse_page_index_time = 0;
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -171,6 +172,8 @@ private:
         RuntimeProfile::Counter* open_file_num = nullptr;
         RuntimeProfile::Counter* row_group_filter_time = nullptr;
         RuntimeProfile::Counter* page_index_filter_time = nullptr;
+        RuntimeProfile::Counter* read_page_index_time = nullptr;
+        RuntimeProfile::Counter* parse_page_index_time = nullptr;
 
         RuntimeProfile::Counter* file_read_time = nullptr;
         RuntimeProfile::Counter* file_read_calls = nullptr;
@@ -183,6 +186,8 @@ private:
         RuntimeProfile::Counter* decode_dict_time = nullptr;
         RuntimeProfile::Counter* decode_level_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
+        RuntimeProfile::Counter* skip_page_header_num = nullptr;
+        RuntimeProfile::Counter* parse_page_header_num = nullptr;
     };
 
     Status _open_file();
@@ -271,6 +276,7 @@ private:
     // Maybe null if not used
     FileMetaCache* _meta_cache = nullptr;
     bool _enable_lazy_mat = true;
+    bool _enable_filter_by_min_max = true;
     const TupleDescriptor* _tuple_descriptor = nullptr;
     const RowDescriptor* _row_descriptor = nullptr;
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;

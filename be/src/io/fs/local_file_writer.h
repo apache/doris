@@ -25,30 +25,32 @@
 #include "util/slice.h"
 
 namespace doris::io {
-
+struct FileCacheAllocatorBuilder;
 class LocalFileWriter final : public FileWriter {
 public:
     LocalFileWriter(Path path, int fd, bool sync_data = true);
     ~LocalFileWriter() override;
 
-    Status close() override;
     Status appendv(const Slice* data, size_t data_cnt) override;
-    Status finalize() override;
     const Path& path() const override { return _path; }
     size_t bytes_appended() const override;
-    bool closed() const override { return _closed; }
+    State state() const override { return _state; }
+
+    FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
+
+    Status close(bool non_block = false) override;
 
 private:
+    Status _finalize();
     void _abort();
     Status _close(bool sync);
 
-private:
     Path _path;
     int _fd; // owned
     bool _dirty = false;
-    bool _closed = false;
     const bool _sync_data = true;
     size_t _bytes_appended = 0;
+    State _state {State::OPENED};
 };
 
 } // namespace doris::io

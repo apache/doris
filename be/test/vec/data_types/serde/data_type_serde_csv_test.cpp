@@ -74,21 +74,22 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_STRING, {"doris be better"},
                                   {"doris be better"}),
                 // decimal ==> decimalv2(decimal<128>(27,9))
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL,
-                                  {
-                                          // (17, 9)(first 0 will ignore)
-                                          "012345678901234567.012345678",
-                                          // (18, 8) (automatically fill 0 for scala)
-                                          "123456789012345678.01234567",
-                                          // (17, 10) (rounding last to make it fit)
-                                          "12345678901234567.0123456779",
-                                          // (17, 11) (rounding last to make it fit)
-                                          "12345678901234567.01234567791",
-                                          // (19, 8) (wrong)
-                                          "1234567890123456789.01234567",
-                                  },
-                                  {"12345678901234567.012345678", "123456789012345678.012345670",
-                                   "12345678901234567.012345678", "", ""}),
+                FieldType_RandStr(
+                        FieldType::OLAP_FIELD_TYPE_DECIMAL,
+                        {
+                                // (17, 9)(first 0 will ignore)
+                                "012345678901234567.012345678",
+                                // (18, 8) (automatically fill 0 for scala)
+                                "123456789012345678.01234567",
+                                // (17, 10) (rounding last to make it fit)
+                                "12345678901234567.0123456779",
+                                // (17, 11) (rounding last to make it fit)
+                                "12345678901234567.01234567791",
+                                // (19, 8) (wrong)
+                                "1234567890123456789.01234567",
+                        },
+                        {"12345678901234567.012345678", "123456789012345678.012345670",
+                         "12345678901234567.012345678", "12345678901234567.012345678", ""}),
                 // decimal32 ==>  decimal32(9,2)                       (7,2)         (6,3)         (7,3)           (8,1)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL32,
                                   {"1234567.12", "123456.123", "1234567.123", "12345679.1"},
@@ -124,7 +125,9 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
         for (auto type_pair : arithmetic_scala_field_types) {
             auto type = std::get<0>(type_pair);
             DataTypePtr data_type_ptr;
-            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
+            if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 27, 9);
+            } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
                 // decimal32(7, 2)
                 data_type_ptr = DataTypeFactory::instance().create_data_type(type, 9, 2);
             } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL64) {

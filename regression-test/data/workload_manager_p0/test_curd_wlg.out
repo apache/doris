@@ -9,6 +9,15 @@
 normal	20	50%	true	2147483647	0	0	1%	16	
 test_group	10	10%	true	2147483647	0	0	-1	-1	
 
+-- !show_del_wg_1 --
+normal	20	50%	true	2147483647	0	0	1%	16	
+test_drop_wg	10	0%	true	2147483647	0	0	-1	-1	
+test_group	10	10%	true	2147483647	0	0	-1	-1	
+
+-- !show_del_wg_2 --
+normal	20	50%	true	2147483647	0	0	1%	16	
+test_group	10	10%	true	2147483647	0	0	-1	-1	
+
 -- !mem_limit_1 --
 2
 

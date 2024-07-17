@@ -67,7 +67,7 @@ public:
                                bitmap);
     }
 
-    Status evaluate(const vectorized::NameAndTypePair& name_with_type,
+    Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {
@@ -101,9 +101,11 @@ public:
 
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
 
-        auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
-                                                           num_rows, roaring));
+        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+        RETURN_IF_ERROR(
+                InvertedIndexQueryParamFactory::create_query_value<Type>(&_value, query_param));
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, query_param->get_value(),
+                                                           query_type, num_rows, roaring));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE

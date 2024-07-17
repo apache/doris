@@ -71,10 +71,7 @@ public:
                 std::shared_ptr<PartialUpdateInfo> partial_update_info,
                 ThreadPool* wg_flush_pool_ptr, bool unique_key_mow = false);
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                 bool is_append = false);
-
-    Status append(const vectorized::Block* block);
+    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();

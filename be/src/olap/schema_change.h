@@ -269,7 +269,7 @@ struct AlterMaterializedViewParam {
 
 struct SchemaChangeParams {
     AlterTabletType alter_tablet_type;
-    bool enable_unique_key_merge_on_write;
+    bool enable_unique_key_merge_on_write = false;
     std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
     DeleteHandler* delete_handler = nullptr;
     std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
@@ -293,11 +293,10 @@ public:
 
 private:
     std::unique_ptr<SchemaChange> _get_sc_procedure(const BlockChanger& changer, bool sc_sorting,
-                                                    bool sc_directly) {
+                                                    bool sc_directly, int64_t mem_limit) {
         if (sc_sorting) {
-            return std::make_unique<VLocalSchemaChangeWithSorting>(
-                    changer, config::memory_limitation_per_thread_for_schema_change_bytes,
-                    _local_storage_engine);
+            return std::make_unique<VLocalSchemaChangeWithSorting>(changer, mem_limit,
+                                                                   _local_storage_engine);
         }
 
         if (sc_directly) {

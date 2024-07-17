@@ -46,8 +46,7 @@ public class Local extends TableValuedFunction {
             Map<String, String> arguments = getTVFProperties().getMap();
             return new LocalTableValuedFunction(arguments);
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build LocalTableValuedFunction by "
-                    + this + ": " + t.getMessage(), t);
+            throw new AnalysisException("Can not build local(): " + t.getMessage(), t);
         }
     }
 

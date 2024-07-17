@@ -17,9 +17,13 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.gson.annotations.SerializedName;
+
+import java.util.List;
 
 /**
  * MTMVPartitionInfo
@@ -28,17 +32,20 @@ public class MTMVPartitionInfo {
 
     public enum MTMVPartitionType {
         FOLLOW_BASE_TABLE,
+        EXPR,
         SELF_MANAGE
     }
 
     @SerializedName("pt")
-    MTMVPartitionType partitionType;
+    private MTMVPartitionType partitionType;
     @SerializedName("rt")
-    BaseTableInfo relatedTable;
+    private BaseTableInfo relatedTable;
     @SerializedName("rc")
-    String relatedCol;
+    private String relatedCol;
     @SerializedName("pc")
-    String partitionCol;
+    private String partitionCol;
+    @SerializedName("expr")
+    private Expr expr;
 
     public MTMVPartitionInfo() {
     }
@@ -89,6 +96,14 @@ public class MTMVPartitionInfo {
         this.partitionCol = partitionCol;
     }
 
+    public Expr getExpr() {
+        return expr;
+    }
+
+    public void setExpr(Expr expr) {
+        this.expr = expr;
+    }
+
     /**
      * Get the position of relatedCol in the relatedTable partition column
      *
@@ -99,11 +114,19 @@ public class MTMVPartitionInfo {
         if (partitionType == MTMVPartitionType.SELF_MANAGE) {
             throw new AnalysisException("partitionType is: " + partitionType);
         }
-        return MTMVPartitionUtil.getPos(getRelatedTable(), relatedCol);
+        List<Column> partitionColumns = getRelatedTable().getPartitionColumns();
+        for (int i = 0; i < partitionColumns.size(); i++) {
+            if (partitionColumns.get(i).getName().equalsIgnoreCase(relatedCol)) {
+                return i;
+            }
+        }
+        throw new AnalysisException(
+                String.format("getRelatedColPos error, relatedCol: %s, partitionColumns: %s", relatedCol,
+                        partitionColumns));
     }
 
-    @Override
-    public String toString() {
+    // toString() is not easy to find where to call the method
+    public String toInfoString() {
         return "MTMVPartitionInfo{"
                 + "partitionType=" + partitionType
                 + ", relatedTable=" + relatedTable

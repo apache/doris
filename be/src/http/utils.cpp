@@ -22,8 +22,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <algorithm>
-#include <memory>
 #include <ostream>
 #include <vector>
 
@@ -41,6 +39,7 @@
 #include "io/fs/local_file_system.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/exec_env.h"
+#include "util/md5.h"
 #include "util/path_util.h"
 #include "util/url_coding.h"
 
@@ -56,7 +55,7 @@ std::string encode_basic_auth(const std::string& user, const std::string& passwd
 
 bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* passwd) {
     const char k_basic[] = "Basic ";
-    auto& auth = req.header(HttpHeaders::AUTHORIZATION);
+    const auto& auth = req.header(HttpHeaders::AUTHORIZATION);
     if (auth.compare(0, sizeof(k_basic) - 1, k_basic, sizeof(k_basic) - 1) != 0) {
         return false;
     }
@@ -76,32 +75,33 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 }
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
-    auto& token = req.header("token");
-    auto& auth_code = req.header(HTTP_AUTH_CODE);
+    const auto& token = req.header("token");
+    const auto& auth_code = req.header(HTTP_AUTH_CODE);
+
+    std::tuple<std::string, std::string, std::string> tmp;
+    auto& [user, pass, cluster] = tmp;
+    bool valid_basic_auth = parse_basic_auth(req, &user, &pass);
+    if (valid_basic_auth) { // always set the basic auth, the user may be useful
+        auto pos = user.find('@');
+        if (pos != std::string::npos) {
+            cluster.assign(user.c_str() + pos + 1);
+            user.assign(user.c_str(), pos); // user is updated
+        }
+        auth->user = user;
+        auth->passwd = pass;
+        auth->cluster = cluster;
+    }
+
     if (!token.empty()) {
         auth->token = token;
     } else if (!auth_code.empty()) {
         auth->auth_code = std::stoll(auth_code);
-    } else {
-        std::string full_user;
-        if (!parse_basic_auth(req, &full_user, &auth->passwd)) {
-            return false;
-        }
-        auto pos = full_user.find('@');
-        if (pos != std::string::npos) {
-            auth->user.assign(full_user.data(), pos);
-            auth->cluster.assign(full_user.data() + pos + 1);
-        } else {
-            auth->user = full_user;
-        }
+    } else if (!valid_basic_auth) {
+        return false;
     }
 
     // set user ip
-    if (req.remote_host() != nullptr) {
-        auth->user_ip.assign(req.remote_host());
-    } else {
-        auth->user_ip.assign("");
-    }
+    auth->user_ip.assign(req.remote_host() != nullptr ? req.remote_host() : "");
 
     return true;
 }
@@ -111,25 +111,24 @@ std::string get_content_type(const std::string& file_name) {
     std::string file_ext = path_util::file_extension(file_name);
     VLOG_TRACE << "file_name: " << file_name << "; file extension: [" << file_ext << "]";
     if (file_ext == std::string(".html") || file_ext == std::string(".htm")) {
-        return std::string("text/html; charset=utf-8");
+        return "text/html; charset=utf-8";
     } else if (file_ext == std::string(".js")) {
-        return std::string("application/javascript; charset=utf-8");
+        return "application/javascript; charset=utf-8";
     } else if (file_ext == std::string(".css")) {
-        return std::string("text/css; charset=utf-8");
+        return "text/css; charset=utf-8";
     } else if (file_ext == std::string(".txt")) {
-        return std::string("text/plain; charset=utf-8");
+        return "text/plain; charset=utf-8";
     } else if (file_ext == std::string(".png")) {
-        return std::string("image/png");
+        return "image/png";
     } else if (file_ext == std::string(".ico")) {
-        return std::string("image/x-icon");
+        return "image/x-icon";
     } else {
         return "text/plain; charset=utf-8";
     }
-    return "";
 }
 
 void do_file_response(const std::string& file_path, HttpRequest* req,
-                      bufferevent_rate_limit_group* rate_limit_group) {
+                      bufferevent_rate_limit_group* rate_limit_group, bool is_acquire_md5) {
     if (file_path.find("..") != std::string::npos) {
         LOG(WARNING) << "Not allowed to read relative path: " << file_path;
         HttpChannel::send_error(req, HttpStatus::FORBIDDEN);
@@ -163,6 +162,17 @@ void do_file_response(const std::string& file_path, HttpRequest* req,
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, get_content_type(file_path).c_str());
 
+    if (is_acquire_md5) {
+        Md5Digest md5;
+
+        void* buf = mmap(nullptr, file_size, PROT_READ, MAP_SHARED, fd, 0);
+        md5.update(buf, file_size);
+        md5.digest();
+        munmap(buf, file_size);
+
+        req->add_output_header(HttpHeaders::CONTENT_MD5, md5.hex().c_str());
+    }
+
     if (req->method() == HttpMethod::HEAD) {
         close(fd);
         req->add_output_header(HttpHeaders::CONTENT_LENGTH, std::to_string(file_size).c_str());
@@ -194,7 +204,7 @@ void do_dir_response(const std::string& dir_path, HttpRequest* req) {
 }
 
 bool load_size_smaller_than_wal_limit(int64_t content_length) {
-    // 1. req->header(HttpHeaders::CONTENT_LENGTH) will return streamload content length. If it is empty or equels to 0, it means this streamload
+    // 1. req->header(HttpHeaders::CONTENT_LENGTH) will return streamload content length. If it is empty or equals to 0, it means this streamload
     // is a chunked streamload and we are not sure its size.
     // 2. if streamload content length is too large, like larger than 80% of the WAL constrain.
     //

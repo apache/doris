@@ -5,42 +5,34 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = current_addr.ca_address_sk)) otherCondition=(( not (ca_city = bought_city)))
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=()
-------------------PhysicalDistribute[DistributionSpecHash]
+----------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_addr_sk = current_addr.ca_address_sk)) otherCondition=(( not (ca_city = bought_city)))
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN shuffle] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=()
+----------------PhysicalProject
+------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------hashAgg[LOCAL]
+----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=()
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=()
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF1 hd_demo_sk->[ss_hdemo_sk]
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[ss_hdemo_sk]
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
-----------------------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------------------PhysicalProject
---------------------------------------------filter(d_dow IN (0, 6) and d_year IN (1999, 2000, 2001))
-----------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------------PhysicalProject
-----------------------------------------filter(((household_demographics.hd_dep_count = 6) OR (household_demographics.hd_vehicle_count = 0)))
-------------------------------------------PhysicalOlapScan[household_demographics]
-----------------------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ------------------------------------PhysicalProject
---------------------------------------filter(s_city IN ('Centerville', 'Fairview', 'Five Points', 'Liberty', 'Oak Grove'))
-----------------------------------------PhysicalOlapScan[store]
-----------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer_address]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[customer_address]
+--------------------------------------filter(d_dow IN (0, 6) and d_year IN (1999, 2000, 2001))
+----------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalProject
+----------------------------------filter(s_city IN ('Centerville', 'Fairview', 'Five Points', 'Liberty', 'Oak Grove'))
+------------------------------------PhysicalOlapScan[store]
+----------------------------PhysicalProject
+------------------------------filter(((household_demographics.hd_dep_count = 6) OR (household_demographics.hd_vehicle_count = 0)))
+--------------------------------PhysicalOlapScan[household_demographics]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[customer_address]
+----------------PhysicalProject
+------------------PhysicalOlapScan[customer]
+------------PhysicalProject
+--------------PhysicalOlapScan[customer_address]
 

@@ -30,6 +30,8 @@ suite("query41") {
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     def ds = """select  distinct(i_product_name)
  from item i1
  where i_manufact_id between 748 and 748+40 

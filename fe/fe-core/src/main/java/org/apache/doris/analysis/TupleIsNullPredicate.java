@@ -239,4 +239,9 @@ public class TupleIsNullPredicate extends Predicate {
     public boolean isNullable() {
         return false;
     }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
+    }
 }

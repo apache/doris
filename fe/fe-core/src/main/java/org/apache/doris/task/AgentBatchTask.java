@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TCalcDeleteBitmapRequest;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TCleanTrashReq;
+import org.apache.doris.thrift.TCleanUDFCacheReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
 import org.apache.doris.thrift.TCloneReq;
@@ -49,6 +50,7 @@ import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
 import org.apache.doris.thrift.TUploadReq;
+import org.apache.doris.thrift.TVisibleVersionReq;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -394,6 +396,15 @@ public class AgentBatchTask implements Runnable {
                 tAgentTaskRequest.setGcBinlogReq(request);
                 return tAgentTaskRequest;
             }
+            case UPDATE_VISIBLE_VERSION: {
+                UpdateVisibleVersionTask visibleTask = (UpdateVisibleVersionTask) task;
+                TVisibleVersionReq request = visibleTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setVisibleVersionReq(request);
+                return tAgentTaskRequest;
+            }
             case CALCULATE_DELETE_BITMAP: {
                 CalcDeleteBitmapTask calcDeleteBitmapTask = (CalcDeleteBitmapTask) task;
                 TCalcDeleteBitmapRequest request = calcDeleteBitmapTask.toThrift();
@@ -410,6 +421,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setCleanTrashReq(request);
+                return tAgentTaskRequest;
+            }
+            case CLEAN_UDF_CACHE: {
+                CleanUDFCacheTask cleanUDFCacheTask = (CleanUDFCacheTask) task;
+                TCleanUDFCacheReq request = cleanUDFCacheTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setCleanUdfCacheReq(request);
                 return tAgentTaskRequest;
             }
             default:

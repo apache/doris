@@ -19,6 +19,7 @@ package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.TablePartitionValues.TablePartitionKey;
@@ -56,7 +57,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 Config.max_hive_table_cache_num,
                 false,
                 null);
-        this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(), executor);
+        this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(), null, executor);
     }
 
     @Override
@@ -162,7 +163,8 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 partitionValues.writeLock().unlock();
             }
         } catch (Exception e) {
-            throw new CacheException("Failed to get hudi partitions", e);
+            LOG.warn("Failed to get hudi partitions", e);
+            throw new CacheException("Failed to get hudi partitions: " + Util.getRootCauseMessage(e), e);
         }
     }
 }

@@ -23,18 +23,14 @@
 #include <glog/logging.h>
 
 #include <functional>
-#include <ostream>
 #include <utility>
 
 #include "common/status.h"
 #include "exec/schema_scanner.h"
-#include "gen_cpp/descriptors.pb.h"
-#include "gtest/gtest_pred_impl.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "olap/olap_common.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
 #include "runtime/define_primitive_type.h"
@@ -91,7 +87,10 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _io_ctx(io_ctx),
           _state(state),
           _meta_cache(meta_cache),
-          _enable_lazy_mat(enable_lazy_mat) {
+          _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_min_max) {
     _init_profile();
     _init_system_properties();
     _init_file_description();
@@ -104,7 +103,10 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
           _scan_range(range),
           _io_ctx(io_ctx),
           _state(state),
-          _enable_lazy_mat(enable_lazy_mat) {
+          _enable_lazy_mat(enable_lazy_mat),
+          _enable_filter_by_min_max(
+                  state == nullptr ? true
+                                   : state->query_options().enable_parquet_filter_by_min_max) {
     _init_system_properties();
     _init_file_description();
 }
@@ -146,6 +148,10 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FileNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.page_index_filter_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexFilterTime", parquet_profile, 1);
+        _parquet_profile.read_page_index_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexReadTime", parquet_profile, 1);
+        _parquet_profile.parse_page_index_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexParseTime", parquet_profile, 1);
         _parquet_profile.row_group_filter_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RowGroupFilterTime", parquet_profile, 1);
 
@@ -170,6 +176,10 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeLevelTime", parquet_profile, 1);
         _parquet_profile.decode_null_map_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", parquet_profile, 1);
+        _parquet_profile.skip_page_header_num = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "SkipPageHeaderNum", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.parse_page_header_num = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "ParsePageHeaderNum", TUnit::UNIT, parquet_profile, 1);
     }
 }
 
@@ -420,6 +430,14 @@ Status ParquetReader::set_fill_columns(
         if (iter == predicate_columns.end()) {
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         } else {
+            //For check missing column :   missing column == xx, missing column is null,missing column is not null.
+            if (_slot_id_to_filter_conjuncts->find(iter->second.second) !=
+                _slot_id_to_filter_conjuncts->end()) {
+                for (auto& ctx : _slot_id_to_filter_conjuncts->find(iter->second.second)->second) {
+                    _lazy_read_ctx.missing_columns_conjuncts.emplace_back(ctx);
+                }
+            }
+
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
             _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
         }
@@ -726,31 +744,39 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         _statistics.read_rows += row_group.num_rows;
     };
 
-    if (_lazy_read_ctx.has_complex_type || _lazy_read_ctx.conjuncts.empty() ||
-        _colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
+    if ((!_enable_filter_by_min_max) || _lazy_read_ctx.has_complex_type ||
+        _lazy_read_ctx.conjuncts.empty() || _colname_to_value_range == nullptr ||
+        _colname_to_value_range->empty()) {
         read_whole_row_group();
         return Status::OK();
     }
     PageIndex page_index;
-    if (!_has_page_index(row_group.columns, page_index)) {
+    if (!config::enable_parquet_page_index || !_has_page_index(row_group.columns, page_index)) {
         read_whole_row_group();
         return Status::OK();
     }
-    uint8_t col_index_buff[page_index._column_index_size];
+    std::vector<uint8_t> col_index_buff(page_index._column_index_size);
     size_t bytes_read = 0;
-    Slice result(col_index_buff, page_index._column_index_size);
-    RETURN_IF_ERROR(
-            _file_reader->read_at(page_index._column_index_start, result, &bytes_read, _io_ctx));
+    Slice result(col_index_buff.data(), page_index._column_index_size);
+    {
+        SCOPED_RAW_TIMER(&_statistics.read_page_index_time);
+        RETURN_IF_ERROR(_file_reader->read_at(page_index._column_index_start, result, &bytes_read,
+                                              _io_ctx));
+    }
     _column_statistics.read_bytes += bytes_read;
     auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
-    uint8_t off_index_buff[page_index._offset_index_size];
-    Slice res(off_index_buff, page_index._offset_index_size);
-    RETURN_IF_ERROR(
-            _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
+    std::vector<uint8_t> off_index_buff(page_index._offset_index_size);
+    Slice res(off_index_buff.data(), page_index._offset_index_size);
+    {
+        SCOPED_RAW_TIMER(&_statistics.read_page_index_time);
+        RETURN_IF_ERROR(
+                _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
+    }
     _column_statistics.read_bytes += bytes_read;
     // read twice: parse column index & parse offset index
     _column_statistics.meta_read_calls += 2;
+    SCOPED_RAW_TIMER(&_statistics.parse_page_index_time);
     for (auto& read_col : _read_columns) {
         auto conjunct_iter = _colname_to_value_range->find(read_col);
         if (_colname_to_value_range->end() == conjunct_iter) {
@@ -766,7 +792,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         tparquet::ColumnIndex column_index;
-        RETURN_IF_ERROR(page_index.parse_column_index(chunk, col_index_buff, &column_index));
+        RETURN_IF_ERROR(page_index.parse_column_index(chunk, col_index_buff.data(), &column_index));
         const int num_of_pages = column_index.null_pages.size();
         if (num_of_pages <= 0) {
             continue;
@@ -774,17 +800,17 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         auto& conjuncts = conjunct_iter->second;
         std::vector<int> skipped_page_range;
         const FieldSchema* col_schema = schema_desc.get_column(read_col);
-        static_cast<void>(page_index.collect_skipped_page_range(
-                &column_index, conjuncts, col_schema, skipped_page_range, *_ctz));
+        RETURN_IF_ERROR(page_index.collect_skipped_page_range(&column_index, conjuncts, col_schema,
+                                                              skipped_page_range, *_ctz));
         if (skipped_page_range.empty()) {
             continue;
         }
         tparquet::OffsetIndex offset_index;
-        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff, &offset_index));
+        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
-            static_cast<void>(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
-                                                                  page_id, &skipped_row_range));
+            RETURN_IF_ERROR(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
+                                                                page_id, &skipped_row_range));
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
@@ -826,7 +852,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
 
 Status ParquetReader::_process_row_group_filter(const tparquet::RowGroup& row_group,
                                                 bool* filter_group) {
-    static_cast<void>(_process_column_stat_filter(row_group.columns, filter_group));
+    RETURN_IF_ERROR(_process_column_stat_filter(row_group.columns, filter_group));
     _init_chunk_dicts();
     RETURN_IF_ERROR(_process_dict_filter(filter_group));
     _init_bloom_filter();
@@ -836,7 +862,8 @@ Status ParquetReader::_process_row_group_filter(const tparquet::RowGroup& row_gr
 
 Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::ColumnChunk>& columns,
                                                   bool* filter_group) {
-    if (_colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
+    if ((!_enable_filter_by_min_max) || _colname_to_value_range == nullptr ||
+        _colname_to_value_range->empty()) {
         return Status::OK();
     }
     auto& schema_desc = _file_metadata->schema();
@@ -919,8 +946,13 @@ void ParquetReader::_collect_profile() {
     COUNTER_UPDATE(_parquet_profile.open_file_time, _statistics.open_file_time);
     COUNTER_UPDATE(_parquet_profile.open_file_num, _statistics.open_file_num);
     COUNTER_UPDATE(_parquet_profile.page_index_filter_time, _statistics.page_index_filter_time);
+    COUNTER_UPDATE(_parquet_profile.read_page_index_time, _statistics.read_page_index_time);
+    COUNTER_UPDATE(_parquet_profile.parse_page_index_time, _statistics.parse_page_index_time);
     COUNTER_UPDATE(_parquet_profile.row_group_filter_time, _statistics.row_group_filter_time);
 
+    COUNTER_UPDATE(_parquet_profile.skip_page_header_num, _column_statistics.skip_page_header_num);
+    COUNTER_UPDATE(_parquet_profile.parse_page_header_num,
+                   _column_statistics.parse_page_header_num);
     COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
     COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
     COUNTER_UPDATE(_parquet_profile.file_meta_read_calls, _column_statistics.meta_read_calls);

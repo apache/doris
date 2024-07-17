@@ -62,8 +62,6 @@ public:
     // Return the next block of sorted rows from this merger.
     Status get_next(Block* output_block, bool* eos);
 
-    void set_pipeline_engine_enabled(bool value) { _pipeline_engine_enabled = value; }
-
 protected:
     const VExprContextSPtrs _ordering_expr;
     SortDescription _desc;
@@ -75,8 +73,6 @@ protected:
     size_t _num_rows_returned = 0;
     int64_t _limit = -1;
     size_t _offset = 0;
-
-    bool _pipeline_engine_enabled = false;
 
     std::vector<BlockSupplierSortCursorImpl> _cursors;
     std::priority_queue<MergeSortCursor> _priority_queue;
@@ -92,6 +88,10 @@ protected:
 
     // Times calls to get the next batch of rows from the input run.
     RuntimeProfile::Counter* _get_next_block_timer = nullptr;
+
+    std::vector<size_t> _indexs;
+    std::vector<Block*> _block_addrs;
+    std::vector<const IColumn*> _column_addrs;
 
 private:
     void init_timers(RuntimeProfile* profile);

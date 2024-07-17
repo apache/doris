@@ -128,6 +128,12 @@ suite("test_crud_wlg") {
 
     qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
+    // test drop workload group
+    sql "create workload group if not exists test_drop_wg properties ('cpu_share'='10')"
+    qt_show_del_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+    sql "drop workload group test_drop_wg"
+    qt_show_del_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+
     // test memory_limit
     test {
         sql "alter workload group test_group properties ( 'memory_limit'='100%' );"
@@ -276,6 +282,15 @@ suite("test_crud_wlg") {
     sql """drop user if exists test_wlg_user"""
     sql "CREATE USER 'test_wlg_user'@'%' IDENTIFIED BY '12345';"
     sql """grant SELECT_PRIV on *.*.* to test_wlg_user;"""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_wlg_user""";
+    }
+
     connect(user = 'test_wlg_user', password = '12345', url = context.config.jdbcUrl) {
             sql """ select count(1) from information_schema.backend_active_tasks; """
     }
@@ -326,7 +341,7 @@ suite("test_crud_wlg") {
     test {
         sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
 
-        exception "query wait timeout"
+        exception "query queue timeout"
     }
 
     // test query queue running query/waiting num

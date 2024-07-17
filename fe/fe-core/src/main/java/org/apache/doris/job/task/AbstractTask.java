@@ -63,7 +63,7 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void onFail(String msg) throws JobException {
+    public void onFail() throws JobException {
         status = TaskStatus.FAILED;
         if (!isCallable()) {
             return;
@@ -72,12 +72,13 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void onFail() throws JobException {
+    public void onFail(String errMsg) throws JobException {
         if (TaskStatus.CANCELED.equals(status)) {
             return;
         }
         status = TaskStatus.FAILED;
         setFinishTimeMs(System.currentTimeMillis());
+        setErrMsg(errMsg);
         if (!isCallable()) {
             return;
         }
@@ -94,6 +95,18 @@ public abstract class AbstractTask implements Task {
         }
         return false;
     }
+
+    /**
+     * Closes or releases all allocated resources such as database connections, file streams, or any other
+     * external system handles that were utilized during the task execution. This method is invoked
+     * unconditionally, ensuring that resources are properly managed whether the task completes
+     * successfully, fails, or is canceled. It is crucial for preventing resource leaks and maintaining
+     * the overall health and efficiency of the application.
+     * <p>
+     * Note: Implementations of this method should handle potential exceptions internally and log them
+     * appropriately to avoid interrupting the normal flow of cleanup operations.
+     */
+    protected abstract void closeOrReleaseResources();
 
     @Override
     public void onSuccess() throws JobException {
@@ -113,10 +126,34 @@ public abstract class AbstractTask implements Task {
         job.onTaskSuccess(this);
     }
 
+    /**
+     * Cancels the ongoing task, updating its status to {@link TaskStatus#CANCELED} and releasing associated resources.
+     * This method encapsulates the core cancellation logic, calling the abstract method
+     * {@link #executeCancelLogic()} for task-specific actions.
+     *
+     * @throws JobException If an error occurs during the cancellation process, a new JobException is thrown wrapping
+     *                      the original exception.
+     */
     @Override
     public void cancel() throws JobException {
-        status = TaskStatus.CANCELED;
+        try {
+            executeCancelLogic();
+            status = TaskStatus.CANCELED;
+        } catch (Exception e) {
+            log.warn("cancel task failed, job id is {}, task id is {}", jobId, taskId, e);
+            throw new JobException(e);
+        } finally {
+            closeOrReleaseResources();
+        }
     }
+
+    /**
+     * Abstract method for implementing the task-specific cancellation logic.
+     * Subclasses must override this method to provide their own implementation of how a task should be canceled.
+     *
+     * @throws Exception Any exception that might occur during the cancellation process in the subclass.
+     */
+    protected abstract void executeCancelLogic() throws Exception;
 
     @Override
     public void before() throws JobException {
@@ -133,6 +170,8 @@ public abstract class AbstractTask implements Task {
             this.errMsg = e.getMessage();
             onFail();
             log.warn("execute task error, job id is {}, task id is {}", jobId, taskId, e);
+        } finally {
+            closeOrReleaseResources();
         }
     }
 
@@ -153,4 +192,17 @@ public abstract class AbstractTask implements Task {
         return job;
     }
 
+    @Override
+    public String toString() {
+        return "AbstractTask{"
+                + "jobId=" + jobId
+                + ", taskId=" + taskId
+                + ", status=" + status
+                + ", createTimeMs=" + createTimeMs
+                + ", startTimeMs=" + startTimeMs
+                + ", finishTimeMs=" + finishTimeMs
+                + ", taskType=" + taskType
+                + ", errMsg='" + errMsg + '\''
+                + '}';
+    }
 }

@@ -22,9 +22,8 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
@@ -33,9 +32,11 @@
 #include <utility>
 #include <vector>
 
+#include "common/consts.h"
 #include "common/status.h"
 #include "gutil/stringprintf.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/options.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "util/string_util.h"
@@ -153,6 +154,7 @@ public:
     bool is_row_store_column() const;
     std::string get_aggregation_name() const { return _aggregation_name; }
     bool get_result_is_nullable() const { return _result_is_nullable; }
+    int get_be_exec_version() const { return _be_exec_version; }
     bool has_path_info() const { return _column_path != nullptr && !_column_path->empty(); }
     const vectorized::PathInDataPtr& path_info_ptr() const { return _column_path; }
     // If it is an extracted column from variant column
@@ -162,12 +164,30 @@ public:
     int32_t parent_unique_id() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
+    void set_has_bitmap_index(bool has_bitmap_index) { _has_bitmap_index = has_bitmap_index; }
     std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
 
     void append_sparse_column(TabletColumn column);
     const TabletColumn& sparse_column_at(size_t oridinal) const;
     const std::vector<TabletColumnPtr>& sparse_columns() const;
     size_t num_sparse_columns() const { return _num_sparse_columns; }
+
+    Status check_valid() const {
+        if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
+            type() != FieldType::OLAP_FIELD_TYPE_STRUCT &&
+            type() != FieldType::OLAP_FIELD_TYPE_MAP) {
+            return Status::OK();
+        }
+        if (is_bf_column()) {
+            return Status::NotSupported("Do not support bloom filter index, type={}",
+                                        get_string_by_field_type(type()));
+        }
+        if (has_bitmap_index()) {
+            return Status::NotSupported("Do not support bitmap index, type={}",
+                                        get_string_by_field_type(type()));
+        }
+        return Status::OK();
+    }
 
 private:
     int32_t _unique_id = -1;
@@ -203,6 +223,7 @@ private:
     uint32_t _sub_column_count = 0;
 
     bool _result_is_nullable = false;
+    int _be_exec_version = -1;
     vectorized::PathInDataPtr _column_path;
 
     // Record information about columns merged into a sparse column within a variant
@@ -234,14 +255,14 @@ public:
     const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
     const std::map<string, string>& properties() const { return _properties; }
     int32_t get_gram_size() const {
-        if (_properties.count("gram_size")) {
+        if (_properties.contains("gram_size")) {
             return std::stoi(_properties.at("gram_size"));
         }
 
         return 0;
     }
     int32_t get_gram_bf_size() const {
-        if (_properties.count("bf_size")) {
+        if (_properties.contains("bf_size")) {
             return std::stoi(_properties.at("bf_size"));
         }
 
@@ -268,7 +289,9 @@ public:
     // TODO(yingchun): better to make constructor as private to avoid
     // manually init members incorrectly, and define a new function like
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
-    TabletSchema() = default;
+    TabletSchema();
+    virtual ~TabletSchema();
+
     void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false);
     // Notice: Use deterministic way to serialize protobuf,
     // since serialize Map in protobuf may could lead to un-deterministic by default
@@ -282,6 +305,7 @@ public:
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
+    void update_index_info_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
     // Don't use.
     // TODO: memory size of TabletSchema cannot be accurately tracked.
@@ -292,7 +316,7 @@ public:
     int32_t field_index(const vectorized::PathInData& path) const;
     int32_t field_index(int32_t col_unique_id) const;
     const TabletColumn& column(size_t ordinal) const;
-    const TabletColumn& column(const std::string& field_name) const;
+    Result<const TabletColumn*> column(const std::string& field_name) const;
     Status have_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     TabletColumn& mutable_column_by_uid(int32_t col_unique_id);
@@ -323,8 +347,10 @@ public:
         _enable_single_replica_compaction = enable_single_replica_compaction;
     }
     bool enable_single_replica_compaction() const { return _enable_single_replica_compaction; }
-    void set_store_row_column(bool store_row_column) { _store_row_column = store_row_column; }
-    bool store_row_column() const { return _store_row_column; }
+    // indicate if full row store column(all the columns encodes as row) exists
+    bool has_row_store_for_all_columns() const {
+        return _store_row_column && row_columns_uids().empty();
+    }
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
@@ -334,6 +360,8 @@ public:
     void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
+    void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
+    long row_store_page_size() const { return _row_store_page_size; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
     bool has_inverted_index() const {
@@ -346,10 +374,13 @@ public:
     }
     std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
     bool has_inverted_index(const TabletColumn& col) const;
-    bool has_inverted_index_with_index_id(int32_t index_id, const std::string& suffix_path) const;
-    const TabletIndex* get_inverted_index_with_index_id(int32_t index_id,
+    bool has_inverted_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
+    const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
                                                         const std::string& suffix_name) const;
-    const TabletIndex* get_inverted_index(const TabletColumn& col) const;
+    // check_valid: check if this column supports inverted index
+    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
+    // If returned, the index file will not be found.
+    const TabletIndex* get_inverted_index(const TabletColumn& col, bool check_valid = true) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id,
                                           const std::string& suffix_path) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
@@ -368,10 +399,10 @@ public:
     }
     std::string auto_increment_column() const { return _auto_increment_column; }
 
-    void set_table_id(int32_t table_id) { _table_id = table_id; }
-    int32_t table_id() const { return _table_id; }
-    void set_db_id(int32_t db_id) { _db_id = db_id; }
-    int32_t db_id() const { return _db_id; }
+    void set_table_id(int64_t table_id) { _table_id = table_id; }
+    int64_t table_id() const { return _table_id; }
+    void set_db_id(int64_t db_id) { _db_id = db_id; }
+    int64_t db_id() const { return _db_id; }
     void build_current_tablet_schema(int64_t index_id, int32_t version,
                                      const OlapTableIndexSchema* index,
                                      const TabletSchema& out_tablet_schema);
@@ -447,13 +478,15 @@ public:
 
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
-    std::shared_ptr<TabletSchema> copy_without_extracted_columns();
+    std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
     InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
         return _inverted_index_storage_format;
     }
 
     void update_tablet_columns(const TabletSchema& tablet_schema,
                                const std::vector<TColumn>& t_columns);
+
+    const std::vector<int32_t>& row_columns_uids() const { return _row_store_column_unique_ids; }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -478,6 +511,7 @@ private:
     size_t _num_rows_per_row_block = 0;
     CompressKind _compress_kind = COMPRESS_NONE;
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
+    long _row_store_page_size = segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     size_t _next_column_unique_id = 0;
     std::string _auto_increment_column;
 
@@ -488,14 +522,18 @@ private:
     int32_t _sequence_col_idx = -1;
     int32_t _version_col_idx = -1;
     int32_t _schema_version = -1;
-    int32_t _table_id = -1;
-    int32_t _db_id = -1;
+    int64_t _table_id = -1;
+    int64_t _db_id = -1;
     bool _disable_auto_compaction = false;
     bool _enable_single_replica_compaction = false;
     int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
     InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
+
+    // Contains column ids of which columns should be encoded into row store.
+    // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
+    std::vector<int32_t> _row_store_column_unique_ids;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

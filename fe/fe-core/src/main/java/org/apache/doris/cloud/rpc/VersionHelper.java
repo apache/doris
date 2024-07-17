@@ -34,7 +34,7 @@ public class VersionHelper {
 
     public static Cloud.GetVersionResponse getVisibleVersion(Cloud.GetVersionRequest request) throws RpcException {
         int tryTimes = 0;
-        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+        while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             Cloud.GetVersionResponse resp = getVisibleVersionInternal(request,
                     Config.default_get_version_from_ms_timeout_second * 1000);
             if (resp != null) {
@@ -50,7 +50,7 @@ public class VersionHelper {
                         resp.getStatus(), tryTimes);
             }
             // sleep random millis, retry rpc failed
-            if (tryTimes > Config.meta_service_rpc_retry_times / 2) {
+            if (tryTimes > Config.metaServiceRpcRetryTimes() / 2) {
                 sleepSeveralMs(500, 1000);
             } else {
                 sleepSeveralMs(20, 200);

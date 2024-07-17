@@ -32,8 +32,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
@@ -47,6 +45,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.plugin.audit.LoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
@@ -60,12 +59,12 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
@@ -79,14 +78,16 @@ import java.util.stream.Collectors;
 /**
  * parent class of BrokerLoadJob and SparkLoadJob from load stmt
  */
-public abstract class BulkLoadJob extends LoadJob {
+public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(BulkLoadJob.class);
 
     // input params
+    @SerializedName(value = "bd")
     protected BrokerDesc brokerDesc;
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
     // the expr of columns will be reanalyzed when the log is replayed
+    @SerializedName(value = "os")
     private OriginStatement originStmt;
 
     // include broker desc and data desc
@@ -95,13 +96,8 @@ public abstract class BulkLoadJob extends LoadJob {
 
     // sessionVariable's name -> sessionVariable's value
     // we persist these sessionVariables due to the session is not available when replaying the job.
+    @SerializedName(value = "svs")
     protected Map<String, String> sessionVariables = Maps.newHashMap();
-
-    private static final String CLUSTER_ID = "clusterId";
-    protected String clusterId;
-
-    // retry 3 times is enough
-    protected int retryTimes = 3;
 
     public BulkLoadJob(EtlJobType jobType) {
         super(jobType);
@@ -114,36 +110,9 @@ public abstract class BulkLoadJob extends LoadJob {
         this.authorizationInfo = gatherAuthInfo();
         this.userInfo = userInfo;
 
-        if (Config.isCloudMode()) {
-            ConnectContext context = ConnectContext.get();
-            if (context != null) {
-                String clusterName = context.getCloudCluster();
-                if (Strings.isNullOrEmpty(clusterName)) {
-                    LOG.warn("cluster name is empty");
-                    throw new MetaNotFoundException("cluster name is empty");
-                }
-
-                this.clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                    .getCloudClusterIdByName(clusterName);
-                if (!Strings.isNullOrEmpty(context.getSessionVariable().getCloudCluster())) {
-                    clusterName = context.getSessionVariable().getCloudCluster();
-                    this.clusterId =
-                            ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                            .getCloudClusterIdByName(clusterName);
-                }
-                if (Strings.isNullOrEmpty(this.clusterId)) {
-                    LOG.warn("cluster id is empty, cluster name {}", clusterName);
-                    throw new MetaNotFoundException("cluster id is empty, cluster name: " + clusterName);
-                }
-            }
-        }
-
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
-            if (Config.isCloudMode()) {
-                sessionVariables.put(CLUSTER_ID, clusterId);
-            }
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -184,7 +153,7 @@ public abstract class BulkLoadJob extends LoadJob {
         }
     }
 
-    protected void checkAndSetDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
+    public void checkAndSetDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
         // check data source info
         db.readLock();
         try {
@@ -305,9 +274,6 @@ public abstract class BulkLoadJob extends LoadJob {
         fileGroupAggInfo = new BrokerFileGroupAggInfo();
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt.originStmt),
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
-        if (Config.isCloudMode()) {
-            clusterId = sessionVariables.get("clusterId");
-        }
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
             analyzeStmt(SqlParserUtils.getStmt(parser, originStmt.idx), db);
@@ -346,21 +312,16 @@ public abstract class BulkLoadJob extends LoadJob {
         unprotectReadEndOperation((LoadJobFinalOperation) txnState.getTxnCommitAttachment());
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        brokerDesc.write(out);
-        originStmt.write(out);
-
-        out.writeInt(sessionVariables.size());
-        for (Map.Entry<String, String> entry : sessionVariables.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
-    }
-
     public OriginStatement getOriginStmt() {
         return this.originStmt;
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_117) {
+            userInfo.setIsAnalyzed();
+        }
     }
 
     public void readFields(DataInput in) throws IOException {

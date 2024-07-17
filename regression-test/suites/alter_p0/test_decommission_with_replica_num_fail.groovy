@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_decommission_with_replica_num_fail') {
+suite('test_decommission_with_replica_num_fail', 'nonConcurrent') {
     if (isCloudMode()) {
         return
     }
@@ -59,6 +59,10 @@ suite('test_decommission_with_replica_num_fail') {
         }
     } finally {
         sql "CANCEL DECOMMISSION BACKEND '${targetBackend.Host}:${targetBackend.HeartbeatPort}'"
+        backends = sql_return_maparray('show backends')
+        for (def be : backends) {
+            logger.info("backend=${be}")
+        }
     }
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
 }

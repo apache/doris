@@ -18,17 +18,17 @@
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-if [[ ! -d bin || ! -d conf || ! -d lib ]]; then
-    echo "$0 must be invoked at the directory which contains bin, conf and lib"
-    exit 1
-fi
-
 DORIS_HOME="$(
     cd "${curdir}/.." || exit 1
     pwd
 )"
 
 cd "${DORIS_HOME}" || exit 1
+
+if [[ ! -d bin || ! -d conf || ! -d lib ]]; then
+    echo "$0 must be invoked at the directory which contains bin, conf and lib"
+    exit 1
+fi
 
 daemonized=0
 for arg; do

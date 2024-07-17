@@ -53,6 +53,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/obj_storage_client.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
@@ -77,10 +78,12 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
+#include "util/jni-util.h"
 #include "util/mem_info.h"
 #include "util/random.h"
 #include "util/s3_util.h"
@@ -185,14 +188,21 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
-                            config::memory_limitation_per_thread_for_schema_change_bytes));
+                            engine.memory_limitation_bytes_per_thread_for_schema_change()));
         SCOPED_ATTACH_TASK(mem_tracker);
         DorisMetrics::instance()->create_rollup_requests_total->increment(1);
         Status res = Status::OK();
         try {
-            DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
+            LOG_INFO("start {}", process_name)
+                    .tag("signature", agent_task_req.signature)
+                    .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                    .tag("new_tablet_id", new_tablet_id)
+                    .tag("mem_limit",
+                         engine.memory_limitation_bytes_per_thread_for_schema_change());
             SchemaChangeJob job(engine, agent_task_req.alter_tablet_req_v2,
-                                std::to_string(agent_task_req.alter_tablet_req_v2.job_id));
+                                std::to_string(agent_task_req.alter_tablet_req_v2.__isset.job_id
+                                                       ? agent_task_req.alter_tablet_req_v2.job_id
+                                                       : 0));
             status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
         } catch (const Exception& e) {
             status = e.to_status();
@@ -254,11 +264,17 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
-                            config::memory_limitation_per_thread_for_schema_change_bytes));
+                            engine.memory_limitation_bytes_per_thread_for_schema_change()));
         SCOPED_ATTACH_TASK(mem_tracker);
         DorisMetrics::instance()->create_rollup_requests_total->increment(1);
         Status res = Status::OK();
         try {
+            LOG_INFO("start {}", process_name)
+                    .tag("signature", agent_task_req.signature)
+                    .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                    .tag("new_tablet_id", new_tablet_id)
+                    .tag("mem_limit",
+                         engine.memory_limitation_bytes_per_thread_for_schema_change());
             DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
             CloudSchemaChangeJob job(engine,
                                      std::to_string(agent_task_req.alter_tablet_req_v2.job_id),
@@ -426,6 +442,7 @@ bvar::Adder<uint64_t> ALTER_count("task", "ALTER_TABLE");
 bvar::Adder<uint64_t> CLONE_count("task", "CLONE");
 bvar::Adder<uint64_t> STORAGE_MEDIUM_MIGRATE_count("task", "STORAGE_MEDIUM_MIGRATE");
 bvar::Adder<uint64_t> GC_BINLOG_count("task", "GC_BINLOG");
+bvar::Adder<uint64_t> UPDATE_VISIBLE_VERSION_count("task", "UPDATE_VISIBLE_VERSION");
 
 void add_task_count(const TAgentTaskRequest& task, int n) {
     // clang-format off
@@ -452,6 +469,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     ADD_TASK_COUNT(CLONE)
     ADD_TASK_COUNT(STORAGE_MEDIUM_MIGRATE)
     ADD_TASK_COUNT(GC_BINLOG)
+    ADD_TASK_COUNT(UPDATE_VISIBLE_VERSION)
     #undef ADD_TASK_COUNT
     case TTaskType::REALTIME_PUSH:
     case TTaskType::PUSH:
@@ -522,26 +540,20 @@ Status TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 }
 
 PriorTaskWorkerPool::PriorTaskWorkerPool(
-        std::string_view name, int normal_worker_count, int high_prior_worker_conut,
+        const std::string& name, int normal_worker_count, int high_prior_worker_count,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
-                      .set_min_threads(normal_worker_count)
-                      .set_max_threads(normal_worker_count)
-                      .build(&_normal_pool);
-    CHECK(st.ok()) << name << ": " << st;
+    for (int i = 0; i < normal_worker_count; ++i) {
+        auto st = Thread::create(
+                "Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
+        CHECK(st.ok()) << name << ": " << st;
+    }
 
-    st = _normal_pool->submit_func([this] { normal_loop(); });
-    CHECK(st.ok()) << name << ": " << st;
-
-    st = ThreadPoolBuilder(fmt::format("HighPriorPool.{}", name))
-                 .set_min_threads(high_prior_worker_conut)
-                 .set_max_threads(high_prior_worker_conut)
-                 .build(&_high_prior_pool);
-    CHECK(st.ok()) << name << ": " << st;
-
-    st = _high_prior_pool->submit_func([this] { high_prior_loop(); });
-    CHECK(st.ok()) << name << ": " << st;
+    for (int i = 0; i < high_prior_worker_count; ++i) {
+        auto st = Thread::create(
+                "HighPrior", name, [this] { high_prior_loop(); }, &_workers.emplace_back());
+        CHECK(st.ok()) << name << ": " << st;
+    }
 }
 
 PriorTaskWorkerPool::~PriorTaskWorkerPool() {
@@ -560,12 +572,10 @@ void PriorTaskWorkerPool::stop() {
     _normal_condv.notify_all();
     _high_prior_condv.notify_all();
 
-    if (_normal_pool) {
-        _normal_pool->shutdown();
-    }
-
-    if (_high_prior_pool) {
-        _high_prior_pool->shutdown();
+    for (auto&& w : _workers) {
+        if (w) {
+            w->join();
+        }
     }
 }
 
@@ -1077,6 +1087,11 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
         DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
         return;
     }
+
+    std::map<int64_t, int64_t> partitions_version;
+    engine.tablet_manager()->get_partitions_visible_version(&partitions_version);
+    request.__set_partitions_version(std::move(partitions_version));
+
     int64_t max_compaction_score =
             std::max(DorisMetrics::instance()->tablet_cumulative_max_compaction_score->value(),
                      DorisMetrics::instance()->tablet_base_max_compaction_score->value());
@@ -1096,7 +1111,7 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
         auto& resource = resource_list.emplace_back();
         int64_t id = -1;
         if (auto [_, ec] = std::from_chars(id_str.data(), id_str.data() + id_str.size(), id);
-            ec == std::errc {}) [[unlikely]] {
+            ec != std::errc {}) [[unlikely]] {
             LOG(ERROR) << "invalid resource id format: " << id_str;
         } else {
             resource.__set_id(id);
@@ -1357,22 +1372,8 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
 
     if (!existed_fs) {
         // No such FS instance on BE
-        S3Conf s3_conf {
-                .bucket = param.s3_storage_param.bucket,
-                .prefix = param.s3_storage_param.root_path,
-                .client_conf = {
-                        .endpoint = param.s3_storage_param.endpoint,
-                        .region = param.s3_storage_param.region,
-                        .ak = param.s3_storage_param.ak,
-                        .sk = param.s3_storage_param.sk,
-                        .max_connections = param.s3_storage_param.max_conn,
-                        .request_timeout_ms = param.s3_storage_param.request_timeout_ms,
-                        .connect_timeout_ms = param.s3_storage_param.conn_timeout_ms,
-                        // When using cold heat separation in minio, user might use ip address directly,
-                        // which needs enable use_virtual_addressing to true
-                        .use_virtual_addressing = !param.s3_storage_param.use_path_style,
-                }};
-        auto res = io::S3FileSystem::create(std::move(s3_conf), std::to_string(param.id));
+        auto res = io::S3FileSystem::create(S3Conf::get_s3_conf(param.s3_storage_param),
+                                            std::to_string(param.id));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
@@ -1381,9 +1382,12 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     } else {
         DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
         auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
+        auto new_s3_conf = S3Conf::get_s3_conf(param.s3_storage_param);
         S3ClientConf conf {
-                .ak = param.s3_storage_param.ak,
-                .sk = param.s3_storage_param.sk,
+                .ak = std::move(new_s3_conf.client_conf.ak),
+                .sk = std::move(new_s3_conf.client_conf.sk),
+                .token = std::move(new_s3_conf.client_conf.token),
+                .provider = new_s3_conf.client_conf.provider,
         };
         st = client->reset(conf);
         fs = std::move(existed_fs);
@@ -1395,7 +1399,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         LOG_INFO("successfully update hdfs resource")
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name);
-        put_storage_resource(param.id, {std::move(fs), param.version});
+        put_storage_resource(param.id, {std::move(fs)}, param.version);
     }
 }
 
@@ -1429,7 +1433,7 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name)
                 .tag("root_path", fs->root_path().string());
-        put_storage_resource(param.id, {std::move(fs), param.version});
+        put_storage_resource(param.id, {std::move(fs)}, param.version);
     }
 }
 
@@ -1439,16 +1443,20 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
     const auto& push_storage_policy_req = req.push_storage_policy_req;
     // refresh resource
     for (auto&& param : push_storage_policy_req.resource) {
-        auto existed_resource = get_storage_resource(param.id);
-        if (existed_resource.version >= param.version) {
-            // Stale request, ignore
-            continue;
+        io::RemoteFileSystemSPtr fs;
+        if (auto existed_resource = get_storage_resource(param.id); existed_resource) {
+            if (existed_resource->second >= param.version) {
+                // Stale request, ignore
+                continue;
+            }
+
+            fs = std::move(existed_resource->first.fs);
         }
 
         if (param.__isset.s3_storage_param) {
-            update_s3_resource(param, std::move(existed_resource.fs));
+            update_s3_resource(param, std::move(fs));
         } else if (param.__isset.hdfs_storage_param) {
-            update_hdfs_resource(param, std::move(existed_resource.fs));
+            update_hdfs_resource(param, std::move(fs));
         } else {
             LOG(WARNING) << "unknown resource=" << param;
         }
@@ -1700,17 +1708,17 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     std::map<TTabletId, TVersion> succ_tablets;
     // partition_id, tablet_id, publish_version
     std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
-    std::map<TTableId, int64_t> table_id_to_num_delta_rows;
+    std::map<TTableId, std::map<TTabletId, int64_t>> table_id_to_tablet_id_to_num_delta_rows;
     uint32_t retry_time = 0;
     Status status;
     constexpr uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
     while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
         succ_tablets.clear();
         error_tablet_ids.clear();
-        table_id_to_num_delta_rows.clear();
+        table_id_to_tablet_id_to_num_delta_rows.clear();
         EnginePublishVersionTask engine_task(_engine, publish_version_req, &error_tablet_ids,
                                              &succ_tablets, &discontinuous_version_tablets,
-                                             &table_id_to_num_delta_rows);
+                                             &table_id_to_tablet_id_to_num_delta_rows);
         SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
         if (status.ok()) {
@@ -1771,7 +1779,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .error(status);
     } else {
         if (!config::disable_auto_compaction &&
-            !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
@@ -1813,7 +1821,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     finish_task_request.__set_succ_tablets(succ_tablets);
     finish_task_request.__set_error_tablet_ids(
             std::vector<TTabletId>(error_tablet_ids.begin(), error_tablet_ids.end()));
-    finish_task_request.__set_table_id_to_delta_num_rows(table_id_to_num_delta_rows);
+    finish_task_request.__set_table_id_to_tablet_id_to_delta_num_rows(
+            table_id_to_tablet_id_to_num_delta_rows);
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
 }
@@ -1925,6 +1934,12 @@ void gc_binlog_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     engine.gc_binlogs(gc_tablet_infos);
 }
 
+void visible_version_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
+    const TVisibleVersionReq& visible_version_req = req.visible_version_req;
+    engine.tablet_manager()->update_partitions_visible_version(
+            visible_version_req.partition_version);
+}
+
 void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
                     const TAgentTaskRequest& req) {
     const auto& clone_req = req.clone_req;
@@ -1998,7 +2013,7 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
     remove_task_info(req.task_type, req.signature);
 }
 
-void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
     std::vector<TTabletId> error_tablet_ids;
     std::vector<TTabletId> succ_tablet_ids;
     Status status;
@@ -2036,6 +2051,13 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     static_cast<void>(engine.start_trash_sweep(nullptr, true));
     static_cast<void>(engine.notify_listener("REPORT_DISK_STATE"));
     LOG(INFO) << "clean trash finish";
+}
+
+void clean_udf_cache_callback(const TAgentTaskRequest& req) {
+    LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature;
+    static_cast<void>(
+            JniUtil::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
+    LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
 }
 
 } // namespace doris

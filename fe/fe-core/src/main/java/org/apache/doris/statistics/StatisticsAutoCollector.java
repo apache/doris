@@ -17,17 +17,16 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -40,27 +39,76 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
-import java.util.List;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-public class StatisticsAutoCollector extends StatisticsCollector {
+public class StatisticsAutoCollector extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsAutoCollector.class);
 
+    protected final AnalysisTaskExecutor analysisTaskExecutor;
+    // Waited flag. Wait once when FE started for TabletStatMgr has received BE report at least once.
+    // This couldn't guarantee getRowCount will return up-to-date value,
+    // but could reduce the chance to get wrong row count. e.g. 0 after FE restart.
+    private boolean waited = false;
+
     public StatisticsAutoCollector() {
-        super("Automatic Analyzer",
-                TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes),
-                new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num,
-                        StatisticConstants.TASK_QUEUE_CAP));
+        super("Automatic Analyzer", TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes));
+        this.analysisTaskExecutor = new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num,
+                StatisticConstants.TASK_QUEUE_CAP);
     }
 
     @Override
+    protected void runAfterCatalogReady() {
+        if (!Env.getCurrentEnv().isMaster()) {
+            return;
+        }
+        if (!StatisticsUtil.statsTblAvailable()) {
+            LOG.info("Stats table not available, skip");
+            return;
+        }
+        if (Env.isCheckpointThread()) {
+            return;
+        }
+        if (waited) {
+            collect();
+        } else {
+            try {
+                Thread.sleep((long) Config.tablet_stat_update_interval_second * 1000 * 2);
+                waited = true;
+            } catch (InterruptedException e) {
+                LOG.info("Wait Sleep interrupted.", e);
+            }
+        }
+    }
+
     protected void collect() {
-        if (canCollect()) {
-            analyzeAll();
+        while (canCollect()) {
+            Pair<Entry<TableName, Set<Pair<String, String>>>, JobPriority> job = getJob();
+            if (job == null) {
+                // No more job to process, break and sleep.
+                break;
+            }
+            try {
+                TableName tblName = job.first.getKey();
+                TableIf table = StatisticsUtil.findTable(tblName.getCtl(), tblName.getDb(), tblName.getTbl());
+                if (!supportAutoAnalyze(table)) {
+                    continue;
+                }
+                processOneJob(table, job.first.getValue(), job.second);
+            } catch (Exception e) {
+                LOG.warn("Failed to analyze table {} with columns [{}]", job.first.getKey().getTbl(),
+                        job.first.getValue().stream().map(Pair::toString).collect(Collectors.joining(",")), e);
+            }
         }
     }
 
@@ -69,171 +117,137 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             && StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
     }
 
-    protected void analyzeAll() {
-        List<CatalogIf> catalogs = getCatalogsInOrder();
-        for (CatalogIf ctl : catalogs) {
-            if (!canCollect()) {
-                analysisTaskExecutor.clear();
-                break;
-            }
-            if (!ctl.enableAutoAnalyze()) {
-                continue;
-            }
-            List<DatabaseIf> dbs = getDatabasesInOrder(ctl);
-            for (DatabaseIf<TableIf> databaseIf : dbs) {
-                if (!canCollect()) {
-                    analysisTaskExecutor.clear();
-                    break;
-                }
-                if (StatisticConstants.SYSTEM_DBS.contains(databaseIf.getFullName())) {
-                    continue;
-                }
-                try {
-                    analyzeDb(databaseIf);
-                } catch (Throwable t) {
-                    LOG.warn("Failed to analyze database {}.{}", ctl.getName(), databaseIf.getFullName(), t);
-                    continue;
-                }
-            }
+    protected Pair<Entry<TableName, Set<Pair<String, String>>>, JobPriority> getJob() {
+        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
+        Optional<Entry<TableName, Set<Pair<String, String>>>> job = fetchJobFromMap(manager.highPriorityJobs);
+        if (job.isPresent()) {
+            return Pair.of(job.get(), JobPriority.HIGH);
+        }
+        job = fetchJobFromMap(manager.midPriorityJobs);
+        if (job.isPresent()) {
+            return Pair.of(job.get(), JobPriority.MID);
+        }
+        job = fetchJobFromMap(manager.lowPriorityJobs);
+        return job.map(entry -> Pair.of(entry, JobPriority.LOW)).orElse(null);
+    }
+
+    protected Optional<Map.Entry<TableName, Set<Pair<String, String>>>> fetchJobFromMap(
+            Map<TableName, Set<Pair<String, String>>> jobMap) {
+        synchronized (jobMap) {
+            Optional<Map.Entry<TableName, Set<Pair<String, String>>>> first = jobMap.entrySet().stream().findFirst();
+            first.ifPresent(entry -> jobMap.remove(entry.getKey()));
+            return first;
         }
     }
 
-    public List<CatalogIf> getCatalogsInOrder() {
-        return Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog().stream()
-            .sorted((c1, c2) -> (int) (c1.getId() - c2.getId())).collect(Collectors.toList());
-    }
-
-    public List<DatabaseIf<? extends TableIf>> getDatabasesInOrder(CatalogIf<DatabaseIf> catalog) {
-        return catalog.getAllDbs().stream()
-            .sorted((d1, d2) -> (int) (d1.getId() - d2.getId())).collect(Collectors.toList());
-    }
-
-    public List<TableIf> getTablesInOrder(DatabaseIf<? extends TableIf> db) {
-        return db.getTables().stream()
-            .sorted((t1, t2) -> (int) (t1.getId() - t2.getId())).collect(Collectors.toList());
-    }
-
-    public void analyzeDb(DatabaseIf<TableIf> databaseIf) throws DdlException {
-        List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
-        for (AnalysisInfo analysisInfo : analysisInfos) {
-            try {
-                if (!canCollect()) {
-                    analysisTaskExecutor.clear();
-                    break;
-                }
-                analysisInfo = getNeedAnalyzeColumns(analysisInfo);
-                if (analysisInfo == null) {
-                    continue;
-                }
-                createSystemAnalysisJob(analysisInfo);
-            } catch (Throwable t) {
-                analysisInfo.message = t.getMessage();
-                LOG.warn("Failed to auto analyze table {}.{}, reason {}",
-                        databaseIf.getFullName(), analysisInfo.tblId, analysisInfo.message, t);
-                continue;
+    protected void processOneJob(TableIf table, Set<Pair<String, String>> columns,
+            JobPriority priority) throws DdlException {
+        // appendMvColumn(table, columns);
+        appendPartitionColumns(table, columns);
+        columns = columns.stream().filter(c -> StatisticsUtil.needAnalyzeColumn(table, c)).collect(Collectors.toSet());
+        if (columns.isEmpty()) {
+            return;
+        }
+        AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority);
+        LOG.debug("Auto analyze job : {}", analyzeJob.toString());
+        try {
+            executeSystemAnalysisJob(analyzeJob);
+        } catch (Exception e) {
+            StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
+            for (Pair<String, String> pair : columns) {
+                stringJoiner.add(pair.toString());
             }
+            LOG.warn("Fail to auto analyze table {}, columns [{}]", table.getName(), stringJoiner.toString());
         }
     }
 
-    protected List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<? extends TableIf> db) {
-        List<AnalysisInfo> analysisInfos = new ArrayList<>();
-        for (TableIf table : getTablesInOrder(db)) {
-            try {
-                if (skip(table)) {
-                    continue;
-                }
-                createAnalyzeJobForTbl(db, analysisInfos, table);
-            } catch (Throwable t) {
-                LOG.warn("Failed to analyze table {}.{}.{}",
-                        db.getCatalog().getName(), db.getFullName(), table.getName(), t);
-                continue;
-            }
+    protected void appendPartitionColumns(TableIf table, Set<Pair<String, String>> columns) throws DdlException {
+        if (!(table instanceof OlapTable)) {
+            return;
         }
-        return analysisInfos;
+        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
+        if (tableStatsStatus != null && tableStatsStatus.partitionChanged.get()) {
+            OlapTable olapTable = (OlapTable) table;
+            columns.addAll(olapTable.getColumnIndexPairs(olapTable.getPartitionColumnNames()));
+        }
     }
 
-    // return true if skip auto analyze this time.
-    protected boolean skip(TableIf table) {
-        if (!(table instanceof OlapTable || table instanceof HMSExternalTable)) {
-            return true;
+    protected void appendMvColumn(TableIf table, Set<String> columns) {
+        if (!(table instanceof OlapTable)) {
+            return;
         }
-        // For now, only support Hive HMS table auto collection.
-        if (table instanceof HMSExternalTable
-                && !((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
-            return true;
-        }
-        if (table.getDataSize(true) < StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5) {
+        OlapTable olapTable = (OlapTable) table;
+        Set<String> mvColumns = olapTable.getMvColumns(false).stream().map(Column::getName).collect(Collectors.toSet());
+        columns.addAll(mvColumns);
+    }
+
+    protected boolean supportAutoAnalyze(TableIf tableIf) {
+        if (tableIf == null) {
             return false;
         }
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
-        // means it's never got analyzed or new partition loaded data.
-        if (tableStats == null || tableStats.newPartitionLoaded.get()) {
-            return false;
-        }
-        if (tableStats.userInjected) {
-            return true;
-        }
-        return System.currentTimeMillis()
-                - tableStats.updatedTime < StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis();
+        return tableIf instanceof OlapTable
+                || tableIf instanceof HMSExternalTable
+                && ((HMSExternalTable) tableIf).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
     }
 
-    protected void createAnalyzeJobForTbl(DatabaseIf<? extends TableIf> db,
-            List<AnalysisInfo> analysisInfos, TableIf table) {
+    protected AnalysisInfo createAnalyzeJobForTbl(
+            TableIf table, Set<Pair<String, String>> jobColumns, JobPriority priority) {
         AnalysisMethod analysisMethod = table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
-        AnalysisInfo jobInfo = new AnalysisInfoBuilder()
+        if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()) {
+            analysisMethod = AnalysisMethod.FULL;
+        }
+        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
+        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 :
+                (table.getRowCount() <= 0 ? table.fetchRowCount() : table.getRowCount());
+        StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
+        for (Pair<String, String> pair : jobColumns) {
+            stringJoiner.add(pair.toString());
+        }
+        return new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
-                .setCatalogId(db.getCatalog().getId())
-                .setDBId(db.getId())
+                .setCatalogId(table.getDatabase().getCatalog().getId())
+                .setDBId(table.getDatabase().getId())
                 .setTblId(table.getId())
-                .setColName(null)
+                .setColName(stringJoiner.toString())
+                .setJobColumns(jobColumns)
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
-                .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
+                .setPartitionNames(Collections.emptySet())
                 .setSampleRows(analysisMethod.equals(AnalysisMethod.SAMPLE)
-                        ? StatisticsUtil.getHugeTableSampleRows() : -1)
+                    ? StatisticsUtil.getHugeTableSampleRows() : -1)
                 .setScheduleType(ScheduleType.AUTOMATIC)
                 .setState(AnalysisState.PENDING)
                 .setTaskIds(new ArrayList<>())
                 .setLastExecTimeInMs(System.currentTimeMillis())
                 .setJobType(JobType.SYSTEM)
-                .setTblUpdateTime(table.getUpdateTime())
-                .setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0
-                    && analysisMethod.equals(AnalysisMethod.SAMPLE))
+                .setTblUpdateTime(System.currentTimeMillis())
+                .setRowCount(rowCount)
+                .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
+                .setPriority(priority)
+                .setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows)
+                .setEnablePartition(StatisticsUtil.enablePartitionAnalyze())
                 .build();
-        analysisInfos.add(jobInfo);
     }
 
+    // Analysis job created by the system
     @VisibleForTesting
-    protected AnalysisInfo getNeedAnalyzeColumns(AnalysisInfo jobInfo) {
-        TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
-        // Skip tables that are too wide.
-        if (table.getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
-            return null;
+    protected void executeSystemAnalysisJob(AnalysisInfo jobInfo)
+            throws DdlException, ExecutionException, InterruptedException {
+        Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
+        Env.getCurrentEnv().getAnalysisManager().constructJob(jobInfo, analysisTasks.values());
+        Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTasks);
+        Future<?>[] futures = new Future[analysisTasks.values().size()];
+        int i = 0;
+        for (BaseAnalysisTask task : analysisTasks.values()) {
+            futures[i++] = analysisTaskExecutor.submitTask(task);
         }
-
-        AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
-        TableStatsMeta tblStats = analysisManager.findTableStatsStatus(table.getId());
-
-        List<Pair<String, String>> needRunColumns = null;
-        if (table.needReAnalyzeTable(tblStats)) {
-            needRunColumns = table.getColumnIndexPairs(table.getSchemaAllIndexes(false)
-                .stream().map(Column::getName).collect(Collectors.toSet()));
-        } else if (table instanceof OlapTable && tblStats.newPartitionLoaded.get()) {
-            OlapTable olapTable = (OlapTable) table;
-            Set<String> partitionNames = olapTable.getAllPartitions().stream()
-                    .map(Partition::getName).collect(Collectors.toSet());
-            needRunColumns = olapTable.getColumnIndexPairs(partitionNames);
+        for (Future future : futures) {
+            future.get();
         }
-
-        if (needRunColumns == null || needRunColumns.isEmpty()) {
-            return null;
-        }
-        StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
-        for (Pair<String, String> pair : needRunColumns) {
-            stringJoiner.add(pair.toString());
-        }
-        return new AnalysisInfoBuilder(jobInfo)
-            .setColName(stringJoiner.toString()).setJobColumns(needRunColumns).build();
     }
 }

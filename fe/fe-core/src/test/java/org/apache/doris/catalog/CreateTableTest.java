@@ -23,6 +23,7 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -43,6 +44,7 @@ public class CreateTableTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         createDatabase("test");
     }
@@ -229,6 +231,18 @@ public class CreateTableTest extends TestWithFeService {
         Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
         Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getType() == Type.INT);
         Assert.assertEquals(tbl13.getSequenceMapCol(), "v1");
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl14\n" + "(k1 int, k2 int default 10)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl15\n" + "(k1 int, k2 bigint default 11)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl17\n" + "(k1 int, k2 decimal(10,2) default 10.3)\n" + "duplicate key(k1)\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
     }
 
     @Test
@@ -279,7 +293,8 @@ public class CreateTableTest extends TestWithFeService {
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
-                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                                + "or maybe all be on same host.\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable(
@@ -288,7 +303,8 @@ public class CreateTableTest extends TestWithFeService {
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
-                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                        "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                                + "or maybe all be on same host.\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"

@@ -20,11 +20,12 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -54,6 +56,7 @@ import com.google.common.collect.Sets;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -86,7 +89,8 @@ public class JoinUtils {
         double memLimit = sessionVariable.getMaxExecMemByte();
         double rowsLimit = sessionVariable.getBroadcastRowCountLimit();
         double brMemlimit = sessionVariable.getBroadcastHashtableMemLimitPercentage();
-        double datasize = join.getGroupExpression().get().child(1).getStatistics().computeSize();
+        double datasize = join.getGroupExpression().get().child(1)
+                .getStatistics().computeSize(join.right().getOutput());
         double rowCount = join.getGroupExpression().get().child(1).getStatistics().getRowCount();
         return rowCount <= rowsLimit && datasize <= memLimit * brMemlimit;
     }
@@ -223,12 +227,25 @@ public class JoinUtils {
      * return true if we should do bucket shuffle join when translate plan.
      */
     public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
-        DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
-        if (!(rightDistributionSpec instanceof DistributionSpecHash)) {
+        if (isStorageBucketed(join.right().getPhysicalProperties())) {
+            return true;
+        } else if (SessionVariable.canUseNereidsDistributePlanner()
+                && isStorageBucketed(join.left().getPhysicalProperties())) {
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean isStorageBucketed(PhysicalProperties physicalProperties) {
+        DistributionSpec distributionSpec = physicalProperties.getDistributionSpec();
+        if (!(distributionSpec instanceof DistributionSpecHash)) {
             return false;
         }
-        DistributionSpecHash rightHash = (DistributionSpecHash) rightDistributionSpec;
-        return rightHash.getShuffleType() == ShuffleType.STORAGE_BUCKETED;
+        DistributionSpecHash rightHash = (DistributionSpecHash) distributionSpec;
+        if (rightHash.getShuffleType() == ShuffleType.STORAGE_BUCKETED) {
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -257,13 +274,14 @@ public class JoinUtils {
             return false;
         }
         return couldColocateJoin((DistributionSpecHash) leftDistributionSpec,
-                (DistributionSpecHash) rightDistributionSpec);
+                (DistributionSpecHash) rightDistributionSpec, join.getHashJoinConjuncts());
     }
 
     /**
      * could do colocate join with left and right child distribution spec.
      */
-    public static boolean couldColocateJoin(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
+    public static boolean couldColocateJoin(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec,
+            List<Expression> conjuncts) {
         if (ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
@@ -285,12 +303,47 @@ public class JoinUtils {
         boolean noNeedCheckColocateGroup = hitSameIndex && (leftTablePartitions.equals(rightTablePartitions))
                 && (leftTablePartitions.size() <= 1);
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
-        if (noNeedCheckColocateGroup
-                || (colocateIndex.isSameGroup(leftTableId, rightTableId)
-                && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
+        if (noNeedCheckColocateGroup) {
             return true;
         }
-        return false;
+        if (!colocateIndex.isSameGroup(leftTableId, rightTableId)
+                || colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId))) {
+            return false;
+        }
+
+        Set<Integer> equalIndices = new HashSet<>();
+        for (Expression expr : conjuncts) {
+            // only simple equal predicate can use colocate join
+            if (!(expr instanceof EqualPredicate)) {
+                return false;
+            }
+            Expression leftChild = ((EqualPredicate) expr).left();
+            Expression rightChild = ((EqualPredicate) expr).right();
+            if (!(leftChild instanceof SlotReference) || !(rightChild instanceof SlotReference)) {
+                return false;
+            }
+
+            SlotReference leftSlot = (SlotReference) leftChild;
+            SlotReference rightSlot = (SlotReference) rightChild;
+            Integer leftIndex = leftHashSpec.getExprIdToEquivalenceSet().get(leftSlot.getExprId());
+            Integer rightIndex = rightHashSpec.getExprIdToEquivalenceSet().get(rightSlot.getExprId());
+            if (leftIndex == null) {
+                leftIndex = rightHashSpec.getExprIdToEquivalenceSet().get(leftSlot.getExprId());
+                rightIndex = leftHashSpec.getExprIdToEquivalenceSet().get(rightSlot.getExprId());
+            }
+            if (!Objects.equals(leftIndex, rightIndex)) {
+                return false;
+            }
+            if (leftIndex != null) {
+                equalIndices.add(leftIndex);
+            }
+        }
+        // on conditions must contain all distributed columns
+        if (equalIndices.containsAll(leftHashSpec.getExprIdToEquivalenceSet().values())) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {
@@ -347,7 +400,7 @@ public class JoinUtils {
     /**
      * can this join be eliminated by its left child
      */
-    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, FunctionalDependencies rightFuncDeps) {
+    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, DataTrait rightFuncDeps) {
         if (join.getJoinType().isLeftOuterJoin()) {
             Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
             if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {

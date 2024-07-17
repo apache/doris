@@ -36,7 +36,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -166,7 +165,7 @@ public class CloudReplica extends Replica {
             ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(cluster);
         } catch (DdlException e) {
             // this function cant throw exception. so just log it
-            LOG.warn("cant resume cluster {}", cluster);
+            LOG.warn("cant resume cluster {}, exception", cluster, e);
         }
         String clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdByName(cluster);
 
@@ -347,6 +346,7 @@ public class CloudReplica extends Replica {
         return true;
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -372,21 +372,6 @@ public class CloudReplica extends Replica {
             List<Long> bes = new ArrayList<Long>();
             bes.add(beId);
             clusterToBackends.put(clusterId, bes);
-        }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(partitionId);
-        out.writeLong(indexId);
-        out.writeLong(idx);
-        out.writeInt(clusterToBackends.size());
-        for (Map.Entry<String, List<Long>> entry : clusterToBackends.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            out.writeLong(entry.getValue().get(0));
         }
     }
 

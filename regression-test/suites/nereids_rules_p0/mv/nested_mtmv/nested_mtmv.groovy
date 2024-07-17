@@ -21,7 +21,7 @@ suite("nested_mtmv") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
+    sql "SET enable_materialized_view_nest_rewrite = true"
 
     sql """
     drop table if exists orders_1
@@ -278,7 +278,11 @@ suite("nested_mtmv") {
         """
     explain {
         sql("${query_stmt_2}")
-        contains "${mv_level3_name}(${mv_level3_name})"
+        check {result ->
+            // both mv_level4_name and mv_level3_name can be rewritten successfully
+            result.contains("${mv_level4_name}(${mv_level4_name})")
+                    || result.contains("${mv_level3_name}(${mv_level3_name})")
+        }
     }
     compare_res(query_stmt_2 + " order by 1,2,3,4,5,6,7")
 
@@ -852,8 +856,5 @@ suite("nested_mtmv") {
         contains "${mv_5}(${mv_5})"
     }
     compare_res(sql_5 + " order by 1,2,3,4,5,6,7,8,9,10,11,12,13")
-
-
-
 
 }

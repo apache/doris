@@ -23,14 +23,16 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import org.apache.hadoop.mapred.JobConf;
+import org.apache.hadoop.conf.Configuration;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
 
 public class FileSystemCache {
 
-    private LoadingCache<FileSystemCacheKey, RemoteFileSystem> fileSystemCache;
+    private final LoadingCache<FileSystemCacheKey, RemoteFileSystem> fileSystemCache;
 
     public FileSystemCache() {
         // no need to set refreshAfterWrite, because the FileSystem is created once and never changed
@@ -40,11 +42,11 @@ public class FileSystemCache {
                 Config.max_remote_file_system_cache_num,
                 false,
                 null);
-        fileSystemCache = fsCacheFactory.buildCache(key -> loadFileSystem(key));
+        fileSystemCache = fsCacheFactory.buildCache(this::loadFileSystem);
     }
 
     private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) {
-        return FileSystemFactory.getRemoteFileSystem(key.type, key.conf, key.bindBrokerName);
+        return FileSystemFactory.getRemoteFileSystem(key.type, key.getFsProperties(), key.bindBrokerName);
     }
 
     public RemoteFileSystem getRemoteFileSystem(FileSystemCacheKey key) {
@@ -55,14 +57,34 @@ public class FileSystemCache {
         private final FileSystemType type;
         // eg: hdfs://nameservices1
         private final String fsIdent;
-        private final JobConf conf;
+        private final Map<String, String> properties;
         private final String bindBrokerName;
+        // only for creating new file system
+        private final Configuration conf;
 
-        public FileSystemCacheKey(Pair<FileSystemType, String> fs, JobConf conf, String bindBrokerName) {
+        public FileSystemCacheKey(Pair<FileSystemType, String> fs,
+                Map<String, String> properties,
+                String bindBrokerName,
+                Configuration conf) {
             this.type = fs.first;
             this.fsIdent = fs.second;
-            this.conf = conf;
+            this.properties = properties;
             this.bindBrokerName = bindBrokerName;
+            this.conf = conf;
+        }
+
+        public FileSystemCacheKey(Pair<FileSystemType, String> fs,
+                Map<String, String> properties, String bindBrokerName) {
+            this(fs, properties, bindBrokerName, null);
+        }
+
+        public Map<String, String> getFsProperties() {
+            if (conf == null) {
+                return properties;
+            }
+            Map<String, String> result = new HashMap<>();
+            conf.iterator().forEachRemaining(e -> result.put(e.getKey(), e.getValue()));
+            return result;
         }
 
         @Override
@@ -73,21 +95,22 @@ public class FileSystemCache {
             if (!(obj instanceof FileSystemCacheKey)) {
                 return false;
             }
-            boolean equalsWithoutBroker = type.equals(((FileSystemCacheKey) obj).type)
-                    && fsIdent.equals(((FileSystemCacheKey) obj).fsIdent)
-                    && conf == ((FileSystemCacheKey) obj).conf;
+            FileSystemCacheKey o = (FileSystemCacheKey) obj;
+            boolean equalsWithoutBroker = type.equals(o.type)
+                    && fsIdent.equals(o.fsIdent)
+                    && properties.equals(o.properties);
             if (bindBrokerName == null) {
-                return equalsWithoutBroker;
+                return equalsWithoutBroker && o.bindBrokerName == null;
             }
-            return equalsWithoutBroker && bindBrokerName.equals(((FileSystemCacheKey) obj).bindBrokerName);
+            return equalsWithoutBroker && bindBrokerName.equals(o.bindBrokerName);
         }
 
         @Override
         public int hashCode() {
             if (bindBrokerName == null) {
-                return Objects.hash(conf, fsIdent, type);
+                return Objects.hash(properties, fsIdent, type);
             }
-            return Objects.hash(conf, fsIdent, type, bindBrokerName);
+            return Objects.hash(properties, fsIdent, type, bindBrokerName);
         }
     }
 }

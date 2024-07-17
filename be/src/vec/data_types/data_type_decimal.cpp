@@ -64,8 +64,13 @@ std::string DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num)
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    auto value = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
-    return value.to_string(scale);
+    if constexpr (!IsDecimalV2<T>) {
+        auto value = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
+        return value.to_string(scale);
+    } else {
+        auto value = (DecimalV2Value)assert_cast<const ColumnType&>(*ptr).get_element(row_num);
+        return value.to_string(get_format_scale());
+    }
 }
 
 template <typename T>
@@ -81,9 +86,51 @@ void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
         ostr.write(str.data(), str.size());
     } else {
         auto value = (DecimalV2Value)assert_cast<const ColumnType&>(*ptr).get_element(row_num);
-        auto str = value.to_string(scale);
+        auto str = value.to_string(get_format_scale());
         ostr.write(str.data(), str.size());
     }
+}
+
+template <typename T>
+void DataTypeDecimal<T>::to_string_batch(const IColumn& column, ColumnString& column_to) const {
+    // column may be column const
+    const auto& col_ptr = column.get_ptr();
+    const auto& [column_ptr, is_const] = unpack_if_const(col_ptr);
+    if (is_const) {
+        to_string_batch_impl<true>(column_ptr, column_to);
+    } else {
+        to_string_batch_impl<false>(column_ptr, column_to);
+    }
+}
+
+template <typename T>
+template <bool is_const>
+void DataTypeDecimal<T>::to_string_batch_impl(const ColumnPtr& column_ptr,
+                                              ColumnString& column_to) const {
+    auto& col_vec = assert_cast<const ColumnType&>(*column_ptr);
+    const auto size = col_vec.size();
+    auto& chars = column_to.get_chars();
+    auto& offsets = column_to.get_offsets();
+    offsets.resize(size);
+    chars.reserve(4 * sizeof(T));
+    for (int row_num = 0; row_num < size; row_num++) {
+        auto num = is_const ? col_vec.get_element(0) : col_vec.get_element(row_num);
+        if constexpr (!IsDecimalV2<T>) {
+            T value = num;
+            auto str = value.to_string(scale);
+            chars.insert(str.begin(), str.end());
+        } else {
+            auto value = (DecimalV2Value)num;
+            auto str = value.to_string(get_format_scale());
+            chars.insert(str.begin(), str.end());
+        }
+        offsets[row_num] = chars.size();
+    }
+}
+
+template <typename T>
+std::string DataTypeDecimal<T>::to_string(const T& value) const {
+    return value.to_string(get_format_scale());
 }
 
 template <typename T>

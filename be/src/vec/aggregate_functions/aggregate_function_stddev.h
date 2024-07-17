@@ -26,6 +26,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "agent/be_exec_version_manager.h"
 #include "olap/olap_common.h"
 #include "runtime/decimalv2_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -224,8 +225,8 @@ struct BaseDatadecimal {
 
 template <typename T, typename Data>
 struct PopData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColVecResult&>(to);
         if constexpr (IsDecimalNumber<T>) {
@@ -257,9 +258,9 @@ struct StddevSampName : Data {
 };
 
 template <typename T, typename Data>
-struct SampData : Data {
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
-                                            ColumnVector<Float64>>;
+struct SampData_OLDER : Data {
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
         if (this->count == 1 || this->count == 0) {
@@ -272,6 +273,24 @@ struct SampData : Data {
                 col.get_data().push_back(this->get_samp_result());
             }
             nullable_column.get_null_map_data().push_back(0);
+        }
+    }
+};
+
+template <typename T, typename Data>
+struct SampData : Data {
+    using ColVecResult =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
+    void insert_result_into(IColumn& to) const {
+        auto& col = assert_cast<ColVecResult&>(to);
+        if (this->count == 1 || this->count == 0) {
+            col.insert_default();
+        } else {
+            if constexpr (IsDecimalNumber<T>) {
+                col.get_data().push_back(this->get_samp_result().value());
+            } else {
+                col.get_data().push_back(this->get_samp_result());
+            }
         }
     }
 };
@@ -292,7 +311,11 @@ public:
         if constexpr (is_pop) {
             return Data::get_return_type();
         } else {
-            return make_nullable(Data::get_return_type());
+            if (IAggregateFunction::version < AGG_FUNCTION_NULLABLE) {
+                return make_nullable(Data::get_return_type());
+            } else {
+                return Data::get_return_type();
+            }
         }
     }
 
@@ -301,7 +324,7 @@ public:
         if constexpr (is_pop) {
             this->data(place).add(columns[0], row_num);
         } else {
-            if constexpr (is_nullable) {
+            if constexpr (is_nullable) { //this if check could remove with old function
                 const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
                 if (!nullable_column->is_null_at(row_num)) {
                     this->data(place).add(&nullable_column->get_nested_column(), row_num);
@@ -335,6 +358,14 @@ public:
 
 //samp function it's always nullables, it's need to handle nullable column
 //so return type and add function should processing null values
+template <typename Data, bool is_nullable>
+class AggregateFunctionSamp_OLDER final
+        : public AggregateFunctionSampVariance<false, Data, is_nullable> {
+public:
+    AggregateFunctionSamp_OLDER(const DataTypes& argument_types_)
+            : AggregateFunctionSampVariance<false, Data, is_nullable>(argument_types_) {}
+};
+
 template <typename Data, bool is_nullable>
 class AggregateFunctionSamp final : public AggregateFunctionSampVariance<false, Data, is_nullable> {
 public:

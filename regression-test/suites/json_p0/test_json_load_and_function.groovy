@@ -114,6 +114,12 @@ suite("test_json_load_and_function", "p0") {
     sql """INSERT INTO ${testTable} VALUES(30, '-9223372036854775808')"""
     // int64 max value
     sql """INSERT INTO ${testTable} VALUES(31, '18446744073709551615')"""
+    // insert into json with empty key
+    sql """INSERT INTO ${testTable} VALUES(32, '{"":"v1"}')"""
+    sql """INSERT INTO ${testTable} VALUES(33, '{"":1, "":"v1"}')"""
+    sql """INSERT INTO ${testTable} VALUES(34, '{"":1, "ab":"v1", "":"v1", "": 2}')"""
+
+    qt_select "SELECT * FROM ${testTable} where id in (32, 33, 34) ORDER BY id"
 
     // insert into invalid json rows with enable_insert_strict=true
     // expect excepiton and no rows not changed
@@ -468,4 +474,300 @@ suite("test_json_load_and_function", "p0") {
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.x.y') FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', null) FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
+
+
+    sql "DROP TABLE IF EXISTS tbl_test_not_null_json"
+
+    sql """
+        CREATE TABLE IF NOT EXISTS tbl_test_not_null_json (
+            id INT not null,
+            j JSON not null
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+    """
+
+    sql """
+        insert into tbl_test_not_null_json select id, j  from ${testTable} where id is not null and j is not null;
+    """
+
+    testTable = "tbl_test_not_null_json"
+
+    qt_select "SELECT * from tbl_test_not_null_json  ORDER BY id; "
+
+    // json_extract for not null
+    qt_select "SELECT json_extract( '{\"k1\\\\\": \"v1\"}', \"\$.k1\\\\\")"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.*') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.k1') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.\"a.b.c\"') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.\"a.b.c\".\"k1.a1\"') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.k2') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, jsonb_extract(j, '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$[5]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$[6]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.a1') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[last]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[last-1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[last-2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$.a1[last-10]') FROM ${testTable} ORDER BY id"
+
+    // json_extract_string
+    qt_select "SELECT id, j, json_extract_string(j, '\$') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_string(j, '\$.k1') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$.k2') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_string(j, '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$[5]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$[6]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_string(j, '\$.a1') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_string(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_string(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+
+    // json_extract_int
+    qt_select "SELECT id, j, json_extract_int(j, '\$') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_int(j, '\$.k1') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$.k2') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_int(j, '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$[5]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$[6]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_int(j, '\$.a1') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_int(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_int(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+
+    // json_extract_bigint
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$.k1') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$.k2') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$[5]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$[6]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$.a1') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bigint(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+
+
+    // json_extract_largeint
+    qt_json_extract_largeint_select "SELECT id, j, json_extract_largeint(j, '\$') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.k1') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.k2') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[5]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[6]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[last]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[last-0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[last-1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[last-2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[last-10]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[-0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[-1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[-10]') FROM ${testTable} ORDER BY id"
+
+
+    // json_extract_double
+    qt_select "SELECT id, j, json_extract_double(j, '\$') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_double(j, '\$.k1') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$.k2') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_double(j, '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$[5]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$[6]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_double(j, '\$.a1') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_double(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_double(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+
+    // json_extract_bool
+    qt_select "SELECT id, j, json_extract_bool(j, '\$') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_bool(j, '\$.k1') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$.k2') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_bool(j, '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$[5]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$[6]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_bool(j, '\$.a1') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_bool(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_bool(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+
+    // json_extract_isnull
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$.k1') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$.k2') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$[5]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$[6]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$.a1') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_isnull(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+
+    // json_exists_path
+    qt_select "SELECT id, j, json_exists_path(j, '\$') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_exists_path(j, '\$.k1') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$.k2') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_exists_path(j, '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$[5]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$[6]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_exists_path(j, '\$.a1') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_exists_path(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_exists_path(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+
+    // json_type
+    qt_select "SELECT id, j, json_type(j, '\$') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_type(j, '\$.k1') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$.k2') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_type(j, '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$[5]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$[6]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_type(j, '\$.a1') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_type(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_type(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select """SELECT id, JSON_VALID(j) FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT JSON_VALID('{"k1":"v31","k2":300}')"""
+    qt_select """SELECT JSON_VALID('invalid json')"""
+    qt_select """SELECT JSON_VALID(NULL)"""
+
+    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k1') FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.[1]') FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', '\$.x.y') FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', null) FROM ${testTable} ORDER BY id"""
+    qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
+
+    // json_parse
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":"v1"}')"""
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":1, "":"v1"}')"""
+    qt_sql_json_parse """SELECT/*+SET_VAR(enable_fold_constant_by_be=false)*/ json_parse('{"":1, "ab":"v1", "":"v1", "": 2}')"""
+
 }

@@ -13,39 +13,33 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((call_center.cc_call_center_sk = catalog_sales.cs_call_center_sk)) otherCondition=()
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((call_center.cc_call_center_sk = catalog_sales.cs_call_center_sk)) otherCondition=()
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=()
---------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk]
+------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=()
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk]
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0
-------------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------------PhysicalProject
-----------------------------------------filter((((date_dim.d_year = 1999) OR ((date_dim.d_year = 1998) AND (date_dim.d_moy = 12))) OR ((date_dim.d_year = 2000) AND (date_dim.d_moy = 1))))
-------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[item]
-----------------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[call_center]
+------------------------------------PhysicalProject
+--------------------------------------filter((((date_dim.d_year = 1999) OR ((date_dim.d_year = 1998) AND (date_dim.d_moy = 12))) OR ((date_dim.d_year = 2000) AND (date_dim.d_moy = 1))))
+----------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[item]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[call_center]
 --PhysicalResultSink
 ----PhysicalProject
 ------PhysicalTopN[MERGE_SORT]
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((v1.cc_name = v1_lag.cc_name) and (v1.i_brand = v1_lag.i_brand) and (v1.i_category = v1_lag.i_category) and (v1.rn = expr_(rn + 1))) otherCondition=()
-----------------hashJoin[INNER_JOIN] hashCondition=((v1.cc_name = v1_lead.cc_name) and (v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1))) otherCondition=()
-------------------PhysicalDistribute[DistributionSpecHash]
+--------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((v1.cc_name = v1_lead.cc_name) and (v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1))) otherCondition=()
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN shuffle] hashCondition=((v1.cc_name = v1_lag.cc_name) and (v1.i_brand = v1_lag.i_brand) and (v1.i_category = v1_lag.i_category) and (v1.rn = expr_(rn + 1))) otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------filter((if((avg_monthly_sales > 0.0000), (cast(abs((sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / avg_monthly_sales), NULL) > 0.100000) and (v2.avg_monthly_sales > 0.0000) and (v2.d_year = 1999))
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------filter((if((avg_monthly_sales > 0.0000), (cast(abs((sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / avg_monthly_sales), NULL) > 0.100000) and (v2.avg_monthly_sales > 0.0000) and (v2.d_year = 1999))
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalProject
+------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

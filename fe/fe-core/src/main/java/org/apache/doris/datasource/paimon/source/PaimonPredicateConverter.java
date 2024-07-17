@@ -45,7 +45,7 @@ public class PaimonPredicateConverter {
 
     public PaimonPredicateConverter(RowType rowType) {
         this.builder = new PredicateBuilder(rowType);
-        this.fieldNames = rowType.getFields().stream().map(DataField::name).collect(Collectors.toList());
+        this.fieldNames = rowType.getFields().stream().map(f -> f.name().toLowerCase()).collect(Collectors.toList());
         this.paimonFieldTypes = rowType.getFields().stream().map(DataField::type).collect(Collectors.toList());
     }
 
@@ -60,7 +60,7 @@ public class PaimonPredicateConverter {
         return list;
     }
 
-    public Predicate convertToPaimonExpr(Expr dorisExpr) {
+    private Predicate convertToPaimonExpr(Expr dorisExpr) {
         if (dorisExpr == null) {
             return null;
         }

@@ -19,15 +19,7 @@
 
 #include "common/status.h"
 
-namespace doris {
-class DataSink;
-} // namespace doris
-
 namespace doris::pipeline {
-
-OperatorPtr OlapTableSinkOperatorBuilder::build_operator() {
-    return std::make_shared<OlapTableSinkOperator>(this, _sink);
-}
 
 Status OlapTableSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (Base::_closed) {

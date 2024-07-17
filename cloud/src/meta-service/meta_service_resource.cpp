@@ -31,7 +31,7 @@
 #include "common/logging.h"
 #include "common/network_util.h"
 #include "common/string_util.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
@@ -59,6 +59,8 @@ static std::string_view print_cluster_status(const ClusterStatus& status) {
         return "SUSPENDED";
     case ClusterStatus::TO_RESUME:
         return "TO_RESUME";
+    case ClusterStatus::MANUAL_SHUTDOWN:
+        return "MANUAL_SHUTDOWN";
     default:
         return "UNKNOWN";
     }
@@ -70,11 +72,7 @@ static int encrypt_ak_sk_helper(const std::string plain_ak, const std::string pl
     std::string key;
     int64_t key_id;
     int ret = get_newest_encryption_key_for_ak_sk(&key_id, &key);
-    {
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key_ret", &ret);
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key", &key);
-        TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key_id", &key_id);
-    }
+    TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key", &ret, &key, &key_id);
     if (ret != 0) {
         msg = "failed to get encryption key";
         code = MetaServiceCode::ERR_ENCRYPT;
@@ -277,6 +275,14 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
             storage_vault_start.push_back('\x00'); // Update to next smallest key for iteration
         } while (it->more());
     }
+    for (auto& vault : *response->mutable_storage_vault()) {
+        if (vault.has_obj_info()) {
+            if (auto ret = decrypt_and_update_ak_sk(*vault.mutable_obj_info(), code, msg);
+                ret != 0) {
+                return;
+            }
+        }
+    }
 
     response->mutable_obj_info()->CopyFrom(instance.obj_info());
     if (instance.has_default_storage_vault_id()) {
@@ -313,26 +319,6 @@ static std::string next_available_vault_id(const InstanceInfoPB& instance) {
 
 namespace detail {
 
-// Removes any trailing `c` in `str`
-void strip_trailing(std::string& str, char c) {
-    size_t end = str.find_last_not_of(c);
-    if (end == std::string::npos) {
-        str = "";
-    } else {
-        str.resize(end + 1);
-    }
-}
-
-// Removes any leading `c` in `str`
-void strip_leading(std::string& str, char c) {
-    size_t start = str.find_first_not_of(c);
-    if (start == std::string::npos) {
-        str = "";
-    } else if (start > 0) {
-        str = str.substr(start);
-    }
-}
-
 // Validate and normalize hdfs prefix. Return true if prefix is valid.
 bool normalize_hdfs_prefix(std::string& prefix) {
     if (prefix.empty()) {
@@ -344,9 +330,7 @@ bool normalize_hdfs_prefix(std::string& prefix) {
         return false;
     }
 
-    strip_trailing(prefix, ' ');
-    strip_leading(prefix, ' ');
-    strip_trailing(prefix, '/');
+    trim(prefix);
     return true;
 }
 
@@ -357,10 +341,7 @@ bool normalize_hdfs_fs_name(std::string& fs_name) {
     }
 
     // Should check scheme existence?
-
-    strip_trailing(fs_name, ' ');
-    strip_leading(fs_name, ' ');
-    strip_trailing(fs_name, '/');
+    trim(fs_name);
     return !fs_name.empty();
 }
 
@@ -380,14 +361,14 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     auto* prefix = hdfs_param.mutable_hdfs_info()->mutable_prefix();
     if (!normalize_hdfs_prefix(*prefix)) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("invalid prefix: ", *prefix);
+        msg = fmt::format("invalid prefix: {}", *prefix);
         return -1;
     }
     if (config::enable_distinguish_hdfs_path) {
         auto uuid_suffix = butil::GenerateGUID();
         if (uuid_suffix.empty()) [[unlikely]] {
             code = MetaServiceCode::UNDEFINED_ERR;
-            msg = fmt::format("failed to generate one suffix for hdfs prefix");
+            msg = fmt::format("failed to generate one suffix for hdfs prefix: {}", *prefix);
             return -1;
         }
         *prefix = fmt::format("{}_{}", *prefix, uuid_suffix);
@@ -396,7 +377,7 @@ static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     auto* fs_name = hdfs_param.mutable_hdfs_info()->mutable_build_conf()->mutable_fs_name();
     if (!normalize_hdfs_fs_name(*fs_name)) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("invalid fs_name: ", *fs_name);
+        msg = fmt::format("invalid fs_name: {}", *fs_name);
         return -1;
     }
 
@@ -421,7 +402,7 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string bucket = obj->has_bucket() ? obj->bucket() : "";
     std::string prefix = obj->has_prefix() ? obj->prefix() : "";
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
-    prefix = trim(prefix);
+    trim(prefix);
     std::string endpoint = obj->has_endpoint() ? obj->endpoint() : "";
     std::string external_endpoint = obj->has_external_endpoint() ? obj->external_endpoint() : "";
     std::string region = obj->has_region() ? obj->region() : "";
@@ -437,10 +418,7 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     AkSkPair cipher_ak_sk_pair;
     auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
                                     msg);
-    {
-        [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
-        TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ak_sk_ret);
-    }
+    TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
     if (ret != 0) {
         return;
     }
@@ -518,6 +496,19 @@ static int remove_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
     return 0;
 }
 
+// Log vault message and origin default storage vault message for potential tracing
+static void set_default_vault_log_helper(const InstanceInfoPB& instance,
+                                         std::string_view vault_name, std::string_view vault_id) {
+    auto vault_msg = fmt::format("instance {} tries to set default vault as {}, id {}",
+                                 instance.instance_id(), vault_id, vault_name);
+    if (instance.has_default_storage_vault_id()) {
+        vault_msg = fmt::format("{}, origin default vault name {}, vault id {}", vault_msg,
+                                instance.default_storage_vault_name(),
+                                instance.default_storage_vault_id());
+    }
+    LOG(INFO) << vault_msg;
+}
+
 void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* controller,
                                            const AlterObjStoreInfoRequest* request,
                                            AlterObjStoreInfoResponse* response,
@@ -529,6 +520,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
     case AlterObjStoreInfoRequest::ADD_S3_VAULT:
+    case AlterObjStoreInfoRequest::DROP_S3_VAULT:
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
     case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
         if (!request->has_obj() && (!request->has_vault() || !request->vault().has_obj_info())) {
@@ -549,10 +541,6 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
 
         auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
                                         code, msg);
-        {
-            [[maybe_unused]] std::tuple ak_sk_ret {&ret, &code, &msg};
-            TEST_SYNC_POINT_CALLBACK("alter_obj_store_info_encrypt_ak_sk_helper", &ak_sk_ret);
-        }
         if (ret != 0) {
             return;
         }
@@ -739,7 +727,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.mutable_encryption_info()->CopyFrom(encryption_info);
         last_item.set_bucket(bucket);
         // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
-        prefix = trim(prefix);
+        trim(prefix);
         last_item.set_prefix(prefix);
         last_item.set_endpoint(endpoint);
         last_item.set_external_endpoint(external_endpoint);
@@ -748,7 +736,18 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         last_item.set_sse_enabled(instance.sse_enabled());
         if (request->op() == AlterObjStoreInfoRequest::ADD_OBJ_INFO) {
             instance.add_obj_info()->CopyFrom(last_item);
+            LOG_INFO("Instance {} tries to put obj info", instance.instance_id());
         } else if (request->op() == AlterObjStoreInfoRequest::ADD_S3_VAULT) {
+            if (instance.storage_vault_names().end() !=
+                std::find_if(instance.storage_vault_names().begin(),
+                             instance.storage_vault_names().end(),
+                             [&](const std::string& candidate_name) {
+                                 return candidate_name == request->vault().name();
+                             })) {
+                code = MetaServiceCode::ALREADY_EXISTED;
+                msg = fmt::format("vault_name={} already created", request->vault().name());
+                return;
+            }
             StorageVaultPB vault;
             vault.set_id(last_item.id());
             vault.set_name(request->vault().name());
@@ -757,6 +756,16 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             vault.mutable_obj_info()->MergeFrom(last_item);
             auto vault_key = storage_vault_key({instance.instance_id(), last_item.id()});
             txn->put(vault_key, vault.SerializeAsString());
+            if (request->has_set_as_default_storage_vault() &&
+                request->set_as_default_storage_vault()) {
+                response->set_default_storage_vault_replaced(
+                        instance.has_default_storage_vault_id());
+                set_default_vault_log_helper(instance, vault.name(), vault.id());
+                instance.set_default_storage_vault_id(vault.id());
+                instance.set_default_storage_vault_name(vault.name());
+            }
+            LOG_INFO("try to put storage vault_id={}, vault_name={}, vault_key={}", vault.id(),
+                     vault.name(), hex(vault_key));
         }
     } break;
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO: {
@@ -764,6 +773,14 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                     instance, txn.get(), const_cast<StorageVaultPB&>(request->vault()), code, msg);
             ret != 0) {
             return;
+        }
+        if (request->has_set_as_default_storage_vault() &&
+            request->set_as_default_storage_vault()) {
+            response->set_default_storage_vault_replaced(instance.has_default_storage_vault_id());
+            set_default_vault_log_helper(instance, *instance.storage_vault_names().rbegin(),
+                                         *instance.resource_ids().rbegin());
+            instance.set_default_storage_vault_id(*instance.resource_ids().rbegin());
+            instance.set_default_storage_vault_name(*instance.storage_vault_names().rbegin());
         }
         break;
     }
@@ -803,19 +820,23 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         }
         auto pos = name_itr - instance.storage_vault_names().begin();
         auto id_itr = instance.resource_ids().begin() + pos;
+        response->set_default_storage_vault_replaced(instance.has_default_storage_vault_id());
+        set_default_vault_log_helper(instance, name, *id_itr);
         instance.set_default_storage_vault_id(*id_itr);
         instance.set_default_storage_vault_name(name);
         response->set_storage_vault_id(*id_itr);
         break;
     }
     case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT: {
-        LOG_INFO("unset instance's default vault, instance id {}, previoud default vault {}, id {}",
+        LOG_INFO("unset instance's default vault, instance id {}, previous default vault {}, id {}",
                  instance.instance_id(), instance.default_storage_vault_name(),
                  instance.default_storage_vault_id());
         instance.clear_default_storage_vault_id();
         instance.clear_default_storage_vault_name();
         break;
     }
+    case AlterObjStoreInfoRequest::DROP_S3_VAULT:
+        [[fallthrough]];
     default: {
         code = MetaServiceCode::INVALID_ARGUMENT;
         ss << "invalid request op, op=" << request->op();
@@ -1132,7 +1153,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         std::stringstream ss;
         ss << (err == TxnErrorCode::TXN_OK ? "instance already existed"
                                            : "internal error failed to check instance")
-           << ", instance_id=" << request->instance_id();
+           << ", instance_id=" << request->instance_id() << ", err=" << err;
         code = err == TxnErrorCode::TXN_OK ? MetaServiceCode::ALREADY_EXISTED
                                            : cast_as<ErrCategory::READ>(err);
         msg = ss.str();
@@ -1441,7 +1462,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
         std::stringstream ss;
         ss << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "instance not existed"
                                                       : "internal error failed to check instance")
-           << ", instance_id=" << request->instance_id();
+           << ", instance_id=" << request->instance_id() << ", err=" << err;
         // TODO(dx): fix CLUSTER_NOT_FOUND，VERSION_NOT_FOUND，TXN_LABEL_NOT_FOUND，etc to NOT_FOUND
         code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::CLUSTER_NOT_FOUND
                                                       : cast_as<ErrCategory::READ>(err);
@@ -1770,6 +1791,8 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                                     {ClusterStatus::SUSPENDED, ClusterStatus::TO_RESUME},
                                     {ClusterStatus::TO_RESUME, ClusterStatus::NORMAL},
                                     {ClusterStatus::SUSPENDED, ClusterStatus::NORMAL},
+                                    {ClusterStatus::NORMAL, ClusterStatus::MANUAL_SHUTDOWN},
+                                    {ClusterStatus::MANUAL_SHUTDOWN, ClusterStatus::NORMAL},
                             };
                     auto from = c.cluster_status();
                     auto to = request->cluster().cluster_status();

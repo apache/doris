@@ -130,7 +130,9 @@ Status SegmentFileCollection::close() {
     }
 
     for (auto&& [_, writer] : _file_writers) {
-        RETURN_IF_ERROR(writer->close());
+        if (writer->state() != io::FileWriter::State::CLOSED) {
+            RETURN_IF_ERROR(writer->close());
+        }
     }
 
     return Status::OK();
@@ -199,15 +201,12 @@ BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
         : _engine(engine), _segcompaction_worker(std::make_shared<SegcompactionWorker>(this)) {}
 
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
-    // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
-    if (!_already_built) { // abnormal exit, remove all files generated
-        const auto& fs = _rowset_meta->fs();
-        if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
-            return;
-        }
+    if (!_already_built && _rowset_meta->is_local()) {
+        // abnormal exit, remove all files generated
+        auto& fs = io::global_local_filesystem();
         for (int i = _segment_start_id; i < _segment_creator.next_segment_id(); ++i) {
             std::string seg_path =
-                    BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, i);
+                    local_segment_path(_context.tablet_path, _context.rowset_id.to_string(), i);
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
@@ -228,7 +227,9 @@ BetaRowsetWriter::~BetaRowsetWriter() {
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
     _rowset_meta.reset(new RowsetMeta);
-    _rowset_meta->set_fs(_context.fs);
+    if (_context.storage_resource) {
+        _rowset_meta->set_remote_storage_resource(*_context.storage_resource);
+    }
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
     _rowset_meta->set_tablet_id(_context.tablet_id);
@@ -294,7 +295,8 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
         return Status::Error<INIT_FAILED>(
                 "BetaRowsetWriter::_load_noncompacted_segment _rowset_meta->fs get failed");
     }
-    auto path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
+    auto path =
+            local_segment_path(_context.tablet_path, _context.rowset_id.to_string(), segment_id);
     io::FileReaderOptions reader_options {
             .cache_type =
                     _context.write_file_cache
@@ -302,8 +304,8 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
                                                          : io::FileCachePolicy::NO_CACHE)
                             : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true};
-    auto s = segment_v2::Segment::open(fs, path, segment_id, rowset_id(), _context.tablet_schema,
-                                       reader_options, &segment);
+    auto s = segment_v2::Segment::open(io::global_local_filesystem(), path, segment_id, rowset_id(),
+                                       _context.tablet_schema, reader_options, &segment);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << path << ":" << s;
         return s;
@@ -379,10 +381,10 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
 
 Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) {
     int ret;
-    auto src_seg_path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir,
+    auto src_seg_path = BetaRowset::local_segment_path_segcompacted(_context.tablet_path,
                                                                     _context.rowset_id, begin, end);
-    auto dst_seg_path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id,
-                                                      _num_segcompacted);
+    auto dst_seg_path = local_segment_path(_context.tablet_path, _context.rowset_id.to_string(),
+                                           _num_segcompacted);
     ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
     if (ret) {
         return Status::Error<ROWSET_RENAME_FILE_FAILED>(
@@ -412,9 +414,9 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
     }
 
     auto src_seg_path =
-            BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
-    auto dst_seg_path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id,
-                                                      _num_segcompacted);
+            local_segment_path(_context.tablet_path, _context.rowset_id.to_string(), seg_id);
+    auto dst_seg_path = local_segment_path(_context.tablet_path, _context.rowset_id.to_string(),
+                                           _num_segcompacted);
     VLOG_DEBUG << "segcompaction skip this segment. rename " << src_seg_path << " to "
                << dst_seg_path;
     {
@@ -441,18 +443,24 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
 
 Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id) {
     int ret;
-    if (_context.tablet_schema->get_inverted_index_storage_format() !=
-        InvertedIndexStorageFormatPB::V1) {
+
+    auto src_seg_path = begin < 0 ? local_segment_path(_context.tablet_path,
+                                                       _context.rowset_id.to_string(), seg_id)
+                                  : BetaRowset::local_segment_path_segcompacted(
+                                            _context.tablet_path, _context.rowset_id, begin, end);
+    auto src_index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(src_seg_path);
+    auto dst_seg_path = local_segment_path(_context.tablet_path, _context.rowset_id.to_string(),
+                                           _num_segcompacted);
+    auto dst_index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(dst_seg_path);
+
+    if (_context.tablet_schema->get_inverted_index_storage_format() >=
+        InvertedIndexStorageFormatPB::V2) {
         if (_context.tablet_schema->has_inverted_index()) {
-            auto src_seg_path =
-                    begin < 0 ? BetaRowset::segment_file_path(_context.rowset_dir,
-                                                              _context.rowset_id, seg_id)
-                              : BetaRowset::local_segment_path_segcompacted(
-                                        _context.rowset_dir, _context.rowset_id, begin, end);
-            auto dst_seg_path = BetaRowset::segment_file_path(
-                    _context.rowset_dir, _context.rowset_id, _num_segcompacted);
-            auto src_idx_path = InvertedIndexDescriptor::get_index_file_name(src_seg_path);
-            auto dst_idx_path = InvertedIndexDescriptor::get_index_file_name(dst_seg_path);
+            auto src_idx_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(src_index_path_prefix);
+            auto dst_idx_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(dst_index_path_prefix);
+
             ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
             if (ret) {
                 return Status::Error<ROWSET_RENAME_FILE_FAILED>(
@@ -464,20 +472,14 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
         if (_context.tablet_schema->has_inverted_index(*column)) {
-            auto index_info = _context.tablet_schema->get_inverted_index(*column);
+            const auto* index_info = _context.tablet_schema->get_inverted_index(*column);
             auto index_id = index_info->index_id();
-            auto src_idx_path =
-                    begin < 0 ? InvertedIndexDescriptor::inverted_index_file_path(
-                                        _context.rowset_dir, _context.rowset_id, seg_id, index_id,
-                                        index_info->get_index_suffix())
-                              : InvertedIndexDescriptor::local_inverted_index_path_segcompacted(
-                                        _context.rowset_dir, _context.rowset_id, begin, end,
-                                        index_id, index_info->get_index_suffix());
-            auto dst_idx_path = InvertedIndexDescriptor::inverted_index_file_path(
-                    _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id,
-                    index_info->get_index_suffix());
             if (_context.tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
+                auto src_idx_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                        src_index_path_prefix, index_id, index_info->get_index_suffix());
+                auto dst_idx_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                        dst_index_path_prefix, index_id, index_info->get_index_suffix());
                 VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
                            << dst_idx_path;
                 ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
@@ -488,8 +490,12 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                 }
             }
             // Erase the origin index file cache
-            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_path));
-            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(dst_idx_path));
+            auto src_idx_cache_key = InvertedIndexDescriptor::get_index_file_cache_key(
+                    src_index_path_prefix, index_id, index_info->get_index_suffix());
+            auto dst_idx_cache_key = InvertedIndexDescriptor::get_index_file_cache_key(
+                    dst_index_path_prefix, index_id, index_info->get_index_suffix());
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(src_idx_cache_key));
+            RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(dst_idx_cache_key));
         }
     }
     return Status::OK();
@@ -561,7 +567,7 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
 
 Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
-    RETURN_IF_ERROR(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
+    RETURN_IF_ERROR(rowset->link_files_to(_context.tablet_path, _context.rowset_id));
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
@@ -594,7 +600,6 @@ Status BaseBetaRowsetWriter::flush() {
 
 Status BaseBetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segment_id,
                                             int64_t* flush_size) {
-    SCOPED_SKIP_MEMORY_CHECK();
     if (block->rows() == 0) {
         return Status::OK();
     }
@@ -636,7 +641,7 @@ RowsetSharedPtr BaseBetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& sp
 
     build_rowset_meta_with_spec_field(*_rowset_meta, *spec_rowset_meta);
     RowsetSharedPtr rowset;
-    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path,
                                                _rowset_meta, &rowset);
     if (!status.ok()) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
@@ -668,8 +673,11 @@ Status BetaRowsetWriter::_close_file_writers() {
         }
         RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_rename_last_segments(),
                                        "rename last segments failed when build new rowset");
-        if (_segcompaction_worker->get_file_writer()) {
-            RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_worker->get_file_writer()->close(),
+        // segcompaction worker would do file wrier's close function in compact_segments
+        if (auto& seg_comp_file_writer = _segcompaction_worker->get_file_writer();
+            nullptr != seg_comp_file_writer &&
+            seg_comp_file_writer->state() != io::FileWriter::State::CLOSED) {
+            RETURN_NOT_OK_STATUS_WITH_WARN(seg_comp_file_writer->close(),
                                            "close segment compaction worker failed");
         }
     }
@@ -693,14 +701,13 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     }
 
     // update rowset meta tablet schema if tablet schema updated
-    if (_context.tablet_schema->num_variant_columns() > 0) {
-        _rowset_meta->set_tablet_schema(_context.tablet_schema);
-    }
+    auto rowset_schema = _context.merged_tablet_schema != nullptr ? _context.merged_tablet_schema
+                                                                  : _context.tablet_schema;
+    _rowset_meta->set_tablet_schema(rowset_schema);
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, _rowset_meta,
-                                         &rowset),
-            "rowset init failed when build new rowset");
+    RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
+                                                                _rowset_meta, &rowset),
+                                   "rowset init failed when build new rowset");
     _already_built = true;
     return Status::OK();
 }
@@ -720,14 +727,17 @@ int64_t BetaRowsetWriter::_num_seg() const {
 void BaseBetaRowsetWriter::update_rowset_schema(TabletSchemaSPtr flush_schema) {
     std::lock_guard<std::mutex> lock(*(_context.schema_lock));
     TabletSchemaSPtr update_schema;
+    if (_context.merged_tablet_schema == nullptr) {
+        _context.merged_tablet_schema = _context.tablet_schema;
+    }
     static_cast<void>(vectorized::schema_util::get_least_common_schema(
-            {_context.tablet_schema, flush_schema}, nullptr, update_schema));
+            {_context.merged_tablet_schema, flush_schema}, nullptr, update_schema));
     CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
             << "Rowset merge schema columns count is " << update_schema->num_columns()
             << ", but flush_schema is larger " << flush_schema->num_columns()
             << " update_schema: " << update_schema->dump_structure()
             << " flush_schema: " << flush_schema->dump_structure();
-    _context.tablet_schema.swap(update_schema);
+    _context.merged_tablet_schema.swap(update_schema);
     VLOG_DEBUG << "dump rs schema: " << _context.tablet_schema->dump_structure();
 }
 
@@ -791,7 +801,7 @@ Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
         return status;
     }
 
-    status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, tmp_rs_meta,
+    status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path, tmp_rs_meta,
                                           &rowset_ptr);
     DBUG_EXECUTE_IF("BaseBetaRowsetWriter::_build_tmp.create_rowset_failed",
                     { status = Status::InternalError("create rowset failed"); });
@@ -802,11 +812,8 @@ Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::_create_file_writer(std::string path, io::FileWriterPtr& file_writer) {
-    auto fs = _rowset_meta->fs();
-    if (!fs) {
-        return Status::Error<INIT_FAILED>("get fs failed");
-    }
+Status BaseBetaRowsetWriter::_create_file_writer(const std::string& path,
+                                                 io::FileWriterPtr& file_writer) {
     io::FileWriterOptions opts {
             .write_file_cache = _context.write_file_cache,
             .is_cold_data = _context.is_hot_data,
@@ -814,7 +821,7 @@ Status BaseBetaRowsetWriter::_create_file_writer(std::string path, io::FileWrite
                     _context.file_cache_ttl_sec > 0 && _context.newest_write_timestamp > 0
                             ? _context.newest_write_timestamp + _context.file_cache_ttl_sec
                             : 0};
-    Status st = fs->create_file(path, &file_writer, &opts);
+    Status st = _context.fs()->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
@@ -824,17 +831,25 @@ Status BaseBetaRowsetWriter::_create_file_writer(std::string path, io::FileWrite
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id,
-                                                io::FileWriterPtr& file_writer) {
-    std::string path;
-    path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
-    return _create_file_writer(path, file_writer);
+Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWriterPtr& file_writer,
+                                                FileType file_type) {
+    auto segment_path = _context.segment_path(segment_id);
+    if (file_type == FileType::INVERTED_INDEX_FILE) {
+        std::string prefix =
+                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
+        std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
+        return _create_file_writer(index_path, file_writer);
+    } else if (file_type == FileType::SEGMENT_FILE) {
+        return _create_file_writer(segment_path, file_writer);
+    }
+    return Status::Error<ErrorCode::INTERNAL_ERROR>(
+            fmt::format("failed to create file = {}, file type = {}", segment_path, file_type));
 }
 
 Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end) {
     DCHECK(begin >= 0 && end >= 0);
-    std::string path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir,
+    std::string path = BetaRowset::local_segment_path_segcompacted(_context.tablet_path,
                                                                    _context.rowset_id, begin, end);
     io::FileWriterPtr file_writer;
     RETURN_IF_ERROR(_create_file_writer(path, file_writer));
@@ -847,9 +862,9 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
 
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
-            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context,
-            _context.fs);
-    if (_segcompaction_worker->get_file_writer() != nullptr) {
+            _context.data_dir, _context.max_rows_per_segment, writer_options, _context.mow_context);
+    if (auto& seg_writer = _segcompaction_worker->get_file_writer();
+        seg_writer != nullptr && seg_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());
     }
     _segcompaction_worker->get_file_writer().reset(file_writer.release());
@@ -916,7 +931,7 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
     if (_context.mow_context != nullptr) {
         // ensure that the segment file writing is complete
         auto* file_writer = _seg_files.get(segment_id);
-        if (file_writer) {
+        if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
             RETURN_IF_ERROR(file_writer->close());
         }
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));

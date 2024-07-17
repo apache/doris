@@ -30,15 +30,20 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCacheMgr;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataCacheMgr;
+import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 
+import com.github.benmanes.caffeine.cache.CacheLoader;
+import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 
 /**
@@ -72,6 +77,7 @@ public class ExternalMetaCacheMgr {
     private ExecutorService rowCountRefreshExecutor;
     private ExecutorService commonRefreshExecutor;
     private ExecutorService fileListingExecutor;
+    private ExecutorService scheduleExecutor;
 
     // catalog id -> HiveMetaStoreCache
     private final Map<Long, HiveMetaStoreCache> cacheMap = Maps.newConcurrentMap();
@@ -104,6 +110,11 @@ public class ExternalMetaCacheMgr {
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "FileListingExecutor", 10, true);
 
+        scheduleExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                Config.max_external_cache_loader_thread_pool_size,
+                Config.max_external_cache_loader_thread_pool_size * 1000,
+                "scheduleExecutor", 10, true);
+
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
 
@@ -114,6 +125,10 @@ public class ExternalMetaCacheMgr {
 
     public ExecutorService getFileListingExecutor() {
         return fileListingExecutor;
+    }
+
+    public ExecutorService getScheduleExecutor() {
+        return scheduleExecutor;
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
@@ -270,5 +285,15 @@ public class ExternalMetaCacheMgr {
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalidate partition cache for {}.{} in catalog {}", dbName, tableName, catalogId);
         }
+    }
+
+    public <T> MetaCache<T> buildMetaCache(String name,
+            OptionalLong expireAfterWriteSec, OptionalLong refreshAfterWriteSec, long maxSize,
+            CacheLoader<String, List<String>> namesCacheLoader,
+            CacheLoader<String, Optional<T>> metaObjCacheLoader,
+            RemovalListener<String, Optional<T>> removalListener) {
+        MetaCache<T> metaCache = new MetaCache<>(name, commonRefreshExecutor, expireAfterWriteSec, refreshAfterWriteSec,
+                maxSize, namesCacheLoader, metaObjCacheLoader, removalListener);
+        return metaCache;
     }
 }

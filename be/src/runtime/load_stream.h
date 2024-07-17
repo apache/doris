@@ -18,7 +18,7 @@
 #pragma once
 
 #include <bthread/mutex.h>
-#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/olap_common.pb.h>
 
 #include <condition_variable>
 #include <memory>
@@ -52,6 +52,7 @@ public:
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
+    void add_num_segments(int64_t num_segments) { _num_segments += num_segments; }
     Status close();
     int64_t id() const { return _id; }
 
@@ -63,6 +64,7 @@ private:
     std::vector<std::unique_ptr<ThreadPoolToken>> _flush_tokens;
     std::unordered_map<int64_t, std::unique_ptr<SegIdMapping>> _segids_mapping;
     std::atomic<uint32_t> _next_segid;
+    int64_t _num_segments = 0;
     bthread::Mutex _lock;
     std::shared_ptr<Status> _failed_st;
     PUniqueId _load_id;
@@ -117,6 +119,9 @@ public:
     void add_source(int64_t src_id) {
         std::lock_guard lock_guard(_lock);
         _open_streams[src_id]++;
+        if (_is_incremental) {
+            _total_streams++;
+        }
     }
 
     Status close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
@@ -167,8 +172,9 @@ private:
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
     QueryThreadContext _query_thread_context;
+    bool _is_incremental = false;
 };
 
-using LoadStreamSharedPtr = std::shared_ptr<LoadStream>;
+using LoadStreamPtr = std::unique_ptr<LoadStream>;
 
 } // namespace doris

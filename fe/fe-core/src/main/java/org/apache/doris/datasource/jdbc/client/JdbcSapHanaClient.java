@@ -20,6 +20,7 @@ package org.apache.doris.datasource.jdbc.client;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 public class JdbcSapHanaClient extends JdbcClient {
     protected JdbcSapHanaClient(JdbcClientConfig jdbcClientConfig) {
@@ -38,7 +39,7 @@ public class JdbcSapHanaClient extends JdbcClient {
 
     @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
-        String hanaType = fieldSchema.getDataTypeName();
+        String hanaType = fieldSchema.getDataTypeName().orElse("unknown");
         switch (hanaType) {
             case "TINYINT":
                 return Type.TINYINT;
@@ -50,9 +51,13 @@ public class JdbcSapHanaClient extends JdbcClient {
                 return Type.BIGINT;
             case "SMALLDECIMAL":
             case "DECIMAL": {
-                int precision = fieldSchema.getColumnSize();
-                int scale = fieldSchema.getDecimalDigits();
-                return createDecimalOrStringType(precision, scale);
+                if (!fieldSchema.getDecimalDigits().isPresent()) {
+                    return Type.DOUBLE;
+                } else  {
+                    int precision = fieldSchema.getColumnSize().orElse(0);
+                    int scale = fieldSchema.getDecimalDigits().orElse(0);
+                    return createDecimalOrStringType(precision, scale);
+                }
             }
             case "REAL":
                 return Type.FLOAT;
@@ -60,7 +65,7 @@ public class JdbcSapHanaClient extends JdbcClient {
                 return Type.DOUBLE;
             case "TIMESTAMP": {
                 // postgres can support microsecond
-                int scale = fieldSchema.getDecimalDigits();
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale > 6) {
                     scale = 6;
                 }
@@ -76,21 +81,21 @@ public class JdbcSapHanaClient extends JdbcClient {
             case "CHAR":
             case "NCHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.columnSize);
+                charType.setLength(fieldSchema.getColumnSize().orElse(0));
                 return charType;
             case "TIME":
             case "VARCHAR":
             case "NVARCHAR":
             case "ALPHANUM":
             case "SHORTTEXT":
-                return ScalarType.createStringType();
-            case "BINARY":
-            case "VARBINARY":
-            case "BLOB":
             case "CLOB":
             case "NCLOB":
             case "TEXT":
             case "BINTEXT":
+            case "BINARY":
+            case "VARBINARY":
+                return ScalarType.createStringType();
+            case "BLOB":
             case "ST_GEOMETRY":
             case "ST_POINT":
             default:

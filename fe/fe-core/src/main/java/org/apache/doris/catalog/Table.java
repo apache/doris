@@ -30,17 +30,18 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
@@ -64,7 +65,7 @@ import java.util.stream.Collectors;
 /**
  * Internal representation of table-related metadata. A table contains several partitions.
  */
-public abstract class Table extends MetaObject implements Writable, TableIf {
+public abstract class Table extends MetaObject implements Writable, TableIf, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Table.class);
 
     // empirical value.
@@ -84,7 +85,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @SerializedName(value = "createTime")
     protected long createTime;
     protected QueryableReentrantReadWriteLock rwLock;
-    // Used for queuing commit transaction tasks to avoid fdb transaction conflicts,
+    // Used for queuing commit transactifon tasks to avoid fdb transaction conflicts,
     // especially to reduce conflicts when obtaining delete bitmap update locks for
     // MoW table
     protected ReentrantLock commitLock;
@@ -391,11 +392,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return getBaseSchema(Util.showHiddenColumns());
     }
 
-    @Override
-    public List<Column> getSchemaAllIndexes(boolean full) {
-        return getBaseSchema();
-    }
-
     public List<Column> getBaseSchema(boolean full) {
         if (full) {
             return fullSchema;
@@ -413,7 +409,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public Column getColumn(String name) {
-        return nameToColumn.get(name);
+        return nameToColumn.getOrDefault(name, null);
     }
 
     public List<Column> getColumns() {
@@ -446,59 +442,61 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public static Table read(DataInput in) throws IOException {
-        Table table = null;
-        TableType type = TableType.valueOf(Text.readString(in));
-        if (type == TableType.OLAP) {
-            table = new OlapTable();
-        } else if (type == TableType.MATERIALIZED_VIEW) {
-            table = new MTMV();
-        } else if (type == TableType.ODBC) {
-            table = new OdbcTable();
-        } else if (type == TableType.MYSQL) {
-            table = new MysqlTable();
-        } else if (type == TableType.VIEW) {
-            table = new View();
-        } else if (type == TableType.BROKER) {
-            table = new BrokerTable();
-        } else if (type == TableType.ELASTICSEARCH) {
-            table = new EsTable();
-        } else if (type == TableType.HIVE) {
-            table = new HiveTable();
-        } else if (type == TableType.JDBC) {
-            table = new JdbcTable();
-        } else {
-            throw new IOException("Unknown table type: " + type.name());
-        }
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+            Table table = null;
+            TableType type = TableType.valueOf(Text.readString(in));
+            if (type == TableType.OLAP) {
+                table = new OlapTable();
+            } else if (type == TableType.MATERIALIZED_VIEW) {
+                table = new MTMV();
+            } else if (type == TableType.ODBC) {
+                table = new OdbcTable();
+            } else if (type == TableType.MYSQL) {
+                table = new MysqlTable();
+            } else if (type == TableType.VIEW) {
+                table = new View();
+            } else if (type == TableType.BROKER) {
+                table = new BrokerTable();
+            } else if (type == TableType.ELASTICSEARCH) {
+                table = new EsTable();
+            } else if (type == TableType.HIVE) {
+                table = new HiveTable();
+            } else if (type == TableType.JDBC) {
+                table = new JdbcTable();
+            } else {
+                throw new IOException("Unknown table type: " + type.name());
+            }
 
-        table.setTypeRead(true);
-        table.readFields(in);
-        return table;
+            table.setTypeRead(true);
+            table.readFields(in);
+            return table;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), Table.class);
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        List<Column> keys = Lists.newArrayList();
+
+        for (Column column : fullSchema) {
+            if (column.isKey()) {
+                keys.add(column);
+            }
+            this.nameToColumn.put(column.getName(), column);
+        }
+        if (keys.size() > 1) {
+            keys.forEach(key -> key.setCompoundKey(true));
+            hasCompoundKey = true;
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // ATTN: must write type first
-        Text.writeString(out, type.name());
-
-        // write last check time
-        super.write(out);
-
-        out.writeLong(id);
-        Text.writeString(out, name);
-
-        // base schema
-        int columnCount = fullSchema.size();
-        out.writeInt(columnCount);
-        for (Column column : fullSchema) {
-            column.write(out);
-        }
-        Text.writeString(out, comment);
-        // write table attributes
-        Text.writeString(out, GsonUtils.GSON.toJson(tableAttributes));
-        // write create time
-        out.writeLong(createTime);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             type = TableType.valueOf(Text.readString(in));
@@ -535,12 +533,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         this.createTime = in.readLong();
     }
 
-    // return if this table is partitioned.
-    // For OlapTable, return true only if its partition type is RANGE or HASH
-    public boolean isPartitionedTable() {
-        return false;
-    }
-
     // return if this table is partitioned, for planner.
     // For OlapTable ture when is partitioned, or distributed by hash when no partition
     public boolean isPartitionDistributed() {
@@ -574,7 +566,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             }
             return SqlUtils.escapeQuota(comment);
         }
-        return type.name();
+        return "";
     }
 
     public void setComment(String comment) {
@@ -624,11 +616,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     public void analyze(String dbName) {}
 
     @Override
-    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        return true;
-    }
-
-    @Override
     public List<Long> getChunkSizes() {
         throw new NotImplementedException("getChunkSized not implemented");
     }
@@ -639,8 +626,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     @Override
-    public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
-        return Lists.newArrayList();
+    public Set<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        return Sets.newHashSet();
     }
 
     @Override

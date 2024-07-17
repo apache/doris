@@ -40,4 +40,12 @@ public class MTMVRefreshPartitionSnapshot {
     public Map<Long, MTMVSnapshotIf> getTables() {
         return tables;
     }
+
+    @Override
+    public String toString() {
+        return "MTMVRefreshPartitionSnapshot{"
+                + "partitions=" + partitions
+                + ", tables=" + tables
+                + '}';
+    }
 }

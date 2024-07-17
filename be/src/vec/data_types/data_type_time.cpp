@@ -44,6 +44,15 @@ bool DataTypeTime::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
+size_t DataTypeTime::number_length() const {
+    //59:59:59
+    return 8;
+}
+void DataTypeTime::push_number(ColumnString::Chars& chars, const Float64& num) const {
+    auto time_str = time_to_buffer_from_double(num);
+    chars.insert(time_str.begin(), time_str.end());
+}
+
 std::string DataTypeTime::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -53,6 +62,9 @@ std::string DataTypeTime::to_string(const IColumn& column, size_t row_num) const
     return time_to_buffer_from_double(value);
 }
 
+std::string DataTypeTime::to_string(double value) const {
+    return time_to_buffer_from_double(value);
+}
 void DataTypeTime::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     std::string value = to_string(column, row_num);
     ostr.write(value.data(), value.size());
@@ -71,6 +83,15 @@ bool DataTypeTimeV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
+size_t DataTypeTimeV2::number_length() const {
+    //59:59:59:000000
+    return 14;
+}
+void DataTypeTimeV2::push_number(ColumnString::Chars& chars, const Float64& num) const {
+    auto timev2_str = timev2_to_buffer_from_double(num, _scale);
+    chars.insert(timev2_str.begin(), timev2_str.end());
+}
+
 std::string DataTypeTimeV2::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
@@ -80,6 +101,9 @@ std::string DataTypeTimeV2::to_string(const IColumn& column, size_t row_num) con
     return timev2_to_buffer_from_double(value, _scale);
 }
 
+std::string DataTypeTimeV2::to_string(double value) const {
+    return timev2_to_buffer_from_double(value, _scale);
+}
 void DataTypeTimeV2::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     std::string value = to_string(column, row_num);
     ostr.write(value.data(), value.size());

@@ -18,6 +18,8 @@
 suite("test_hive_partition_statistic", "p2,external,hive,external_remote,external_remote_hive") {
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        logger.info("This feature has not been supported yet, skip it.")
+        /**
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
         String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
         String catalog_name = "test_hive_partition_statistic"
@@ -48,6 +50,7 @@ suite("test_hive_partition_statistic", "p2,external,hive,external_remote,externa
         order_qt_2 """select part_id, count, ndv, null_count, min, max from internal.__internal_schema.column_statistics where catalog_id='$ctlId' and part_id='event_day=1956-09-07'"""
 
         sql """drop catalog ${catalog_name}""";
+        **/
     }
 }
 

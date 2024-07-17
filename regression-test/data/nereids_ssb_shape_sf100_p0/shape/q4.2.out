@@ -8,30 +8,25 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF3 p_partkey->[lo_partkey]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF2 c_custkey->[lo_custkey]
-------------------------PhysicalDistribute[DistributionSpecHash]
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF3 p_partkey->[lo_partkey]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF2 c_custkey->[lo_custkey]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF1 d_datekey->[lo_orderdate]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF1 d_datekey->[lo_orderdate]
-------------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2 RF3
---------------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------------PhysicalProject
-------------------------------------filter((supplier.s_region = 'AMERICA'))
---------------------------------------PhysicalOlapScan[supplier]
-------------------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------------------PhysicalProject
-----------------------------------filter(d_year IN (1997, 1998))
-------------------------------------PhysicalOlapScan[dates]
-------------------------PhysicalDistribute[DistributionSpecHash]
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2 RF3
+------------------------------PhysicalProject
+--------------------------------filter((supplier.s_region = 'AMERICA'))
+----------------------------------PhysicalOlapScan[supplier]
 --------------------------PhysicalProject
-----------------------------filter((customer.c_region = 'AMERICA'))
-------------------------------PhysicalOlapScan[customer]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------filter(p_mfgr IN ('MFGR#1', 'MFGR#2'))
-------------------------PhysicalOlapScan[part]
+----------------------------filter(d_year IN (1997, 1998))
+------------------------------PhysicalOlapScan[dates]
+----------------------PhysicalProject
+------------------------filter((customer.c_region = 'AMERICA'))
+--------------------------PhysicalOlapScan[customer]
+------------------PhysicalProject
+--------------------filter(p_mfgr IN ('MFGR#1', 'MFGR#2'))
+----------------------PhysicalOlapScan[part]
 

@@ -4,27 +4,23 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject
-----------hashAgg[LOCAL]
-------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
-----------------PhysicalProject
-------------------filter((lineitem.l_shipdate > '1995-03-15'))
---------------------PhysicalOlapScan[lineitem]
-----------------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
+--------------PhysicalProject
+----------------filter((lineitem.l_shipdate > '1995-03-15'))
+------------------PhysicalOlapScan[lineitem]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------filter((orders.o_orderdate < '1995-03-15'))
-----------------------------PhysicalOlapScan[orders]
-----------------------PhysicalDistribute[DistributionSpecHash]
-------------------------PhysicalProject
---------------------------filter((customer.c_mktsegment = 'BUILDING'))
-----------------------------PhysicalOlapScan[customer]
+--------------------filter((orders.o_orderdate < '1995-03-15'))
+----------------------PhysicalOlapScan[orders]
+------------------PhysicalProject
+--------------------filter((customer.c_mktsegment = 'BUILDING'))
+----------------------PhysicalOlapScan[customer]
 
 Hint log:
-Used:  leading(lineitem { orders shuffle customer } )
-UnUsed:
+Used: leading(lineitem { orders shuffle customer } ) 
+UnUsed: 
 SyntaxError:
 

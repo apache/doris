@@ -95,6 +95,7 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
             this, std::move(mem_table), _rowset_writer->allocate_segment_id(), submit_task_time);
     Status ret = _thread_pool->submit(std::move(task));
     if (ret.ok()) {
+        // _wait_running_task_finish was executed after this function, so no need to notify _cond here
         _stats.flush_running_count++;
     }
     return ret;
@@ -103,16 +104,8 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
 // NOTE: FlushToken's submit/cancel/wait run in one thread,
 // so we don't need to make them mutually exclusive, std::atomic is enough.
 void FlushToken::_wait_running_task_finish() {
-    while (true) {
-        int64_t flush_running_count = _stats.flush_running_count.load();
-        if (flush_running_count < 0) {
-            LOG(ERROR) << "flush_running_count < 0, this is not expected!";
-        }
-        if (flush_running_count == 0) {
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
+    std::unique_lock<std::mutex> lock(_mutex);
+    _cond.wait(lock, [&]() { return _stats.flush_running_count.load() == 0; });
 }
 
 void FlushToken::cancel() {
@@ -141,7 +134,8 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     signal::set_signal_task_id(_rowset_writer->load_id());
     {
         SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
-        std::unique_ptr<vectorized::Block> block = memtable->to_block();
+        std::unique_ptr<vectorized::Block> block;
+        RETURN_IF_ERROR(memtable->to_block(&block));
         RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
     }
     _memtable_stat += memtable->stat();
@@ -154,7 +148,13 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
 
 void FlushToken::_flush_memtable(std::unique_ptr<MemTable> memtable_ptr, int32_t segment_id,
                                  int64_t submit_task_time) {
-    Defer defer {[&]() { _stats.flush_running_count--; }};
+    Defer defer {[&]() {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _stats.flush_running_count--;
+        if (_stats.flush_running_count == 0) {
+            _cond.notify_one();
+        }
+    }};
     if (_is_shutdown()) {
         return;
     }
@@ -202,15 +202,20 @@ void FlushToken::_flush_memtable(std::unique_ptr<MemTable> memtable_ptr, int32_t
 
 void MemTableFlushExecutor::init(int num_disk) {
     num_disk = std::max(1, num_disk);
-    size_t min_threads = std::max(1, config::flush_thread_num_per_store);
-    size_t max_threads = num_disk * min_threads;
+    int num_cpus = std::thread::hardware_concurrency();
+    int min_threads = std::max(1, config::flush_thread_num_per_store);
+    int max_threads = num_cpus == 0 ? num_disk * min_threads
+                                    : std::min(num_disk * min_threads,
+                                               num_cpus * config::max_flush_thread_num_per_cpu);
     static_cast<void>(ThreadPoolBuilder("MemTableFlushThreadPool")
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)
                               .build(&_flush_pool));
 
     min_threads = std::max(1, config::high_priority_flush_thread_num_per_store);
-    max_threads = num_disk * min_threads;
+    max_threads = num_cpus == 0 ? num_disk * min_threads
+                                : std::min(num_disk * min_threads,
+                                           num_cpus * config::max_flush_thread_num_per_cpu);
     static_cast<void>(ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)

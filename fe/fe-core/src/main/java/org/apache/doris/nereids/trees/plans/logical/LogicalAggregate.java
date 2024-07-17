@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -306,7 +306,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         }
         Expression agg = namedExpression.child(0);
         return ExpressionUtils.isInjectiveAgg(agg)
-                && child().getLogicalProperties().getFunctionalDependencies().isUniqueAndNotNull(agg.getInputSlots());
+                && child().getLogicalProperties().getTrait().isUniqueAndNotNull(agg.getInputSlots());
     }
 
     private boolean isUniformGroupByUnique(NamedExpression namedExpression) {
@@ -318,42 +318,42 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     }
 
     @Override
-    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+    public void computeUnique(DataTrait.Builder builder) {
         if (this.sourceRepeat.isPresent()) {
             // roll up may generate new data
             return;
         }
-        FunctionalDependencies childFd = child(0).getLogicalProperties().getFunctionalDependencies();
+        DataTrait childFd = child(0).getLogicalProperties().getTrait();
         ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
                 .map(s -> (Slot) s)
                 .collect(ImmutableSet.toImmutableSet());
         // when group by all tuples, the result only have one row
         if (groupByExpressions.isEmpty() || childFd.isUniformAndNotNull(groupByKeys)) {
-            getOutput().forEach(fdBuilder::addUniqueSlot);
+            getOutput().forEach(builder::addUniqueSlot);
             return;
         }
 
         // propagate all unique slots
-        fdBuilder.addUniqueSlot(childFd);
+        builder.addUniqueSlot(childFd);
 
         // group by keys is unique
-        fdBuilder.addUniqueSlot(groupByKeys);
+        builder.addUniqueSlot(groupByKeys);
 
         // group by unique may has unique aggregate result
         if (childFd.isUniqueAndNotNull(groupByKeys)) {
             for (NamedExpression namedExpression : getOutputExpressions()) {
                 if (isUniqueGroupByUnique(namedExpression)) {
-                    fdBuilder.addUniqueSlot(namedExpression.toSlot());
+                    builder.addUniqueSlot(namedExpression.toSlot());
                 }
             }
         }
     }
 
     @Override
-    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+    public void computeUniform(DataTrait.Builder builder) {
         // always propagate uniform
-        FunctionalDependencies childFd = child(0).getLogicalProperties().getFunctionalDependencies();
-        fdBuilder.addUniformSlot(childFd);
+        DataTrait childFd = child(0).getLogicalProperties().getTrait();
+        builder.addUniformSlot(childFd);
 
         if (this.sourceRepeat.isPresent()) {
             // roll up may generate new data
@@ -364,14 +364,14 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 .collect(ImmutableSet.toImmutableSet());
         // when group by all tuples, the result only have one row
         if (groupByExpressions.isEmpty() || childFd.isUniformAndNotNull(groupByKeys)) {
-            getOutput().forEach(fdBuilder::addUniformSlot);
+            getOutput().forEach(builder::addUniformSlot);
             return;
         }
 
         if (childFd.isUniqueAndNotNull(groupByKeys)) {
             for (NamedExpression namedExpression : getOutputExpressions()) {
                 if (isUniformGroupByUnique(namedExpression)) {
-                    fdBuilder.addUniformSlot(namedExpression.toSlot());
+                    builder.addUniformSlot(namedExpression.toSlot());
                 }
             }
         }
@@ -387,7 +387,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 .collect(ImmutableSet.toImmutableSet());
 
         // inherit from child
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getFunctionalDependencies().getFdItems();
+        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getTrait().getFdItems();
         builder.addAll(childItems);
 
         // todo: fill the table sets
@@ -399,7 +399,12 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     }
 
     @Override
-    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
-        fdBuilder.addEqualSet(child().getLogicalProperties().getFunctionalDependencies());
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
 }

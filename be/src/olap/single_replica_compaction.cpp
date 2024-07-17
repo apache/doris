@@ -17,11 +17,12 @@
 
 #include "olap/single_replica_compaction.h"
 
+#include <curl/curl.h>
+
 #include "common/logging.h"
 #include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/stringpiece.h"
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -65,6 +66,9 @@ Status SingleReplicaCompaction::prepare_compact() {
 }
 
 Status SingleReplicaCompaction::execute_compact() {
+    if (!tablet()->should_fetch_from_peer()) {
+        return Status::Aborted("compaction should be performed locally");
+    }
     std::unique_lock<std::mutex> lock_cumu(tablet()->get_cumulative_compaction_lock(),
                                            std::try_to_lock);
     if (!lock_cumu.owns_lock()) {
@@ -97,9 +101,12 @@ Status SingleReplicaCompaction::_do_single_replica_compaction() {
 }
 
 Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
+    DBUG_EXECUTE_IF("do_single_compaction_return_ok", { return Status::OK(); });
     TReplicaInfo addr;
     std::string token;
     //  1. get peer replica info
+    DBUG_EXECUTE_IF("single_compaction_failed_get_peer",
+                    { return Status::Aborted("tablet don't have peer replica"); });
     if (!_engine.get_peer_replica_info(_tablet->tablet_id(), &addr, &token)) {
         LOG(WARNING) << _tablet->tablet_id() << " tablet don't have peer replica";
         return Status::Aborted("tablet don't have peer replica");
@@ -112,8 +119,7 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
     Version proper_version;
     // 3. find proper version to fetch
     if (!_find_rowset_to_fetch(peer_versions, &proper_version)) {
-        LOG(WARNING) << _tablet->tablet_id() << " tablet don't need to fetch, no matched version";
-        return Status::Aborted("no matched version to fetch");
+        return Status::Cancelled("no matched versions for single replica compaction");
     }
 
     // 4. fetch compaction result
@@ -129,6 +135,8 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
     } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
         tablet()->set_last_full_compaction_success_time(UnixMillis());
     }
+
+    tablet()->set_last_fetched_version(_output_rowset->version());
 
     int64_t current_max_version = -1;
     {
@@ -153,6 +161,8 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
 
 Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
         const TReplicaInfo& addr, std::vector<Version>* peer_versions) {
+    DBUG_EXECUTE_IF("single_compaction_failed_get_peer_versions",
+                    { return Status::Aborted("tablet failed get peer versions"); });
     PGetTabletVersionsRequest request;
     request.set_tablet_id(_tablet->tablet_id());
     PGetTabletVersionsResponse response;
@@ -160,23 +170,19 @@ Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr.host,
                                                                              addr.brpc_port);
     if (stub == nullptr) {
-        LOG(WARNING) << "get rowset versions from peer: get rpc stub failed, host = " << addr.host
-                     << " port = " << addr.brpc_port;
-        return Status::Cancelled("get rpc stub failed");
+        return Status::Aborted("get rpc stub failed");
     }
 
     brpc::Controller cntl;
     stub->get_tablet_rowset_versions(&cntl, &request, &response, nullptr);
     if (cntl.Failed()) {
-        LOG(WARNING) << "open brpc connection to " << addr.host << " failed: " << cntl.ErrorText();
-        return Status::Cancelled("open brpc connection failed");
+        return Status::Aborted("open brpc connection failed");
     }
     if (response.status().status_code() != 0) {
-        LOG(WARNING) << "peer " << addr.host << " don't have tablet " << _tablet->tablet_id();
-        return Status::Cancelled("peer don't have tablet");
+        return Status::Aborted("peer don't have tablet");
     }
     if (response.versions_size() == 0) {
-        return Status::Cancelled("no peer version");
+        return Status::Aborted("no peer version");
     }
     for (int i = 0; i < response.versions_size(); ++i) {
         (*peer_versions).emplace_back(response.versions(i).first(), response.versions(i).second());
@@ -278,7 +284,7 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
                                                      _tablet->tablet_id());
     }
 
-    std::string local_data_path = _tablet->tablet_path() + CLONE_PREFIX;
+    std::string local_data_path = tablet()->tablet_path() + CLONE_PREFIX;
     std::string local_path = local_data_path + "/";
     std::string snapshot_path;
     int timeout_s = 0;
@@ -308,8 +314,8 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
     }
     RETURN_IF_ERROR(_download_files(tablet()->data_dir(), remote_url_prefix, local_path));
     _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
-            local_path, _tablet->tablet_id(), tablet()->replica_id(), _tablet->partition_id(),
-            _tablet->schema_hash()));
+            local_path, _tablet->tablet_id(), tablet()->replica_id(), _tablet->table_id(),
+            _tablet->partition_id(), _tablet->schema_hash()));
     // 4: finish_clone: create output_rowset and link file
     return _finish_clone(local_data_path, rowset_version);
 }
@@ -344,6 +350,8 @@ Status SingleReplicaCompaction::_make_snapshot(const std::string& ip, int port, 
         if (snapshot_path->at(snapshot_path->length() - 1) != '/') {
             snapshot_path->append("/");
         }
+        DBUG_EXECUTE_IF("single_compaction_failed_make_snapshot",
+                        { return Status::InternalError("failed snapshot"); });
     } else {
         return Status::InternalError("success snapshot without snapshot path");
     }
@@ -380,8 +388,7 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     // Avoid of data is not complete, we copy the header file at last.
     // The header file's name is end of .hdr.
     for (int i = 0; i < file_name_list.size() - 1; ++i) {
-        StringPiece sp(file_name_list[i]);
-        if (sp.ends_with(".hdr")) {
+        if (file_name_list[i].ends_with(".hdr")) {
             std::swap(file_name_list[i], file_name_list[file_name_list.size() - 1]);
             break;
         }
@@ -391,8 +398,26 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     uint64_t total_file_size = 0;
     MonotonicStopWatch watch;
     watch.start();
+    auto curl = std::unique_ptr<CURL, decltype(&curl_easy_cleanup)>(curl_easy_init(),
+                                                                    &curl_easy_cleanup);
+    if (!curl) {
+        return Status::InternalError("single compaction init curl failed");
+    }
     for (auto& file_name : file_name_list) {
-        auto remote_file_url = remote_url_prefix + file_name;
+        // The file name of the variant column with the inverted index contains %
+        // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
+        //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
+        // We need to handle %, otherwise it will cause an HTTP 404 error.
+        // Because the percent ("%") character serves as the indicator for percent-encoded octets,
+        // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
+        // https://datatracker.ietf.org/doc/html/rfc3986
+        auto output = std::unique_ptr<char, decltype(&curl_free)>(
+                curl_easy_escape(curl.get(), file_name.c_str(), file_name.length()), &curl_free);
+        if (!output) {
+            return Status::InternalError("escape file name failed, file name={}", file_name);
+        }
+        std::string encoded_filename(output.get());
+        auto remote_file_url = remote_url_prefix + encoded_filename;
 
         // get file length
         uint64_t file_size = 0;
@@ -430,6 +455,8 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
             client->set_timeout_ms(estimate_timeout * 1000);
             RETURN_IF_ERROR(client->download(local_file_path));
 
+            DBUG_EXECUTE_IF("single_compaction_failed_download_file",
+                            { return Status::InternalError("failed to download file"); });
             // Check file length
             uint64_t local_file_size = std::filesystem::file_size(local_file_path);
             if (local_file_size != file_size) {
@@ -514,7 +541,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
             }
 
             std::vector<io::FileInfo> local_files;
-            const auto& tablet_dir = _tablet->tablet_path();
+            const auto& tablet_dir = tablet()->tablet_path();
             RETURN_IF_ERROR(
                     io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));
             std::unordered_set<std::string> local_file_names;
@@ -555,7 +582,12 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
     }
     // clear clone dir
     std::filesystem::path clone_dir_path(clone_dir);
-    std::filesystem::remove_all(clone_dir_path);
+    std::error_code ec;
+    std::filesystem::remove_all(clone_dir_path, ec);
+    if (ec) {
+        LOG(WARNING) << "failed to remove=" << clone_dir_path << " msg=" << ec.message();
+        return Status::IOError("failed to remove {}, due to {}", clone_dir, ec.message());
+    }
     LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
               << ", tablet=" << _tablet->tablet_id() << ", clone_dir=" << clone_dir;
     return res;

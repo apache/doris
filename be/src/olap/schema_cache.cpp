@@ -40,7 +40,7 @@ SchemaCache* SchemaCache::instance() {
 }
 
 // format: tabletId-unique_id1-uniqueid2...-version-type
-std::string SchemaCache::get_schema_key(int32_t tablet_id, const TabletSchemaSPtr& schema,
+std::string SchemaCache::get_schema_key(int64_t tablet_id, const TabletSchemaSPtr& schema,
                                         const std::vector<uint32_t>& column_ids, int32_t version,
                                         Type type) {
     if (column_ids.empty() || schema->column(column_ids[0]).unique_id() < 0) {
@@ -57,7 +57,7 @@ std::string SchemaCache::get_schema_key(int32_t tablet_id, const TabletSchemaSPt
 }
 
 // format: tabletId-unique_id1-uniqueid2...-version-type
-std::string SchemaCache::get_schema_key(int32_t tablet_id, const std::vector<TColumn>& columns,
+std::string SchemaCache::get_schema_key(int64_t tablet_id, const std::vector<TColumn>& columns,
                                         int32_t version, Type type) {
     if (columns.empty() || columns[0].col_unique_id < 0) {
         return "";

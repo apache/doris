@@ -23,13 +23,18 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.fs.FileSystem;
+import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemUtil;
 import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.fs.remote.SwitchingFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THivePartitionUpdate;
+import org.apache.doris.thrift.TS3MPUPendingUpload;
 import org.apache.doris.thrift.TUpdateMode;
 import org.apache.doris.transaction.Transaction;
 
@@ -43,11 +48,17 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import io.airlift.concurrent.MoreFutures;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -62,7 +73,9 @@ import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -78,18 +91,54 @@ public class HMSTransaction implements Transaction {
     private final Map<DatabaseTableName, Action<TableAndMore>> tableActions = new HashMap<>();
     private final Map<DatabaseTableName, Map<List<String>, Action<PartitionAndMore>>>
             partitionActions = new HashMap<>();
+    private final Map<DatabaseTableName, List<FieldSchema>> tableColumns = new HashMap<>();
 
+    private final Executor fileSystemExecutor;
     private HmsCommitter hmsCommitter;
     private List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
     private String declaredIntentionsToWrite;
 
-    public HMSTransaction(HiveMetadataOps hiveOps) {
-        this.hiveOps = hiveOps;
-        this.fs = hiveOps.getFs();
+    private static class UncompletedMpuPendingUpload {
 
+        private final TS3MPUPendingUpload s3MPUPendingUpload;
+        private final String path;
+
+        public UncompletedMpuPendingUpload(TS3MPUPendingUpload s3MPUPendingUpload, String path) {
+            this.s3MPUPendingUpload = s3MPUPendingUpload;
+            this.path = path;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            UncompletedMpuPendingUpload that = (UncompletedMpuPendingUpload) o;
+            return Objects.equals(s3MPUPendingUpload, that.s3MPUPendingUpload) && Objects.equals(path,
+                    that.path);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(s3MPUPendingUpload, path);
+        }
+    }
+
+    private final Set<UncompletedMpuPendingUpload> uncompletedMpuPendingUploads = new HashSet<>();
+
+    public HMSTransaction(HiveMetadataOps hiveOps, FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
+        this.hiveOps = hiveOps;
+        this.fs = fileSystemProvider.get(null);
+        if (!(fs instanceof SwitchingFileSystem)) {
+            throw new RuntimeException("fs should be SwitchingFileSystem");
+        }
         if (ConnectContext.get().getExecutor() != null) {
             summaryProfile = Optional.of(ConnectContext.get().getExecutor().getSummaryProfile());
         }
+        this.fileSystemExecutor = fileSystemExecutor;
     }
 
     @Override
@@ -112,6 +161,9 @@ public class HMSTransaction implements Transaction {
                 THivePartitionUpdate old = mm.get(pu.getName());
                 old.setFileSize(old.getFileSize() + pu.getFileSize());
                 old.setRowCount(old.getRowCount() + pu.getRowCount());
+                if (old.getS3MpuPendingUploads() != null && pu.getS3MpuPendingUploads() != null) {
+                    old.getS3MpuPendingUploads().addAll(pu.getS3MpuPendingUploads());
+                }
                 old.getFileNames().addAll(pu.getFileNames());
             } else {
                 mm.put(pu.getName(), pu);
@@ -122,8 +174,14 @@ public class HMSTransaction implements Transaction {
 
     @Override
     public void rollback() {
-        if (hmsCommitter != null) {
+        if (hmsCommitter == null) {
+            return;
+        }
+        try {
+            hmsCommitter.abort();
             hmsCommitter.rollback();
+        } finally {
+            hmsCommitter.shutdownExecutorService();
         }
     }
 
@@ -136,6 +194,14 @@ public class HMSTransaction implements Transaction {
         this.dbName = dbName;
         this.tbName = tbName;
         List<THivePartitionUpdate> mergedPUs = mergePartitions(hivePartitionUpdates);
+        for (THivePartitionUpdate pu : mergedPUs) {
+            if (pu.getS3MpuPendingUploads() != null) {
+                for (TS3MPUPendingUpload s3MPUPendingUpload : pu.getS3MpuPendingUploads()) {
+                    uncompletedMpuPendingUploads.add(
+                            new UncompletedMpuPendingUpload(s3MPUPendingUpload, pu.getLocation().getTargetPath()));
+                }
+            }
+        }
         Table table = getTable(dbName, tbName);
         List<Pair<THivePartitionUpdate, HivePartitionStatistics>> insertExistsPartitions = new ArrayList<>();
         for (THivePartitionUpdate pu : mergedPUs) {
@@ -156,11 +222,12 @@ public class HMSTransaction implements Transaction {
                                 tbName,
                                 writePath,
                                 pu.getFileNames(),
-                                hivePartitionStatistics);
+                                hivePartitionStatistics,
+                                pu);
                         break;
                     case OVERWRITE:
                         dropTable(dbName, tbName);
-                        createTable(table, writePath, pu.getFileNames(), hivePartitionStatistics);
+                        createTable(table, writePath, pu.getFileNames(), hivePartitionStatistics, pu);
                         break;
                     default:
                         throw new RuntimeException("Not support mode:[" + updateMode + "] in unPartitioned table");
@@ -184,14 +251,14 @@ public class HMSTransaction implements Transaction {
                                 Maps.newHashMap(),
                                 sd.getOutputFormat(),
                                 sd.getSerdeInfo().getSerializationLib(),
-                                hiveOps.getClient().getSchema(dbName, tbName)
+                                getTableColumns(dbName, tbName)
                         );
                         if (updateMode == TUpdateMode.OVERWRITE) {
                             dropPartition(dbName, tbName, hivePartition.getPartitionValues(), true);
                         }
                         addPartition(
                                 dbName, tbName, hivePartition, writePath,
-                                pu.getName(), pu.getFileNames(), hivePartitionStatistics);
+                                pu.getName(), pu.getFileNames(), hivePartitionStatistics, pu);
                         break;
                     default:
                         throw new RuntimeException("Not support mode:[" + updateMode + "] in partitioned table");
@@ -256,6 +323,7 @@ public class HMSTransaction implements Transaction {
             throw t;
         } finally {
             hmsCommitter.runClearPathsForFinish();
+            hmsCommitter.shutdownExecutorService();
         }
     }
 
@@ -339,7 +407,7 @@ public class HMSTransaction implements Transaction {
                         partition.getParameters(),
                         sd.getOutputFormat(),
                         sd.getSerdeInfo().getSerializationLib(),
-                        hiveOps.getClient().getSchema(dbName, tbName)
+                        getTableColumns(dbName, tbName)
                 );
 
                 partitionActionsForTable.put(
@@ -351,7 +419,8 @@ public class HMSTransaction implements Transaction {
                                     pu.getLocation().getWritePath(),
                                     pu.getName(),
                                     pu.getFileNames(),
-                                    updateStats
+                                    updateStats,
+                                    pu
                                 ))
                 );
             }
@@ -550,8 +619,8 @@ public class HMSTransaction implements Transaction {
 
 
 
-    private void recursiveDeleteItems(Path directory, boolean deleteEmptyDir) {
-        DeleteRecursivelyResult deleteResult = recursiveDeleteFiles(directory, deleteEmptyDir);
+    private void recursiveDeleteItems(Path directory, boolean deleteEmptyDir, boolean reverse) {
+        DeleteRecursivelyResult deleteResult = recursiveDeleteFiles(directory, deleteEmptyDir, reverse);
 
         if (!deleteResult.getNotDeletedEligibleItems().isEmpty()) {
             LOG.warn("Failed to delete directory {}. Some eligible items can't be deleted: {}.",
@@ -561,9 +630,9 @@ public class HMSTransaction implements Transaction {
         }
     }
 
-    private DeleteRecursivelyResult recursiveDeleteFiles(Path directory, boolean deleteEmptyDir) {
+    private DeleteRecursivelyResult recursiveDeleteFiles(Path directory, boolean deleteEmptyDir, boolean reverse) {
         try {
-            if (!fs.exists(directory.toString()).ok()) {
+            if (!fs.directoryExists(directory.toString()).ok()) {
                 return new DeleteRecursivelyResult(true, ImmutableList.of());
             }
         } catch (Exception e) {
@@ -572,10 +641,11 @@ public class HMSTransaction implements Transaction {
             return new DeleteRecursivelyResult(false, notDeletedEligibleItems.build());
         }
 
-        return doRecursiveDeleteFiles(directory, deleteEmptyDir, queryId);
+        return doRecursiveDeleteFiles(directory, deleteEmptyDir, queryId, reverse);
     }
 
-    private DeleteRecursivelyResult doRecursiveDeleteFiles(Path directory, boolean deleteEmptyDir, String queryId) {
+    private DeleteRecursivelyResult doRecursiveDeleteFiles(Path directory, boolean deleteEmptyDir,
+            String queryId, boolean reverse) {
         List<RemoteFile> allFiles = new ArrayList<>();
         Set<String> allDirs = new HashSet<>();
         Status statusFile = fs.listFiles(directory.toString(), true, allFiles);
@@ -589,7 +659,7 @@ public class HMSTransaction implements Transaction {
         boolean allDescendentsDeleted = true;
         ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
         for (RemoteFile file : allFiles) {
-            if (file.getName().startsWith(queryId)) {
+            if (reverse ^ file.getName().startsWith(queryId)) {
                 if (!deleteIfExists(file.getPath())) {
                     allDescendentsDeleted = false;
                     notDeletedEligibleItems.add(file.getPath().toString());
@@ -600,7 +670,7 @@ public class HMSTransaction implements Transaction {
         }
 
         for (String dir : allDirs) {
-            DeleteRecursivelyResult subResult = doRecursiveDeleteFiles(new Path(dir), deleteEmptyDir, queryId);
+            DeleteRecursivelyResult subResult = doRecursiveDeleteFiles(new Path(dir), deleteEmptyDir, queryId, reverse);
             if (!subResult.dirNotExists()) {
                 allDescendentsDeleted = false;
             }
@@ -611,7 +681,7 @@ public class HMSTransaction implements Transaction {
 
         if (allDescendentsDeleted && deleteEmptyDir) {
             Verify.verify(notDeletedEligibleItems.build().isEmpty());
-            if (!deleteIfExists(directory)) {
+            if (!deleteDirectoryIfExists(directory)) {
                 return new DeleteRecursivelyResult(false, ImmutableList.of(directory + "/"));
             }
             // all items of the location have been deleted.
@@ -626,6 +696,14 @@ public class HMSTransaction implements Transaction {
             return true;
         }
         return !fs.exists(path.toString()).ok();
+    }
+
+    public boolean deleteDirectoryIfExists(Path path) {
+        Status status = wrapperDeleteDirWithProfileSummary(path.toString());
+        if (status.ok()) {
+            return true;
+        }
+        return !fs.directoryExists(path.toString()).ok();
     }
 
     public static class DatabaseTableName {
@@ -676,15 +754,19 @@ public class HMSTransaction implements Transaction {
         private final List<String> fileNames;
         private final HivePartitionStatistics statisticsUpdate;
 
+        private final THivePartitionUpdate hivePartitionUpdate;
+
         public TableAndMore(
                 Table table,
                 String currentLocation,
                 List<String> fileNames,
-                HivePartitionStatistics statisticsUpdate) {
+                HivePartitionStatistics statisticsUpdate,
+                THivePartitionUpdate hivePartitionUpdate) {
             this.table = Objects.requireNonNull(table, "table is null");
             this.currentLocation = Objects.requireNonNull(currentLocation);
             this.fileNames = Objects.requireNonNull(fileNames);
             this.statisticsUpdate = Objects.requireNonNull(statisticsUpdate, "statisticsUpdate is null");
+            this.hivePartitionUpdate = Objects.requireNonNull(hivePartitionUpdate, "hivePartitionUpdate is null");
         }
 
         public Table getTable() {
@@ -703,6 +785,10 @@ public class HMSTransaction implements Transaction {
             return statisticsUpdate;
         }
 
+        public THivePartitionUpdate getHivePartitionUpdate() {
+            return hivePartitionUpdate;
+        }
+
         @Override
         public String toString() {
             return MoreObjects.toStringHelper(this)
@@ -719,17 +805,22 @@ public class HMSTransaction implements Transaction {
         private final List<String> fileNames;
         private final HivePartitionStatistics statisticsUpdate;
 
+        private final THivePartitionUpdate hivePartitionUpdate;
+
+
         public PartitionAndMore(
                 HivePartition partition,
                 String currentLocation,
                 String partitionName,
                 List<String> fileNames,
-                HivePartitionStatistics statisticsUpdate) {
+                HivePartitionStatistics statisticsUpdate,
+                THivePartitionUpdate hivePartitionUpdate) {
             this.partition = Objects.requireNonNull(partition, "partition is null");
             this.currentLocation = Objects.requireNonNull(currentLocation, "currentLocation is null");
             this.partitionName = Objects.requireNonNull(partitionName, "partition is null");
             this.fileNames = Objects.requireNonNull(fileNames, "fileNames is null");
             this.statisticsUpdate = Objects.requireNonNull(statisticsUpdate, "statisticsUpdate is null");
+            this.hivePartitionUpdate = Objects.requireNonNull(hivePartitionUpdate, "hivePartitionUpdate is null");
         }
 
         public HivePartition getPartition() {
@@ -750,6 +841,10 @@ public class HMSTransaction implements Transaction {
 
         public HivePartitionStatistics getStatisticsUpdate() {
             return statisticsUpdate;
+        }
+
+        public THivePartitionUpdate getHivePartitionUpdate() {
+            return hivePartitionUpdate;
         }
 
         @Override
@@ -829,13 +924,19 @@ public class HMSTransaction implements Transaction {
         throw new RuntimeException("Not Found table: " + databaseName + "." + tableName);
     }
 
+    public synchronized List<FieldSchema> getTableColumns(String databaseName, String tableName) {
+        return tableColumns.computeIfAbsent(new DatabaseTableName(databaseName, tableName),
+            key -> hiveOps.getClient().getSchema(dbName, tbName));
+    }
+
     public synchronized void finishChangingExistingTable(
             ActionType actionType,
             String databaseName,
             String tableName,
             String location,
             List<String> fileNames,
-            HivePartitionStatistics statisticsUpdate) {
+            HivePartitionStatistics statisticsUpdate,
+            THivePartitionUpdate hivePartitionUpdate) {
         DatabaseTableName databaseTableName = new DatabaseTableName(databaseName, tableName);
         Action<TableAndMore> oldTableAction = tableActions.get(databaseTableName);
         if (oldTableAction == null) {
@@ -843,12 +944,13 @@ public class HMSTransaction implements Transaction {
             tableActions.put(
                     databaseTableName,
                     new Action<>(
-                        actionType,
+                            actionType,
                             new TableAndMore(
-                                table,
-                                location,
-                                fileNames,
-                                statisticsUpdate)));
+                                    table,
+                                    location,
+                                    fileNames,
+                                    statisticsUpdate,
+                                    hivePartitionUpdate)));
             return;
         }
 
@@ -870,12 +972,13 @@ public class HMSTransaction implements Transaction {
     }
 
     public synchronized void createTable(
-            Table table, String location, List<String> fileNames,  HivePartitionStatistics statistics) {
+            Table table, String location, List<String> fileNames, HivePartitionStatistics statistics,
+            THivePartitionUpdate hivePartitionUpdate) {
         // When creating a table, it should never have partition actions. This is just a sanity check.
         checkNoPartitionAction(dbName, tbName);
         DatabaseTableName databaseTableName = new DatabaseTableName(dbName, tbName);
         Action<TableAndMore> oldTableAction = tableActions.get(databaseTableName);
-        TableAndMore tableAndMore = new TableAndMore(table, location, fileNames, statistics);
+        TableAndMore tableAndMore = new TableAndMore(table, location, fileNames, statistics, hivePartitionUpdate);
         if (oldTableAction == null) {
             tableActions.put(databaseTableName, new Action<>(ActionType.ADD, tableAndMore));
             return;
@@ -939,7 +1042,8 @@ public class HMSTransaction implements Transaction {
             String currentLocation,
             String partitionName,
             List<String> files,
-            HivePartitionStatistics statistics) {
+            HivePartitionStatistics statistics,
+            THivePartitionUpdate hivePartitionUpdate) {
         Map<List<String>, Action<PartitionAndMore>> partitionActionsForTable =
                 partitionActions.computeIfAbsent(new DatabaseTableName(databaseName, tableName), k -> new HashMap<>());
         Action<PartitionAndMore> oldPartitionAction = partitionActionsForTable.get(partition.getPartitionValues());
@@ -948,7 +1052,8 @@ public class HMSTransaction implements Transaction {
                     partition.getPartitionValues(),
                     new Action<>(
                             ActionType.ADD,
-                            new PartitionAndMore(partition, currentLocation, partitionName, files, statistics))
+                            new PartitionAndMore(partition, currentLocation, partitionName, files, statistics,
+                                    hivePartitionUpdate))
             );
             return;
         }
@@ -959,7 +1064,8 @@ public class HMSTransaction implements Transaction {
                         partition.getPartitionValues(),
                         new Action<>(
                                 ActionType.ALTER,
-                                new PartitionAndMore(partition, currentLocation, partitionName, files, statistics))
+                                new PartitionAndMore(partition, currentLocation, partitionName, files, statistics,
+                                        hivePartitionUpdate))
                 );
                 return;
             case ADD:
@@ -1013,7 +1119,7 @@ public class HMSTransaction implements Transaction {
 
         // update statistics for unPartitioned table or existed partition
         private final List<UpdateStatisticsTask> updateStatisticsTasks = new ArrayList<>();
-        Executor updateStatisticsExecutor = Executors.newFixedThreadPool(16);
+        ExecutorService updateStatisticsExecutor = Executors.newFixedThreadPool(16);
 
         // add new partition
         private final AddPartitionsTask addPartitionsTask = new AddPartitionsTask();
@@ -1029,7 +1135,8 @@ public class HMSTransaction implements Transaction {
         private final List<RenameDirectoryTask> renameDirectoryTasksForAbort = new ArrayList<>();
         // when finished, we need clear some directories
         private final List<String> clearDirsForFinish = new ArrayList<>();
-        Executor fileSystemExecutor = Executors.newFixedThreadPool(16);
+
+        private final List<String> s3cleanWhenSuccess = new ArrayList<>();
 
         public void cancelUnStartedAsyncFileSystemTask() {
             fileSystemTaskCancelled.set(true);
@@ -1091,15 +1198,20 @@ public class HMSTransaction implements Transaction {
                         writePath,
                         targetPath,
                         tableAndMore.getFileNames());
+            } else {
+                if (!tableAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
+                    s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
+                            tableAndMore.hivePartitionUpdate, targetPath);
+                }
             }
             directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, false));
             updateStatisticsTasks.add(
-                new UpdateStatisticsTask(
-                        dbName,
-                        tbName,
-                        Optional.empty(),
-                        tableAndMore.getStatisticsUpdate(),
-                        true
+                    new UpdateStatisticsTask(
+                            dbName,
+                            tbName,
+                            Optional.empty(),
+                            tableAndMore.getStatisticsUpdate(),
+                            true
                     ));
         }
 
@@ -1109,7 +1221,8 @@ public class HMSTransaction implements Transaction {
             String writePath = tableAndMore.getCurrentLocation();
             if (!targetPath.equals(writePath)) {
                 Path path = new Path(targetPath);
-                String oldTablePath = new Path(path.getParent(), "_temp_" + path.getName()).toString();
+                String oldTablePath = new Path(
+                        path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
                 Status status = wrapperRenameDirWithProfileSummary(
                         targetPath,
                         oldTablePath,
@@ -1128,6 +1241,12 @@ public class HMSTransaction implements Transaction {
                 if (!status.ok()) {
                     throw new RuntimeException(
                         "Error to rename dir from " + writePath + " to " + targetPath + ":" + status.getErrMsg());
+                }
+            } else {
+                if (!tableAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
+                    s3cleanWhenSuccess.add(targetPath);
+                    s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
+                            tableAndMore.hivePartitionUpdate, targetPath);
                 }
             }
             updateStatisticsTasks.add(
@@ -1154,6 +1273,11 @@ public class HMSTransaction implements Transaction {
                         writePath,
                         targetPath,
                         () -> directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, true)));
+            } else {
+                if (!partitionAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
+                    s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
+                            partitionAndMore.hivePartitionUpdate, targetPath);
+                }
             }
 
             StorageDescriptor sd = getTable(dbName, tbName).getSd();
@@ -1168,7 +1292,7 @@ public class HMSTransaction implements Transaction {
                     Maps.newHashMap(),
                     sd.getOutputFormat(),
                     sd.getSerdeInfo().getSerializationLib(),
-                    hiveOps.getClient().getSchema(dbName, tbName)
+                    getTableColumns(dbName, tbName)
             );
 
             HivePartitionWithStatistics partitionWithStats =
@@ -1194,6 +1318,11 @@ public class HMSTransaction implements Transaction {
                         writePath,
                         targetPath,
                         partitionAndMore.getFileNames());
+            } else {
+                if (!partitionAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
+                    s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
+                            partitionAndMore.hivePartitionUpdate, targetPath);
+                }
             }
 
             updateStatisticsTasks.add(
@@ -1207,7 +1336,7 @@ public class HMSTransaction implements Transaction {
 
         private void runDirectoryClearUpTasksForAbort() {
             for (DirectoryCleanUpTask cleanUpTask : directoryCleanUpTasksForAbort) {
-                recursiveDeleteItems(cleanUpTask.getPath(), cleanUpTask.isDeleteEmptyDir());
+                recursiveDeleteItems(cleanUpTask.getPath(), cleanUpTask.isDeleteEmptyDir(), false);
             }
         }
 
@@ -1228,10 +1357,16 @@ public class HMSTransaction implements Transaction {
         private void runClearPathsForFinish() {
             Status status;
             for (String path : clearDirsForFinish) {
-                status = wrapperDeleteWithProfileSummary(path);
+                status = wrapperDeleteDirWithProfileSummary(path);
                 if (!status.ok()) {
                     LOG.warn("Failed to recursively delete path {}:{}", path, status.getErrCode());
                 }
+            }
+        }
+
+        private void runS3cleanWhenSuccess() {
+            for (String path : s3cleanWhenSuccess) {
+                recursiveDeleteItems(new Path(path), false, true);
             }
         }
 
@@ -1242,7 +1377,8 @@ public class HMSTransaction implements Transaction {
 
             if (!targetPath.equals(writePath)) {
                 Path path = new Path(targetPath);
-                String oldPartitionPath = new Path(path.getParent(), "_temp_" + path.getName()).toString();
+                String oldPartitionPath = new Path(
+                        path.getParent(), "_temp_" + queryId + "_" + path.getName()).toString();
                 Status status = wrapperRenameDirWithProfileSummary(
                         targetPath,
                         oldPartitionPath,
@@ -1262,6 +1398,12 @@ public class HMSTransaction implements Transaction {
                 if (!status.ok()) {
                     throw new RuntimeException(
                         "Error to rename dir from " + writePath + " to " + targetPath + ":" + status.getErrMsg());
+                }
+            } else {
+                if (!partitionAndMore.hivePartitionUpdate.s3_mpu_pending_uploads.isEmpty()) {
+                    s3cleanWhenSuccess.add(targetPath);
+                    s3Commit(fileSystemExecutor, asyncFileSystemTaskFutures, fileSystemTaskCancelled,
+                            partitionAndMore.hivePartitionUpdate, targetPath);
                 }
             }
 
@@ -1337,8 +1479,32 @@ public class HMSTransaction implements Transaction {
             summaryProfile.ifPresent(SummaryProfile::setHmsUpdatePartitionTime);
         }
 
-        public void pruneAndDeleteStagingDirectories() {
-            recursiveDeleteItems(new Path(declaredIntentionsToWrite), true);
+        private void pruneAndDeleteStagingDirectories() {
+            recursiveDeleteItems(new Path(declaredIntentionsToWrite), true, false);
+        }
+
+        private void abortMultiUploads() {
+            if (uncompletedMpuPendingUploads.isEmpty()) {
+                return;
+            }
+            for (UncompletedMpuPendingUpload uncompletedMpuPendingUpload : uncompletedMpuPendingUploads) {
+                S3FileSystem s3FileSystem = (S3FileSystem) ((SwitchingFileSystem) fs)
+                        .fileSystem(uncompletedMpuPendingUpload.path);
+
+                S3Client s3Client;
+                try {
+                    s3Client = (S3Client) s3FileSystem.getObjStorage().getClient();
+                } catch (UserException e) {
+                    throw new RuntimeException(e);
+                }
+                asyncFileSystemTaskFutures.add(CompletableFuture.runAsync(() -> {
+                    s3Client.abortMultipartUpload(AbortMultipartUploadRequest.builder()
+                            .bucket(uncompletedMpuPendingUpload.s3MPUPendingUpload.getBucket())
+                            .key(uncompletedMpuPendingUpload.s3MPUPendingUpload.getKey())
+                            .uploadId(uncompletedMpuPendingUpload.s3MPUPendingUpload.getUploadId())
+                            .build());
+                }, fileSystemExecutor));
+            }
         }
 
         public void doNothing() {
@@ -1348,6 +1514,7 @@ public class HMSTransaction implements Transaction {
 
         public void doCommit() {
             waitForAsyncFileSystemTasks();
+            runS3cleanWhenSuccess();
             doAddPartitionsTask();
             doUpdateStatisticsTasks();
             doNothing();
@@ -1365,6 +1532,32 @@ public class HMSTransaction implements Transaction {
         public void rollback() {
             //delete write path
             pruneAndDeleteStagingDirectories();
+            // abort the in-progress multipart uploads
+            abortMultiUploads();
+            for (CompletableFuture<?> future : asyncFileSystemTaskFutures) {
+                MoreFutures.getFutureValue(future, RuntimeException.class);
+            }
+        }
+
+        public void shutdownExecutorService() {
+            // Disable new tasks from being submitted
+            updateStatisticsExecutor.shutdown();
+            try {
+                // Wait a while for existing tasks to terminate
+                if (!updateStatisticsExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    // Cancel currently executing tasks
+                    updateStatisticsExecutor.shutdownNow();
+                    // Wait a while for tasks to respond to being cancelled
+                    if (!updateStatisticsExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                        LOG.warn("Pool did not terminate");
+                    }
+                }
+            } catch (InterruptedException e) {
+                // (Re-)Cancel if current thread also interrupted
+                updateStatisticsExecutor.shutdownNow();
+                // Preserve interrupt status
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -1385,10 +1578,22 @@ public class HMSTransaction implements Transaction {
     public Status wrapperDeleteWithProfileSummary(String remotePath) {
         summaryProfile.ifPresent(profile -> {
             profile.setTempStartTime();
-            profile.incDeleteDirRecursiveCnt();
+            profile.incDeleteFileCnt();
         });
 
         Status status = fs.delete(remotePath);
+
+        summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
+        return status;
+    }
+
+    public Status wrapperDeleteDirWithProfileSummary(String remotePath) {
+        summaryProfile.ifPresent(profile -> {
+            profile.setTempStartTime();
+            profile.incDeleteDirRecursiveCnt();
+        });
+
+        Status status = fs.deleteDirectory(remotePath);
 
         summaryProfile.ifPresent(SummaryProfile::freshFilesystemOptTime);
         return status;
@@ -1415,4 +1620,37 @@ public class HMSTransaction implements Transaction {
                 fs, executor, renameFileFutures, cancelled, origFilePath, destFilePath, runWhenPathNotExist);
         summaryProfile.ifPresent(SummaryProfile::incRenameDirCnt);
     }
+
+    private void s3Commit(Executor fileSystemExecutor, List<CompletableFuture<?>> asyncFileSystemTaskFutures,
+            AtomicBoolean fileSystemTaskCancelled, THivePartitionUpdate hivePartitionUpdate, String path) {
+        S3FileSystem s3FileSystem = (S3FileSystem) ((SwitchingFileSystem) fs).fileSystem(path);
+        S3Client s3Client;
+        try {
+            s3Client = (S3Client) s3FileSystem.getObjStorage().getClient();
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+
+        for (TS3MPUPendingUpload s3MPUPendingUpload : hivePartitionUpdate.getS3MpuPendingUploads()) {
+            asyncFileSystemTaskFutures.add(CompletableFuture.runAsync(() -> {
+                if (fileSystemTaskCancelled.get()) {
+                    return;
+                }
+                List<CompletedPart> completedParts = Lists.newArrayList();
+                for (Map.Entry<Integer, String> entry : s3MPUPendingUpload.getEtags().entrySet()) {
+                    completedParts.add(CompletedPart.builder().eTag(entry.getValue()).partNumber(entry.getKey())
+                            .build());
+                }
+
+                s3Client.completeMultipartUpload(CompleteMultipartUploadRequest.builder()
+                        .bucket(s3MPUPendingUpload.getBucket())
+                        .key(s3MPUPendingUpload.getKey())
+                        .uploadId(s3MPUPendingUpload.getUploadId())
+                        .multipartUpload(CompletedMultipartUpload.builder().parts(completedParts).build())
+                        .build());
+                uncompletedMpuPendingUploads.remove(new UncompletedMpuPendingUpload(s3MPUPendingUpload, path));
+            }, fileSystemExecutor));
+        }
+    }
 }
+

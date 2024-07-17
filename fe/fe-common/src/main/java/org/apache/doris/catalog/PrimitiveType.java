@@ -23,11 +23,13 @@ import org.apache.doris.thrift.TPrimitiveType;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public enum PrimitiveType {
+    // DO NOT CHANGE desc and to string of these types, they are used in persist
     INVALID_TYPE("INVALID_TYPE", -1, TPrimitiveType.INVALID_TYPE, false),
     UNSUPPORTED("UNSUPPORTED_TYPE", -1, TPrimitiveType.UNSUPPORTED, false),
     // NULL_TYPE - used only in LiteralPredicate and NullLiteral to make NULLs compatible
@@ -699,10 +701,15 @@ public enum PrimitiveType {
         return implicitCastMap.get(type).contains(target);
     }
 
+    @SerializedName("d")
     private final String description;
+    @SerializedName("s")
     private final int slotSize;  // size of tuple slot for this type
+    @SerializedName("t")
     private final TPrimitiveType thriftType;
+    @SerializedName("a")
     private final boolean availableInDdl;
+    @SerializedName("it")
     private boolean isTimeType = false;
 
     PrimitiveType(String description, int slotSize, TPrimitiveType thriftType, boolean availableInDdl) {
@@ -887,6 +894,10 @@ public enum PrimitiveType {
 
     public boolean isHllType() {
         return this == HLL;
+    }
+
+    public boolean isQuantileStateType() {
+        return this == QUANTILE_STATE;
     }
 
     public boolean isBitmapType() {

@@ -53,7 +53,9 @@ public:
 
     int64_t num_filtered_rows() const { return _num_filtered_rows; }
 
-    void init_autoinc_info(int64_t db_id, int64_t table_id, int batch_size);
+    void init_autoinc_info(int64_t db_id, int64_t table_id, int batch_size,
+                           bool is_partial_update_and_auto_inc = false,
+                           int32_t auto_increment_column_unique_id = -1);
 
     AutoIncIDAllocator& auto_inc_id_allocator() { return _auto_inc_id_allocator; }
 
@@ -82,6 +84,8 @@ private:
 
     Status _fill_auto_inc_cols(vectorized::Block* block, size_t rows);
 
+    Status _partial_update_fill_auto_inc_cols(vectorized::Block* block, size_t rows);
+
     TupleDescriptor* _output_tuple_desc = nullptr;
 
     std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
@@ -105,6 +109,7 @@ private:
     std::optional<size_t> _auto_inc_col_idx;
     std::shared_ptr<AutoIncIDBuffer> _auto_inc_id_buffer = nullptr;
     AutoIncIDAllocator _auto_inc_id_allocator;
+    bool _is_partial_update_and_auto_inc = false;
 };
 
 } // namespace doris::vectorized

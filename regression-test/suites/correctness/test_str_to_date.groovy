@@ -36,7 +36,6 @@ suite("test_str_to_date") {
     sql """ INSERT INTO test_str_to_date_db VALUES(2,'20201203', 'yyyyMMdd');"""
     sql """ INSERT INTO test_str_to_date_db VALUES(3,'2020-12-03 11:45:14', 'yyyy-MM-dd HH:mm:ss');"""
 
-sql """ set enable_nereids_planner=true ,  enable_fallback_to_original_planner=false;"""
     qt_select1 """
         select s1,s2,STR_TO_DATE(s1,s2) from test_str_to_date_db order by id;
     """
@@ -49,27 +48,8 @@ sql """ set enable_nereids_planner=true ,  enable_fallback_to_original_planner=f
     qt_select4 """
         SELECT STR_TO_DATE('2020-12-03 11:45:14', 'yyyy-MM-dd HH:mm:ss');
     """
-    qt_short_nereids_1 " select STR_TO_DATE('2023', '%Y') "
-    qt_short_nereids_2 " select STR_TO_DATE('2023-12', '%Y-%m') "
-    qt_short_nereids_3 " select STR_TO_DATE('2023-12', '%Y')"
-    qt_short_nereids_4 " select STR_TO_DATE('2020%2', '%Y%%%m')"
-
-
-sql """ set enable_nereids_planner=false;"""
-    qt_select5 """
-        select s1,s2,STR_TO_DATE(s1,s2) from test_str_to_date_db order by id;
-    """
-    qt_select6 """
-         SELECT STR_TO_DATE('2019-12-01', 'yyyy-MM-dd');  
-    """
-    qt_select7 """
-         SELECT STR_TO_DATE('20201203', 'yyyyMMdd');
-    """
-    qt_select8 """
-        SELECT STR_TO_DATE('2020-12-03 11:45:14', 'yyyy-MM-dd HH:mm:ss');
-    """
-    qt_short_legacy_1 " select STR_TO_DATE('2023', '%Y') "
-    qt_short_legacy_2 " select STR_TO_DATE('2023-12', '%Y-%m') "
-    qt_short_legacy_3 " select STR_TO_DATE('2023-12', '%Y')"
-    qt_short_legacy_4 " select STR_TO_DATE('2020%2', '%Y%%%m')"
+    qt_short_1 " select STR_TO_DATE('2023', '%Y') "
+    qt_short_2 " select STR_TO_DATE('2023-12', '%Y-%m') "
+    qt_short_3 " select STR_TO_DATE('2023-12', '%Y')"
+    qt_short_4 " select STR_TO_DATE('2020%2', '%Y%%%m')"
 }

@@ -19,21 +19,22 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.mtmv.MTMVUtil;
 
 import com.google.common.collect.Range;
+import com.google.gson.annotations.SerializedName;
 
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Optional;
 
 public class RangePartitionItem extends PartitionItem {
+    @SerializedName(value = "range")
     private Range<PartitionKey> partitionKeyRange;
-    public static final Range<PartitionKey> DUMMY_ITEM;
+    public static final Range<PartitionKey> DUMMY_RANGE;
+    public static final RangePartitionItem DUMMY_ITEM;
 
     static {
-        DUMMY_ITEM = Range.closed(new PartitionKey(), new PartitionKey());
+        DUMMY_RANGE = Range.closed(new PartitionKey(), new PartitionKey());
+        DUMMY_ITEM = new RangePartitionItem(Range.closed(new PartitionKey(), PartitionKey.createMaxPartitionKey()));
     }
 
     public RangePartitionItem(Range<PartitionKey> range) {
@@ -42,6 +43,10 @@ public class RangePartitionItem extends PartitionItem {
 
     public Range<PartitionKey> getItems() {
         return partitionKeyRange;
+    }
+
+    public String getItemsString() {
+        return toString();
     }
 
     @Override
@@ -79,11 +84,6 @@ public class RangePartitionItem extends PartitionItem {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        RangeUtils.writeRange(out, partitionKeyRange);
-    }
-
-    @Override
     public int compareTo(PartitionItem other) {
         if (partitionKeyRange.contains(other.getItems())) {
             return 1;
@@ -116,6 +116,11 @@ public class RangePartitionItem extends PartitionItem {
 
     @Override
     public String toString() {
+        // ATTN: DO NOT EDIT unless unless you explicitly guarantee compatibility
+        // between different versions.
+        //
+        // the ccr syncer depends on this string to identify partitions between two
+        // clusters (cluster versions may be different).
         return partitionKeyRange.toString();
     }
 }

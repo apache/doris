@@ -20,12 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,9 +31,7 @@ import java.util.Set;
  * It like a SlotRef except that it is not a real column exist in table.
  */
 public class VirtualSlotRef extends SlotRef {
-    private static final Logger LOG = LogManager.getLogger(VirtualSlotRef.class);
     // results of analysis slot
-
     private TupleDescriptor tupleDescriptor;
     private List<Expr> realSlots;
 
@@ -79,20 +72,6 @@ public class VirtualSlotRef extends SlotRef {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        if (CollectionUtils.isEmpty(realSlots)) {
-            out.writeInt(0);
-        } else {
-            out.writeInt(realSlots.size());
-            for (Expr slotRef : realSlots) {
-                slotRef.write(out);
-            }
-        }
-
-    }
-
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int realSlotsSize = in.readInt();
@@ -125,5 +104,10 @@ public class VirtualSlotRef extends SlotRef {
     @Override
     public String getExprName() {
         return super.getExprName();
+    }
+
+    @Override
+    public boolean supportSerializable() {
+        return false;
     }
 }

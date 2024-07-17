@@ -36,13 +36,12 @@ class Block;
 
 namespace doris::vectorized {
 
-const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX =
-        "trino_connector_option_prefix.";
+const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX = "trino.";
 
 TrinoConnectorJniReader::TrinoConnectorJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
         RuntimeProfile* profile, const TFileRangeDesc& range)
-        : _file_slot_descs(file_slot_descs), _state(state), _profile(profile) {
+        : JniReader(file_slot_descs, state, profile) {
     std::vector<std::string> column_names;
     for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
@@ -83,11 +82,7 @@ Status TrinoConnectorJniReader::init_reader(
 }
 
 Status TrinoConnectorJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
-    if (*eof) {
-        RETURN_IF_ERROR(_jni_connector->close());
-    }
-    return Status::OK();
+    return _jni_connector->get_next_block(block, read_rows, eof);
 }
 
 Status TrinoConnectorJniReader::get_columns(

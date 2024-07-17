@@ -79,6 +79,15 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
                 subQueryAlias = new LogicalSubQueryAlias<>(subQueryAlias.getAlias(), newSubQueryAlias);
             }
         }
-        return visitChildren(this, logicalCTE, context);
+        Plan cte = visitChildren(this, logicalCTE, context);
+        if (!aliasQueries.isEmpty()) {
+            LogicalCTE newLogicalCTE = (LogicalCTE) cte;
+            List<LogicalSubQueryAlias<Plan>> subQueryAliasesOfCte = new ArrayList<>();
+            subQueryAliasesOfCte.addAll(logicalCTE.getAliasQueries());
+            subQueryAliasesOfCte.addAll(aliasQueries);
+            aliasQueries = new ArrayList<>();
+            return new LogicalCTE<>(subQueryAliasesOfCte, (LogicalPlan) newLogicalCTE.child());
+        }
+        return cte;
     }
 }

@@ -55,8 +55,15 @@ public:
     std::string do_get_name() const override { return "IPv6"; }
 
     bool equals(const IDataType& rhs) const override;
+    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
+        DataTypeNumberBase<IPv6>::template to_string_batch_impl<DataTypeIPv6>(column, column_to);
+    }
+
+    size_t number_length() const;
+    void push_number(ColumnString::Chars& chars, const IPv6& num) const;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    std::string to_string(const IPv6& value) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     Field get_field(const TExprNode& node) const override {

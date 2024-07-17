@@ -23,7 +23,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
@@ -32,7 +31,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 
 /**
  * Expression mapping, maybe one expression map to multi expression
@@ -102,27 +100,6 @@ public class ExpressionMapping extends Mapping {
             expressionMultiMap.put(sourceExpressions.get(i), targetExpressions.get(i));
         }
         return new ExpressionMapping(expressionMultiMap);
-    }
-
-    @Override
-    public Mapping chainedFold(Mapping target) {
-
-        ImmutableMultimap.Builder<Expression, Expression> foldedMappingBuilder =
-                ImmutableMultimap.builder();
-
-        Multimap<Expression, Expression> targetMapping
-                = ((ExpressionMapping) target).getExpressionMapping();
-        for (Entry<Expression, ? extends Collection<Expression>> exprMapping :
-                this.getExpressionMapping().asMap().entrySet()) {
-            Collection<? extends Expression> valueExpressions = exprMapping.getValue();
-            valueExpressions.forEach(valueExpr -> {
-                if (targetMapping.containsKey(valueExpr)) {
-                    targetMapping.get(valueExpr).forEach(
-                            targetValue -> foldedMappingBuilder.put(exprMapping.getKey(), targetValue));
-                }
-            });
-        }
-        return new ExpressionMapping(foldedMappingBuilder.build());
     }
 
     @Override

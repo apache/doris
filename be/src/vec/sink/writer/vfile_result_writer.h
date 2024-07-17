@@ -40,8 +40,10 @@ class RuntimeState;
 
 namespace vectorized {
 class VExprContext;
-struct ResultFileOptions;
 } // namespace vectorized
+namespace pipeline {
+struct ResultFileOptions;
+}
 } // namespace doris
 
 namespace doris::vectorized {
@@ -49,16 +51,16 @@ namespace doris::vectorized {
 // write result to file
 class VFileResultWriter final : public AsyncResultWriter {
 public:
-    VFileResultWriter(const ResultFileOptions* file_option,
+    VFileResultWriter(const pipeline::ResultFileOptions* file_option,
                       const TStorageBackendType::type storage_type,
                       const TUniqueId fragment_instance_id,
-                      const VExprContextSPtrs& _output_vexpr_ctxs, BufferControlBlock* sinker,
-                      Block* output_block, bool output_object_data,
-                      const RowDescriptor& output_row_descriptor);
+                      const VExprContextSPtrs& _output_vexpr_ctxs,
+                      std::shared_ptr<BufferControlBlock> sinker, Block* output_block,
+                      bool output_object_data, const RowDescriptor& output_row_descriptor);
 
     VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    Status write(Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status exec_status) override;
 
@@ -95,7 +97,7 @@ private:
     Status _delete_dir();
 
     RuntimeState* _state; // not owned, set when init
-    const ResultFileOptions* _file_opts = nullptr;
+    const pipeline::ResultFileOptions* _file_opts = nullptr;
     TStorageBackendType::type _storage_type;
     TUniqueId _fragment_instance_id;
 
@@ -129,7 +131,7 @@ private:
     RuntimeProfile::Counter* _written_data_bytes = nullptr;
 
     // _sinker and _output_batch are not owned by FileResultWriter
-    BufferControlBlock* _sinker = nullptr;
+    std::shared_ptr<BufferControlBlock> _sinker = nullptr;
     Block* _output_block = nullptr;
     // set to true if the final statistic result is sent
     bool _is_result_sent = false;

@@ -23,10 +23,11 @@ namespace doris::pipeline {
 
 class Dependency;
 struct MultiCastBlock {
-    MultiCastBlock(vectorized::Block* block, int used_count, size_t mem_size);
+    MultiCastBlock(vectorized::Block* block, int used_count, int need_copy, size_t mem_size);
 
     std::unique_ptr<vectorized::Block> _block;
     int _used_count;
+    int _un_finish_copy;
     size_t _mem_size;
 };
 
@@ -50,29 +51,13 @@ public:
 
     ~MultiCastDataStreamer() = default;
 
-    void pull(int sender_idx, vectorized::Block* block, bool* eos);
-
-    void close_sender(int sender_idx);
+    Status pull(int sender_idx, vectorized::Block* block, bool* eos);
 
     Status push(RuntimeState* state, vectorized::Block* block, bool eos);
-
-    // use sink to check can_write, now always true after we support spill to disk
-    bool can_write() { return true; }
-
-    bool can_read(int sender_idx) {
-        std::lock_guard l(_mutex);
-        return _sender_pos_to_read[sender_idx] != _multi_cast_blocks.end() || _eos;
-    }
 
     const RowDescriptor& row_desc() { return _row_desc; }
 
     RuntimeProfile* profile() { return _profile; }
-
-    void set_eos() {
-        std::lock_guard l(_mutex);
-        _eos = true;
-        _set_ready_for_read();
-    }
 
     void set_dep_by_sender_idx(int sender_idx, Dependency* dep) {
         _dependencies[sender_idx] = dep;
@@ -81,17 +66,20 @@ public:
 
 private:
     void _set_ready_for_read(int sender_idx);
-    void _set_ready_for_read();
     void _block_reading(int sender_idx);
+
+    void _copy_block(vectorized::Block* block, int& un_finish_copy);
+
+    void _wait_copy_block(vectorized::Block* block, int& un_finish_copy);
 
     const RowDescriptor& _row_desc;
     RuntimeProfile* _profile = nullptr;
     std::list<MultiCastBlock> _multi_cast_blocks;
     std::vector<std::list<MultiCastBlock>::iterator> _sender_pos_to_read;
+    std::condition_variable _cv;
     std::mutex _mutex;
     bool _eos = false;
     int _cast_sender_count = 0;
-    int _closed_sender_count = 0;
     int64_t _cumulative_mem_size = 0;
 
     RuntimeProfile::Counter* _process_rows = nullptr;

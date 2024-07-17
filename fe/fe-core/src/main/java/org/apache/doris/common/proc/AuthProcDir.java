@@ -33,7 +33,7 @@ public class AuthProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("UserIdentity").add("Comment").add("Password").add("Roles").add("GlobalPrivs").add("CatalogPrivs")
             .add("DatabasePrivs").add("TablePrivs").add("ColPrivs").add("ResourcePrivs").add("CloudClusterPrivs")
-            .add("CloudStagePrivs").add("WorkloadGroupPrivs")
+            .add("CloudStagePrivs").add("StorageVaultPrivs").add("WorkloadGroupPrivs")
             .build();
 
     private Auth auth;

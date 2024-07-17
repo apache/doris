@@ -89,6 +89,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private static final short MAX_LIST_PARTITION_NUM = Config.max_hive_list_partition_num;
 
     private Queue<ThriftHMSClient> clientPool = new LinkedList<>();
+    private boolean isClosed = false;
     private final int poolSize;
     private final HiveConf hiveConf;
 
@@ -100,6 +101,21 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         }
         this.hiveConf = hiveConf;
         this.poolSize = poolSize;
+        this.isClosed = false;
+    }
+
+    @Override
+    public void close() {
+        synchronized (clientPool) {
+            this.isClosed = true;
+            while (!clientPool.isEmpty()) {
+                try {
+                    clientPool.poll().close();
+                } catch (Exception e) {
+                    LOG.warn("failed to close thrift client", e);
+                }
+            }
+        }
     }
 
     @Override
@@ -190,7 +206,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 throw e;
             }
         } catch (Exception e) {
-            throw new HMSClientException("failed to create database from hms client", e);
+            throw new HMSClientException("failed to create table from hms client", e);
         }
     }
 
@@ -229,6 +245,23 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
+    public void truncateTable(String dbName, String tblName, List<String> partitions) {
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                ugiDoAs(() -> {
+                    client.client.truncateTable(dbName, tblName, partitions);
+                    return null;
+                });
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to truncate table %s in db %s.", e, tblName, dbName);
+        }
+    }
+
+    @Override
     public boolean tableExists(String dbName, String tblName) {
         try (ThriftHMSClient client = getClient()) {
             try {
@@ -256,7 +289,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 throw e;
             }
         } catch (Exception e) {
-            throw new HMSClientException("failed to check if table %s in db %s exists", e, tblName, dbName);
+            throw new HMSClientException("failed to list partitions in table '%s.%s'.", e, dbName, tblName);
         }
     }
 
@@ -604,7 +637,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         @Override
         public void close() throws Exception {
             synchronized (clientPool) {
-                if (throwable != null || clientPool.size() > poolSize) {
+                if (isClosed || throwable != null || clientPool.size() > poolSize) {
                     client.close();
                 } else {
                     clientPool.offer(this);
@@ -666,7 +699,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             newTable.setParameters(newParams);
             client.client.alter_table(dbName, tableName, newTable);
         } catch (Exception e) {
-            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName);
+            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName, e);
         }
     }
 
@@ -694,7 +727,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             modifiedPartition.setParameters(newParams);
             client.client.alter_partition(dbName, tableName, modifiedPartition);
         } catch (Exception e) {
-            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName);
+            throw new RuntimeException("failed to update table statistics for " + dbName + "." + tableName, e);
         }
     }
 
@@ -715,7 +748,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         try (ThriftHMSClient client = getClient()) {
             client.client.dropPartition(dbName, tableName, partitionValues, deleteData);
         } catch (Exception e) {
-            throw new RuntimeException("failed to drop partition for " + dbName + "." + tableName);
+            throw new RuntimeException("failed to drop partition for " + dbName + "." + tableName, e);
         }
     }
 }

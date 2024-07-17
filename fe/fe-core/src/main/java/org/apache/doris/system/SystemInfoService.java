@@ -420,11 +420,11 @@ public class SystemInfoService {
     }
 
     // return num of backends that from different hosts
-    public int getBackendNumFromDiffHosts(boolean aliveOnly) {
+    public int getStorageBackendNumFromDiffHosts(boolean aliveOnly) {
         Set<String> hosts = Sets.newHashSet();
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (aliveOnly && !backend.isAlive()) {
+            if ((aliveOnly && !backend.isAlive()) || backend.isComputeNode()) {
                 continue;
             }
             hosts.add(backend.getHost());
@@ -552,7 +552,8 @@ public class SystemInfoService {
             if (!failedEntries.isEmpty()) {
                 String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
-                        + "replication tag and storage medium and avail capacity of backends.\n"
+                        + "replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host.\n"
                         + "Create failed replications:\n" + failedMsg);
             }
         }

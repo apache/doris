@@ -48,4 +48,27 @@ suite ("test_dup_mv_useless") {
     createMV("create materialized view k1_k2_u21 as select k2,k1 from ${testTable} group by k2,k1 order by k2,k1;")
     createMV("create materialized view k1_k2_sumk3 as select k1,k2,sum(k3) from ${testTable} group by k1,k2;")
     sql "insert into ${testTable} select 4,4,4;"
+
+    test {
+        sql """
+        create table test_rollup (
+            `id` int not null,
+            `kbool` boolean not null,
+            `ktint` tinyint(4) not null,
+            `ksint` smallint(6) not null,
+            `kint` int(11) not null,
+            `kbint` bigint(20) not null,
+            `klint` largeint(40) not null
+        ) engine=OLAP
+        duplicate key(id, kbool, ktint)
+        distributed by random buckets auto
+        rollup (
+            r1 (id, ktint, kbool, ktint, kbint) duplicate key(id)
+        )
+        properties (
+        "replication_num"="1"
+        );
+        """
+        exception "duplicate column name"
+    }
 }

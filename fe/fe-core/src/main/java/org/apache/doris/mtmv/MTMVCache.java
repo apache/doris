@@ -25,7 +25,9 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -34,22 +36,31 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
+
+import java.util.BitSet;
+import java.util.Optional;
 
 /**
  * The cache for materialized view cache
  */
 public class MTMVCache {
 
-    // the materialized view plan which should be optimized by the same rules to query
+    // The materialized view plan which should be optimized by the same rules to query
+    // and will remove top sink and unused sort
     private final Plan logicalPlan;
-    // for stable output order, we should use original plan
+    // The original plan of mv def sql
     private final Plan originalPlan;
+    private final Statistics statistics;
+    private final StructInfo structInfo;
 
-    public MTMVCache(Plan logicalPlan, Plan originalPlan) {
+    public MTMVCache(Plan logicalPlan, Plan originalPlan, Statistics statistics, StructInfo structInfo) {
         this.logicalPlan = logicalPlan;
         this.originalPlan = originalPlan;
+        this.statistics = statistics;
+        this.structInfo = structInfo;
     }
 
     public Plan getLogicalPlan() {
@@ -58,6 +69,14 @@ public class MTMVCache {
 
     public Plan getOriginalPlan() {
         return originalPlan;
+    }
+
+    public Statistics getStatistics() {
+        return statistics;
+    }
+
+    public StructInfo getStructInfo() {
+        return structInfo;
     }
 
     public static MTMVCache from(MTMV mtmv, ConnectContext connectContext) {
@@ -70,7 +89,8 @@ public class MTMVCache {
         }
         // Can not convert to table sink, because use the same column from different table when self join
         // the out slot is wrong
-        Plan originPlan = planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+        planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        Plan originPlan = planner.getCascadesContext().getRewritePlan();
         // Eliminate result sink because sink operator is useless in query rewrite by materialized view
         // and the top sort can also be removed
         Plan mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
@@ -87,6 +107,11 @@ public class MTMVCache {
                     ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
             return childContext.getRewritePlan();
         }, mvPlan, originPlan);
-        return new MTMVCache(mvPlan, originPlan);
+        // Construct structInfo once for use later
+        Optional<StructInfo> structInfoOptional = MaterializationContext.constructStructInfo(mvPlan, originPlan,
+                planner.getCascadesContext(),
+                new BitSet());
+        return new MTMVCache(mvPlan, originPlan, planner.getCascadesContext().getMemo().getRoot().getStatistics(),
+                structInfoOptional.orElseGet(() -> null));
     }
 }

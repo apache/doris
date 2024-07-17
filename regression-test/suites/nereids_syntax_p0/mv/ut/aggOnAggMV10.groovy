@@ -43,6 +43,9 @@ suite ("aggOnAggMV10") {
 
     sql """insert into aggOnAggMV10 values("2020-01-01",1,"a",1,1,1);"""
 
+    sql "analyze table aggOnAggMV10 with sync;"
+    sql """set enable_stats=false;"""
+
     explain {
         sql("select * from aggOnAggMV10 order by empid;")
         contains "(aggOnAggMV10)"
@@ -54,4 +57,15 @@ suite ("aggOnAggMV10") {
         contains "(aggOnAggMV10_mv)"
     }
     order_qt_select_mv "select deptno, commission, sum(salary) + 1 from aggOnAggMV10 group by rollup (deptno, commission) order by 1,2;"
+
+    sql """set enable_stats=true;"""
+    explain {
+        sql("select * from aggOnAggMV10 order by empid;")
+        contains "(aggOnAggMV10)"
+    }
+
+    explain {
+        sql("select deptno, commission, sum(salary) + 1 from aggOnAggMV10 group by rollup (deptno, commission);")
+        contains "(aggOnAggMV10_mv)"
+    }
 }

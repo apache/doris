@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -31,7 +32,6 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -171,25 +171,27 @@ public class MapLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
+    public String getStringValueForArray(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
         for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
-            list.add(children.get(i).getStringValueForArray() + ":" + children.get(i + 1).getStringValueForArray());
+            list.add(children.get(i).getStringValueForArray(options)
+                    + options.getMapKeyDelim()
+                    + children.get(i + 1).getStringValueForArray(options));
         }
         return "{" + StringUtils.join(list, ", ") + "}";
     }
 
     @Override
-    public String getStringValueInFe() {
+    public String getStringValueInFe(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
         for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
             // we should use type to decide we output array is suitable for json format
             if (children.get(i).getType().isComplexType()) {
                 // map key type do not support complex type
-                throw new UnsupportedOperationException("Unsupport key type for MAP: " + children.get(i).getType());
+                throw new UnsupportedOperationException("Unsupported key type for MAP: " + children.get(i).getType());
             }
-            list.add(getStringLiteralForComplexType(children.get(i))
-                    + ":" + getStringLiteralForComplexType(children.get(i + 1)));
+            list.add(getStringLiteralForComplexType(children.get(i), options)
+                    + options.getMapKeyDelim() + getStringLiteralForComplexType(children.get(i + 1), options));
         }
         return "{" + StringUtils.join(list, ", ") + "}";
     }
@@ -241,15 +243,6 @@ public class MapLiteral extends LiteralExpr {
         MapLiteral literal = new MapLiteral();
         literal.readFields(in);
         return literal;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeInt(children.size());
-        for (Expr e : children) {
-            Expr.writeTo(e, out);
-        }
     }
 
     @Override

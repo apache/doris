@@ -40,6 +40,7 @@ const std::string PARAM_COMPACTION_TYPE = "compact_type";
 const std::string PARAM_COMPACTION_BASE = "base";
 const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 const std::string PARAM_COMPACTION_FULL = "full";
+const std::string PARAM_COMPACTION_REMOTE = "remote";
 
 /// This action is used for viewing the compaction status.
 /// See compaction-action.md for details.
@@ -60,7 +61,8 @@ private:
     Status _handle_run_compaction(HttpRequest* req, std::string* json_result);
 
     /// thread callback function for the tablet to do compaction
-    Status _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type);
+    Status _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type,
+                                        bool fethch_from_remote);
 
     /// fetch compaction running status
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);

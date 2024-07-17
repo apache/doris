@@ -7,11 +7,9 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
+--------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+--------------PhysicalOlapScan[t2]
 
 -- !union_complex_conditions --
 PhysicalResultSink
@@ -21,13 +19,11 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------filter((t1.score > 10))
-------------------PhysicalOlapScan[t1]
+--------------filter((t1.score > 10))
+----------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------filter((t2.name = 'Test'))
-------------------PhysicalOlapScan[t2]
+--------------filter((t2.name = 'Test'))
+----------------PhysicalOlapScan[t2]
 
 -- !multi_union --
 PhysicalResultSink
@@ -37,61 +33,51 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
+--------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+--------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t3]
 
 -- !except_distinct --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------PhysicalOlapScan[t2]
+--------PhysicalOlapScan[t2]
 
 -- !except_with_filter --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------filter((t1.id > 100))
-------------PhysicalOlapScan[t1]
+--------filter((t1.id > 100))
+----------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------filter((t2.id < 50))
-------------PhysicalOlapScan[t2]
+--------filter((t2.id < 50))
+----------PhysicalOlapScan[t2]
 
 -- !intersect_distinct --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalIntersect
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------PhysicalOlapScan[t2]
+--------PhysicalOlapScan[t2]
 
 -- !intersect_with_aggregate --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalIntersect
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecGather]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecGather]
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------hashAgg[GLOBAL]
@@ -110,17 +96,13 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalUnion
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
+------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+------------------PhysicalOlapScan[t2]
 --------PhysicalDistribute[DistributionSpecHash]
-----------PhysicalProject
-------------PhysicalOlapScan[t3]
+----------PhysicalOlapScan[t3]
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------PhysicalOlapScan[t4]
+--------PhysicalOlapScan[t4]
 
 -- !join_with_union --
 PhysicalResultSink
@@ -131,14 +113,12 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t3]
 
 -- !set_operator_with_subquery --
 PhysicalResultSink
@@ -148,13 +128,11 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------filter((t1.score > 10))
-------------------PhysicalOlapScan[t1]
+--------------filter((t1.score > 10))
+----------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------filter((t2.score < 5))
-------------------PhysicalOlapScan[t2]
+--------------filter((t2.score < 5))
+----------------PhysicalOlapScan[t2]
 
 -- !nested_union --
 PhysicalResultSink
@@ -164,17 +142,13 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
+--------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+--------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+--------------PhysicalOlapScan[t4]
 
 -- !union_order_limit --
 PhysicalResultSink
@@ -184,8 +158,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
+--------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalTopN[MERGE_SORT]
 ----------------PhysicalDistribute[DistributionSpecGather]
@@ -201,14 +174,12 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t3]
 
 -- !union_left_join_combination --
 PhysicalResultSink
@@ -219,14 +190,12 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t3]
 
 -- !union_right_join_combination --
 PhysicalResultSink
@@ -237,14 +206,12 @@ PhysicalResultSink
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalOlapScan[t1]
+------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t3]
 
 -- !union_full_join_combination --
 PhysicalResultSink
@@ -254,15 +221,12 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalProject
---------------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+--------------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t3]
 
 -- !union_left_semi_join_combination --
 PhysicalResultSink
@@ -272,27 +236,22 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+--------------hashJoin[LEFT_SEMI_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t3]
 
 -- !except_with_subquery --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalExcept
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecHash]
---------PhysicalProject
-----------filter((t2.score > 10))
-------------PhysicalOlapScan[t2]
+--------filter((t2.score > 10))
+----------PhysicalOlapScan[t2]
 
 -- !intersect_different_types --
 PhysicalResultSink
@@ -313,32 +272,28 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------PhysicalUnion
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecGather]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((t1.id > 100))
---------------------------PhysicalOlapScan[t1]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------filter((t1.id > 100))
+------------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------PhysicalProject
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute[DistributionSpecGather]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((t2.id < 50))
---------------------------PhysicalOlapScan[t2]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------filter((t2.id < 50))
+------------------------PhysicalOlapScan[t2]
 
 -- !union_all_distinct --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalUnion
 ------PhysicalDistribute[DistributionSpecExecutionAny]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t1]
 ------PhysicalDistribute[DistributionSpecExecutionAny]
---------PhysicalProject
-----------PhysicalOlapScan[t2]
+--------PhysicalOlapScan[t2]
 
 -- !except_complex_subquery --
 PhysicalResultSink
@@ -369,4 +324,886 @@ PhysicalResultSink
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t2]
+
+-- !with_hint_union_distinct --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t2]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_union_complex_conditions --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------filter((t1.score > 10))
+----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------filter((t2.name = 'Test'))
+----------------PhysicalOlapScan[t2]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_multi_union --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_except_distinct --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalExcept
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t2]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_except_with_filter --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalExcept
+------PhysicalDistribute[DistributionSpecHash]
+--------filter((t1.id > 100))
+----------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------filter((t2.id < 50))
+----------PhysicalOlapScan[t2]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_intersect_distinct --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalIntersect
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t2]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_intersect_with_aggregate --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalIntersect
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecGather]
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecGather]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_mixed_set_operators --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalIntersect
+------PhysicalExcept
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalUnion
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalOlapScan[t1]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalOlapScan[t2]
+--------PhysicalDistribute[DistributionSpecHash]
+----------PhysicalOlapScan[t3]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t4]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_join_with_union --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------------PhysicalOlapScan[t1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_set_operator_with_subquery --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------filter((t1.score > 10))
+----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------filter((t2.score < 5))
+----------------PhysicalOlapScan[t2]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_nested_union --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t4]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_union_order_limit --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalTopN[MERGE_SORT]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------PhysicalTopN[LOCAL_SORT]
+--------------------PhysicalOlapScan[t2]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_union_inner_join_combination --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------------PhysicalOlapScan[t1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_union_left_join_combination --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------------PhysicalOlapScan[t1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_union_right_join_combination --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_union_full_join_combination --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalProject
+--------------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_union_left_semi_join_combination --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------hashJoin[LEFT_SEMI_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_except_with_subquery --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalExcept
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------filter((t2.score > 10))
+----------PhysicalOlapScan[t2]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_intersect_different_types --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalIntersect
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------PhysicalOlapScan[t2]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_union_complex_aggregate --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------filter((t1.id > 100))
+------------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------filter((t2.id < 50))
+------------------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_union_all_distinct --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalUnion
+------PhysicalDistribute[DistributionSpecExecutionAny]
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecExecutionAny]
+--------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_except_complex_subquery --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalExcept
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------filter((t2.score > 20))
+------------PhysicalOlapScan[t2]
+
+Hint log:
+Used: use_INFER_SET_OPERATOR_DISTINCT
+UnUsed:
+SyntaxError:
+
+-- !with_hint_agg_not_output_groupby --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_union_distinct --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_union_complex_conditions --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------filter((t1.score > 10))
+----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------filter((t2.name = 'Test'))
+----------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_multi_union --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_except_distinct --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalExcept
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_except_with_filter --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalExcept
+------PhysicalDistribute[DistributionSpecHash]
+--------filter((t1.id > 100))
+----------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------filter((t2.id < 50))
+----------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_intersect_distinct --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalIntersect
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_intersect_with_aggregate --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalIntersect
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecGather]
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecGather]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_mixed_set_operators --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalIntersect
+------PhysicalExcept
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalUnion
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalOlapScan[t1]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalOlapScan[t2]
+--------PhysicalDistribute[DistributionSpecHash]
+----------PhysicalOlapScan[t3]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t4]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_join_with_union --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------------PhysicalOlapScan[t1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_set_operator_with_subquery --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------filter((t1.score > 10))
+----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------filter((t2.score < 5))
+----------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_nested_union --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t4]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_union_order_limit --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalTopN[MERGE_SORT]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------PhysicalTopN[LOCAL_SORT]
+--------------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_union_inner_join_combination --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------------PhysicalOlapScan[t1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_union_left_join_combination --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------------PhysicalOlapScan[t1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_union_right_join_combination --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_union_full_join_combination --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalProject
+--------------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_union_left_semi_join_combination --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------hashJoin[LEFT_SEMI_JOIN bucketShuffle] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalOlapScan[t3]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_except_with_subquery --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalExcept
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------filter((t2.score > 10))
+----------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_intersect_different_types --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalIntersect
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_union_complex_aggregate --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------filter((t1.id > 100))
+------------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------hashAgg[GLOBAL]
+----------------PhysicalDistribute[DistributionSpecGather]
+------------------hashAgg[LOCAL]
+--------------------PhysicalProject
+----------------------filter((t2.id < 50))
+------------------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_union_all_distinct --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalUnion
+------PhysicalDistribute[DistributionSpecExecutionAny]
+--------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecExecutionAny]
+--------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_except_complex_subquery --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalExcept
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------PhysicalOlapScan[t1]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalProject
+----------filter((t2.score > 20))
+------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
+
+-- !with_hint_no_agg_not_output_groupby --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------PhysicalProject
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+
+Hint log:
+Used:
+UnUsed: use_NO_INFER_SET_OPERATOR_DISTINCT
+SyntaxError:
 

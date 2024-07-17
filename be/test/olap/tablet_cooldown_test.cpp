@@ -99,19 +99,19 @@ public:
 
     ~FileWriterMock() override = default;
 
-    Status close() override { return _local_file_writer->close(); }
+    Status close(bool /*non_block*/) override { return _local_file_writer->close(); }
 
     Status appendv(const Slice* data, size_t data_cnt) override {
         return _local_file_writer->appendv(data, data_cnt);
     }
 
-    Status finalize() override { return _local_file_writer->finalize(); }
-
-    bool closed() const override { return _local_file_writer->closed(); }
+    io::FileWriter::State state() const override { return _local_file_writer->state(); }
 
     size_t bytes_appended() const override { return _local_file_writer->bytes_appended(); }
 
     const Path& path() const override { return _local_file_writer->path(); }
+
+    io::FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
 
 private:
     std::unique_ptr<io::FileWriter> _local_file_writer;
@@ -203,8 +203,8 @@ public:
     static void SetUpTestSuite() {
         s_fs.reset(
                 new RemoteFileSystemMock("", std::to_string(kResourceId), io::FileSystemType::S3));
-        StorageResource resource = {s_fs, 1};
-        put_storage_resource(kResourceId, resource);
+        StorageResource resource {s_fs};
+        put_storage_resource(kResourceId, resource, 1);
         auto storage_policy = std::make_shared<StoragePolicy>();
         storage_policy->name = "TabletCooldownTest";
         storage_policy->version = 1;
@@ -387,12 +387,9 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
 
 void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_hash,
                   int64_t tablet_id, int64_t txn_id, int64_t partition_id, bool with_data = true) {
-    EXPECT_TRUE(io::global_local_filesystem()
-                        ->delete_directory(get_remote_path(remote_tablet_path(tablet_id)))
-                        .ok());
-    EXPECT_TRUE(io::global_local_filesystem()
-                        ->create_directory(get_remote_path(remote_tablet_path(tablet_id)))
-                        .ok());
+    auto tablet_path = fmt::format("data/{}", tablet_id);
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(get_remote_path(tablet_path)).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(get_remote_path(tablet_path)).ok());
     // create tablet
     std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("CreateTablet");

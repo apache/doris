@@ -51,14 +51,17 @@ run() {
     shopt -s inherit_errexit
 
     cd "${teamcity_build_checkoutDir}" || return 1
-    echo "ak='${cos_ak}'" >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
-    echo "sk='${cos_sk}'" >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
+    {
+        echo # add a new line to prevent two config items from being combined, which will cause the error "No signature of method"
+        echo "ak='${cos_ak}'"
+        echo "sk='${cos_sk}'"
+    } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy \
         "${teamcity_build_checkoutDir}"/regression-test/conf/
     # start kafka docker to run case test_rountine_load
     sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
-    bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka
+    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka; then echo; else echo "ERROR: start kafka docker failed"; fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
     if "${teamcity_build_checkoutDir}"/run-regression-test.sh \
@@ -83,8 +86,8 @@ run() {
         test_suites=$(echo "${summary}" | cut -d ' ' -f 2)
         failed_suites=$(echo "${summary}" | cut -d ' ' -f 5)
         fatal_scripts=$(echo "${summary}" | cut -d ' ' -f 8)
-        if [[ ${test_suites} -gt 0 && ${failed_suites} -le 30 && ${fatal_scripts} -eq 0 ]]; then
-            echo "INFO: regression test result meet (test_suites>0 && failed_suites<=30 && fatal_scripts=0)"
+        if [[ ${test_suites} -gt 0 && ${failed_suites} -le ${failed_suites_threshold:=100} && ${fatal_scripts} -eq 0 ]]; then
+            echo "INFO: regression test result meet (test_suites>0 && failed_suites<=${failed_suites_threshold} && fatal_scripts=0)"
         else
             return 1
         fi

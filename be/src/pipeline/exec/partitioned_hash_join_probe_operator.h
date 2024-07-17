@@ -24,16 +24,12 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
-#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h" // LocalExchangeChannelIds
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/runtime/partitioner.h"
+#include "pipeline/exec/spill_utils.h"
 
 namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
-using PartitionerType = vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>;
 
 class PartitionedHashJoinProbeOperatorX;
 
@@ -49,8 +45,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
-    Status spill_build_block(RuntimeState* state, uint32_t partition_index);
-    Status spill_probe_blocks(RuntimeState* state, uint32_t partition_index);
+    Status spill_probe_blocks(RuntimeState* state);
 
     Status recovery_build_blocks_from_disk(RuntimeState* state, uint32_t partition_index,
                                            bool& has_data);
@@ -61,6 +56,8 @@ public:
 
     void update_build_profile(RuntimeProfile* child_profile);
     void update_probe_profile(RuntimeProfile* child_profile);
+
+    std::string debug_string(int indentation_level = 0) const override;
 
     friend class PartitionedHashJoinProbeOperatorX;
 
@@ -83,14 +80,9 @@ private:
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _partitioned_blocks;
     std::map<uint32_t, std::vector<vectorized::Block>> _probe_blocks;
 
-    /// Resources in shared state will be released when the operator is closed,
-    /// but there may be asynchronous spilling tasks at this time, which can lead to conflicts.
-    /// So, we need hold the pointer of shared state.
-    std::shared_ptr<PartitionedHashJoinSharedState> _shared_state_holder;
-
     std::vector<vectorized::SpillStreamSPtr> _probe_spilling_streams;
 
-    std::unique_ptr<PartitionerType> _partitioner;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
@@ -180,16 +172,17 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    bool need_data_from_children(RuntimeState* state) const override;
-
     void set_inner_operators(const std::shared_ptr<HashJoinBuildSinkOperatorX>& sink_operator,
                              const std::shared_ptr<HashJoinProbeOperatorX>& probe_operator) {
         _inner_sink_operator = sink_operator;
         _inner_probe_operator = probe_operator;
     }
+    bool require_data_distribution() const override {
+        return _inner_probe_operator->require_data_distribution();
+    }
 
 private:
-    Status _revoke_memory(RuntimeState* state, bool& wait_for_io);
+    Status _revoke_memory(RuntimeState* state);
 
     friend class PartitionedHashJoinProbeLocalState;
 
@@ -217,6 +210,7 @@ private:
     const DescriptorTbl _descriptor_tbl;
 
     const uint32_t _partition_count;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
 };
 
 } // namespace pipeline

@@ -21,10 +21,6 @@ This suite is a one dimensional test case file.
 suite("negative_partition_mv_rewrite") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
 
     sql """
     drop table if exists orders_1
@@ -341,7 +337,7 @@ suite("negative_partition_mv_rewrite") {
         """
     explain {
         sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
+        contains "${mv_name}(${mv_name})"
     }
 
     // query partial rewriting

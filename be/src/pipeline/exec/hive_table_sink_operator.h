@@ -18,29 +18,9 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/vhive_table_sink.h"
+#include "vec/sink/writer/vhive_table_writer.h"
 
-namespace doris {
-
-namespace pipeline {
-
-class HiveTableSinkOperatorBuilder final
-        : public DataSinkOperatorBuilder<vectorized::VHiveTableSink> {
-public:
-    HiveTableSinkOperatorBuilder(int32_t id, DataSink* sink)
-            : DataSinkOperatorBuilder(id, "HiveTableSinkOperator", sink) {}
-
-    OperatorPtr build_operator() override;
-};
-
-class HiveTableSinkOperator final : public DataSinkOperator<vectorized::VHiveTableSink> {
-public:
-    HiveTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-            : DataSinkOperator(operator_builder, sink) {}
-
-    bool can_write() override { return _sink->can_write(); }
-};
+namespace doris::pipeline {
 
 class HiveTableSinkOperatorX;
 
@@ -111,5 +91,4 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

@@ -142,11 +142,8 @@ public class CacheAnalyzer {
                 enableSqlCache = true;
             }
         }
-        if (Config.cache_enable_partition_mode) {
-            if (context.getSessionVariable().isEnablePartitionCache()) {
-                enablePartitionCache = true;
-            }
-        }
+        // alread remove the entrance of partition cache, so we force set to false
+        enablePartitionCache = false;
     }
 
     public TUniqueId getQueryId() {
@@ -206,8 +203,7 @@ public class CacheAnalyzer {
     }
 
     public static boolean canUseCache(SessionVariable sessionVariable) {
-        return (sessionVariable.isEnableSqlCache() || sessionVariable.isEnablePartitionCache())
-                && commonCacheCondition(sessionVariable);
+        return (sessionVariable.isEnableSqlCache()) && commonCacheCondition(sessionVariable);
     }
 
     public static boolean canUseSqlCache(SessionVariable sessionVariable) {
@@ -697,15 +693,19 @@ public class CacheAnalyzer {
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(
                 new FullTableName(catalog.getName(), database.getFullName(), olapTable.getName()),
-                olapTable.getVisibleVersionTime(), olapTable.getVisibleVersion());
+                olapTable.getVisibleVersion());
         scanTables.add(scanTable);
+
+        Collection<Long> partitionIds = node.getSelectedPartitionIds();
+        olapTable.getVersionInBatchForCloudMode(partitionIds);
+
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
+            scanTable.addScanPartition(partitionId);
             if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
                 cacheTable.latestPartitionId = partition.getId();
                 cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
-                cacheTable.latestPartitionVersion = partition.getVisibleVersion();
-                scanTable.addScanPartition(partitionId);
+                cacheTable.latestPartitionVersion = partition.getVisibleVersion(true);
             }
         }
         return cacheTable;
@@ -714,14 +714,13 @@ public class CacheAnalyzer {
     private CacheTable buildCacheTableForHiveScanNode(HiveScanNode node) {
         CacheTable cacheTable = new CacheTable();
         cacheTable.table = node.getTargetTable();
-        cacheTable.partitionNum = node.getReadPartitionNum();
+        cacheTable.partitionNum = node.getSelectedPartitionNum();
         cacheTable.latestPartitionTime = cacheTable.table.getUpdateTime();
         TableIf tableIf = cacheTable.table;
         DatabaseIf database = tableIf.getDatabase();
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(new FullTableName(
-                catalog.getName(), database.getFullName(), tableIf.getName()
-        ), cacheTable.latestPartitionTime, 0);
+                catalog.getName(), database.getFullName(), tableIf.getName()), 0);
         scanTables.add(scanTable);
         return cacheTable;
     }

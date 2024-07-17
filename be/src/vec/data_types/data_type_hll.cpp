@@ -39,7 +39,7 @@ char* DataTypeHLL::serialize(const IColumn& column, char* buf, int be_exec_versi
     auto& data_column = assert_cast<const ColumnHLL&>(*ptr);
 
     size_t row_num = column.size();
-    size_t hll_size_array[row_num + 1];
+    std::vector<size_t> hll_size_array(row_num + 1);
     hll_size_array[0] = row_num;
 
     auto allocate_len_size = sizeof(size_t) * (row_num + 1);
@@ -53,7 +53,7 @@ char* DataTypeHLL::serialize(const IColumn& column, char* buf, int be_exec_versi
         buf += actual_size;
     }
 
-    memcpy(buf_start, hll_size_array, allocate_len_size);
+    memcpy(buf_start, hll_size_array.data(), allocate_len_size);
     return buf;
 }
 
@@ -66,8 +66,8 @@ const char* DataTypeHLL::deserialize(const char* buf, IColumn* column, int be_ex
 
     size_t row_num = *reinterpret_cast<const size_t*>(buf);
     buf += sizeof(size_t);
-    size_t hll_size_array[row_num];
-    memcpy(hll_size_array, buf, sizeof(size_t) * row_num);
+    std::vector<size_t> hll_size_array(row_num);
+    memcpy(hll_size_array.data(), buf, sizeof(size_t) * row_num);
     buf += sizeof(size_t) * row_num;
 
     data.resize(row_num);

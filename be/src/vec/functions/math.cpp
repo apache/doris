@@ -15,29 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stdint.h>
-#include <string.h>
+#include <cstdint>
+#include <cstring>
 
-#include <boost/iterator/iterator_facade.hpp>
 // IWYU pragma: no_include <bits/std_abs.h>
-#include <algorithm>
+#include <dlfcn.h>
+
 #include <cmath>
-#include <memory>
 #include <string>
 #include <type_traits>
-#include <utility>
 
 #include "common/status.h"
-#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
@@ -46,9 +39,7 @@
 #include "vec/functions/function_math_unary.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
-#include "vec/functions/function_truncate.h"
 #include "vec/functions/function_unary_arithmetic.h"
-#include "vec/functions/round.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
@@ -225,10 +216,29 @@ struct NamePositive {
 
 using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive>;
 
-struct SinName {
+struct UnaryFunctionPlainSin {
+    using Type = DataTypeFloat64;
     static constexpr auto name = "sin";
+    using FuncType = double (*)(double);
+
+    static FuncType get_sin_func() {
+        void* handle = dlopen("libm.so.6", RTLD_LAZY);
+        if (handle) {
+            if (auto sin_func = (double (*)(double))dlsym(handle, "sin"); sin_func) {
+                return sin_func;
+            }
+            dlclose(handle);
+        }
+        return std::sin;
+    }
+
+    static void execute(const double* src, double* dst) {
+        static auto sin_func = get_sin_func();
+        *dst = sin_func(*src);
+    }
 };
-using FunctionSin = FunctionMathUnary<UnaryFunctionPlain<SinName, std::sin>>;
+
+using FunctionSin = FunctionMathUnary<UnaryFunctionPlainSin>;
 
 struct SqrtName {
     static constexpr auto name = "sqrt";
@@ -330,92 +340,15 @@ struct PowName {
 };
 using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
 
-struct TruncateName {
-    static constexpr auto name = "truncate";
-};
-
-struct CeilName {
-    static constexpr auto name = "ceil";
-};
-
-struct FloorName {
-    static constexpr auto name = "floor";
-};
-
-struct RoundName {
-    static constexpr auto name = "round";
-};
-
-struct RoundBankersName {
-    static constexpr auto name = "round_bankers";
-};
-
-/// round(double,int32)-->double
-/// key_str:roundFloat64Int32
-template <typename Name>
-struct DoubleRoundTwoImpl {
-    static constexpr auto name = Name::name;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeFloat64>(),
-                std::make_shared<vectorized::DataTypeInt32>()};
-    }
-};
-
-template <typename Name>
-struct DoubleRoundOneImpl {
-    static constexpr auto name = Name::name;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeFloat64>()};
-    }
-};
-
-template <typename Name>
-struct DecimalRoundTwoImpl {
-    static constexpr auto name = Name::name;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0),
-                std::make_shared<vectorized::DataTypeInt32>()};
-    }
-};
-
-template <typename Name>
-struct DecimalRoundOneImpl {
-    static constexpr auto name = Name::name;
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0)};
-    }
-};
-
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
-#define REGISTER_ROUND_FUNCTIONS(IMPL)                                                        \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<RoundName>, RoundingMode::Round, TieBreakingMode::Auto>>(); \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<FloorName>, RoundingMode::Floor, TieBreakingMode::Auto>>(); \
-    factory.register_function<                                                                \
-            FunctionRounding<IMPL<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>>();   \
-    factory.register_function<FunctionRounding<IMPL<RoundBankersName>, RoundingMode::Round,   \
-                                               TieBreakingMode::Bankers>>();
-
-    REGISTER_ROUND_FUNCTIONS(DecimalRoundOneImpl)
-    REGISTER_ROUND_FUNCTIONS(DecimalRoundTwoImpl)
-    REGISTER_ROUND_FUNCTIONS(DoubleRoundOneImpl)
-    REGISTER_ROUND_FUNCTIONS(DoubleRoundTwoImpl)
-    factory.register_alias("round", "dround");
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAsin>();
     factory.register_function<FunctionAtan>();
     factory.register_function<FunctionAtan2>();
     factory.register_function<FunctionCos>();
     factory.register_function<FunctionCosh>();
-    factory.register_alias("ceil", "dceil");
-    factory.register_alias("ceil", "ceiling");
     factory.register_function<FunctionE>();
     factory.register_alias("ln", "dlog1");
     factory.register_function<FunctionLog>();
@@ -434,7 +367,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCbrt>();
     factory.register_function<FunctionTan>();
     factory.register_function<FunctionTanh>();
-    factory.register_alias("floor", "dfloor");
     factory.register_function<FunctionPow>();
     factory.register_alias("pow", "power");
     factory.register_alias("pow", "dpow");
@@ -444,9 +376,5 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
-    factory.register_function<FunctionTruncate<TruncateFloatOneArgImpl>>();
-    factory.register_function<FunctionTruncate<TruncateFloatTwoArgImpl>>();
-    factory.register_function<FunctionTruncate<TruncateDecimalOneArgImpl>>();
-    factory.register_function<FunctionTruncate<TruncateDecimalTwoArgImpl>>();
 }
 } // namespace doris::vectorized

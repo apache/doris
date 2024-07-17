@@ -53,6 +53,7 @@ public:
     bool equals(const IDataType& rhs) const override;
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
+    std::string to_string(double int_val) const;
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_TIME);
     }
@@ -62,7 +63,12 @@ public:
     }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
+        DataTypeNumberBase<Float64>::template to_string_batch_impl<DataTypeTime>(column, column_to);
+    }
 
+    size_t number_length() const;
+    void push_number(ColumnString::Chars& chars, const Float64& num) const;
     MutableColumnPtr create_column() const override;
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
@@ -85,12 +91,19 @@ public:
     bool equals(const IDataType& rhs) const override;
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
+    std::string to_string(double int_val) const;
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_TIMEV2);
     }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
+        DataTypeNumberBase<Float64>::template to_string_batch_impl<DataTypeTimeV2>(column,
+                                                                                   column_to);
+    }
 
+    size_t number_length() const;
+    void push_number(ColumnString::Chars& chars, const Float64& num) const;
     MutableColumnPtr create_column() const override;
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;

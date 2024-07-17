@@ -29,6 +29,8 @@ suite("q3.2") {
 sql 'set be_number_for_test=3'
 sql 'set enable_runtime_filter_prune=false'
 sql 'set runtime_filter_type=8'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
 
     qt_select """

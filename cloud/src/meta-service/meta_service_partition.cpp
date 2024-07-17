@@ -25,7 +25,9 @@
 #include "meta_service.h"
 
 namespace doris::cloud {
-
+using check_create_table_type = std::function<const std::tuple<
+        const ::google::protobuf::RepeatedField<int64_t>, std::string,
+        std::function<std::string(std::string, int64_t)>>(const CheckKVRequest* request)>;
 // ATTN: xxx_id MUST NOT be reused
 //
 //              UNKNOWN
@@ -65,6 +67,11 @@ static TxnErrorCode index_exists(Transaction* txn, const std::string& instance_i
         return err;
     }
     return it->has_next() ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND;
+}
+
+static TxnErrorCode check_recycle_key_exist(Transaction* txn, const std::string& key) {
+    std::string val;
+    return txn->get(key, &val);
 }
 
 void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controller,
@@ -226,9 +233,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     if (request->has_db_id() && request->has_is_new_table() && request->is_new_table()) {
         // init table version, for create and truncate table
         std::string key = table_version_key({instance_id, request->db_id(), request->table_id()});
-        std::string val(sizeof(int64_t), 0);
-        *reinterpret_cast<int64_t*>(val.data()) = (int64_t)1;
-        txn->put(key, val);
+        txn->atomic_add(key, 1);
         LOG_INFO("put table version").tag("key", hex(key));
     }
 
@@ -379,7 +384,7 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
     }
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
-        msg = "failed to check index existence";
+        msg = fmt::format("failed to check index existence, err={}", err);
         return;
     }
 
@@ -472,7 +477,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
                 }
                 if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
                     code = cast_as<ErrCategory::READ>(err);
-                    msg = "failed to check partition existence";
+                    msg = fmt::format("failed to check partition existence, err={}", err);
                     return;
                 }
             }
@@ -614,6 +619,111 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         msg = fmt::format("failed to commit txn: {}", err);
         return;
     }
+}
+
+void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
+                        const CheckKVRequest* request, CheckKVResponse* response,
+                        MetaServiceCode* code, std::string* msg,
+                        check_create_table_type get_check_info) {
+    StopWatch watch;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        *code = cast_as<ErrCategory::READ>(err);
+        *msg = "failed to create txn";
+        return;
+    }
+    auto& [keys, hint, key_func] = get_check_info(request);
+    if (keys.empty()) {
+        *code = MetaServiceCode::INVALID_ARGUMENT;
+        *msg = "empty keys";
+        return;
+    }
+
+    for (int i = 0; i < keys.size();) {
+        auto key = key_func(instance_id, keys.Get(i));
+        err = check_recycle_key_exist(txn.get(), key);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            i++;
+            continue;
+        } else if (err == TxnErrorCode::TXN_OK) {
+            // find not match, prepare commit
+            *code = MetaServiceCode::UNDEFINED_ERR;
+            *msg = "prepare and commit rpc not match, recycle key remained";
+            return;
+        } else if (err == TxnErrorCode::TXN_TOO_OLD) {
+            //  separate it to several txn for rubustness
+            txn.reset();
+            TxnErrorCode err = txn_kv->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                *code = cast_as<ErrCategory::READ>(err);
+                *msg = "failed to create txn in cycle";
+                return;
+            }
+            LOG_INFO("meet txn too long err, gen a new txn, and retry, size={} idx={}", keys.size(),
+                     i);
+            bthread_usleep(50);
+            continue;
+        } else {
+            // err != TXN_OK, fdb read err
+            *code = cast_as<ErrCategory::READ>(err);
+            *msg = fmt::format("ms read key error: {}", err);
+            return;
+        }
+    }
+    LOG_INFO("check {} success key.size={}, cost(us)={}", hint, keys.size(), watch.elapsed_us());
+}
+
+void MetaServiceImpl::check_kv(::google::protobuf::RpcController* controller,
+                               const CheckKVRequest* request, CheckKVResponse* response,
+                               ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(check_kv);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+    if (!request->has_op()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "op not given";
+        return;
+    }
+    if (!request->has_check_keys()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty check keys";
+        return;
+    }
+    RPC_RATE_LIMIT(check_kv);
+    switch (request->op()) {
+    case CheckKVRequest::CREATE_INDEX_AFTER_FE_COMMIT: {
+        check_create_table(instance_id, txn_kv_, request, response, &code, &msg,
+                           [](const CheckKVRequest* request) {
+                               return std::make_tuple(
+                                       request->check_keys().index_ids(), "index",
+                                       [](std::string instance_id, int64_t id) {
+                                           return recycle_index_key({std::move(instance_id), id});
+                                       });
+                           });
+        break;
+    }
+    case CheckKVRequest::CREATE_PARTITION_AFTER_FE_COMMIT: {
+        check_create_table(
+                instance_id, txn_kv_, request, response, &code, &msg,
+                [](const CheckKVRequest* request) {
+                    return std::make_tuple(
+                            request->check_keys().partition_ids(), "partition",
+                            [](std::string instance_id, int64_t id) {
+                                return recycle_partition_key({std::move(instance_id), id});
+                            });
+                });
+        break;
+    }
+    default:
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "not support op";
+        return;
+    };
 }
 
 } // namespace doris::cloud

@@ -64,7 +64,7 @@ suite("test_union_subquery_groupby") {
         (
             `dt` DATEV2 NOT NULL,
             `label` VARCHAR(30) NOT NULL,
-            `uid_bitmap` BITMAP BITMAP_UNION NULL
+            `uid_bitmap` BITMAP BITMAP_UNION 
         )
         AGGREGATE KEY (`dt`, `label`)
         DISTRIBUTED BY HASH(`label`) BUCKETS AUTO

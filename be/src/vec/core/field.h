@@ -58,7 +58,7 @@ namespace doris::vectorized {
 
 template <typename T>
 struct NearestFieldTypeImpl {
-    using Type = T;
+    using Type = T; // for HLL or some origin types. see def. of storage
 };
 
 template <typename T>
@@ -493,6 +493,11 @@ public:
         return *this;
     }
 
+    bool is_complex_field() const {
+        return which == Types::Array || which == Types::Map || which == Types::Tuple ||
+               which == Types::VariantMap;
+    }
+
     Field& operator=(Field&& rhs) {
         if (this != &rhs) {
             if (which != rhs.which) {
@@ -763,7 +768,9 @@ private:
     }
 
     ALWAYS_INLINE void destroy() {
-        if (which < Types::MIN_NON_POD) return;
+        if (which < Types::MIN_NON_POD) {
+            return;
+        }
 
         switch (which) {
         case Types::String:
@@ -783,6 +790,15 @@ private:
             break;
         case Types::VariantMap:
             destroy<VariantMap>();
+            break;
+        case Types::Bitmap:
+            destroy<BitmapValue>();
+            break;
+        case Types::HyperLogLog:
+            destroy<HyperLogLog>();
+            break;
+        case Types::QuantileState:
+            destroy<QuantileState>();
             break;
         default:
             break;

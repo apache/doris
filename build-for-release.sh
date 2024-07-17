@@ -126,6 +126,7 @@ rm -rf "${ORI_OUTPUT}"
 
 FE="fe"
 BE="be"
+CLOUD="ms"
 EXT="extensions"
 PACKAGE="apache-doris-${VERSION}-bin-${ARCH}"
 
@@ -137,11 +138,13 @@ OUTPUT="${ORI_OUTPUT}/${PACKAGE}"
 OUTPUT_FE="${OUTPUT}/${FE}"
 OUTPUT_EXT="${OUTPUT}/${EXT}"
 OUTPUT_BE="${OUTPUT}/${BE}"
+OUTPUT_CLOUD="${OUTPUT}/${CLOUD}"
 
 echo "Package Name:"
-echo "FE:   ${OUTPUT_FE}"
-echo "BE:   ${OUTPUT_BE}"
-echo "JAR:  ${OUTPUT_EXT}"
+echo "FE:    ${OUTPUT_FE}"
+echo "BE:    ${OUTPUT_BE}"
+echo "CLOUD: ${OUTPUT_CLOUD}"
+echo "JAR:   ${OUTPUT_EXT}"
 
 sh build.sh --clean &&
     USE_AVX2="${_USE_AVX2}" sh build.sh &&
@@ -149,7 +152,7 @@ sh build.sh --clean &&
 
 echo "Begin to pack"
 rm -rf "${OUTPUT}"
-mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_EXT}"
+mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_EXT}" "${OUTPUT_CLOUD}"
 
 # FE
 cp -R "${ORI_OUTPUT}"/fe/* "${OUTPUT_FE}"/
@@ -159,6 +162,9 @@ cp -R "${ORI_OUTPUT}"/apache_hdfs_broker "${OUTPUT_EXT}"/apache_hdfs_broker
 
 # BE
 cp -R "${ORI_OUTPUT}"/be/* "${OUTPUT_BE}"/
+
+# CLOUD
+cp -R "${ORI_OUTPUT}"/ms/* "${OUTPUT_CLOUD}"/
 
 if [[ "${TAR}" -eq 1 ]]; then
     echo "Begin to compress"

@@ -94,7 +94,7 @@ private:
     int64_t _promotion_min_size;
     /// lower bound size to do compaction compaction.
     int64_t _compaction_min_size;
-    // cululative compaction promotion version count, only works for unique key MoW table
+    // cumulative compaction promotion version count, only works for unique key MoW table
     int64_t _promotion_version_count;
 };
 

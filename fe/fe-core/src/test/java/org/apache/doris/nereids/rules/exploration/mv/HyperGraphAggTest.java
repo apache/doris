@@ -37,6 +37,7 @@ import java.util.Objects;
 class HyperGraphAggTest extends SqlTestBase {
     @Test
     void testJoinWithAgg() {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         CascadesContext c2 = createCascadesContext(
                 "select * from T1 inner join"
                         + "("
@@ -88,9 +89,9 @@ class HyperGraphAggTest extends SqlTestBase {
     }
 
     LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {
-        StructInfo st1 = MaterializedViewUtils.extractStructInfo(p1,
+        StructInfo st1 = MaterializedViewUtils.extractStructInfo(p1, p1,
                 null, new BitSet()).get(0);
-        StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2,
+        StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2, p2,
                 null, new BitSet()).get(0);
         RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations()).get(0);
         SlotMapping sm = SlotMapping.generate(rm);

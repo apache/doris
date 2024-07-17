@@ -28,6 +28,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
@@ -73,7 +74,7 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris::segment_v2 {
-bvar::Adder<size_t> g_total_segment_num("doris_total_segment_num");
+static bvar::Adder<size_t> g_total_segment_num("doris_total_segment_num");
 class InvertedIndexIterator;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
@@ -102,23 +103,42 @@ Segment::~Segment() {
     g_total_segment_num << -1;
 }
 
+io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t seg_id) {
+    return io::BlockFileCache::hash(fmt::format("{}_{}.dat", rowset_id, seg_id));
+}
+
 Status Segment::_open() {
-    SegmentFooterPB footer;
-    RETURN_IF_ERROR(_parse_footer(&footer));
-    RETURN_IF_ERROR(_create_column_readers(footer));
-    _pk_index_meta.reset(footer.has_primary_key_index_meta()
-                                 ? new PrimaryKeyIndexMetaPB(footer.primary_key_index_meta())
+    _footer_pb = std::make_unique<SegmentFooterPB>();
+    RETURN_IF_ERROR(_parse_footer(_footer_pb.get()));
+    _pk_index_meta.reset(_footer_pb->has_primary_key_index_meta()
+                                 ? new PrimaryKeyIndexMetaPB(_footer_pb->primary_key_index_meta())
                                  : nullptr);
     // delete_bitmap_calculator_test.cpp
     // DCHECK(footer.has_short_key_index_page());
-    _sk_index_page = footer.short_key_index_page();
-    _num_rows = footer.num_rows();
+    _sk_index_page = _footer_pb->short_key_index_page();
+    _num_rows = _footer_pb->num_rows();
+
+    // An estimated memory usage of a segment
+    _meta_mem_usage += _footer_pb->ByteSizeLong();
+    if (_pk_index_meta != nullptr) {
+        _meta_mem_usage += _pk_index_meta->ByteSizeLong();
+    }
+    _meta_mem_usage += sizeof(*this);
+    _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
+
+    // 1024 comes from SegmentWriterOptions
+    _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
+    // 0.01 comes from PrimaryKeyIndexBuilder::init
+    _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
+
     return Status::OK();
 }
 
 Status Segment::_open_inverted_index() {
     _inverted_index_file_reader = std::make_shared<InvertedIndexFileReader>(
-            _fs, _file_reader->path().parent_path(), _file_reader->path().filename().native(),
+            _fs,
+            std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
+                    _file_reader->path().native())},
             _tablet_schema->get_inverted_index_storage_format());
     bool open_idx_file_cache = true;
     auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
@@ -132,6 +152,8 @@ Status Segment::_open_inverted_index() {
 
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
+    RETURN_IF_ERROR(_create_column_readers_once());
+
     read_options.stats->total_segment_number++;
     // trying to prune the current segment by segment-level zone map
     for (auto& entry : read_options.col_id_to_predicates) {
@@ -164,13 +186,12 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             return Status::OK();
         }
     }
-    if (read_options.use_topn_opt) {
+
+    if (!read_options.topn_filter_source_node_ids.empty()) {
         auto* query_ctx = read_options.runtime_state->get_query_ctx();
         for (int id : read_options.topn_filter_source_node_ids) {
-            if (!query_ctx->get_runtime_predicate(id).need_update()) {
-                continue;
-            }
-            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate();
+            auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate(
+                    read_options.topn_filter_target_node_id);
 
             int32_t uid =
                     read_options.tablet_schema->column(runtime_predicate->column_id()).unique_id();
@@ -283,13 +304,22 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
 }
 
 Status Segment::_load_pk_bloom_filter() {
+#ifdef BE_TEST
+    if (_pk_index_meta == nullptr) {
+        // for BE UT "segment_cache_test"
+        return _load_pk_bf_once.call([this] {
+            _meta_mem_usage += 100;
+            return Status::OK();
+        });
+    }
+#endif
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS);
     DCHECK(_pk_index_meta != nullptr);
     DCHECK(_pk_index_reader != nullptr);
     auto status = [this]() {
         return _load_pk_bf_once.call([this] {
             RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, *_pk_index_meta));
-            _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
+            // _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
             return Status::OK();
         });
     }();
@@ -312,6 +342,7 @@ Status Segment::load_pk_index_and_bf() {
     RETURN_IF_ERROR(_load_pk_bloom_filter());
     return Status::OK();
 }
+
 Status Segment::load_index() {
     auto status = [this]() { return _load_index_impl(); }();
     if (!status.ok()) {
@@ -325,7 +356,7 @@ Status Segment::_load_index_impl() {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
             _pk_index_reader.reset(new PrimaryKeyIndexReader());
             RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta));
-            _meta_mem_usage += _pk_index_reader->get_memory_size();
+            // _meta_mem_usage += _pk_index_reader->get_memory_size();
             return Status::OK();
         } else {
             // read and parse short key index page
@@ -347,7 +378,7 @@ Status Segment::_load_index_impl() {
             DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
             DCHECK(footer.has_short_key_page_footer());
 
-            _meta_mem_usage += body.get_size();
+            // _meta_mem_usage += body.get_size();
             _sk_index_decoder.reset(new ShortKeyIndexDecoder);
             return _sk_index_decoder->parse(body, footer.short_key_page_footer());
         }
@@ -375,6 +406,15 @@ vectorized::DataTypePtr Segment::get_data_type_of(vectorized::PathInDataPtr path
     // TODO support normal column type
     return nullptr;
 }
+
+Status Segment::_create_column_readers_once() {
+    return _create_column_readers_once_call.call([&] {
+        DCHECK(_footer_pb);
+        Defer defer([&]() { _footer_pb.reset(); });
+        return _create_column_readers(*_footer_pb);
+    });
+}
+
 Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     std::unordered_map<uint32_t, uint32_t> column_id_to_footer_ordinal;
     std::unordered_map<vectorized::PathInData, uint32_t, vectorized::PathInData::Hash>
@@ -502,24 +542,19 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
     auto sparse_node = tablet_column.has_path_info()
                                ? _sparse_column_tree.find_exact(*tablet_column.path_info_ptr())
                                : nullptr;
-    if (opt != nullptr && opt->io_ctx.reader_type == ReaderType::READER_ALTER_TABLE) {
-        CHECK(tablet_column.is_variant_type());
-        if (root == nullptr) {
-            // No such variant column in this segment, get a default one
-            RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
-            return Status::OK();
-        }
-        bool output_as_raw_json = true;
-        // Alter table operation should read the whole variant column, since it does not aware of
-        // subcolumns of variant during processing rewriting rowsets.
-        // This is slow, since it needs to read all sub columns and merge them into a single column
-        RETURN_IF_ERROR(
-                HierarchicalDataReader::create(iter, root_path, root, root, output_as_raw_json));
-        return Status::OK();
-    }
 
-    if (opt == nullptr || opt->io_ctx.reader_type != ReaderType::READER_QUERY) {
-        // Could be compaction ..etc and read flat leaves nodes data
+    // Currently only compaction and checksum need to read flat leaves
+    // They both use tablet_schema_with_merged_max_schema_version as read schema
+    auto type_to_read_flat_leaves = [](ReaderType type) {
+        return type == ReaderType::READER_BASE_COMPACTION ||
+               type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+               type == ReaderType::READER_COLD_DATA_COMPACTION ||
+               type == ReaderType::READER_SEGMENT_COMPACTION ||
+               type == ReaderType::READER_FULL_COMPACTION || type == ReaderType::READER_CHECKSUM;
+    };
+
+    if (opt != nullptr && type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
+        // compaction need to read flat leaves nodes data to prevent from amplification
         const auto* node = tablet_column.has_path_info()
                                    ? _sub_column_tree.find_leaf(*tablet_column.path_info_ptr())
                                    : nullptr;
@@ -578,6 +613,8 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
                                     const StorageReadOptions* opt) {
+    RETURN_IF_ERROR(_create_column_readers_once());
+
     // init column iterator by path info
     if (tablet_column.has_path_info() || tablet_column.is_variant_type()) {
         return new_column_iterator_with_path(tablet_column, iter, opt);
@@ -597,7 +634,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         LOG(WARNING) << "different type between schema and column reader,"
                      << " column schema name: " << tablet_column.name()
                      << " column schema type: " << int(tablet_column.type())
-                     << " column reader meta type"
+                     << " column reader meta type: "
                      << int(_column_readers.at(tablet_column.unique_id())->get_meta_type());
         return Status::InternalError("different type between schema and column reader");
     }
@@ -605,6 +642,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter) {
+    RETURN_IF_ERROR(_create_column_readers_once());
     ColumnIterator* it;
     RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it));
     iter->reset(it);
@@ -630,6 +668,7 @@ ColumnReader* Segment::_get_column_reader(const TabletColumn& col) {
 
 Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
                                           std::unique_ptr<BitmapIndexIterator>* iter) {
+    RETURN_IF_ERROR(_create_column_readers_once());
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && reader->has_bitmap_index()) {
         BitmapIndexIterator* it;
@@ -644,6 +683,7 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
                                             const StorageReadOptions& read_options,
                                             std::unique_ptr<InvertedIndexIterator>* iter) {
+    RETURN_IF_ERROR(_create_column_readers_once());
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
         if (_inverted_index_file_reader == nullptr) {

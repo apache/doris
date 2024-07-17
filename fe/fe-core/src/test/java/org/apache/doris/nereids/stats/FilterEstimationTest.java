@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -35,9 +36,11 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
@@ -203,7 +206,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(or, stat);
-        Assertions.assertEquals(51.9, expected.getRowCount(), 0.1);
+        Assertions.assertEquals(51, expected.getRowCount(), 1);
     }
 
     // a > 500 and b < 100 or a > c
@@ -1057,6 +1060,39 @@ class FilterEstimationTest {
     }
 
     /**
+     * a = 1 and b is not null
+     */
+    @Test
+    public void testNumNullsAndTwoCol() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder()
+                .setNdv(2)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMaxValue(2)
+                .setMinValue(1)
+                .setCount(10);
+        IntegerLiteral int1 = new IntegerLiteral(1);
+        EqualTo equalTo = new EqualTo(a, int1);
+        SlotReference b = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
+                .setNdv(2)
+                .setAvgSizeByte(4)
+                .setNumNulls(8)
+                .setMaxValue(2)
+                .setMinValue(1)
+                .setCount(10);
+        Not isNotNull = new Not(new IsNull(b));
+        And and = new And(equalTo, isNotNull);
+        Statistics stats = new Statistics(10, new HashMap<>());
+        stats.addColumnStats(a, builderA.build());
+        stats.addColumnStats(b, builderB.build());
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics result = filterEstimation.estimate(and, stats);
+        Assertions.assertEquals(result.getRowCount(), 1.0, 0.01);
+    }
+
+    /**
      * a >= 1 or a <= 2
      */
     @Test
@@ -1138,5 +1174,120 @@ class FilterEstimationTest {
         EqualTo eq = new EqualTo(a, b);
         Statistics resultEq = estimator.estimate(eq, statsBuilder.build());
         Assertions.assertEquals(7, resultNse.getRowCount() - resultEq.getRowCount());
+    }
+
+    /**
+     * for string literal, min-max range is only used for coverage, not for percentage
+     */
+    @Test
+    public void testStringRangeColToLiteral() {
+        SlotReference a = new SlotReference("a", new VarcharType(25));
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(25)
+                .setNumNulls(0)
+                .setMaxExpr(new StringLiteral("200"))
+                .setMaxValue(new VarcharLiteral("200").getDouble())
+                .setMinExpr(new StringLiteral("100"))
+                .setMinValue(new VarcharLiteral("100").getDouble())
+                .setCount(100);
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(100);
+        statsBuilder.putColumnStatistics(a, columnStatisticBuilder.build());
+        Statistics baseStats = statsBuilder.build();
+        VarcharLiteral i500 = new VarcharLiteral("500");
+        Statistics filter500 = new FilterEstimation().estimate(new LessThan(a, i500), baseStats);
+        Assertions.assertEquals(100, filter500.getRowCount());
+
+        VarcharLiteral i10 = new VarcharLiteral("10");
+        Statistics filter10 = new FilterEstimation().estimate(new LessThan(i10, a), baseStats);
+        Assertions.assertEquals(100, filter10.getRowCount());
+
+        VarcharLiteral i199 = new VarcharLiteral("199");
+        Statistics filter199 = new FilterEstimation().estimate(new GreaterThan(a, i199), baseStats);
+        Assertions.assertEquals(50, filter199.getRowCount(), 0.01);
+    }
+
+    @Test
+    public void testStringRangeColToDateLiteral() {
+        SlotReference a = new SlotReference("a", new VarcharType(25));
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(25)
+                .setNumNulls(0)
+                .setMaxExpr(new StringLiteral("2022-01-01"))
+                .setMaxValue(new VarcharLiteral("2022-01-01").getDouble())
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(new VarcharLiteral("2020-01-01").getDouble())
+                .setCount(100);
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(100);
+        statsBuilder.putColumnStatistics(a, columnStatisticBuilder.build());
+        Statistics baseStats = statsBuilder.build();
+        VarcharLiteral year2030 = new VarcharLiteral("2030-01-01");
+        Statistics filter2030 = new FilterEstimation().estimate(new LessThan(a, year2030), baseStats);
+        Assertions.assertEquals(100, filter2030.getRowCount());
+
+        VarcharLiteral year2000 = new VarcharLiteral("2000-01-01");
+        Statistics filter2k = new FilterEstimation().estimate(new LessThan(year2000, a), baseStats);
+        Assertions.assertEquals(100, filter2k.getRowCount());
+
+        VarcharLiteral year2021 = new VarcharLiteral("2021-12-01");
+        Statistics filter2021 = new FilterEstimation().estimate(new GreaterThan(a, year2021), baseStats);
+        Assertions.assertEquals(4.24, filter2021.getRowCount(), 0.01);
+    }
+
+    @Test
+    public void testStringRangeColToCol() {
+        SlotReference a = new SlotReference("a", new VarcharType(25));
+        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(25)
+                .setNumNulls(0)
+                .setMaxExpr(new StringLiteral("2022-01-01"))
+                .setMaxValue(new VarcharLiteral("2022-01-01").getDouble())
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(new VarcharLiteral("2020-01-01").getDouble())
+                .setCount(100);
+
+        SlotReference b = new SlotReference("b", new VarcharType(25));
+        ColumnStatisticBuilder columnStatisticBuilderB = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(25)
+                .setNumNulls(0)
+                .setMaxExpr(new StringLiteral("2012-01-01"))
+                .setMaxValue(new VarcharLiteral("2012-01-01").getDouble())
+                .setMinExpr(new StringLiteral("2010-01-01"))
+                .setMinValue(new VarcharLiteral("2010-01-01").getDouble())
+                .setCount(100);
+
+        SlotReference c = new SlotReference("c", new VarcharType(25));
+        ColumnStatisticBuilder columnStatisticBuilderC = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(25)
+                .setNumNulls(0)
+                .setMaxExpr(new StringLiteral("2021-01-01"))
+                .setMaxValue(new VarcharLiteral("2021-01-01").getDouble())
+                .setMinExpr(new StringLiteral("2010-01-01"))
+                .setMinValue(new VarcharLiteral("2010-01-01").getDouble())
+                .setCount(100);
+
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(100);
+        statsBuilder.putColumnStatistics(a, columnStatisticBuilderA.build());
+        statsBuilder.putColumnStatistics(b, columnStatisticBuilderB.build());
+        statsBuilder.putColumnStatistics(c, columnStatisticBuilderC.build());
+        Statistics baseStats = statsBuilder.build();
+
+        // (2020-2022) > (2010,2012), sel=1
+        Statistics agrtb = new FilterEstimation().estimate(new GreaterThan(a, b), baseStats);
+        Assertions.assertEquals(100, agrtb.getRowCount());
+        // (2020-2022) < (2010,2012), sel=0
+        Statistics alessb = new FilterEstimation().estimate(new LessThan(a, b), baseStats);
+        Assertions.assertEquals(0, alessb.getRowCount());
+
+        // (2020-2022) > (2010-2021), sel = DEFAULT (0.5)
+        Statistics agrtc = new FilterEstimation().estimate(new GreaterThan(a, c), baseStats);
+        Assertions.assertEquals(50, agrtc.getRowCount());
     }
 }

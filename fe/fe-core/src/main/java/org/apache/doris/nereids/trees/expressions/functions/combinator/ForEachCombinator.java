@@ -37,7 +37,7 @@ import java.util.Objects;
  * combinator foreach
  */
 public class ForEachCombinator extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable, Combinator {
 
     private final AggregateFunction nested;
 
@@ -79,6 +79,7 @@ public class ForEachCombinator extends AggregateFunction
         return ArrayType.of(nested.getDataType(), nested.nullable());
     }
 
+    @Override
     public AggregateFunction getNestedFunction() {
         return nested;
     }

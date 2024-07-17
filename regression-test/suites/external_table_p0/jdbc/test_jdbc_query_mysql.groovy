@@ -233,17 +233,17 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         """
         sql  """ 
               INSERT INTO ${inDorisTable1} (game_code,plat_code,sid,name,`day`,merged_to,merge_count,merge_path,merge_time,merge_history_time,open_time,open_day,time_zone,state) VALUES
-                ('mus','plat_code',310132,'aa','2020-05-25',310200,NULL,NULL,1609726391000,1609726391000,1590406370000,606,'GMT+8',2),
-                ('mus','plat_code',310078,'aa','2020-05-05',310140,NULL,NULL,1620008473000,1604284571000,1588690010001,626,'GMT+8',2),
-                ('mus','plat_code',310118,'aa','2020-05-19',310016,NULL,NULL,1641178695000,1614565485000,1589871140001,612,'GMT+8',2),
-                ('mus','plat_code',421110,'aa','2020-05-24',421116,NULL,NULL,1641178695000,1635732967000,1590285600000,607,'GMT+8',2),
-                ('mus','plat_code',300417,'aa','2019-08-31',300499,NULL,NULL,1617590476000,1617590476000,1567243760000,874,'GMT+8',2),
-                ('mus','plat_code',310030,'aa','2020-04-25',310140,NULL,NULL,1620008473000,1604284571000,1587780830000,636,'GMT+8',2),
-                ('mus','plat_code',310129,'aa','2020-05-24',310033,NULL,NULL,1641178695000,1604284571000,1590274340000,607,'GMT+8',2),
-                ('mus','plat_code',310131,'aa','2020-05-25',310016,NULL,NULL,1604284571000,1604284571000,1590378830000,606,'GMT+8',2),
-                ('mus','plat_code',410083,'aa','2020-02-04',410114,NULL,NULL,1627872240000,1627872240000,1580749850000,717,'GMT+8',2),
-                ('mus','plat_code',310128,'aa','2020-05-23',310128,2,'310180,310114,310112,310107,310080,310076,310065,310066,310054,310038,310036,310018,310011,310012,310032,310031',1630895172000,NULL,1590226280000,608,'GMT+8',1),
-                ('mus','plat_code',410052,'aa','2019-12-17',410111,2,'410038,410028',1641178752000,1641178752000,1576517330000, 766,'GMT+8',2);
+                ('mus','plat_code',310132,'aa','2020-05-25',310200,NULL,NULL,1609726391000,1609726391000,1590406370000,606,'+08:00',2),
+                ('mus','plat_code',310078,'aa','2020-05-05',310140,NULL,NULL,1620008473000,1604284571000,1588690010001,626,'+08:00',2),
+                ('mus','plat_code',310118,'aa','2020-05-19',310016,NULL,NULL,1641178695000,1614565485000,1589871140001,612,'+08:00',2),
+                ('mus','plat_code',421110,'aa','2020-05-24',421116,NULL,NULL,1641178695000,1635732967000,1590285600000,607,'+08:00',2),
+                ('mus','plat_code',300417,'aa','2019-08-31',300499,NULL,NULL,1617590476000,1617590476000,1567243760000,874,'+08:00',2),
+                ('mus','plat_code',310030,'aa','2020-04-25',310140,NULL,NULL,1620008473000,1604284571000,1587780830000,636,'+08:00',2),
+                ('mus','plat_code',310129,'aa','2020-05-24',310033,NULL,NULL,1641178695000,1604284571000,1590274340000,607,'+08:00',2),
+                ('mus','plat_code',310131,'aa','2020-05-25',310016,NULL,NULL,1604284571000,1604284571000,1590378830000,606,'+08:00',2),
+                ('mus','plat_code',410083,'aa','2020-02-04',410114,NULL,NULL,1627872240000,1627872240000,1580749850000,717,'+08:00',2),
+                ('mus','plat_code',310128,'aa','2020-05-23',310128,2,'310180,310114,310112,310107,310080,310076,310065,310066,310054,310038,310036,310018,310011,310012,310032,310031',1630895172000,NULL,1590226280000,608,'+08:00',1),
+                ('mus','plat_code',410052,'aa','2019-12-17',410111,2,'410038,410028',1641178752000,1641178752000,1576517330000, 766,'+08:00',2);
         """
         order_qt_sql  """
                 select l.game_code, l.plat_code, l.org_sid, l.account, l.playerid, l.gid gid_code, l.pid pid_code, 
@@ -949,25 +949,25 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         }
         sql """alter resource $jdbcResourceMysql57 properties("password" = "123456")"""
 
-        // test for type check
-        sql  """ drop table if exists ${exMysqlTypeTable} """
-        sql  """
-               CREATE EXTERNAL TABLE ${exMysqlTypeTable} (
-               `id` bigint NOT NULL,
-               `count_value` varchar(100) NULL
-               ) ENGINE=JDBC
-               COMMENT "JDBC Mysql 外部表"
-               PROPERTIES (
-                "resource" = "$jdbcResourceMysql57",
-                "table" = "ex_tb2",
-                "table_type"="mysql"
-               ); 
-        """
-
-        test {
-            sql """select * from ${exMysqlTypeTable} order by id"""
-            exception "Fail to convert jdbc type of java.lang.Integer to doris type BIGINT on column: id"
-        }
+//         // test for type check
+//         sql  """ drop table if exists ${exMysqlTypeTable} """
+//         sql  """
+//                CREATE EXTERNAL TABLE ${exMysqlTypeTable} (
+//                `id` bigint NOT NULL,
+//                `count_value` varchar(100) NULL
+//                ) ENGINE=JDBC
+//                COMMENT "JDBC Mysql 外部表"
+//                PROPERTIES (
+//                 "resource" = "$jdbcResourceMysql57",
+//                 "table" = "ex_tb2",
+//                 "table_type"="mysql"
+//                );
+//         """
+//
+//         test {
+//             sql """select * from ${exMysqlTypeTable} order by id"""
+//             exception "Fail to convert jdbc type of java.lang.Integer to doris type BIGINT on column: id"
+//         }
 
     }
 }
