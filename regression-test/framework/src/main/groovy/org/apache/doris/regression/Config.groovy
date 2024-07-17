@@ -629,7 +629,7 @@ class Config {
             } else if (config.s3Source == "huawei") {
                 config.otherConfigs.put("s3BucketName", "doris-build")
             } else if (config.s3Source == "azure") {
-                config.otherConfigs.put("s3BucketName", "doris-regression")
+                config.otherConfigs.put("s3BucketName", "qa-build")
             }
         }
         if (config.otherConfigs.get("s3Region") == null) {
