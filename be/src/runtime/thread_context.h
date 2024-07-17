@@ -27,7 +27,6 @@
 #include <string>
 #include <thread>
 
-#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "gutil/macros.h"
@@ -133,8 +132,6 @@ inline thread_local bool pthread_context_ptr_init = false;
 inline thread_local constinit ThreadContext* thread_context_ptr = nullptr;
 // use mem hook to consume thread mem tracker.
 inline thread_local bool use_mem_hook = false;
-
-inline thread_local bool allocator_working = false;
 
 static std::string memory_orphan_check_msg =
         "If you crash here, it means that SCOPED_ATTACH_TASK and "
@@ -443,21 +440,6 @@ public:
     }
 };
 
-class ScopedAllocatorTagger {
-public:
-    explicit ScopedAllocatorTagger() { doris::allocator_working = true; }
-
-    ~ScopedAllocatorTagger() { doris::allocator_working = false; }
-};
-
-inline void allocator_detect(size_t size) {
-#ifndef NDEBUG
-    if (size >= config::debug_max_memory_size_by_native_allocator_bytes) {
-        DCHECK(doris::allocator_working == true);
-    }
-#endif
-};
-
 // Basic macros for mem tracker, usually do not need to be modified and used.
 #if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
 // used to fix the tracking accuracy of caches.
@@ -483,9 +465,7 @@ inline void allocator_detect(size_t size) {
             doris::thread_context()->consume_memory(size); \
         }                                                  \
     } while (0)
-
 #define RELEASE_THREAD_MEM_TRACKER_BY_HOOK(size) CONSUME_THREAD_MEM_TRACKER_BY_HOOK(-size)
-
 #define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)           \
     do {                                                                   \
         doris::allocator_detect(size_fn(__VA_ARGS__));                     \
@@ -493,7 +473,6 @@ inline void allocator_detect(size_t size) {
             doris::thread_context()->consume_memory(size_fn(__VA_ARGS__)); \
         }                                                                  \
     } while (0)
-
 #define RELEASE_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)            \
     do {                                                                    \
         if (doris::use_mem_hook) {                                          \

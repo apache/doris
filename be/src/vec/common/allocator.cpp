@@ -244,7 +244,6 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::remove_address_sanitizer
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void* Allocator<clear_memory_, mmap_populate, use_mmap>::alloc(size_t size, size_t alignment) {
-    doris::ScopedAllocatorTagger tagger;
     return alloc_impl(size, alignment);
 }
 
@@ -252,7 +251,6 @@ template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void* Allocator<clear_memory_, mmap_populate, use_mmap>::realloc(void* buf, size_t old_size,
                                                                  size_t new_size,
                                                                  size_t alignment) {
-    doris::ScopedAllocatorTagger tagger;
     return realloc_impl(buf, old_size, new_size, alignment);
 }
 

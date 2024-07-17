@@ -1415,9 +1415,6 @@ DECLARE_mInt64(compaction_batch_size);
 
 DECLARE_mBool(enable_parquet_page_index);
 
-// If native memory allocator allocates more memory than this value, an exception will be thrown.
-DECLARE_Int64(debug_max_memory_size_by_native_allocator_bytes);
-
 // Wheather to ignore not found file in external teble(eg, hive)
 // Default is true, if set to false, the not found file will result in query failure.
 DECLARE_mBool(ignore_not_found_file_in_external_table);
