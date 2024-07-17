@@ -147,6 +147,10 @@ public class View extends Table implements GsonPostProcessable {
         this.sqlMode = sqlMode;
     }
 
+    public long getSqlMode() {
+        return sqlMode;
+    }
+
     public String getInlineViewDef() {
         return inlineViewDef;
     }
