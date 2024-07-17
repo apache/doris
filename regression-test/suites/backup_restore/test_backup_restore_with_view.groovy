@@ -18,6 +18,7 @@
 suite("test_backup_restore_with_view", "backup_restore") {
     String suiteName = "backup_restore_with_view"
     String dbName = "${suiteName}_db"
+    String dbName1 = "${suiteName}_db_1"
     String repoName = "${suiteName}_repo"
     String snapshotName = "${suiteName}_snapshot"
     String tableName = "${suiteName}_table"
@@ -26,6 +27,7 @@ suite("test_backup_restore_with_view", "backup_restore") {
     def syncer = getSyncer()
     syncer.createS3Repository(repoName)
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
+    sql "CREATE DATABASE IF NOT EXISTS ${dbName1}"
 
     int numRows = 10;
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName} FORCE"
@@ -66,11 +68,11 @@ suite("test_backup_restore_with_view", "backup_restore") {
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
-    sql "DROP TABLE ${dbName}.${tableName} FORCE"
-    sql "DROP VIEW ${dbName}.${viewName}"
+    sql "DROP TABLE IF EXISTS ${dbName1}.${tableName} FORCE"
+    sql "DROP VIEW IF EXISTS ${dbName1}.${viewName}"
 
     sql """
-        RESTORE SNAPSHOT ${dbName}.${snapshotName}
+        RESTORE SNAPSHOT ${dbName1}.${snapshotName}
         FROM `${repoName}`
         PROPERTIES
         (
@@ -79,14 +81,24 @@ suite("test_backup_restore_with_view", "backup_restore") {
         )
     """
 
-    syncer.waitAllRestoreFinish(dbName)
+    syncer.waitAllRestoreFinish(dbName1)
 
-    qt_sql "SELECT * FROM ${dbName}.${tableName} ORDER BY id ASC"
-    qt_sql "SELECT * FROM ${dbName}.${viewName} ORDER BY id ASC"
+    qt_sql "SELECT * FROM ${dbName1}.${tableName} ORDER BY id ASC"
+    qt_sql "SELECT * FROM ${dbName1}.${viewName} ORDER BY id ASC"
+    def show_view_result = sql_return_maparray "SHOW VIEW FROM ${tableName} FROM ${dbName1}"
+    logger.info("show view result: ${show_view_result}")
+    assertTrue(show_view_result.size() == 1);
+    def show_view = show_view_result[0]['Create View']
+    assertTrue(show_view.contains("${dbName1}"))
+    assertTrue(show_view.contains("${tableName}"))
+
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP VIEW ${dbName}.${viewName}"
     sql "DROP DATABASE ${dbName} FORCE"
+    sql "DROP TABLE ${dbName1}.${tableName} FORCE"
+    sql "DROP VIEW ${dbName1}.${viewName}"
+    sql "DROP DATABASE ${dbName1} FORCE"
     sql "DROP REPOSITORY `${repoName}`"
 }
 
