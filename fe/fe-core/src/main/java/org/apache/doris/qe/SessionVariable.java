@@ -1275,7 +1275,7 @@ public class SessionVariable implements Serializable, Writable {
                         + "right side to do bucket shuffle join"
             }
     )
-    private boolean enableNereidsDistributePlanner = true;
+    private boolean enableNereidsDistributePlanner = false;
 
     @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
     private int rewriteOrToInPredicateThreshold = 2;

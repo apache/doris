@@ -92,7 +92,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[LEFT_SEMI_JOIN bucketShuffle] hashCondition=((id3 = t4.id)) otherCondition=()
-------hashJoin[RIGHT_OUTER_JOIN bucketShuffle] hashCondition=((id2 = id3)) otherCondition=()
+------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((id2 = id3)) otherCondition=()
 --------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((id1 = id2)) otherCondition=()
 ----------PhysicalProject
 ------------PhysicalOlapScan[t1]
