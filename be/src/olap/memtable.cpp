@@ -182,21 +182,21 @@ Status MemTable::insert(const vectorized::Block* input_block,
                         const std::vector<uint32_t>& row_idxs) {
     if (_is_first_insertion) {
         _is_first_insertion = false;
-        auto cloneBlock = input_block->clone_without_columns(&_column_offset);
-        _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        auto clone_block = input_block->clone_without_columns(&_column_offset);
+        _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
         _vec_row_comparator->set_block(&_input_mutable_block);
-        _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
         if (_keys_type != KeysType::DUP_KEYS) {
             // there may be additional intermediate columns in input_block
-            // we only need columns indicated by column offset in the output 
-            _init_agg_functions(&cloneBlock);
+            // we only need columns indicated by column offset in the output
+            _init_agg_functions(&clone_block);
         }
         if (_tablet_schema->has_sequence_col()) {
             if (_is_partial_update) {
                 // for unique key partial update, sequence column index in block
                 // may be different with the index in `_tablet_schema`
-                for (size_t i = 0; i < cloneBlock.columns(); i++) {
-                    if (cloneBlock.get_by_position(i).name == SEQUENCE_COL) {
+                for (size_t i = 0; i < clone_block.columns(); i++) {
+                    if (clone_block.get_by_position(i).name == SEQUENCE_COL) {
                         _seq_col_idx_in_block = i;
                         break;
                     }
