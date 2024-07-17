@@ -76,6 +76,7 @@ import org.apache.doris.nereids.DorisParser.ComplexColTypeListContext;
 import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.ConstantSeqContext;
+import org.apache.doris.nereids.DorisParser.CreateDataMaskPolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
@@ -381,6 +382,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinComman
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -392,6 +394,7 @@ import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
@@ -1191,7 +1194,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.EXISTS() != null, nameParts, Optional.of(filterType),
                 ctx.user == null ? null : visitUserIdentify(ctx.user),
                 ctx.roleName == null ? null : ctx.roleName.getText(),
-                Optional.of(getExpression(ctx.booleanExpression())), ImmutableMap.of());
+                Optional.of(getExpression(ctx.booleanExpression())), ImmutableMap.of(), null);
+    }
+
+    @Override
+    public Command visitCreateDataMaskPolicy(CreateDataMaskPolicyContext ctx) {
+        List<String> nameParts = RelationUtil.getQualifierColumnName(ConnectContext.get(),
+                visitMultipartIdentifier(ctx.column));
+        return new CreatePolicyCommand(PolicyTypeEnum.DATA_MASK, ctx.name.getText(),
+            ctx.EXISTS() != null, nameParts, Optional.empty(),
+            ctx.user == null ? null : visitUserIdentify(ctx.user),
+            ctx.roleName == null ? null : ctx.roleName.getText(),
+            Optional.empty(), ImmutableMap.of(), ctx.dataMaskType.getText());
+    }
+
+    @Override
+    public Command visitDropDataMaskPolicy(DorisParser.DropDataMaskPolicyContext ctx) {
+        return new DropPolicyCommand(PolicyTypeEnum.DATA_MASK, ctx.name.getText(), ctx.EXISTS() != null);
+    }
+
+    @Override
+    public Command visitShowDataMaskPolicy(DorisParser.ShowDataMaskPolicyContext ctx) {
+        return new ShowPolicyCommand(PolicyTypeEnum.DATA_MASK, ctx.user == null ? null : visitUserIdentify(ctx.user),
+                ctx.roleName == null ? null : ctx.roleName.getText());
     }
 
     @Override

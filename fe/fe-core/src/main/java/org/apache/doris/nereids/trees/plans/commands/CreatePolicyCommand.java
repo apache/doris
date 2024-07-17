@@ -17,7 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ColumnName;
+import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -45,13 +51,14 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
     private final String roleName;
     private final Optional<Expression> wherePredicate;
     private final Map<String, String> properties;
+    private final String dataMaskType;
 
     /**
      * ctor of this command.
      */
     public CreatePolicyCommand(PolicyTypeEnum policyType, String policyName, boolean ifNotExists,
             List<String> nameParts, Optional<FilterType> filterType, UserIdentity user, String roleName,
-            Optional<Expression> wherePredicate, Map<String, String> properties) {
+            Optional<Expression> wherePredicate, Map<String, String> properties, String dataMaskType) {
         super(PlanType.CREATE_POLICY_COMMAND);
         this.policyType = policyType;
         this.policyName = policyName;
@@ -62,6 +69,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         this.roleName = roleName;
         this.wherePredicate = wherePredicate;
         this.properties = properties;
+        this.dataMaskType = dataMaskType;
     }
 
     public Optional<Expression> getWherePredicate() {
@@ -79,6 +87,27 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (policyType == PolicyTypeEnum.DATA_MASK) {
+            ColumnName columnName = new ColumnName(nameParts.get(0), nameParts.get(1), nameParts.get(2),
+                    nameParts.get(3));
+            CreatePolicyStmt policyStmt = new CreatePolicyStmt(PolicyTypeEnum.DATA_MASK, ifNotExists, policyName,
+                    columnName, user, roleName, dataMaskType);
+            if (user != null) {
+                user.analyze();
+                if (user.isRootUser() || user.isAdminUser()) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
+                            user.getQualifiedUser(), user.getHost(), columnName.getCtl());
+                }
+            }
+            // check auth
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                        PrivPredicate.GRANT.getPrivs().toString());
+            }
+            Env.getCurrentEnv().getPolicyMgr().createPolicy(policyStmt);
+            return;
+        }
         ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
         throw new AnalysisException("Not support create policy command in Nereids now");
     }

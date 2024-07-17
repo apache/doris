@@ -153,6 +153,11 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
         this.wherePredicate = wherePredicate;
     }
 
+    public RowPolicy(UserIdentity user, String roleName) {
+        this.user = user;
+        this.roleName = roleName;
+    }
+
     /**
      * Use for SHOW POLICY.
      **/

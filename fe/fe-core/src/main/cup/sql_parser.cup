@@ -498,6 +498,7 @@ terminal String
     KW_MATCH_PHRASE_PREFIX,
     KW_MATCH_REGEXP,
     KW_MATCH_PHRASE_EDGE,
+    KW_MASK,
     KW_NAME,
     KW_NAMES,
     KW_NATURAL,
@@ -785,6 +786,7 @@ nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
 nonterminal TableSnapshot opt_table_snapshot, table_snapshot;
 nonterminal TableName table_name, opt_table_name;
+nonterminal ColumnName column_name;
 nonterminal DbName db_name;
 nonterminal FunctionName function_name;
 nonterminal EncryptKeyName encryptkey_name;
@@ -2056,6 +2058,17 @@ create_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, new IndexDef(indexName, partitionNames, true), false)));
     :}
+    /* data mask policy */
+    | KW_CREATE KW_DATA KW_MASK KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON column_name:col KW_TO user_identity:user
+    KW_USING ident:dataMaskType
+    {:
+        RESULT = new CreatePolicyStmt(PolicyTypeEnum.DATA_MASK, ifNotExists, policyName, col, user, null, dataMaskType);
+    :}
+    | KW_CREATE KW_DATA KW_MASK KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON column_name:col KW_TO KW_ROLE ident:role
+    KW_USING ident:dataMaskType
+    {:
+        RESULT = new CreatePolicyStmt(PolicyTypeEnum.DATA_MASK, ifNotExists, policyName, col, null, role, dataMaskType);
+    :}
     /* stage */
     | KW_CREATE KW_STAGE opt_if_not_exists:ifNotExists ident:stageName KW_PROPERTIES opt_key_value_map:properties
     {:
@@ -3271,6 +3284,10 @@ drop_stmt ::=
     {:
         RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, null, role);
     :}
+    | KW_DROP KW_DATA KW_MASK KW_POLICY opt_if_exists:ifExists ident:policyName
+    {:
+        RESULT = new DropPolicyStmt(PolicyTypeEnum.DATA_MASK, ifExists, policyName, null, null, null);
+    :}
     | KW_DROP KW_STORAGE KW_POLICY opt_if_exists:ifExists ident:policyName
     {:
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null, null);
@@ -4163,6 +4180,18 @@ show_stmt ::=
     | KW_SHOW KW_ROW KW_POLICY
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, null, null);
+    :}
+    | KW_SHOW KW_DATA KW_MASK KW_POLICY KW_FOR user_identity:user
+    {:
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.DATA_MASK, user, null);
+    :}
+    | KW_SHOW KW_DATA KW_MASK KW_POLICY KW_FOR KW_ROLE ident:role
+    {:
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.DATA_MASK, null, role);
+    :}
+    | KW_SHOW KW_DATA KW_MASK KW_POLICY
+    {:
+        RESULT = new ShowPolicyStmt(PolicyTypeEnum.DATA_MASK, null, null);
     :}
     | KW_SHOW KW_STORAGE KW_POLICY
     {:
@@ -6108,6 +6137,11 @@ table_name ::=
     {: RESULT = new TableName(null, db, tbl); :}
     | ident:ctl DOT ident:db DOT ident:tbl
     {: RESULT = new TableName(ctl, db, tbl); :}
+    ;
+
+column_name ::=
+    ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
+    {: RESULT = new ColumnName(ctl, db, tbl, col); :}
     ;
 
 db_name ::=
