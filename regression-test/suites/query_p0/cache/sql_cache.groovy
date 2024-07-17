@@ -1,6 +1,3 @@
-import java.util.concurrent.atomic.AtomicReference
-import java.util.stream.Collectors
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -21,6 +18,9 @@ import java.util.stream.Collectors
 // The cases is copied from https://github.com/trinodb/trino/tree/master
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/aggregate
 // and modified by Doris.
+
+import java.util.concurrent.atomic.AtomicReference
+import java.util.stream.Collectors
 
 suite("sql_cache") {
     // TODO: regression-test does not support check query profile,
