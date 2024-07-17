@@ -21,7 +21,6 @@ import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
-import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.thrift.QueryState;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUnit;
