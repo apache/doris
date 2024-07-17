@@ -826,6 +826,10 @@ public class Alter {
             // 4.3 modify partition storage policy
             // can set multi times storage policy
             String currentStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
+
+            // 4.4 analyze new properties
+            DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(modifiedProperties, dataProperty);
+
             if (!currentStoragePolicy.equals("")) {
                 // check currentStoragePolicy resource exist.
                 Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
@@ -837,9 +841,6 @@ public class Alter {
                 }
                 partitionInfo.setStoragePolicy(partition.getId(), "");
             }
-
-            // 4.4 analyze new properties
-            DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(modifiedProperties, dataProperty);
 
             // 1. date property
             if (newDataProperty != null) {
