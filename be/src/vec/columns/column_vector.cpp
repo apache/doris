@@ -112,26 +112,16 @@ void ColumnVector<T>::deserialize_vec(std::vector<StringRef>& keys, const size_t
     }
 }
 
-template <typename T>
+template<typename T>
 void ColumnVector<T>::deserialize_vec_with_null_map(std::vector<StringRef>& keys,
                                                     const size_t num_rows,
                                                     const uint8_t* null_map) {
-    DCHECK(null_map != nullptr);
-    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
-
-    if (has_null) {
-        for (size_t i = 0; i < num_rows; ++i) {
-            if (null_map[i] == 0) {
-                keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
-                keys[i].size -= sizeof(T);
-            } else {
-                insert_default();
-            }
-        }
-    } else {
-        for (size_t i = 0; i < num_rows; ++i) {
+    for (size_t i = 0; i < num_rows; ++i) {
+        if (null_map[i] == 0) {
             keys[i].data = deserialize_and_insert_from_arena(keys[i].data);
             keys[i].size -= sizeof(T);
+        } else {
+            insert_default();
         }
     }
 }
