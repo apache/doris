@@ -553,6 +553,9 @@ std::pair<size_t, size_t> LRUFileCache::merge_continuous_cells(
     std::pair<size_t, size_t> origin_to_merged(0, 0);
     for (auto& [key, continuous_blocks] : merged_files) {
         std::lock_guard<std::mutex> l(_mutex);
+        if (!_files.contains(key)) {
+            continue;
+        }
         FileBlocksByOffset& offset_cells = _files[key];
         bool has_deleted = false;
         for (auto& offsets : continuous_blocks) {
