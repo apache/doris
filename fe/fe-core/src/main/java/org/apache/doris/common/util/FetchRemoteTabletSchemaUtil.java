@@ -92,6 +92,8 @@ public class FetchRemoteTabletSchemaUtil {
             Long backendId = entry.getKey();
             Set<Long> tabletIds = entry.getValue();
             Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(backendId);
+            LOG.debug("fetch schema from coord backend {}, sample tablets count {}",
+                            backend.getId(), tabletIds.size());
             // only need alive be
             if (!backend.isAlive()) {
                 continue;
