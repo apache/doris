@@ -90,7 +90,6 @@ public class ProfilePersistentTest {
             fragmentIds.add(i);
 
             ExecutionProfile executionProfile = new ExecutionProfile(thriftUniqueId, fragmentIds);
-            executionProfile.addInstanceProfile(new PlanFragmentId(i), thriftUniqueId, runtimeProfile);
             profile.addExecutionProfile(executionProfile);
         }
 
