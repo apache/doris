@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_base_compaction_no_value") {
+suite("test_base_compaction_no_value", "p2") {
     def tableName = "base_compaction_uniq_keys_no_value"
 
     String backend_id;
