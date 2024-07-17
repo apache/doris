@@ -1126,7 +1126,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.storeRowColumn(),
                             binlogConfig,
                             localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                            objectPool);
+                            objectPool,
+                            localTbl.rowStorePageSize());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);

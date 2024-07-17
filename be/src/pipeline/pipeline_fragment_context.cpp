@@ -884,8 +884,12 @@ Status PipelineFragmentContext::_plan_local_exchange(
             }
         }
 
+        // if 'num_buckets == 0' means the fragment is colocated by exchange node not the
+        // scan node. so here use `_num_instance` to replace the `num_buckets` to prevent dividing 0
+        // still keep colocate plan after local shuffle
         RETURN_IF_ERROR(_plan_local_exchange(
-                _pipelines[pip_idx]->operator_xs().front()->ignore_data_hash_distribution()
+                _pipelines[pip_idx]->operator_xs().front()->ignore_data_hash_distribution() ||
+                                num_buckets == 0
                         ? _num_instances
                         : num_buckets,
                 pip_idx, _pipelines[pip_idx], bucket_seq_to_instance_idx,

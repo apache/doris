@@ -1583,7 +1583,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             _decimal_scale_params_index = 0;
             try {
                 rr = _row_reader->nextBatch(*_batch, block);
-                if (rr == 0) {
+                if (rr == 0 || _batch->numElements == 0) {
                     *eof = true;
                     *read_rows = 0;
                     return Status::OK();
@@ -1653,7 +1653,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             _decimal_scale_params_index = 0;
             try {
                 rr = _row_reader->nextBatch(*_batch, block);
-                if (rr == 0) {
+                if (rr == 0 || _batch->numElements == 0) {
                     *eof = true;
                     *read_rows = 0;
                     return Status::OK();
