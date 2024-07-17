@@ -64,10 +64,6 @@ VDataStreamRecvr::SenderQueue::~SenderQueue() {
 
 Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     std::lock_guard<std::mutex> l(_lock);
-    return _inner_get_batch_without_lock(block, eos);
-}
-
-Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block, bool* eos) {
     if (_is_cancelled) {
         RETURN_IF_ERROR(_cancel_status);
         return Status::Cancelled("Cancelled");

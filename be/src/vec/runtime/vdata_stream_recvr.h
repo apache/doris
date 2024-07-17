@@ -113,8 +113,6 @@ public:
     std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
 
 private:
-    class PipSenderQueue;
-
     friend struct BlockSupplierSortCursorImpl;
 
     // DataStreamMgr instance used to create this recvr. (Not owned)
@@ -213,7 +211,6 @@ public:
 
 protected:
     friend class pipeline::ExchangeLocalState;
-    Status _inner_get_batch_without_lock(Block* block, bool* eos);
 
     void try_set_dep_ready_without_lock();
 
